@@ -23,6 +23,8 @@
   --sans: "Geist", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --r-xs: 4px; --r-sm: 6px; --r-md: 10px; --r-lg: 14px;
+  --cursors-action: pointer; --cursors-text: text; --cursors-disabled: not-allowed; --cursors-drag: grab; --cursors-dragging: grabbing;
+  --cursors-resize-column: col-resize; --cursors-resize-row: row-resize; --cursors-busy: progress; --cursors-static: default;
   --shadow-md: 0 10px 30px rgba(0, 0, 0, 0.45);
   --sidebar: 248px; --inspector: 372px; --ref-w: 130px; --graph-w: 150px;
   color-scheme: dark;
@@ -43,7 +45,10 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { font: 400 13px/20px var(--sans); color: var(--text); background: var(--bg); overflow: hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body { font: 400 13px/20px var(--sans); color: var(--text); background: var(--bg); overflow: hidden; cursor: var(--cursors-static); -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+.btn, .tab, .tab-close, .icon-btn, .crumb, .cmd, .srow, .row, .item, .check { cursor: var(--cursors-action); }
+.input { cursor: var(--cursors-text); }
+.btn.disabled, .item.off { cursor: var(--cursors-disabled); }
 
 .aurora { position: fixed; inset: -25%; z-index: 0; pointer-events: none; }
 .aurora i { position: absolute; display: block; border-radius: 50%; will-change: transform; animation: drift 64s ease-in-out infinite alternate; }

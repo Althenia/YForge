@@ -104,9 +104,82 @@ button {
   padding: 0;
 }
 
-button:disabled,
-input:disabled {
-  cursor: default;
+html {
+  cursor: var(--cursors-static);
+}
+
+:where(
+    a[href],
+    button,
+    summary,
+    select,
+    input:is([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="range"], [type="color"], [type="file"], [type="image"]),
+    label:has(input:is([type="checkbox"], [type="radio"])),
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="menuitemcheckbox"],
+    [role="menuitemradio"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"],
+    .frow.openable,
+    .rline[data-region]
+  ) {
+  cursor: var(--cursors-action);
+}
+
+:where(
+    textarea,
+    input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="range"], [type="color"], [type="file"], [type="image"], [type="hidden"]),
+    label:has(textarea, input:not([type="checkbox"], [type="radio"], [type="button"], [type="submit"], [type="reset"], [type="range"], [type="color"], [type="file"], [type="image"], [type="hidden"])),
+    [contenteditable]:not([contenteditable="false"]),
+    [role="textbox"],
+    [role="searchbox"],
+    .dline,
+    .cbody,
+    .act-output,
+    .act-line,
+    .out
+  ) {
+  cursor: var(--cursors-text);
+}
+
+:where([draggable="true"], .label[data-ref-label]:not(.tag)) {
+  cursor: var(--cursors-drag);
+}
+
+:where(:disabled, [aria-disabled="true"], label:has(:disabled)) {
+  cursor: var(--cursors-disabled);
+}
+
+:where(
+    a[href],
+    button,
+    summary,
+    select,
+    input,
+    textarea,
+    [role="button"],
+    [role="link"],
+    [role="tab"],
+    [role="menuitem"],
+    [role="option"],
+    [role="switch"],
+    [role="checkbox"],
+    [role="radio"]
+  )[aria-busy="true"] {
+  cursor: var(--cursors-busy);
+}
+
+:where([role="separator"][aria-valuenow][aria-orientation="vertical"]) {
+  cursor: var(--cursors-resize-column);
+}
+
+:where([role="separator"][aria-valuenow][aria-orientation="horizontal"]) {
+  cursor: var(--cursors-resize-row);
 }
 
 :focus-visible {
@@ -612,7 +685,6 @@ p {
   left: 0;
   right: 0;
   height: var(--controls-row-graph);
-  cursor: default;
 }
 
 .gbg {
@@ -990,15 +1062,10 @@ svg.lanes {
   border-radius: var(--rounded-md);
 }
 
-button.chip {
-  cursor: default;
-}
-
 .link {
   font: var(--font-ref);
   color: var(--colors-info-ink);
   text-decoration: none;
-  cursor: default;
 }
 
 @media (hover: hover) {
@@ -1617,7 +1684,6 @@ button.chip {
 
 .menu .item[aria-disabled="true"] {
   color: var(--colors-text-muted);
-  cursor: default;
 }
 
 .menu .item:focus-visible {
@@ -1716,10 +1782,6 @@ button.chip {
   animation-play-state: paused;
 }
 
-.srow[data-nav] {
-  cursor: default;
-}
-
 .srow.child {
   padding-left: 28px;
 }
@@ -1732,10 +1794,6 @@ button.chip {
   .srow[data-nav]:hover {
     background: var(--colors-selection);
   }
-}
-
-.label[data-ref-label] {
-  cursor: default;
 }
 
 .dialog h3 {
@@ -1752,10 +1810,6 @@ button.chip {
 .dialog-heading {
   font: var(--font-ui-small);
   color: var(--colors-text-muted);
-}
-
-.frow.static {
-  cursor: default;
 }
 
 .input.mtext {
@@ -1794,12 +1848,12 @@ button.chip {
 }
 
 body.dragging-ref {
-  cursor: grabbing;
+  cursor: var(--cursors-dragging);
   user-select: none;
 }
 
 body.dragging-ref * {
-  cursor: grabbing;
+  cursor: var(--cursors-dragging);
 }
 
 .menu .title {
@@ -1948,7 +2002,6 @@ body.dragging-ref * {
 .cbase summary {
   font: var(--font-ui-small);
   color: var(--colors-text-muted);
-  cursor: pointer;
 }
 
 .editor {
@@ -2071,7 +2124,6 @@ body.dragging-ref * {
 button.cmd {
   font: var(--font-ui-body);
   text-align: left;
-  cursor: pointer;
 }
 
 .cmd-text {
@@ -2218,11 +2270,6 @@ button.cmd {
   background: none;
   color: inherit;
   font: inherit;
-  cursor: pointer;
-}
-
-.recent-main:disabled {
-  cursor: default;
 }
 
 .recent-name {
@@ -2665,7 +2712,6 @@ select:focus-visible {
   padding: 0 var(--spacing-3);
   border-radius: var(--rounded-md);
   font: var(--font-ui-body);
-  cursor: pointer;
 }
 
 .pal-item.sel {
@@ -2674,7 +2720,6 @@ select:focus-visible {
 
 .pal-item.disabled {
   color: var(--colors-text-muted);
-  cursor: default;
 }
 
 .pal-icon {
@@ -2842,7 +2887,6 @@ select:focus-visible {
 /* activity drawer and toasts */
 
 .activity-toggle {
-  cursor: pointer;
   max-width: 420px;
   overflow: hidden;
   white-space: nowrap;

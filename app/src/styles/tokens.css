@@ -209,6 +209,15 @@
   --layout-graph-author-column: 130px;
   --layout-graph-date-column: 130px;
   --layout-graph-sha-column: 100px;
+  --cursors-action: pointer;
+  --cursors-text: text;
+  --cursors-disabled: not-allowed;
+  --cursors-drag: grab;
+  --cursors-dragging: grabbing;
+  --cursors-resize-column: col-resize;
+  --cursors-resize-row: row-resize;
+  --cursors-busy: progress;
+  --cursors-static: default;
   --elevation-panel: 0 10px 30px rgba(0, 0, 0, 0.45);
   --elevation-raised: 0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04);
   --elevation-overlay: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30);

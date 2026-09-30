@@ -12,6 +12,7 @@ type FrontMatter = {
   spacing: Group;
   controls: Group;
   layout: Group;
+  cursors: Group;
   elevation: Group;
   themes: { light: { colors: Group; elevation: Group } };
 };
@@ -55,6 +56,7 @@ const expectedDark = merge(
   flat("spacing", surface.spacing),
   flat("controls", surface.controls),
   flat("layout", surface.layout),
+  flat("cursors", surface.cursors),
   flat("elevation", surface.elevation),
 );
 const lightColors = { ...surface.colors, ...surface.themes.light.colors };
@@ -95,6 +97,15 @@ describe("app/DESIGN.md front matter vs src/styles/tokens.css", () => {
 
   it("has identical light theme override tokens in both directions", () => {
     expect(drift(expectedLight, declarations(tokenSource, '[data-theme="light"]'))).toEqual([]);
+  });
+
+  it("defines the nine cursor tokens in front matter and token source alike", () => {
+    const only = (tokens: Map<string, string>) => new Map([...tokens].filter(([name]) => name.startsWith("--cursors-")));
+    const actual = only(declarations(tokenSource, ":root"));
+    expect(drift(only(expectedDark), actual)).toEqual([]);
+    expect([...actual.keys()].sort()).toEqual(
+      ["action", "text", "disabled", "drag", "dragging", "resize-column", "resize-row", "busy", "static"].map((name) => `--cursors-${name}`).sort(),
+    );
   });
 
   it("covers every token group the surface defines for CSS use", () => {

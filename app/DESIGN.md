@@ -236,6 +236,16 @@ layout:
   graph-author-column: 130px
   graph-date-column: 130px
   graph-sha-column: 100px
+cursors:
+  action: pointer
+  text: text
+  disabled: not-allowed
+  drag: grab
+  dragging: grabbing
+  resize-column: col-resize
+  resize-row: row-resize
+  busy: progress
+  static: default
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
@@ -809,7 +819,7 @@ The defaults are:
 - **Motion:** functional, plus the ambient aurora drift (brand B7).
 - **Viewports:** 1440×900 is the primary design viewport; 1280×720 is the supported laptop viewport; 960×600 is the minimum window.
 
-This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and values were approved on 2026-09-29 (Phase 8), revised by the approved GitKraken graph parity (P-G1), the approved lean Y Aurora direction with tinted Rail graph styling (2026-09-29), and the approved diagnostics rule S16 with the Switch component (2026-09-30, owner delegation). The UI is built with Vite + SolidJS and rendered in the system webview of a Rust desktop shell, so web-surface practices apply:
+This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and values were approved on 2026-09-29 (Phase 8), revised by the approved GitKraken graph parity (P-G1), the approved lean Y Aurora direction with tinted Rail graph styling (2026-09-29), and the approved diagnostics rule S16 with the Switch component and the approved cursor rule S17 (both 2026-09-30, owner delegation). The UI is built with Vite + SolidJS and rendered in the system webview of a Rust desktop shell, so web-surface practices apply:
 
 - `color-scheme` set per theme;
 - owned scrollbars;
@@ -851,6 +861,7 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 | S14 | approved | The aurora MUST render only in the dark theme, behind the panels at layer `aurora`, MUST pause while the window is hidden or unfocused, and MUST be static under reduced motion; panels and controls MUST stay flat. | review-only: approved 2026-09-29 (Y Aurora); render checks after implementation |
 | S15 | approved | Controls and labels MUST be icon-driven where an established glyph carries the meaning (row actions, tab and pane controls, toolbar actions, section headers, state chips, menu items); every icon-only control MUST have an accessible name and a tooltip naming the action and its shortcut; confirmation, dialog, operation-banner, and destructive buttons MUST keep a text label; an icon MUST NEVER be the only carrier of state (B4). | review-only: approved 2026-09-30 |
 | S16 | approved | Diagnostics data (usage events, crash reports, persisted activity history) MUST stay on this Mac and MUST be managed in Settings → Privacy & diagnostics: usage recording MUST be opt-in, off by default, and its setting MUST state exactly what is recorded and that nothing leaves the Mac; turning it off MUST state that stored events are deleted; every Delete or Clear MUST confirm in a dialog with a text-labelled danger button (S5, S15); an entry from an earlier session MUST say in text that it has no undo (B4). | review-only: approved 2026-09-30 (owner delegation) |
+| S17 | approved | Every cursor MUST come from the `cursors` tokens as `var(--cursors-*)`, and the browser default MUST NEVER decide one: a raw cursor keyword, an inline cursor style, or a `--cursors-*` value outside `tokens.css` MUST NEVER appear. Buttons, links, tabs, menu items, palette and option rows, selectable graph, file, sidebar, and list rows, actionable chips, switches, checkboxes and radios with their labels, segmented controls, selects, and cards that act MUST use `action`; text inputs, textareas, contenteditable regions, and selectable text regions (diff content, commit message body, command output) MUST use `text`; disabled controls (`[disabled]`, `aria-disabled="true"`) MUST use `disabled` and MUST keep their reason tooltip; draggable ref labels MUST use `drag`, and the whole window MUST use `dragging` while one is dragged; panel and column dividers MUST use `resize-column` or `resize-row` by orientation; a control whose operation is running (`aria-busy="true"`) MUST use `busy`; every non-interactive surface MUST use `static`. An element that acts on click MUST be a native button or link, or carry the matching role, so the global mapping applies. | `app/src/styles/cursors.test.ts` (token-only scan of `app/src` and the specimen stylesheet, drift-checked mirror) and `app/src/styles/cursors.render.test.tsx` (rendered components) · approved 2026-09-30 (owner delegation) |
 
 ## Colors
 
@@ -1069,6 +1080,26 @@ A child radius never exceeds its parent's radius.
 - **No motion on:** hover and press, which change state instantly. Rows never slide (S11).
 - **Reduced motion:** every recipe becomes an instant change, and the aurora is static (S14). The indeterminate operation indicator becomes the static label "In progress…".
 
+## Cursors
+
+- **Tokens** (front matter `cursors`), one per intent; `tokens.css` is the only place their values live (S17):
+
+| Token | Value | Elements |
+|---|---|---|
+| `action` | `pointer` | Buttons, links, `summary`, selects, checkbox and radio inputs and their labels, `role` button, link, tab, menuitem, option, switch, checkbox, radio, openable file rows, selectable conflict lines |
+| `text` | `text` | Text inputs, textareas, labels that wrap them, contenteditable and textbox roles, diff lines, commit message body, command output |
+| `disabled` | `not-allowed` | `:disabled` and `aria-disabled="true"` controls, and labels that wrap a disabled control; the reason tooltip stays |
+| `drag` | `grab` | `draggable="true"` and branch ref labels (tag labels are not draggable and keep the row cursor) |
+| `dragging` | `grabbing` | The whole window while `body.dragging-ref` is set |
+| `resize-column` | `col-resize` | `role="separator"` with `aria-valuenow` and `aria-orientation="vertical"` (a divider between columns or side panels) |
+| `resize-row` | `row-resize` | The same with `aria-orientation="horizontal"` |
+| `busy` | `progress` | A control with `aria-busy="true"`; a busy region (panel, list, group) is not a control and stays `static` |
+| `static` | `default` | The document base and every non-interactive surface |
+
+- **Mapping:** `app/src/styles/app.css` holds one zero-specificity (`:where()`) rule per token, ordered `action`, `text`, `drag`, `disabled`, `busy`, then the dividers; a later rule wins, so a disabled or busy control beats its role, and `body.dragging-ref` beats all of them. Components never declare a cursor; they use a native element or a role. A row without a native role hooks the mapping through a class or attribute (`.frow.openable`, `.rline[data-region]`).
+- **Specimens:** `docs/design/specimens/specimen.css` mirrors the tokens as `--cursors-*` and maps its mock classes to them.
+- **Check:** `cursors.test.ts` fails when `app/src` or `specimen.css` sets a cursor to anything but `var(--cursors-*)`, or defines a `--cursors-*` value outside `tokens.css` (the specimen mirror must equal it); `cursors.render.test.tsx` mounts real components and asserts the token each element resolves to. `tokens.test.ts` keeps the front matter and `tokens.css` identical.
+
 ## Icons
 
 - **Grid and stroke:** brand icon grammar (24 grid, stroke 1.5 at 16, 1.6 at 20 and 24, `currentColor`).
@@ -1113,7 +1144,7 @@ A child radius never exceeds its parent's radius.
 | Toast, tooltip, badge, progress | Feedback | Front matter tokens | S30 and all |
 | Switch | On/off setting (usage recording) | 32×18 pill with a 12px thumb, a 24px-tall hit area, `role="switch"` with an accessible name and `aria-checked`. Off: `material.control` fill, 1px `rule-strong` edge, `text-muted` thumb. On: `accent` fill, `on-accent` thumb. The thumb moves by transform only (S11). A visible "On" or "Off" label always sits beside it (S15, B4) | S16, S23, S24 |
 | Diagnostics list (usage event, crash report, activity history) | Local records in Settings → Privacy & diagnostics | Rows reuse the Activity entry (status glyph, operation, summary, time; expandable body for crash details and commands). Pages of 25 load with a "Show older" button; an empty list states why it is empty. Header actions are Export… (native save dialog) and a text-labelled Delete or Clear (S5, S16) | S16, S23, S24 |
-| Split pane, resizable divider | Layout | This file (`controls.divider-hit`) | S02, S07, S09 |
+| Split pane, resizable divider | Layout | This file (`controls.divider-hit`; a focusable `role="separator"` with `aria-valuenow` and `aria-orientation` takes `cursors.resize-column` or `cursors.resize-row`, S17) | S02, S07, S09 |
 | Empty state | Guidance | SCREEN_INVENTORY | S01, S03, S26, S29 |
 
 The danger button is an outline: transparent fill, a 1px `danger` border, and `danger` text. Its token pair is checked on `surface-2`; on the operation banner it measures 4.59:1 dark and 4.57:1 light.

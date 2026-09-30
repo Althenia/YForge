@@ -19,7 +19,7 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
           <ul class="empty-files">
             <For each={files()}>
               {(file) => (
-                <li class="frow static">
+                <li class="frow">
                   <span class={`badge st-${file.status}`}>{statusLetter[file.status]}</span>
                   <span class="path">
                     <bdi dir="ltr">{file.path}</bdi>

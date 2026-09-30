@@ -105,7 +105,7 @@ export function OperationInspector(props: {
               <Show when={resolved().length > 0} fallback={<div class="empty">No files resolved yet.</div>}>
                 <VirtualRows class="flist" items={resolved()} scroller={() => scroller} estimate={fileRowHeight()}>
                   {(path, virtual) => (
-                      <li class="frow static" aria-label={`Resolved ${path}`} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
+                      <li class="frow" aria-label={`Resolved ${path}`} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
                         <span class="badge st-added" aria-hidden="true">
                           ✓
                         </span>
