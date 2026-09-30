@@ -99,6 +99,8 @@ describe("launcher", () => {
     expect(logo?.getAttribute("aria-hidden")).toBe("true");
     expect(logo?.getAttribute("width")).toBe("72");
     expect(logo?.querySelector("circle")?.getAttribute("r")).toBe("76");
+    expect(host.querySelector(".launcher-box h2")).toBeNull();
+    expect(host.textContent).not.toContain("Open a repository");
     expect(["Open…", "Clone…", "Create…"].map((name) => buttonNamed(host, name) !== undefined)).toEqual([true, true, true]);
     expect(host.textContent).toContain("Drop a folder to open it");
   });

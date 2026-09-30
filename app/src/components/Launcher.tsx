@@ -92,7 +92,6 @@ export function Launcher() {
           <Mark size={72} />
           <span class="sr-only">YForge</span>
         </h1>
-        <h2>Open a repository</h2>
         <div class="launcher-actions">
           <button type="button" class="btn primary" onClick={() => void openFolder()}>
             <Icon name="folder" />

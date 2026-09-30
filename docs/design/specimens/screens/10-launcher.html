@@ -10,7 +10,6 @@
 .stage { display: grid; place-items: center; padding: 10px 10px 20px; min-height: 0; }
 .launcher { width: 640px; max-width: 100%; padding: 32px; display: grid; gap: 24px; overflow: visible; }
 .hero { display: grid; justify-items: center; gap: 8px; text-align: center; }
-.hero h1 { margin: 0; font: 600 24px/30px var(--sans); }
 .actions { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
 .drop { height: 72px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--muted); }
 .recent { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 20px; }
@@ -41,7 +40,6 @@ const html = `
     <section class="panel launcher" aria-label="Open a repository">
       <div class="hero">
         <img class="logo" src="../../../../brand/yforge-app-icon.svg" alt="YForge">
-        <h1>Open a repository</h1>
         <div class="actions"><span class="btn primary">${YF.glyph("folder")}Open…</span><span class="btn">${YF.glyph("remote")}Clone…</span><span class="btn">${YF.glyph("plus")}Create…</span></div>
       </div>
       <div class="drop">${I.folder}<span>Drop a folder to open it</span></div>

@@ -2133,10 +2133,12 @@ button.cmd {
 .launcher-logo {
   margin: 0 0 var(--spacing-2);
   display: flex;
+  justify-content: center;
 }
 
 .launcher-actions {
   display: flex;
+  justify-content: center;
   gap: var(--spacing-2);
 }
 
