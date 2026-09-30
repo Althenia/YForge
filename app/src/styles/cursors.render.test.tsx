@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { parse } from "yaml";
 import { ActivityEntryView } from "../components/ActivityEntryView";
 import { Composer } from "../components/Composer";
+import { RebaseEditor } from "../components/RebaseEditor";
 import { ContextMenu } from "../components/ContextMenu";
 import { DiffView } from "../components/DiffView";
 import { FileRow } from "../components/FileRow";
@@ -34,6 +35,8 @@ function expectCursor(element: Element | null | undefined, token: Token): void {
   const resolved = getComputedStyle(document.documentElement).getPropertyValue(`--cursors-${token}`).trim();
   expect(resolved).toBe(front.cursors[token]);
 }
+
+const idleGenerate = { run: async () => undefined, cancel: () => undefined, running: () => false, failure: () => undefined, dismissFailure: () => undefined, drafted: () => false, notes: () => [], replaced: () => undefined, restore: () => undefined } as unknown as ComponentProps<typeof Composer>["generate"];
 
 let stylesheet: HTMLStyleElement;
 let dispose: (() => void) | undefined;
@@ -66,11 +69,12 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
   it("shows the action cursor on enabled buttons, switches, and checkbox labels, and the disabled cursor on disabled ones", () => {
     const [reason, setReason] = createSignal<string | undefined>("Stage changes to commit");
     const state = createRoot(() => createComposer());
+    const generate = idleGenerate;
     const action = { button: () => ({ label: "Commit", disabledReason: reason() }), submit: async () => undefined, toggleAmend: async () => undefined } as unknown as ComponentProps<typeof Composer>["action"];
     const snapshot = { head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot;
     const host = mount(() => (
       <>
-        <Composer snapshot={snapshot} state={state} action={action} pushReason={undefined} summaryRef={() => undefined} />
+        <Composer snapshot={snapshot} state={state} action={action} generate={generate} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />
         <Switch label="Usage" checked={false} onChange={() => undefined} />
         <Switch label="Locked" checked disabled onChange={() => undefined} />
       </>
@@ -89,8 +93,9 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
 
   it("shows the text cursor on inputs, textareas, and the labels that wrap them", () => {
     const state = createRoot(() => createComposer());
+    const generate = idleGenerate;
     const action = { button: () => ({ label: "Commit", disabledReason: undefined }), submit: async () => undefined, toggleAmend: async () => undefined } as unknown as ComponentProps<typeof Composer>["action"];
-    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} pushReason={undefined} summaryRef={() => undefined} />);
+    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} generate={generate} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />);
 
     expectCursor(host.querySelector('input[type="text"]'), "text");
     expectCursor(host.querySelector("textarea"), "text");
@@ -194,7 +199,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     expectCursor(host.querySelector("#running-icon"), "busy");
     expectCursor(host.querySelector("#panel"), "static");
 
-    document.body.classList.add("dragging-ref");
+    document.body.classList.add("dragging");
     expectCursor(host.querySelector('[role="switch"]'), "dragging");
     expectCursor(host.querySelector("#running"), "dragging");
     expectCursor(host.querySelector("#panel"), "dragging");
@@ -311,5 +316,30 @@ describe("cursors on the graph", () => {
     await flush(60);
     expectCursor(mounted.host.querySelector('button[role="checkbox"]'), "disabled");
     expectCursor(mounted.host.querySelector('.hacts [aria-disabled="true"]'), "disabled");
+  });
+
+  it("shows the drag cursor on a rebase row's handle, the action cursor on its select, the disabled cursor on Move up of the first row, and the text cursor on a message editor", async () => {
+    const todo = (sha: string, summary: string) => ({ sha, summary, author: { name: "Y", initials: "Y" }, is_merge: false, pushed: false });
+    const plan = { base: "b", commits: [todo("aaaaaaa1", "First"), todo("bbbbbbb2", "Second")], pushed: false };
+    mockIPC((cmd) => {
+      if (cmd === "rebase_plan") return plan;
+      if (cmd === "commit_details") return { sha: "x", summary: "First", body: "", parents: [], refs: [], files: [] };
+      return null;
+    });
+    const session = testSession("/r", { root: "/r", head: { kind: "branch", name: "main", sha: "a" }, counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, upstream: null } as unknown as RepoSnapshot);
+    const mounted = mountWithApp(() => <RebaseEditor session={session} base="b" from="aaaaaaa1" onClose={() => undefined} />);
+    dispose = mounted.dispose;
+    await flush(60);
+    const select = mounted.host.querySelector<HTMLSelectElement>(".rrow select") as HTMLSelectElement;
+    select.value = "reword";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush(40);
+
+    const first = mounted.host.querySelector(".rrow");
+    expectCursor(first?.querySelector(".rgrip"), "drag");
+    expectCursor(select, "action");
+    expectCursor(first?.querySelector('button[aria-label="Move Second up"]'), "disabled");
+    expectCursor(first?.querySelector("textarea"), "text");
+    expectCursor(first, "static");
   });
 });

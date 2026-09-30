@@ -211,4 +211,15 @@ describe("strip notices", () => {
     expect(host.querySelector(".op-bar")).not.toBeNull();
     expect(host.textContent).toContain("Your changes are kept in stash@{0}");
   });
+
+  it("says a rebase stopped to edit a commit, names it, and offers Continue without Resolve", () => {
+    const { host } = mount({ shape: snapshot({ operation: "rebase", operation_detail: { current: "main", incoming: "feature", message: "", step: { current: 2, total: 3 }, resolved: [], stopped_edit: "abcdef0123456789" } as never }) });
+
+    const bar = host.querySelector(".op-bar")?.textContent ?? "";
+    expect(bar).toContain("Stopped to edit abcdef0");
+    expect(bar).toContain("amend the commit or change files, then continue");
+    const labels = [...host.querySelectorAll(".op-bar button")].map((entry) => entry.textContent?.trim());
+    expect(labels).toEqual(["Continue", "Skip", "Abort"]);
+    expect((host.querySelector(".op-bar button") as HTMLButtonElement).disabled).toBe(false);
+  });
 });

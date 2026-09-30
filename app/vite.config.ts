@@ -8,7 +8,7 @@ export default defineConfig({
     port: 1420,
     strictPort: true,
     host: "localhost",
-    fs: { allow: [".", "../brand/fonts"] },
+    fs: { allow: [".", "../brand/fonts", "../brand/third-party"] },
   },
   test: {
     environment: "jsdom",

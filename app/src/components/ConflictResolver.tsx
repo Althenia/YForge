@@ -1,7 +1,9 @@
 import { keepPreviousData, useQuery } from "@tanstack/solid-query";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import type { ConflictSide } from "../ipc/bindings/ConflictSide";
+import type { ConflictRegionProposal } from "../ipc/bindings/ConflictRegionProposal";
 import { client, IpcError } from "../ipc/client";
+import { createAiRun } from "../state/aiRun";
 import { conflictDescription, conflictSides } from "../state/operationModel";
 import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
@@ -43,7 +45,7 @@ function PaneText(props: { lines: string[] }) {
   );
 }
 
-export function ConflictResolver(props: { session: RepoSession; file: string; onClose: () => void }) {
+export function ConflictResolver(props: { session: RepoSession; file: string; onClose: () => void; onOpenAiSettings: () => void }) {
   const path = props.session.path;
   const conflict = useQuery(() => ({
     queryKey: repoKeys.conflict(path, props.file),
@@ -53,6 +55,8 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   }));
   const [state, setState] = createSignal<ResolverState>({ choices: [], active: 0 });
   const [draft, setDraft] = createSignal<string | undefined>();
+  const [proposals, setProposals] = createSignal<Record<number, ConflictRegionProposal>>({});
+  const proposer = createAiRun(props.session.queryClient, (id) => client.aiProposeConflict(path, id, props.file));
   let root: HTMLElement | undefined;
 
   const sides = () => conflictSides(props.session.snapshot());
@@ -80,6 +84,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
       if (file === undefined) return;
       setState(initialState(file));
       setDraft(undefined);
+      setProposals({});
     }),
   );
 
@@ -91,13 +96,27 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   const apply = (choice: Choice) => {
     setState(choose(state(), state().active, choice));
     setDraft(undefined);
+    dropProposal(state().active);
   };
+
+  const dropProposal = (index: number) =>
+    setProposals((current) => Object.fromEntries(Object.entries(current).filter(([key]) => Number(key) !== index)));
+
+  const propose = async () => {
+    const result = await proposer.start();
+    if (result === undefined) return;
+    setProposals(Object.fromEntries(result.regions.map((region) => [region.index, region])));
+  };
+
+  const activeProposal = () => proposals()[state().active];
+  const proposalCount = () => Object.keys(proposals()).length;
 
   const startEdit = () => {
     const region = active();
     if (region === undefined) return;
+    const proposal = activeProposal();
     const current = state().choices[state().active];
-    setDraft(regionLines(region, current ?? "current_incoming").join("\n"));
+    setDraft(proposal === undefined ? regionLines(region, current ?? "current_incoming").join("\n") : proposal.text);
   };
 
   const applyEdit = () => {
@@ -204,8 +223,26 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                 </button>
                 <span class="reason" role="status" aria-live="polite">
                   {resolvedCount()} of {regions().length} resolved
+                  <Show when={proposalCount() > 0}> · {proposalCount()} {proposalCount() === 1 ? "proposal" : "proposals"} to review</Show>
                 </span>
                 <span class="spacer" />
+                <Show
+                  when={proposer.running()}
+                  fallback={
+                    <button type="button" class="btn sm" title="Ask your AI provider for a resolution of every conflict in this file. Nothing changes until you accept one." onClick={() => void propose()}>
+                      <Icon name="wand" size={14} />
+                      Propose resolution
+                    </button>
+                  }
+                >
+                  <button type="button" class="btn sm" aria-busy="true" disabled>
+                    <Icon name="wand" size={14} />
+                    Proposing…
+                  </button>
+                  <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
+                    <Icon name="close" size={14} />
+                  </button>
+                </Show>
                 <button type="button" class="btn sm" onClick={() => setState(takeAll(state(), "current"))}>
                   Take all current
                 </button>
@@ -213,6 +250,22 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                   Take all incoming
                 </button>
               </div>
+              <Show when={proposer.failure()}>
+                {(error) => (
+                  <div class="note danger" role="alert">
+                    <strong>{error().message}</strong>
+                    <Show when={error().detail}>{(detail) => <span class="hint-text">{detail()}</span>}</Show>
+                    <Show when={error().action}>
+                      {(action) => (
+                        <button type="button" class="btn sm" onClick={props.onOpenAiSettings}>
+                          <Icon name={action() === "sign_in" ? "key" : "settings"} size={14} />
+                          {action() === "sign_in" ? "Sign in" : "Open AI settings"}
+                        </button>
+                      )}
+                    </Show>
+                  </div>
+                )}
+              </Show>
               <Show when={active()}>
                 {(region) => (
                   <>
@@ -240,6 +293,32 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                           <summary>Show base</summary>
                           <PaneText lines={base()} />
                         </details>
+                      )}
+                    </Show>
+                    <Show when={activeProposal()}>
+                      {(proposal) => (
+                        <section class="proposal" aria-label={`Proposed resolution of ${position()}`}>
+                          <div class="chead">
+                            <Icon name="wand" size={14} />
+                            <span>Proposed resolution · draft from your AI provider</span>
+                          </div>
+                          <p class="proposal-why">{proposal().rationale}</p>
+                          <PaneText lines={draftLines(proposal().text)} />
+                          <div class="hrow">
+                            <button type="button" class="btn sm primary" onClick={() => apply({ manual: draftLines(proposal().text) })}>
+                              <Icon name="check" size={14} />
+                              Accept
+                            </button>
+                            <button type="button" class="btn sm" onClick={startEdit}>
+                              <Icon name="edit" size={14} />
+                              Edit
+                            </button>
+                            <button type="button" class="btn sm" onClick={() => dropProposal(state().active)}>
+                              <Icon name="close" size={14} />
+                              Reject
+                            </button>
+                          </div>
+                        </section>
                       )}
                     </Show>
                     <div class="actions" role="group" aria-label={`Conflict ${state().active + 1} of ${regions().length}`}>

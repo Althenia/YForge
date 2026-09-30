@@ -1,6 +1,7 @@
+import { beginPointerDrag, DRAG_THRESHOLD } from "../state/pointerDrag";
 import type { RefTarget } from "../state/refMenu";
 
-export const DRAG_THRESHOLD = 5;
+export { DRAG_THRESHOLD };
 
 export type LabelHit = { target: RefTarget; element: Element };
 
@@ -24,65 +25,18 @@ export function beginLabelDrag(
   hitAt: (x: number, y: number) => LabelHit | undefined,
   onDrop: (dragged: RefTarget, dropped: RefTarget, at: DropPoint) => void,
 ): void {
-  if (down.button !== 0) return;
-  const startX = down.clientX;
-  const startY = down.clientY;
-  let dragging = false;
-  let hovered: Element | undefined;
-
-  const otherLabel = (x: number, y: number) => {
-    const hit = hitAt(x, y);
-    return hit !== undefined && hit.target.name !== source.name ? hit : undefined;
-  };
-  const setHover = (next: Element | undefined) => {
-    if (next === hovered) return;
-    hovered?.classList.remove("drop-target");
-    hovered = next;
-    hovered?.classList.add("drop-target");
-  };
-  const swallowClick = (event: Event) => event.stopPropagation();
-
-  const onMove = (event: PointerEvent) => {
-    if (!dragging && Math.hypot(event.clientX - startX, event.clientY - startY) < DRAG_THRESHOLD) return;
-    if (!dragging) {
-      dragging = true;
-      document.body.classList.add("dragging-ref");
-    }
-    setHover(otherLabel(event.clientX, event.clientY)?.element);
-  };
-
-  const stop = () => {
-    window.removeEventListener("pointermove", onMove);
-    window.removeEventListener("pointerup", onUp);
-    window.removeEventListener("pointercancel", onCancel);
-    window.removeEventListener("keydown", onKey, true);
-    setHover(undefined);
-    document.body.classList.remove("dragging-ref");
-    if (dragging) {
-      window.addEventListener("click", swallowClick, { capture: true, once: true });
-      setTimeout(() => window.removeEventListener("click", swallowClick, true), 0);
-    }
-  };
-
-  function onUp(event: PointerEvent): void {
-    dragging ||= Math.hypot(event.clientX - startX, event.clientY - startY) >= DRAG_THRESHOLD;
-    const hit = dragging ? otherLabel(event.clientX, event.clientY) : undefined;
-    stop();
-    if (hit !== undefined) onDrop(source, hit.target, { left: event.clientX, top: event.clientY });
-  }
-
-  function onCancel(): void {
-    stop();
-  }
-
-  function onKey(event: KeyboardEvent): void {
-    if (event.key !== "Escape") return;
-    event.stopPropagation();
-    stop();
-  }
-
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onCancel);
-  window.addEventListener("keydown", onKey, true);
+  let marked: Element | undefined;
+  beginPointerDrag<LabelHit>(down, {
+    hit: (x, y) => {
+      const hit = hitAt(x, y);
+      return hit !== undefined && hit.target.name !== source.name ? hit : undefined;
+    },
+    mark: (hit) => {
+      if (marked === hit?.element) return;
+      marked?.classList.remove("drop-target");
+      marked = hit?.element;
+      marked?.classList.add("drop-target");
+    },
+    drop: (hit, at) => onDrop(source, hit.target, at),
+  });
 }

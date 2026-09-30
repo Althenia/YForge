@@ -20,7 +20,7 @@ function scene() {
   return { main, own, hitAt, dropped };
 }
 
-afterEach(() => document.body.classList.remove("dragging-ref"));
+afterEach(() => document.body.classList.remove("dragging"));
 
 describe("ref label drag", () => {
   it("drops on another label after moving past the threshold and reports the drop point", () => {
@@ -48,12 +48,12 @@ describe("ref label drag", () => {
     beginLabelDrag(down(), source, hitAt, dropped);
     window.dispatchEvent(pointer("pointermove", 100, 0));
     expect(main.classList.contains("drop-target")).toBe(true);
-    expect(document.body.classList.contains("dragging-ref")).toBe(true);
+    expect(document.body.classList.contains("dragging")).toBe(true);
     window.dispatchEvent(pointer("pointermove", 300, 0));
     expect(main.classList.contains("drop-target")).toBe(false);
     window.dispatchEvent(pointer("pointerup", 300, 0));
 
-    expect(document.body.classList.contains("dragging-ref")).toBe(false);
+    expect(document.body.classList.contains("dragging")).toBe(false);
     expect(dropped).not.toHaveBeenCalled();
   });
 
@@ -65,7 +65,7 @@ describe("ref label drag", () => {
     window.dispatchEvent(pointer("pointerup", 100, 0));
 
     expect(dropped).not.toHaveBeenCalled();
-    expect(document.body.classList.contains("dragging-ref")).toBe(false);
+    expect(document.body.classList.contains("dragging")).toBe(false);
   });
 
   it("ignores a drop on the dragged label itself and non-primary buttons", () => {
@@ -90,6 +90,6 @@ describe("ref label drag", () => {
     window.dispatchEvent(pointer("pointerup", 100, 0));
 
     expect(dropped).not.toHaveBeenCalled();
-    expect(document.body.classList.contains("dragging-ref")).toBe(false);
+    expect(document.body.classList.contains("dragging")).toBe(false);
   });
 });

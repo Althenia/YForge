@@ -37,6 +37,7 @@ export function operationSummary(snapshot: RepoSnapshot): MenuPart[] {
     case "merge":
       return ["Merging ", ...(named.length > 0 ? named : ["changes"]), " into ", { ref: currentName(snapshot) }];
     case "rebase":
+      if (snapshot.operation_detail?.stopped_edit != null) return ["Stopped to edit ", { ref: snapshot.operation_detail.stopped_edit.slice(0, 7) }, " · amend the commit or change files, then continue"];
       return ["Rebasing ", ...(named.length > 0 ? named : ["the branch"])];
     case "cherry_pick":
       return ["Cherry-picking ", ...(named.length > 0 ? named : ["a commit"])];
@@ -62,12 +63,13 @@ export type OperationButtons = {
   resolve: { disabledReason: string | undefined };
   continue: { label: string; disabledReason: string | undefined };
   resolvable: boolean;
+  showResolve: boolean;
   skip: boolean;
   abortText: string;
   abortLabel: string;
 };
 
-export function operationButtons(operation: Operation, conflicts: number, busy: boolean): OperationButtons {
+export function operationButtons(operation: Operation, conflicts: number, busy: boolean, stoppedEdit = false): OperationButtons {
   const unresolved = conflicts > 0 ? `Resolve ${conflictLabel(conflicts)} first` : undefined;
   return {
     resolve: { disabledReason: conflicts === 0 ? "No conflicts to resolve" : undefined },
@@ -76,6 +78,7 @@ export function operationButtons(operation: Operation, conflicts: number, busy: 
       disabledReason: busy ? "Working…" : unresolved,
     },
     resolvable: operation !== "bisect",
+    showResolve: !(stoppedEdit && conflicts === 0),
     skip: operation === "rebase" || operation === "cherry_pick_sequence" || operation === "revert_sequence",
     abortText: abortVerb(operation),
     abortLabel: `${abortVerb(operation)} ${noun[operation]}`,

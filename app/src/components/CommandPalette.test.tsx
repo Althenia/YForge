@@ -43,6 +43,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     snapshot,
     actions,
     selectedSha: undefined,
+    selection: [],
     pullMode: "fast_forward_or_merge",
     offline: false,
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
@@ -52,7 +53,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     revealHead: vi.fn(),
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
-    loadCommits: async () => [{ sha: "abcdef1234567", summary: "Add greeting", merge: false }],
+    loadCommits: async () => [{ sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false }],
     ...overrides,
   };
   const mounted = mountWithApp(() => <CommandPalette context={context} onClose={closed} />);

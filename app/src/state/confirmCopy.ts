@@ -294,3 +294,9 @@ export function clearHistoryCopy(repository: string): ConfirmCopy {
     confirmLabel: "Clear history",
   };
 }
+
+export function removeProviderCopy(name: string, hasKey: boolean, active: boolean): ConfirmCopy {
+  const consequences = [hasKey ? "Its API key is deleted from the macOS Keychain." : "Nothing else on this Mac changes."];
+  if (active) consequences.push("It is the active provider, so AI actions stop until you choose another one.");
+  return { title: "Remove this AI provider?", names: [name], consequences, confirmLabel: "Remove provider" };
+}

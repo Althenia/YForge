@@ -33,6 +33,7 @@ export type RepoBridge = {
   snapshot: () => RepoSnapshot;
   actions: RepoActions;
   selectedSha: () => string | undefined;
+  selectedShas: () => readonly string[];
   revealCommit: (sha: string) => void;
   revealRef: (name: string) => void;
   revealHead: () => void;
@@ -219,6 +220,7 @@ export function createAppState(router: AppRouter) {
       snapshot: current?.snapshot(),
       actions: current?.actions,
       selectedSha: current?.selectedSha(),
+      selection: current?.selectedShas() ?? [],
       pullMode: effectivePullMode(settings(), path === undefined ? undefined : repoSettings(path)).mode,
       offline: !online(),
       undo: path === undefined ? { kind: "unavailable", reason: "Open a repository first" } : undoState(activity(), path),

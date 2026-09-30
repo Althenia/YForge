@@ -87,7 +87,8 @@ function install() {
       if (cmd === "recents_list") return [recent];
       if (cmd === "recent_statuses") return [recentStatus];
       if (cmd === "activity_list") return [];
-      if (cmd === "remotes_list") return [];
+      if (cmd === "remotes_list" || cmd === "switch_stashes") return [];
+      if (cmd === "recompose_preview") return { base: "b", head: "h", pushed: false, files: [] };
       if (cmd === "identity_read") return { name: { value: null, source: "unset" }, email: { value: null, source: "unset" } };
       return null;
     },
@@ -150,7 +151,7 @@ describe("icon-driven controls (S15)", () => {
     const settings = mountWithApp(() => <SettingsView section="general" />);
     dispose = settings.dispose;
     await flush(40);
-    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(4);
+    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(5);
     for (const button of iconOnly(settings.host)) expect(button.dataset.tip).toBeTruthy();
   });
 
@@ -291,5 +292,20 @@ describe("icon-driven controls (S15)", () => {
     }
     expect(items[0]?.querySelector(".item-icon svg")).not.toBeNull();
     expect(items[1]?.querySelector(".item-icon")?.children).toHaveLength(0);
+  });
+
+  it("hides the graph behind the recompose view and shows it again when the view closes", async () => {
+    const { host, app } = await mountWorkspace();
+    const actions = app.paletteContext().actions;
+
+    actions?.openRecompose(undefined);
+    await flush(40);
+    expect(host.querySelector('[aria-label="Recompose"]')).not.toBeNull();
+    expect(host.querySelector(".graph")?.classList.contains("covered")).toBe(true);
+
+    actions?.closeHistory();
+    await flush(40);
+    expect(host.querySelector('[aria-label="Recompose"]')).toBeNull();
+    expect(host.querySelector(".graph")?.classList.contains("covered")).toBe(false);
   });
 });

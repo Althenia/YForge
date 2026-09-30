@@ -63,7 +63,7 @@ const fakeActions = () => {
     (...args: unknown[]) => {
       calls.push([name, ...args]);
     };
-  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash"];
+  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash", "openSquash", "openRecompose", "openRebaseEditor"];
   const actions = { sync: () => ({ kind: "idle" as const }), ...Object.fromEntries(names.map((name) => [name, record(name)])) };
   return { actions: actions as unknown as RepoActions, calls };
 };
@@ -74,6 +74,7 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     snapshot: repo ?? undefined,
     actions: repo === null ? undefined : actions,
     selectedSha: undefined,
+    selection: [],
     pullMode: "fast_forward_or_merge",
     offline: false,
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
@@ -84,8 +85,9 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     focusComposer: vi.fn(),
     revealHead: vi.fn(),
     loadCommits: async () => [
-      { sha: "abcdef1234567", summary: "Add greeting", merge: false },
-      { sha: "1234567abcdef", summary: "Merge topic", merge: true },
+      { sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false },
+      { sha: "1234567abcdef", summary: "Merge topic", merge: true, root: false },
+      { sha: "0000000abcdef", summary: "Initial commit", merge: false, root: true },
     ],
     ...overrides,
     calls,
@@ -303,7 +305,7 @@ describe("command palette registry", () => {
 
   it("lists navigation targets for branches, commits, settings, and repositories", () => {
     const run = context();
-    const targets = navigationTargets(run, [{ sha: "abcdef1234567", summary: "Add greeting", merge: false }]);
+    const targets = navigationTargets(run, [{ sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false }]);
     expect(targets.filter((target) => target.mode === "@").map((target) => target.title)).toEqual(["Go to main", "Go to feature", "Go to origin/main", "Go to origin/remote-only"]);
     expect(targets.filter((target) => target.mode === "#")[0]).toMatchObject({ title: "Add greeting", note: "abcdef1" });
     expect(targets.filter((target) => target.mode === ":").map((target) => target.title)).toContain("Settings: This repository");
@@ -378,5 +380,47 @@ describe("keyboard shortcuts", () => {
     expect(commands.find((command) => command.shortcut === "⌘↵")?.id).toBe("commit");
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
     expect(commands.every((command) => command.args.length === 0)).toBe(true);
+  });
+});
+
+describe("history editing commands", () => {
+  it("offers Edit history from a commit, disabling a merge commit and the root commit with their reasons", async () => {
+    const commands = buildCommands(context());
+    const edit = find(commands, "history.rebase");
+    expect(edit.covers).toEqual(["edit_history"]);
+    const options = await edit.args[0]?.options();
+    expect(options?.map((option) => [option.note, option.disabledReason])).toEqual([
+      ["abcdef1", undefined],
+      ["1234567", "A merge commit cannot be rewritten"],
+      ["0000000", "The root commit has no parent to rebase onto"],
+    ]);
+  });
+
+  it("runs Edit history from the chosen commit", () => {
+    const ctx = context();
+    find(buildCommands(ctx), "history.rebase").run(["abcdef1234567"]);
+    expect(ctx.calls).toEqual([["openRebaseEditor", "abcdef1234567"]]);
+  });
+
+  it("squashes the selected commits and says to select at least two when fewer are selected", () => {
+    const none = find(buildCommands(context()), "history.squash");
+    expect(none.disabledReason).toBe("Select at least two commits in the graph");
+    expect(none.covers).toEqual(["squash"]);
+    const ctx = context({ selection: ["a1", "b2"] });
+    const squash = find(buildCommands(ctx), "history.squash");
+    expect(squash.disabledReason).toBeUndefined();
+    squash.run([]);
+    expect(ctx.calls).toEqual([["openSquash", ["a1", "b2"]]]);
+  });
+
+  it("recomposes the unpushed commits from the upstream and is blocked during an operation", () => {
+    const ctx = context();
+    const recompose = find(buildCommands(ctx), "history.recompose");
+    expect(recompose.title).toBe("Recompose unpushed commits…");
+    expect(recompose.disabledReason).toBeUndefined();
+    recompose.run([]);
+    expect(ctx.calls).toEqual([["openRecompose", undefined]]);
+    expect(find(buildCommands(context({}, snapshot({ operation: "rebase" }))), "history.recompose").disabledReason).toBe("Finish or abort the rebase first");
+    expect(find(buildCommands(context({}, snapshot({ head: { kind: "unborn", branch: "main" } }))), "history.recompose").disabledReason).toBe("Make a first commit before rewriting history");
   });
 });

@@ -1,8 +1,10 @@
 import { createSignal, For, Show } from "solid-js";
 import { client } from "../ipc/client";
+import { useApp } from "../state/app";
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import { canDiscard, changeTotal, filesIn, isPartiallyStaged, neighborKey, pathsToMove, rowKey, stagedFileCount, areaOrder } from "../state/changes";
+import { createGenerateAction } from "../state/aiGenerate";
 import { commitPushReason, createCommitAction, type Composer as ComposerState } from "../state/composer";
 import { discardFilesCopy } from "../state/confirmCopy";
 import { sameTarget, type DiffTarget, type WorkingArea } from "../state/diffModel";
@@ -29,6 +31,7 @@ export function ChangesInspector(props: {
   onOpenDiff: (target: DiffTarget) => void;
   onCommitted: (sha: string) => void;
 }) {
+  const app = useApp();
   const snapshot = () => props.session.snapshot();
   const path = props.session.path;
   const [pendingDiscard, setPendingDiscard] = createSignal<FileChange[] | undefined>();
@@ -48,6 +51,8 @@ export function ChangesInspector(props: {
       else await props.actions.push();
     },
   });
+
+  const generate = createGenerateAction({ session: props.session, composer: props.composer });
 
   const pushReason = () =>
     commitPushReason({
@@ -272,7 +277,7 @@ export function ChangesInspector(props: {
           <For each={areaOrder}>{(section) => <Section {...section} />}</For>
         </Show>
       </div>
-      <Composer snapshot={snapshot()} state={props.composer} action={action} pushReason={pushReason()} summaryRef={(element) => (summary = element)} />
+      <Composer snapshot={snapshot()} state={props.composer} action={action} generate={generate} staged={stagedFileCount(snapshot().files)} onOpenAiSettings={() => app.openSettings("ai")} pushReason={pushReason()} summaryRef={(element) => (summary = element)} />
       <Show when={pendingDiscard()}>
         {(files) => <ConfirmDialog copy={discardFilesCopy(files())} onConfirm={() => void confirmDiscard()} onCancel={() => setPendingDiscard(undefined)} />}
       </Show>

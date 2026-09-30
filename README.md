@@ -134,6 +134,7 @@ YFORGE_REPO=<repository path> YFORGE_DATA_DIR=<scratch directory> \
 - `cargo build` or `cargo test` produces `target/debug/yforge`, which loads the dev URL and shows a blank window unless `pnpm dev` is running. Use `pnpm tauri build` for a self-contained app.
 - After changing a type in `crates/yforge-core/src/model.rs` or `error.rs`, run `pnpm bindings` in `app/` to regenerate the TypeScript bindings.
 - Change a design rule in `DESIGN.md` or `app/DESIGN.md` before the work that depends on it; see `AGENTS.md`.
+- OpenAI and OpenRouter marks in `brand/third-party/` are trademarks of their owners, used unmodified to identify their providers under the terms recorded in `brand/third-party/SOURCE.md`; YForge claims no endorsement. Claude Code is named in plain text only.
 
 <a id="documentation"></a>
 ## Documentation

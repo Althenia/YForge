@@ -15,6 +15,7 @@ import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
 import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel } from "../state/settingsModel";
 import { pullModes } from "../state/syncModel";
+import { AiSettings } from "./AiSettings";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
@@ -385,6 +386,9 @@ export function SettingsView(props: { section: string }) {
             <SettingRow title="SSH key" note="Key used for every repository that has no key of its own. Leave it on ssh-agent to use the agent and your default keys.">
               <SshKeyPicker label="SSH key" value={settings().ssh_key_path} blankLabel={SSH_AGENT_LABEL} onChange={(key) => void change({ ssh_key_path: key })} />
             </SettingRow>
+          </Match>
+          <Match when={section() === "ai"}>
+            <AiSettings />
           </Match>
           <Match when={section() === "privacy"}>
             <PrivacyDiagnostics />

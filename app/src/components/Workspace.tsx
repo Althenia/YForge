@@ -8,12 +8,12 @@ import { createStoreValue } from "../state/clientStore";
 import { createComposer } from "../state/composer";
 import { createDiffPrefs } from "../state/diffPrefs";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
-import { createRepoActions, type PopoverState } from "../state/repoActions";
+import { createRepoActions, type HistoryView, type PopoverState } from "../state/repoActions";
 import { createRepoUiPrefs } from "../state/repoUiPrefs";
 import { createRepoSession } from "../state/repoSession";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
-import type { Selection } from "../state/selection";
+import { selectedShas, type Selection } from "../state/selection";
 import { effectivePullMode } from "../state/settingsModel";
 import type { WorkspaceView } from "../state/workspace";
 import { ActivityBar } from "./ActivityBar";
@@ -29,6 +29,9 @@ import { Inspector } from "./Inspector";
 import { MergeForm, TagForm } from "./IntegrationForms";
 import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
 import { Notice } from "./Notice";
+import { RebaseEditor } from "./RebaseEditor";
+import { RecomposeView } from "./RecomposeView";
+import { SquashDialog } from "./SquashDialog";
 import { SearchBar } from "./SearchBar";
 import { Sidebar } from "./Sidebar";
 import { StateStrip } from "./StateStrip";
@@ -66,6 +69,10 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     const state = actions.popover();
     return state !== undefined && (kinds as string[]).includes(state.kind) ? (state as Extract<PopoverState, { kind: K }>) : undefined;
   };
+  const historyOf = <K extends HistoryView["kind"]>(kind: K) => {
+    const view = actions.history();
+    return view?.kind === kind ? (view as Extract<HistoryView, { kind: K }>) : undefined;
+  };
   const undo = () => undoState(app.activity(), session.path);
   const runUndo = (id?: number) => {
     const state = undo();
@@ -86,6 +93,22 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     select({ kind: "commit", sha });
     queueMicrotask(focusGraph);
   };
+  async function closeHistory(): Promise<void> {
+    actions.closeHistory();
+    queueMicrotask(focusGraph);
+    for (const sha of selectedShas(selection())) {
+      try {
+        if ((await session.searchCommits(`sha:${sha}`)).rows.length === 0) {
+          select({ kind: "changes" });
+          return;
+        }
+      } catch (failure) {
+        session.report(failure);
+        return;
+      }
+    }
+  }
+
   const unborn = () => session.snapshot().head.kind === "unborn";
 
   async function revealSha(sha: string, select = true): Promise<void> {
@@ -122,7 +145,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
 
   async function loadCommits() {
     const page = await client.repoGraph(session.path, 0, 200);
-    return page.rows.flatMap((row) => (row.sha === null || row.kind === "stash" ? [] : [{ sha: row.sha, summary: row.summary, merge: row.kind === "merge" }]));
+    return page.rows.flatMap((row) => (row.sha === null || row.kind === "stash" ? [] : [{ sha: row.sha, summary: row.summary, merge: row.kind === "merge", root: row.parents.length === 0 }]));
   }
 
   createEffect(() => {
@@ -186,6 +209,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         const current = selection();
         return current?.kind === "commit" ? current.sha : undefined;
       },
+      selectedShas: () => selectedShas(selection()),
       revealCommit: (sha) => {
         select({ kind: "commit", sha });
         void revealSha(sha);
@@ -241,7 +265,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               geometry={props.geometry}
               selection={selection()}
               revision={session.revision()}
-              covered={diffTarget() !== undefined}
+              covered={diffTarget() !== undefined || historyOf("rebase") !== undefined || historyOf("recompose") !== undefined}
               actions={actions}
               dimmed={(index) => isDimmed(search.state(), matches(), index)}
               searching={search.open()}
@@ -254,10 +278,16 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           <Show when={search.open()}>
             <SearchBar search={search} onClosed={focusGraph} />
           </Show>
-          <Show when={diffTarget()}>
+          <Show when={historyOf("rebase")} keyed>
+            {(view) => <RebaseEditor session={session} base={view.base} from={view.from} onClose={() => void closeHistory()} />}
+          </Show>
+          <Show when={historyOf("recompose")} keyed>
+            {(view) => <RecomposeView session={session} base={view.base} onClose={() => void closeHistory()} onOpenAiSettings={() => app.openSettings("ai")} />}
+          </Show>
+          <Show when={actions.history() === undefined || historyOf("squash") !== undefined ? diffTarget() : undefined}>
             {(target) => (
               <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} prefs={diffPrefs} onClose={closeDiff} />}>
-                <ConflictResolver session={session} file={target().file} onClose={closeDiff} />
+                <ConflictResolver session={session} file={target().file} onClose={closeDiff} onOpenAiSettings={() => app.openSettings("ai")} />
               </Show>
             )}
           </Show>
@@ -297,6 +327,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       </Show>
       <Show when={popoverOf("rename_stash")} keyed>
         {(state) => <RenameStashForm state={state} actions={actions} />}
+      </Show>
+      <Show when={historyOf("squash")} keyed>
+        {(view) => <SquashDialog session={session} shas={view.shas} onClose={() => void closeHistory()} />}
       </Show>
       <Show when={actions.dialog()} keyed>
         {(dialog) => (

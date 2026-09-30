@@ -13,6 +13,17 @@ const snapshot = (operation: Operation | null, detail: Partial<NonNullable<RepoS
 
 const flat = (parts: ReturnType<typeof operationSummary>) => parts.map((part) => (typeof part === "string" ? part : part.ref)).join("");
 
+describe("operation buttons for a stop to edit", () => {
+  it("hides Resolve and keeps Continue available while a rebase waits for the edit", () => {
+    const buttons = operationButtons("rebase", 0, false, true);
+    expect(buttons.resolvable).toBe(true);
+    expect(buttons.showResolve).toBe(false);
+    expect(buttons.continue.disabledReason).toBeUndefined();
+    expect(operationButtons("rebase", 1, false, true).showResolve).toBe(true);
+    expect(operationButtons("rebase", 0, false).showResolve).toBe(true);
+  });
+});
+
 describe("operation banner summary", () => {
   it("names what is merged into which branch", () => {
     expect(flat(operationSummary(snapshot("merge", { incoming: "origin/main" })))).toBe("Merging origin/main into main");
@@ -24,6 +35,13 @@ describe("operation banner summary", () => {
     expect(flat(operationSummary(rebase))).toBe("Rebasing feature/x");
     expect(stepLabel(rebase)).toBe("step 2 of 5");
     expect(stepLabel(snapshot("merge"))).toBeUndefined();
+  });
+
+  it("says the rebase stopped to edit a commit, naming it, and what to do next", () => {
+    const stopped = snapshot("rebase", { incoming: "feature/x", step: { current: 2, total: 5 }, stopped_edit: "abcdef0123456789" });
+
+    expect(flat(operationSummary(stopped))).toBe("Stopped to edit abcdef0 · amend the commit or change files, then continue");
+    expect(flat(operationSummary(snapshot("rebase", { incoming: "feature/x", stopped_edit: null })))).toBe("Rebasing feature/x");
   });
 
   it("describes cherry-picks and reverts and copes with a missing detail", () => {

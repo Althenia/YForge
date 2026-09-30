@@ -69,6 +69,13 @@ export type PopoverState =
   | { kind: "push_to"; anchor: Anchor }
   | { kind: "rename_stash"; anchor: Anchor; stash: StashEntry };
 
+export type HistoryView =
+  | { kind: "rebase"; base: string; from: string }
+  | { kind: "squash"; shas: readonly string[] }
+  | { kind: "recompose"; base: string | undefined };
+
+export type HistoryRow = { root?: boolean; squashReason?: string };
+
 export type StripNotice = { id: string; text: string; detail?: string; actions: Array<{ label: string; run: () => void | Promise<void> }> };
 
 export type DialogState = { copy: ConfirmCopy; run: () => void | Promise<void> };
@@ -147,6 +154,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [sync, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
   const [notices, setNotices] = createSignal<StripNotice[]>([]);
+  const [history, setHistory] = createSignal<HistoryView | undefined>();
   let retry: (() => Promise<void>) | undefined;
 
   const snapshot = session.snapshot;
@@ -612,10 +620,32 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     await session.mutate(() => client.createBranch(path, name, state.at, checkoutNew));
   }
 
-  function openCommitMenu(sha: string, merge: boolean, anchor: Anchor, selection: readonly string[] = [sha]): void {
+  async function parentOf(sha: string, purpose: string): Promise<string | undefined> {
+    try {
+      const details = await session.read(["details", sha], () => client.commitDetails(path, sha));
+      const parent = details.parents[0];
+      if (parent === undefined) session.inform(`${sha.slice(0, 7)} is the root commit, so there is no parent to ${purpose}.`);
+      return parent;
+    } catch (failure) {
+      fail(failure);
+      return undefined;
+    }
+  }
+
+  async function openRebaseEditor(sha: string): Promise<void> {
+    const base = await parentOf(sha, "rebase onto");
+    if (base !== undefined) setHistory({ kind: "rebase", base, from: sha });
+  }
+
+  async function openRecomposeFrom(sha: string): Promise<void> {
+    const base = await parentOf(sha, "recompose from");
+    if (base !== undefined) setHistory({ kind: "recompose", base });
+  }
+
+  function openCommitMenu(sha: string, merge: boolean, anchor: Anchor, selection: readonly string[] = [sha], row: HistoryRow = {}): void {
     setMenu({
       anchor,
-      entries: commitMenu({ ...menuContext(), sha, merge, selection }),
+      entries: commitMenu({ ...menuContext(), sha, merge, selection, ...row }),
       ...(selection.length > 1 ? { title: [`${selection.length} commits selected`] } : {}),
       run: (id) => {
         if (id === "create_branch") openCreateBranchAt(sha, anchor);
@@ -623,6 +653,9 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
         else if (id === "cherry_pick") void applyCommit(sha, "Cherry-pick");
         else if (id === "revert") void applyCommit(sha, "Revert");
         else if (id === "reset") openResetModes(sha, sha.slice(0, 7), anchor);
+        else if (id === "edit_history") void openRebaseEditor(sha);
+        else if (id === "squash") setHistory({ kind: "squash", shas: selection });
+        else if (id === "recompose") void openRecomposeFrom(sha);
       },
     });
   }
@@ -754,6 +787,11 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   return {
     menu,
     closeMenu: () => setMenu(undefined),
+    history,
+    closeHistory: () => setHistory(undefined),
+    openRebaseEditor,
+    openSquash: (shas: readonly string[]) => setHistory({ kind: "squash", shas }),
+    openRecompose: (base: string | undefined) => setHistory({ kind: "recompose", base }),
     popover,
     closePopover: () => setPopover(undefined),
     dialog,

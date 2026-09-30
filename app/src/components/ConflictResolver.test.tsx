@@ -10,6 +10,7 @@ import { createRepoSession } from "../state/repoSession";
 import { ConflictResolver } from "./ConflictResolver";
 
 let dispose: (() => void) | undefined;
+const opened: string[] = [];
 
 Element.prototype.scrollIntoView = () => undefined;
 
@@ -48,11 +49,12 @@ const twoRegions: ConflictFile = {
   ],
 };
 
-async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = snapshot()) {
+async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = snapshot(), proposal: () => unknown = () => ({ regions: [] })) {
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === "conflict_file") return conflict;
+    if (cmd === "ai_propose_conflict") return proposal();
     if (cmd === "repo_open") return initial;
     return null;
   });
@@ -60,7 +62,7 @@ async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = sna
   const session = createRoot(() => createRepoSession("/r", initial, queryClient));
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <QueryClientProvider client={queryClient}><ConflictResolver session={session} file="README.md" onClose={() => undefined} /></QueryClientProvider>, host);
+  dispose = render(() => <QueryClientProvider client={queryClient}><ConflictResolver session={session} file="README.md" onClose={() => undefined} onOpenAiSettings={() => opened.push("ai")} /></QueryClientProvider>, host);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const panel = () => host.querySelector<HTMLElement>('[aria-label="Conflict resolver"]');
   const press = (key: string, init: KeyboardEventInit = {}) => panel()?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
@@ -229,5 +231,95 @@ describe("conflict resolver", () => {
 
     expect(footer.slice(0, 3)).toEqual(["Mark resolved ⌘S", "Reset file", "Resolve 2 conflict regions first"]);
     expect(host.querySelector(".rfoot .spacer")).toBeNull();
+  });
+
+  describe("AI proposals", () => {
+    const proposals = { regions: [{ index: 0, text: "npm start\nnode app.js --verbose", rationale: "Keep both run modes." }, { index: 1, text: "Apache-2.0", rationale: "Newer license wins." }] };
+    const named = (host: HTMLElement, label: string) => [...host.querySelectorAll("button")].find((button) => button.textContent?.replace(/\s+/g, " ").trim() === label);
+
+    it("asks for a proposal of the whole file and shows the first region's proposal with its rationale, without changing the Result", async () => {
+      const { host, calls, tick, result } = await mountResolver(twoRegions, snapshot(), () => proposals);
+
+      named(host, "Propose resolution")?.click();
+      await tick();
+      await tick();
+
+      expect(calls.find((call) => call.cmd === "ai_propose_conflict")?.args).toMatchObject({ path: "/r", file: "README.md" });
+      const card = host.querySelector(".proposal");
+      expect(card?.textContent).toContain("Keep both run modes.");
+      expect(card?.textContent).toContain("node app.js --verbose");
+      expect(host.querySelector(".rtool .reason")?.textContent).toContain("2 proposals to review");
+      expect(result()[1]).toBe("!|<<<<<<< main");
+    });
+
+    it("puts an accepted proposal in the Result and joins it with the file's line ending when marked resolved by hand", async () => {
+      const crlf: ConflictFile = { ...twoRegions, eol: "\r\n" };
+      const { host, calls, tick, result, press } = await mountResolver(crlf, snapshot(), () => proposals);
+      named(host, "Propose resolution")?.click();
+      await tick();
+      await tick();
+
+      named(host, "Accept")?.click();
+      await tick();
+      expect(result().slice(0, 4)).toEqual([" |# sample", " |npm start", " |node app.js --verbose", " |## License"]);
+      expect(host.querySelector(".proposal")).toBeNull();
+      expect(calls.some((call) => call.cmd === "conflict_resolve" || call.cmd === "mark_resolved")).toBe(false);
+
+      press("n");
+      await tick();
+      named(host, "Accept")?.click();
+      await tick();
+      const mark = [...host.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Mark resolved"));
+      expect(mark?.disabled).toBe(false);
+      mark?.click();
+      await tick();
+      expect(calls.find((call) => call.cmd === "conflict_resolve")?.args).toEqual({ path: "/r", file: "README.md", content: "# sample\r\nnpm start\r\nnode app.js --verbose\r\n## License\r\nApache-2.0\r\n" });
+    });
+
+    it("rejects a proposal and leaves the region unresolved", async () => {
+      const { host, tick, result } = await mountResolver(twoRegions, snapshot(), () => proposals);
+      named(host, "Propose resolution")?.click();
+      await tick();
+      await tick();
+
+      named(host, "Reject")?.click();
+      await tick();
+
+      expect(host.querySelector(".proposal")).toBeNull();
+      expect(result()[1]).toBe("!|<<<<<<< main");
+      expect(host.querySelector(".rtool .reason")?.textContent).toContain("1 proposal to review");
+    });
+
+    it("edits a proposal before accepting it, so it lands as a manual resolution", async () => {
+      const { host, tick, result } = await mountResolver(twoRegions, snapshot(), () => proposals);
+      named(host, "Propose resolution")?.click();
+      await tick();
+      await tick();
+
+      named(host, "Edit")?.click();
+      await tick();
+      const editor = host.querySelector<HTMLTextAreaElement>("textarea");
+      expect(editor?.value).toBe("npm start\nnode app.js --verbose");
+      editor!.value = "npm start --quiet";
+      editor!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+      named(host, "Apply edit")?.click();
+      await tick();
+
+      expect(result().slice(0, 3)).toEqual([" |# sample", " |npm start --quiet", " |## License"]);
+      expect(host.querySelector(".actions .state")?.textContent).toContain("Manual");
+    });
+
+    it("explains a missing provider and opens the AI settings", async () => {
+      opened.length = 0;
+      const { host, tick } = await mountResolver(twoRegions, snapshot(), () => Promise.reject({ kind: "ai_not_configured", message: "none" }));
+
+      named(host, "Propose resolution")?.click();
+      await tick();
+      await tick();
+
+      expect(host.querySelector(".note.danger")?.textContent).toContain("No AI provider is set up. Choose one in Settings → AI.");
+      named(host, "Open AI settings")?.click();
+      expect(opened).toEqual(["ai"]);
+    });
   });
 });

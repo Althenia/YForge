@@ -1106,3 +1106,65 @@ describe("stale pull notice", () => {
     expect(actions.notices()).toEqual([]);
   });
 });
+
+describe("history editing entries", () => {
+  const details = (parents: string[]) => ({ sha: "bbbbbbbb", summary: "Second", body: "", author: {}, committer: {}, parents, refs: [], files: [] });
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+  it("opens the rebase editor from a commit's menu with the commit's parent as the base", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "commit_details" ? details(["aaaaaaaa"]) : null));
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 });
+    actions.menu()?.run("edit_history");
+    await tick();
+
+    expect(calls.find((call) => call.cmd === "commit_details")?.args).toEqual({ path: "/r", sha: "bbbbbbbb" });
+    expect(actions.history()).toEqual({ kind: "rebase", base: "aaaaaaaa", from: "bbbbbbbb" });
+  });
+
+  it("says so, and opens nothing, when the commit has no parent", async () => {
+    const { actions, session } = setup((call) => (call.cmd === "commit_details" ? details([]) : null));
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 });
+    actions.menu()?.run("edit_history");
+    await tick();
+
+    expect(actions.history()).toBeUndefined();
+    expect(session.notice()).toBe("bbbbbbb is the root commit, so there is no parent to rebase onto.");
+  });
+
+  it("opens the squash dialog for the selected commits and recompose from a commit's parent", async () => {
+    const { actions } = setup((call) => (call.cmd === "commit_details" ? details(["aaaaaaaa"]) : null));
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb", "cccccccc"]);
+    actions.menu()?.run("squash");
+    expect(actions.history()).toEqual({ kind: "squash", shas: ["bbbbbbbb", "cccccccc"] });
+
+    actions.closeHistory();
+    expect(actions.history()).toBeUndefined();
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 });
+    actions.menu()?.run("recompose");
+    await tick();
+    expect(actions.history()).toEqual({ kind: "recompose", base: "aaaaaaaa" });
+  });
+
+  it("opens recompose with no base so the view can default to the upstream", () => {
+    const { actions } = setup(() => null);
+
+    actions.openRecompose(undefined);
+
+    expect(actions.history()).toEqual({ kind: "recompose", base: undefined });
+  });
+
+  it("passes the squash reason and the root flag of the row to the menu", () => {
+    const { actions } = setup(() => null);
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb", "dddddddd"], { squashReason: "The selected commits are not one contiguous run of the current branch" });
+    const squash = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "squash");
+    expect(squash).toMatchObject({ disabledReason: "The selected commits are not one contiguous run of the current branch" });
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { root: true });
+    const edit = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "edit_history");
+    expect(edit).toMatchObject({ disabledReason: "The root commit has no parent to rebase onto" });
+  });
+});

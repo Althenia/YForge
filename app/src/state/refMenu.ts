@@ -40,6 +40,7 @@ export const operationBlock = (operation: Operation | null): string | undefined 
 
 export const SINGLE_COMMIT_REASON = "Select a single commit";
 export const MERGE_COMMIT_REASON = "A merge commit needs a parent choice, which is not available yet";
+export const MERGE_REWRITE_REASON = "A merge commit cannot be rewritten";
 export const NO_REMOTE = "This repository has no remote";
 
 export function pushRemote(remotes: readonly string[]): string | undefined {
@@ -68,6 +69,9 @@ const menuIcons: Partial<Record<string, IconName>> = {
   drop: "trash",
   revert: "undo",
   copy: "copy",
+  edit_history: "rebase",
+  squash: "squash",
+  recompose: "recompose",
 };
 
 const item = (id: string, label: MenuPart[], extra: Partial<Extract<MenuEntry, { kind: "item" }>> = {}): MenuEntry => {
@@ -241,7 +245,7 @@ export function startPointText(at: string | null, summary?: string): string {
   return summary === undefined || summary === "" ? `from ${label}` : `from ${label} ${summary}`;
 }
 
-export type CommitMenuContext = MenuContext & { sha: string; merge: boolean };
+export type CommitMenuContext = MenuContext & { sha: string; merge: boolean; root?: boolean; squashReason?: string };
 
 export function commitMenu(context: CommitMenuContext): MenuEntry[] {
   const short = { ref: context.sha.slice(0, 7) };
@@ -259,6 +263,10 @@ export function commitMenu(context: CommitMenuContext): MenuEntry[] {
     item("create_tag", ["Create tag here…"], reasoned(single(undefined))),
     separator,
     item("reset", ["Reset ", current, " to ", short], reasoned(single(blocked))),
+    separator,
+    item("edit_history", ["Edit history from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to rebase onto" : undefined)))),
+    ...(several ? [item("squash", [`Squash ${context.selection?.length} commits…`], reasoned(blocked ?? context.squashReason))] : []),
+    item("recompose", ["Recompose from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to recompose from" : undefined)))),
   ];
 }
 

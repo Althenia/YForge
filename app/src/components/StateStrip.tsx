@@ -269,7 +269,7 @@ function SyncChip(props: { state: SyncState; actions: RepoActions }) {
 
 function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; actions: RepoActions; onResolve: (file: string) => void }) {
   const conflicts = () => props.snapshot.counts.conflicted;
-  const buttons = () => operationButtons(props.operation, conflicts(), props.actions.operationBusy());
+  const buttons = () => operationButtons(props.operation, conflicts(), props.actions.operationBusy(), props.snapshot.operation_detail?.stopped_edit != null);
   const step = () => stepLabel(props.snapshot);
   const target = () => firstConflict(props.snapshot);
   return (
@@ -284,18 +284,20 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
       <Notices actions={props.actions} plain />
       <span class="spacer" />
       <Show when={buttons().resolvable}>
-        <button
-          type="button"
-          class="btn primary"
-          disabled={buttons().resolve.disabledReason !== undefined}
-          title={buttons().resolve.disabledReason}
-          onClick={() => {
-            const file = target();
-            if (file !== undefined) props.onResolve(file);
-          }}
-        >
-          Resolve
-        </button>
+        <Show when={buttons().showResolve}>
+          <button
+            type="button"
+            class="btn primary"
+            disabled={buttons().resolve.disabledReason !== undefined}
+            title={buttons().resolve.disabledReason}
+            onClick={() => {
+              const file = target();
+              if (file !== undefined) props.onResolve(file);
+            }}
+          >
+            Resolve
+          </button>
+        </Show>
         <button
           type="button"
           class="btn"

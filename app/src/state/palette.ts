@@ -4,7 +4,7 @@ import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
 import { NOTHING_TO_UNDO, type UndoState } from "./activityModel";
-import { commitMenu, localTarget, NOT_AVAILABLE, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
+import { commitMenu, localTarget, NOT_AVAILABLE, operationBlock, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
 import type { Anchor, RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
 import { pullModes, syncMenu } from "./syncModel";
@@ -50,6 +50,9 @@ const commandIcons: Partial<Record<string, IconName>> = {
   "branch.delete": "trash",
   "branch.merge": "merge",
   "commit.revert": "undo",
+  "history.rebase": "rebase",
+  "history.squash": "squash",
+  "history.recompose": "recompose",
   "tag.create": "tag",
   "tag.push": "push",
   "tag.delete": "trash",
@@ -71,7 +74,7 @@ export function commandIcon(id: string): IconName | undefined {
   return commandIcons[id];
 }
 
-export type CommitChoice = { sha: string; summary: string; merge: boolean };
+export type CommitChoice = { sha: string; summary: string; merge: boolean; root: boolean };
 
 export type SettingsSection = { id: string; label: string; icon: IconName };
 
@@ -79,6 +82,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", icon: "settings" },
   { id: "git", label: "Git", icon: "branch" },
   { id: "appearance", label: "Appearance", icon: "theme" },
+  { id: "ai", label: "AI", icon: "wand" },
   { id: "privacy", label: "Privacy & diagnostics", icon: "lock" },
   { id: "repository", label: "This repository", icon: "folder" },
 ];
@@ -102,6 +106,7 @@ export type PaletteContext = {
   snapshot: RepoSnapshot | undefined;
   actions: RepoActions | undefined;
   selectedSha: string | undefined;
+  selection: readonly string[];
   pullMode: PullMode;
   offline: boolean;
   undo: UndoState;
@@ -155,7 +160,7 @@ const targetFor = (snapshot: RepoSnapshot, value: string): RefTarget | undefined
 export function commitOptions(snapshot: RepoSnapshot, choices: readonly CommitChoice[], menuId: string): PickerOption[] {
   const context = menuContextOf(snapshot);
   return choices.map((choice) => {
-    const { reason } = reasonOf(commitMenu({ ...context, sha: choice.sha, merge: choice.merge }), menuId);
+    const { reason } = reasonOf(commitMenu({ ...context, sha: choice.sha, merge: choice.merge, root: choice.root }), menuId);
     return { value: choice.sha, label: choice.summary === "" ? "(no message)" : choice.summary, note: shortSha(choice.sha), ...(reason === undefined ? {} : { disabledReason: reason }) };
   });
 }
@@ -389,6 +394,30 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       covers: ["revert"],
       args: [commitArg("revert", "Revert")],
       run: withCommit((sha, actions) => void actions.applyCommit(sha, "Revert")),
+    }),
+    command({
+      id: "history.rebase",
+      title: "Edit history from commit…",
+      group: "Commits",
+      covers: ["edit_history"],
+      args: [commitArg("edit_history", "Edit history from")],
+      run: withCommit((sha, actions) => void actions.openRebaseEditor(sha)),
+    }),
+    command({
+      id: "history.squash",
+      title: "Squash selected commits…",
+      group: "Commits",
+      covers: ["squash"],
+      disabledReason: operationBlock(operation) ?? (context.selection.length < 2 ? "Select at least two commits in the graph" : undefined),
+      run: () => repo?.actions.openSquash(context.selection),
+    }),
+    command({
+      id: "history.recompose",
+      title: "Recompose unpushed commits…",
+      group: "Commits",
+      covers: ["recompose"],
+      disabledReason: operationBlock(operation) ?? (snapshot?.head.kind === "unborn" ? "Make a first commit before rewriting history" : undefined),
+      run: () => repo?.actions.openRecompose(undefined),
     }),
     command({
       id: "tag.create",

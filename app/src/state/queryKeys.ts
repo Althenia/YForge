@@ -8,6 +8,11 @@ export const appKeys = {
   sshKeys: ["ssh-keys"] as const,
 };
 
+export const aiKeys = {
+  providers: ["ai", "providers"] as const,
+  models: (id: string) => ["ai", "models", id] as const,
+};
+
 export const diagnosticsKeys = {
   crashes: ["diagnostics", "crashes"] as const,
   usage: ["diagnostics", "usage"] as const,
@@ -33,4 +38,11 @@ export const repoKeys = {
   remotes: (path: string) => ["repo", path, "remotes"] as const,
   worktrees: (path: string) => ["repo", path, "worktrees"] as const,
   identity: (path: string) => ["repo", path, "identity"] as const,
+};
+
+export const historyKeys = {
+  baseChoices: (path: string) => ["history", path, "base-choices"] as const,
+  rebase: (path: string, base: string) => ["history", path, "rebase", base] as const,
+  recompose: (path: string, base: string) => ["history", path, "recompose", base] as const,
+  squash: (path: string, shas: readonly string[]) => ["history", path, "squash", ...shas] as const,
 };

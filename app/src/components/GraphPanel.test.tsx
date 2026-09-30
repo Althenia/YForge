@@ -413,9 +413,23 @@ describe("multi-select", () => {
     rowElement(host, 6).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 6, clientY: 7 }));
     await flush();
 
-    expect(menus[0]).toEqual(["sha3", false, { left: 4, top: 5 }, ["sha1", "sha3"]]);
-    expect(menus[1]).toEqual(["sha6", false, { left: 6, top: 7 }, ["sha6"]]);
+    expect(menus[0]).toEqual(["sha3", false, { left: 4, top: 5 }, ["sha1", "sha3"], { root: false, squashReason: "The selected commits are not one contiguous run of the current branch" }]);
+    expect(menus[1]).toEqual(["sha6", false, { left: 6, top: 7 }, ["sha6"], { root: false }]);
     expect(selection()).toEqual({ kind: "commit", sha: "sha6" });
+  });
+
+  it("gives the menu no squash reason for a contiguous selection and flags the root commit", async () => {
+    const menus: unknown[][] = [];
+    await mountGraph({ actions: { openCommitMenu: (...args: unknown[]) => menus.push(args) } }).then(async ({ host }) => {
+      click(rowElement(host, 1));
+      click(rowElement(host, 2), { metaKey: true });
+      await flush();
+      rowElement(host, 2).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 2 }));
+      await flush();
+    });
+
+    expect(menus[0]?.[3]).toEqual(["sha1", "sha2"]);
+    expect(menus[0]?.[4]).toEqual({ root: false });
   });
 });
 

@@ -244,8 +244,27 @@ describe("commit row context menu", () => {
       "Create tag here…",
       "-",
       "Reset main to abcdef0",
+      "-",
+      "Edit history from abcdef0…",
+      "Recompose from abcdef0…",
     ]);
-    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset"]) expect(item(entries, id).disabledReason).toBeUndefined();
+    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset", "edit_history", "recompose"]) expect(item(entries, id).disabledReason).toBeUndefined();
+  });
+
+  it("gives the history verbs their glyphs", () => {
+    const entries = menu();
+    expect(item(entries, "edit_history").icon).toBe("rebase");
+    expect(item(entries, "recompose").icon).toBe("recompose");
+  });
+
+  it("disables the history verbs for a merge commit, the root commit, and during an operation, each with its reason", () => {
+    expect(item(menu({ merge: true }), "edit_history").disabledReason).toBe("A merge commit cannot be rewritten");
+    expect(item(menu({ merge: true }), "recompose").disabledReason).toBe("A merge commit cannot be rewritten");
+    expect(item(menu({ root: true }), "edit_history").disabledReason).toBe("The root commit has no parent to rebase onto");
+    expect(item(menu({ root: true }), "recompose").disabledReason).toBe("The root commit has no parent to recompose from");
+    const busy = menu({ operation: "rebase" });
+    expect(item(busy, "edit_history").disabledReason).toBe("Finish or abort the rebase first");
+    expect(item(busy, "recompose").disabledReason).toBe("Finish or abort the rebase first");
   });
 
   it("disables pick and revert for a merge commit and everything integrating during an operation", () => {
@@ -265,9 +284,26 @@ describe("commit menu with a multi-selection", () => {
 
   it("disables the verbs that act on one commit and says to select a single commit", () => {
     const entries = commitMenu(selected);
-    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset"]) {
+    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset", "edit_history", "recompose"]) {
       expect(item(entries, id).disabledReason).toBe(SINGLE_COMMIT_REASON);
     }
+  });
+
+  it("offers Squash N commits… and enables it for a contiguous selection", () => {
+    const entries = commitMenu(selected);
+    expect(text(item(entries, "squash").label)).toBe("Squash 2 commits…");
+    expect(item(entries, "squash").icon).toBe("squash");
+    expect(item(entries, "squash").disabledReason).toBeUndefined();
+  });
+
+  it("disables Squash with the reason for a non-contiguous selection or a running operation", () => {
+    const reason = "The selected commits are not one contiguous run of the current branch";
+    expect(item(commitMenu({ ...selected, squashReason: reason }), "squash").disabledReason).toBe(reason);
+    expect(item(commitMenu({ ...selected, operation: "merge" }), "squash").disabledReason).toBe("Finish or abort the merge first");
+  });
+
+  it("does not offer Squash for a single commit", () => {
+    expect(commitMenu({ ...context("main"), sha: "abcdef0123456", merge: false }).some((entry) => entry.kind === "item" && entry.id === "squash")).toBe(false);
   });
 
   it("keeps the verbs enabled for a selection of one", () => {

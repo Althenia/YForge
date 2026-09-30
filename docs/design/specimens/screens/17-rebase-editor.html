@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 17 interactive rebase editor</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.rpanel { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; grid-template-rows: 44px 1fr 52px; }
+.rhead { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px/20px var(--sans); white-space: nowrap; overflow: hidden; }
+.rhead .mono { font: 600 12px/16px var(--mono); }
+.rhead .dim { color: var(--muted); font-weight: 400; }
+.rbody { padding: 12px; display: grid; gap: 10px; align-content: start; overflow: hidden; min-height: 0; }
+.rfoot { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid var(--line); }
+.note { padding: 8px 10px; border-radius: var(--r-md); font: 400 12px/16px var(--sans); }
+.note.attn { background: var(--attention-tint); color: var(--yellow-strong); }
+.hint { margin: 0; font: 400 12px/16px var(--sans); color: var(--muted); }
+.rlist { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.rrow { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto auto auto; align-items: center; column-gap: 8px; row-gap: 4px; padding: 2px 8px; border-radius: var(--r-sm); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); min-height: 32px; }
+.rrow.focus { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus); }
+.rrow.drop { box-shadow: 0 -2px 0 var(--green-strong), inset 0 0 0 1px var(--line); }
+.rrow.dropped { background: rgba(239, 111, 111, 0.1); }
+.rrow.dropped .sum { text-decoration: line-through; color: var(--muted); }
+.rrow .grip { cursor: var(--cursors-drag); }
+.sha { font: 500 12px/16px var(--mono); }
+.sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.select { min-width: 96px; height: 26px; justify-content: space-between; align-items: center; padding: 0 10px; font: 400 12px/20px var(--sans); }
+.rmsg { grid-column: 2 / -1; height: 72px; align-items: flex-start; color: var(--text); font: 400 12px/18px var(--mono); white-space: pre-line; }
+.pushed { color: var(--yellow-strong); height: 22px; }
+.preview { display: grid; gap: 6px; padding: 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }
+.preview h4 { margin: 0; font: 600 12px/16px var(--sans); }
+.preview ol { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.preview li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.kbd2 { font: 500 11px/16px var(--mono); padding: 1px 7px; border-radius: 999px; background: var(--fill-hover); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const sel = (v) => `<span class="input select">${v}${YF.icon.chevron}</span>`;
+const row = (sha, sum, action, extra = {}) => `<li class="rrow${extra.cls ? " " + extra.cls : ""}"><span class="icon-btn dense grip" aria-label="Drag ${sum} to reorder">${G("grip")}</span><span class="sha">${sha}</span><span class="sum">${sum}</span>${extra.pushed ? `<span class="chip pushed">${G("push", 14)}Pushed</span>` : ""}${sel(action)}${YF.iconBtn("previous", "Move up")}${YF.iconBtn("next", "Move down")}${extra.msg ? `<div class="input area rmsg">${extra.msg}</div>` : ""}</li>`;
+const editor = `<section class="panel rpanel" aria-label="Interactive rebase">
+  <div class="rhead">${G("rebase")}<span>Edit history</span><span class="mono">3e91a2c..HEAD</span><span class="dim">5 commits</span><span class="spacer"></span><span class="btn sm">Back to graph</span></div>
+  <div class="rbody">
+    <div class="note attn" role="status">${G("warning")} 2 of these commits are already on origin/feature/greeting. Rewriting them means the next push needs a force push.</div>
+    <p class="hint">Newest first. Each commit is combined with the one below it when you choose Squash or Fixup. Drag a handle, or use <span class="kbd2">⌥↑</span> <span class="kbd2">⌥↓</span>, to reorder; press <span class="kbd2">P</span> <span class="kbd2">R</span> <span class="kbd2">S</span> <span class="kbd2">F</span> <span class="kbd2">D</span> <span class="kbd2">E</span> to set the action.</p>
+    <ol class="rlist" aria-label="Commits, newest first">
+      ${row("b7d4e10", "Export shout helper", "Pick")}
+      ${row("6a1f9c3", "Fix typo in shout helper", "Fixup", { cls: "focus" })}
+      ${row("f86d53a", "Personalize greeting", "Reword", { pushed: true, msg: "Personalize the greeting with the user's name\n\nFall back to the default greeting when no name is set." })}
+      ${row("e2b1c09", "Tweak greeting", "Drop", { pushed: true, cls: "dropped" })}
+      ${row("9c3d0b7", "Add shout helper", "Pick", { cls: "drop" })}
+    </ol>
+    <section class="preview" aria-label="Resulting history">
+      <h4>Resulting history · 3 commits</h4>
+      <ol>
+        <li>${G("commit")}<span class="sum">Export shout helper</span><span class="ref">b7d4e10 + 6a1f9c3</span><span class="chip">Combined</span></li>
+        <li>${G("edit")}<span class="sum">Personalize the greeting with the user's name</span><span class="ref">f86d53a</span><span class="chip">Reworded</span></li>
+        <li>${G("commit")}<span class="sum">Add shout helper</span><span class="ref">9c3d0b7</span></li>
+      </ol>
+      <h4>Dropped (1)</h4>
+      <ol><li>${G("trash")}<span class="sum">Tweak greeting</span><span class="ref">e2b1c09</span></li></ol>
+    </section>
+  </div>
+  <div class="rfoot"><span class="btn primary">${G("rebase")}Rewrite history</span><span class="btn">Cancel</span></div>
+</section>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${editor}<aside class="panel inspector" aria-label="Commit"><div class="ihead"><h2>${G("commit")}Personalize greeting</h2><p><span class="ref">f86d53a</span> · Yui Lin</p></div><div class="ilist"><div class="empty">Choose Rewrite history to apply the plan. Undo restores the branch to where it was.</div></div></aside></div>${YF.activity({ command: "git rebase --interactive 3e91a2c", duration: "—", action: "" })}</div>`);
+YF.boot("screen 17 · interactive rebase editor");
+</script>
+</body>
+</html>

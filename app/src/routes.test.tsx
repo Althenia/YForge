@@ -80,6 +80,7 @@ async function mountApp(session: { tabs: string[]; active: number }) {
         case "activity_list":
         case "recents_list":
         case "remotes_list":
+        case "switch_stashes":
         case "recent_statuses":
           return [];
         case "plugin:path|resolve_directory":

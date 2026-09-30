@@ -106,6 +106,18 @@ const glyphs: Record<IconName, () => JSX.Element> = {
     </>
   ),
   changes: () => <path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M9.5 12h5M9.5 16h5" />,
+  wand: () => <path d="M4 20 13 11M11 9l4 4 4-4-4-4z" />,
+  rebase: () => (
+    <>
+      <circle cx="6" cy="5.5" r="2" />
+      <circle cx="6" cy="18.5" r="2" />
+      <path d="M6 7.5v9M9 5.5h5a4 4 0 0 1 4 4v3M15 10l3 3 3-3" />
+    </>
+  ),
+  squash: () => <path d="M5 4.5l7 6 7-6M5 19.5l7-6 7 6M4 12h16" />,
+  recompose: () => <path d="M4 7h3.5l9 10H20M4 17h3.5l2.5-2.8M13.5 9.5 16.5 7H20M17.5 4.5 20 7l-2.5 2.5M17.5 14.5 20 17l-2.5 2.5" />,
+  grip: () => <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />,
+  plug: () => <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4" />,
 };
 
 const strokeFor = (size: number): number => (size <= 16 ? 1.5 : 1.6);

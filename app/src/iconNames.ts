@@ -33,4 +33,10 @@ export type IconName =
   | "next"
   | "activity"
   | "theme"
-  | "changes";
+  | "changes"
+  | "wand"
+  | "rebase"
+  | "squash"
+  | "recompose"
+  | "grip"
+  | "plug";

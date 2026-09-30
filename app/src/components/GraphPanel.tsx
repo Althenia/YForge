@@ -24,6 +24,7 @@ import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import { columnVisibility, columnWidths, withColumn, type RepoUiPrefsStore } from "../state/repoUiPrefs";
+import { squashProblem } from "../state/rebaseModel";
 import { indexOfSelection, indexOfSha, rangeSelection, selectedShas, selectionOfRow, stepIndex, toggleSelection, type Selection } from "../state/selection";
 import { createMinWidth, GRAPH_COLUMNS_MIN_WIDTH } from "../state/viewport";
 import { ColumnResizer } from "./ColumnResizer";
@@ -390,7 +391,15 @@ export function GraphPanel(props: {
     event.preventDefault();
     const inSelection = chosen().has(row.sha);
     if (!inSelection) select(index);
-    props.actions.openCommitMenu(row.sha, row.kind === "merge", { left: event.clientX, top: event.clientY }, inSelection ? selectedShas(props.selection) : [row.sha]);
+    const shas = inSelection ? selectedShas(props.selection) : [row.sha];
+    const commits = shas.flatMap((sha) => {
+      const found = store.rows().get(indexOfSha(store.rows(), sha) ?? -1);
+      return found === undefined ? [] : [{ sha, parents: found.parents }];
+    });
+    props.actions.openCommitMenu(row.sha, row.kind === "merge", { left: event.clientX, top: event.clientY }, shas, {
+      root: row.parents.length === 0,
+      ...(shas.length > 1 ? { squashReason: squashProblem(commits) } : {}),
+    });
   };
 
   const hiddenGroups = (index: number) => {

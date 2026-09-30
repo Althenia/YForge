@@ -219,3 +219,49 @@
 - **Established glyphs:** sync, fetch, pull, push, branch, commit, merge, stash, undo, tag, worktree, folder, terminal, diff, edit, copy, trash, plus, minus, check, previous, next, activity, theme, settings, changes, more, close.
 - **Accessibility:** An icon never carries state alone (B4): counts, letters, and words stay beside the glyph.
 - **Consumers:** S15 and every screen with chrome; the component sheet (screen 0) shows the three tiers.
+
+## AI provider card, row, and status badge
+
+Settings → AI (specimen 16, rules S24 and S26).
+
+- **Card:** a `button` on `material.control` (`rounded.lg`, 1px `rule` inset, 12px padding) with a 32px provider mark on the left, the name in `ui-strong`, and one line of `ui-small` muted copy. Two cards per row in the add dialog. Hover uses `material.control-hover` on hover-capable pointers only. The cursor is `action`.
+- **Marks:** official OpenAI Blossom (white on dark, black on light) and OpenRouter glyph (Cloud on dark, Ink on light), unmodified, from `brand/third-party/`. Claude Code uses the `terminal` glyph and OpenAI-compatible the `plug` glyph, each in a 32px `material.control` tile with a 1px `rule` inset.
+- **Row:** a grid of mark (24px), name (`ui-strong`) over kind and mono model (`ui-small` muted), status badge, "Active" chip, and icon actions (Use as a small text button, Edit and Remove as 24px icon buttons with tooltips). The active row uses the `selection` fill with the 2px `accent` inline-start bar (S6).
+- **Status badge:** a pill of `controls.height-chip` with a 14px glyph and a word, never color alone (B4): Ready (check, `accent-tint` and `accent-ink`), Not installed, Signed out, and Key missing (warning, `attention-tint` and `attention-ink`), Key rejected, Unreachable, and Check failed (warning, `danger-tint` and `danger-ink`). The detail of an unreachable or failed check is the tooltip and a line under the header.
+- **Add dialog:** step 1 the card grid, step 2 the form for the chosen kind (name; base URL for OpenAI-compatible; API key for OpenRouter and OpenAI-compatible; an optional executable path for the CLI kinds), step 3 the provider panel: detection or connection status with Check again or Test connection, the install command with a copy button when the CLI is missing, the sign-in panel (browser, or "No browser? Use a code" for ChatGPT), the saved-key state, the model field (free text; "Load models" for HTTP kinds), and Use this provider or Save model.
+- **Key:** an API key is typed into a `password` field once. A saved key reads "Key saved in the macOS Keychain" with Replace and Clear; the field is never filled from storage.
+- **Device code:** the address and the one-time code are shown in mono with copy buttons and a live "Copied" status; Cancel sign-in stops the CLI.
+
+## Generate (composer)
+
+Specimen 20, rule S24. A text-labelled secondary button with the `wand` glyph, left of the Commit split button, disabled with "Stage files to generate a message" when nothing is staged. While it runs it reads "Generating…" (busy) beside an icon button that cancels. The result fills Summary and Description as an editable draft; an `attention` note under the fields says nothing is committed until the user commits, lists withheld and cut files and a trimmed summary as text, and offers "Restore my text" when it replaced the user's text. A failure is a `danger` note with the cause, that nothing changed, and "Open AI settings" or "Sign in".
+
+## AI proposal (conflict resolver)
+
+Specimen 19, rule S24. "Propose resolution" sits in the resolver toolbar beside the resolved count, which also counts the proposals left to review. The active region shows a proposal block: a 3px `accent` inline-start bar on `canvas`, a header that calls it a draft from the AI provider, the rationale in `ui-small` muted, the proposed lines in `code`, and Accept (primary), Edit, and Reject. Accept puts the lines in the Result pane as a manual resolution joined with the file's line ending; Edit opens the region editor with the proposal; Reject drops it. Marking the file resolved stays manual.
+
+## Interactive rebase editor
+
+Specimen 17, rule S25. A center panel over the graph column (header, body, footer, like the conflict resolver).
+
+- **Header:** the `rebase` glyph, "Edit history", the mono range `<base>..HEAD`, the commit count, and "Back to graph".
+- **Row:** `canvas` with a 1px `rule` inset and 8px inline padding: drag handle (`drag` cursor), mono SHA, message (one line, ellipsis), a "Pushed" chip with the `push` glyph, an action select (Pick, Reword, Squash, Fixup, Drop, Edit), and Move up and Move down icon buttons. Focus shows the 2px `focus` ring. A dropped row takes `danger-tint` and a struck-through message. An invalid row takes a 1px `danger` inset and its problem in `ui-small` danger ink below.
+- **Message editor:** a reword row and the last squash of a run show a textarea below the row, prefilled with the full message (or the joined messages of the run).
+- **Drop position:** a 2px `accent` line above or below the row under the pointer while dragging; the window takes the `dragging` cursor.
+- **Keys:** ↑ and ↓ move focus, ⌥↑ and ⌥↓ move the row, P, R, S, F, D, and E set the action, Esc leaves the editor when no field has focus.
+- **Preview:** "Resulting history · N commits", newest first, each with a glyph (commit, edit for reworded, squash for combined), the subject, the source SHAs joined by " + ", and a chip (Combined, Reworded, Stops here so you can amend it); then "Dropped (n)".
+- **Footer:** "Rewrite history" (primary) disabled with its reason in text, Cancel, and the core's refusal in `ui-small` danger ink.
+
+## Squash dialog
+
+Rule S25. A dialog titled "Squash N commits" lists the commits to combine oldest first, shows the pushed warning when any is on the upstream, and holds one message textarea prefilled with the selected messages oldest first. The primary button repeats the count and is disabled with its reason (not contiguous, blank message, tracked changes, reading the branch).
+
+## Recompose view
+
+Specimen 18, rules S24 and S25. A center panel with a toolbar (Base select defaulting to the upstream, "n of m changes assigned", Propose with AI, Restore my grouping), the pushed warning, and two columns.
+
+- **Changes (left):** file rows with a drag handle, expand chevron (S23 pattern), status letter, left-truncated mono path, an assignment chip (Unassigned in `attention`, Commit N in `accent`, Split when a file or hunk is divided), and an assign button that opens a menu of the commits. Expanding a file lists its hunks (label, +added −removed, chip, assign); expanding a hunk lists its changed lines as checkboxes (S18 pattern) with "Assign n selected lines…". A binary or hunkless file is one whole-file unit.
+- **New commits (right):** oldest first. Each card has "Commit N", Move earlier, Move later, and Remove icon buttons, a message textarea, and the assigned files with their scope ("whole file", "1 of 2 hunks", "3 lines") and counts. A card under a dragged row takes the `accent-tint` fill and a 2px `accent` inset. "Add commit" appends a card.
+- **Keys:** on a focused row 1–9 assign to that commit and 0 unassigns.
+- **Footer:** "Recompose N commits" (primary) disabled until every change is assigned exactly once and every message is filled, with the first blocking reason in text.
+

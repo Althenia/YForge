@@ -63,6 +63,7 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
 
   return {
     path,
+    queryClient,
     snapshot: () => dataOf(snapshot) as RepoSnapshot,
     revision,
     notice,

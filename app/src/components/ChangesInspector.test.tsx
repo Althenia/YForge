@@ -222,3 +222,81 @@ describe("file keyboard shortcuts", () => {
     expect(document.activeElement).toBe(row(host, "a.txt"));
   });
 });
+
+describe("generate a commit message", () => {
+  const generateButton = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Generate");
+  const draft = { summary: "Add greeting", description: "Say hello.", summary_trimmed: true, excluded: [".env"], truncated: [] };
+
+  it("drafts the summary and description from the staged changes, shows the notes, and commits nothing", async () => {
+    const { host } = mount(snapshot(), (cmd) => (cmd === "ai_generate_commit_message" ? draft : null));
+    await flush();
+
+    generateButton(host)?.click();
+    await flush(60);
+
+    expect(summaryOf(host)?.value).toBe("Add greeting");
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')?.value).toBe("Say hello.");
+    const note = host.querySelector(".note.attention")?.textContent ?? "";
+    expect(note).toContain("nothing is committed until you commit");
+    expect(note).toContain("Withheld from the provider because they look like secrets: .env");
+    expect(note).toContain("The summary was shortened to fit the 72 character guide.");
+    expect(commands()).toEqual(["ai_generate_commit_message"]);
+  });
+
+  it("always says the text is a draft, even when no file was withheld or cut", async () => {
+    const { host } = mount(snapshot(), (cmd) => (cmd === "ai_generate_commit_message" ? { summary: "Add greeting", description: "", summary_trimmed: false, excluded: [], truncated: [] } : null));
+    await flush();
+
+    generateButton(host)?.click();
+    await flush(60);
+
+    expect(host.querySelector(".note.attention")?.textContent).toContain("Draft from your staged changes. Review and edit it; nothing is committed until you commit.");
+  });
+
+  it("is disabled with its reason when nothing is staged", async () => {
+    const { host } = mount(snapshot({ counts: { modified: 1, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, files: [{ path: "a.txt", original_path: null, area: "unstaged", status: "modified" }] }));
+    await flush();
+
+    expect(generateButton(host)?.disabled).toBe(true);
+    expect(generateButton(host)?.title).toBe("Stage files to generate a message");
+  });
+
+  it("points a missing provider at the AI settings, and a revoked sign-in at Sign in", async () => {
+    const missing = mount(snapshot(), (cmd) => {
+      if (cmd === "ai_generate_commit_message") throw { kind: "ai_not_configured", message: "none" };
+      return null;
+    });
+    await flush();
+    generateButton(missing.host)?.click();
+    await flush(60);
+    const note = missing.host.querySelector(".note.danger");
+    expect(note?.textContent).toContain("No AI provider is set up. Choose one in Settings → AI.");
+    expect([...(note?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim())).toEqual(["Open AI settings"]);
+    missing.dispose();
+    document.body.innerHTML = "";
+
+    const revoked = mount(snapshot(), (cmd) => {
+      if (cmd === "ai_generate_commit_message") throw { kind: "ai_auth_required", message: "Sign in to ChatGPT" };
+      return null;
+    });
+    await flush();
+    generateButton(revoked.host)?.click();
+    await flush(60);
+    expect([...(revoked.host.querySelectorAll(".note.danger button") ?? [])].map((button) => button.textContent?.trim())).toEqual(["Sign in"]);
+  });
+
+  it("keeps the previous text so Restore my text brings it back", async () => {
+    const { host } = mount(snapshot(), (cmd) => (cmd === "ai_generate_commit_message" ? draft : null));
+    await flush();
+    type(summaryOf(host), "My own summary");
+    await flush();
+
+    generateButton(host)?.click();
+    await flush(60);
+    expect(summaryOf(host)?.value).toBe("Add greeting");
+    [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Restore my text")?.click();
+    await flush();
+
+    expect(summaryOf(host)?.value).toBe("My own summary");
+  });
+});

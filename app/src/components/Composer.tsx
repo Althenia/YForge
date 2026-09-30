@@ -1,5 +1,6 @@
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import type { GenerateAction } from "../state/aiGenerate";
 import { amendWarning, summaryRemaining, type Composer as ComposerState, type createCommitAction } from "../state/composer";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -10,9 +11,13 @@ export function Composer(props: {
   snapshot: RepoSnapshot;
   state: ComposerState;
   action: CommitAction;
+  generate: GenerateAction;
+  staged: number;
+  onOpenAiSettings: () => void;
   pushReason: string | undefined;
   summaryRef: (element: HTMLInputElement) => void;
 }) {
+  const generateReason = () => (props.staged === 0 ? "Stage files to generate a message" : props.state.busy() ? "Committing…" : undefined);
   const remaining = () => summaryRemaining(props.state.summary());
   const button = () => props.action.button();
   const warning = () => amendWarning(props.state.pushed(), props.snapshot.upstream?.name);
@@ -103,7 +108,58 @@ export function Composer(props: {
           </div>
         )}
       </Show>
+      <Show when={props.generate.failure()}>
+        {(error) => (
+          <div class="note danger" role="alert">
+            <strong>{error().message}</strong>
+            <Show when={error().detail}>{(detail) => <span class="hint-text">{detail()}</span>}</Show>
+            <Show when={error().action}>
+              {(action) => (
+                <button type="button" class="btn sm" onClick={props.onOpenAiSettings}>
+                  <Icon name={action() === "sign_in" ? "key" : "settings"} size={14} />
+                  {action() === "sign_in" ? "Sign in" : "Open AI settings"}
+                </button>
+              )}
+            </Show>
+          </div>
+        )}
+      </Show>
+      <Show when={props.generate.drafted()}>
+        <div class="note attention" role="status">
+          <span>Draft from your staged changes. Review and edit it; nothing is committed until you commit.</span>
+          <For each={props.generate.notes()}>{(note) => <span>{note}</span>}</For>
+          <Show when={props.generate.replaced()}>
+            <button type="button" class="btn sm" onClick={props.generate.restore}>
+              <Icon name="undo" size={14} />
+              Restore my text
+            </button>
+          </Show>
+        </div>
+      </Show>
       <div class="hrow">
+        <Show
+          when={props.generate.running()}
+          fallback={
+            <button
+              type="button"
+              class="btn"
+              disabled={generateReason() !== undefined}
+              title={generateReason() ?? "Draft a message from the staged changes with your AI provider"}
+              onClick={() => void props.generate.run()}
+            >
+              <Icon name="wand" />
+              Generate
+            </button>
+          }
+        >
+          <button type="button" class="btn" aria-busy="true" disabled>
+            <Icon name="wand" />
+            Generating…
+          </button>
+          <button type="button" class="icon-btn dense" {...tip("Cancel generating")} onClick={props.generate.cancel}>
+            <Icon name="close" />
+          </button>
+        </Show>
         <span class="split-btn">
           <button
             type="button"

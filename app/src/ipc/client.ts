@@ -56,12 +56,29 @@ import type { SshKey } from "./bindings/SshKey";
 import type { StashRestore } from "./bindings/StashRestore";
 import type { SwitchStash } from "./bindings/SwitchStash";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
+import type { AiModel } from "./bindings/AiModel";
+import type { AiSignInEvent } from "./bindings/AiSignInEvent";
+import type { AiSignInMethod } from "./bindings/AiSignInMethod";
+import type { CommitDraft } from "./bindings/CommitDraft";
+import type { ConflictProposal } from "./bindings/ConflictProposal";
+import type { ProviderInput } from "./bindings/ProviderInput";
+import type { ProviderStatus } from "./bindings/ProviderStatus";
+import type { ProviderSummary } from "./bindings/ProviderSummary";
+import type { ProviderUpdate } from "./bindings/ProviderUpdate";
+import type { RebasePlan } from "./bindings/RebasePlan";
+import type { RebaseResult } from "./bindings/RebaseResult";
+import type { RebaseStep } from "./bindings/RebaseStep";
+import type { RecomposeGroup } from "./bindings/RecomposeGroup";
+import type { RecomposePreview } from "./bindings/RecomposePreview";
+import type { RecomposeProposal } from "./bindings/RecomposeProposal";
+import type { RecomposeResult } from "./bindings/RecomposeResult";
 
 export const REPO_CHANGED_EVENT = "repo-changed";
 export const OPERATION_PROGRESS_EVENT = "operation-progress";
 export const AUTH_PROMPT_EVENT = "auth-prompt";
 export const ACTIVITY_EVENT = "activity-recorded";
 export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
+export const AI_SIGN_IN_EVENT = "ai-sign-in";
 
 export type OpenWith = "editor" | "terminal" | "finder";
 
@@ -176,6 +193,22 @@ export const client = {
   conflictResolve: (path: string, file: string, content: string) => call<null>("conflict_resolve", { path, file, content }),
   conflictTakeSide: (path: string, file: string, side: ConflictSide) => call<null>("conflict_take_side", { path, file, side }),
   conflictReset: (path: string, file: string) => call<null>("conflict_reset", { path, file }),
+  rebasePlan: (path: string, base: string) => call<RebasePlan>("rebase_plan", { path, base }),
+  rebaseInteractive: (path: string, base: string, steps: readonly RebaseStep[]) => call<RebaseResult>("rebase_interactive", { path, base, steps }),
+  squashCommits: (path: string, shas: readonly string[], message: string) => call<RebaseResult>("squash_commits", { path, shas, message }),
+  recomposePreview: (path: string, base: string) => call<RecomposePreview>("recompose_preview", { path, base }),
+  recomposeApply: (path: string, base: string, groups: readonly RecomposeGroup[]) => call<RecomposeResult>("recompose_apply", { path, base, groups }),
+  aiProvidersList: () => call<ProviderSummary[]>("ai_providers_list"),
+  aiProviderAdd: (input: ProviderInput) => call<ProviderSummary>("ai_provider_add", { input }),
+  aiProviderUpdate: (update: ProviderUpdate) => call<ProviderSummary>("ai_provider_update", { update }),
+  aiProviderRemove: (id: string) => call<null>("ai_provider_remove", { id }),
+  aiSetActive: (id: string | null, model: string | null) => call<null>("ai_set_active", { id, model }),
+  aiProviderTest: (id: string) => call<ProviderStatus>("ai_provider_test", { id }),
+  aiProviderModels: (id: string) => call<AiModel[]>("ai_provider_models", { id }),
+  aiSignIn: (provider: string, id: string, method: AiSignInMethod) => call<ProviderStatus>("ai_sign_in", { provider, id, method }),
+  aiGenerateCommitMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_commit_message", { path, id }),
+  aiProposeRecompose: (path: string, id: string, base: string) => call<RecomposeProposal>("ai_propose_recompose", { path, id, base }),
+  aiProposeConflict: (path: string, id: string, file: string) => call<ConflictProposal>("ai_propose_conflict", { path, id, file }),
   searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
     call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
   fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
@@ -238,6 +271,8 @@ export const client = {
     listen<AuthPromptEvent>(AUTH_PROMPT_EVENT, (event) => handler(event.payload)),
   onActivity: (handler: (entry: ActivityEntry) => void): Promise<UnlistenFn> =>
     listen<ActivityEntry>(ACTIVITY_EVENT, (event) => handler(event.payload)),
+  onAiSignIn: (handler: (event: AiSignInEvent) => void): Promise<UnlistenFn> =>
+    listen<AiSignInEvent>(AI_SIGN_IN_EVENT, (event) => handler(event.payload)),
   onOpenPathRequested: (handler: (request: OpenPathRequested) => void): Promise<UnlistenFn> =>
     listen<OpenPathRequested>(OPEN_PATH_REQUESTED_EVENT, (event) => handler(event.payload)),
   onRepoChanged: (handler: (change: RepoChanged) => void): Promise<UnlistenFn> =>

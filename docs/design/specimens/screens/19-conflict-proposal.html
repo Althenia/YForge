@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 19 conflict resolver with AI proposals</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.input.mtext { display: block; min-height: 56px; }
+.composer .reason { margin-top: -2px; }
+.rpanel { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; grid-template-rows: 44px 1fr 52px; }
+.rhead { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px/20px var(--sans); white-space: nowrap; overflow: hidden; }
+.rhead .mono { font-weight: 600; }
+.rhead .dim { color: var(--muted); font-weight: 400; }
+.rhead .ref { font: 500 12px/16px var(--mono); color: var(--text); }
+.rbody { padding: 12px; display: grid; gap: 10px; align-content: start; overflow: auto; min-height: 0; }
+.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.actions { display: flex; gap: 8px; align-items: center; }
+.result { --lane: var(--border-strong); }
+.result .lines { padding: 8px 0; font: 400 12px/18px var(--mono); }
+.rline { display: grid; grid-template-columns: 40px 22px 1fr; min-height: 18px; white-space: pre; }
+.rline .ln { color: var(--muted); text-align: right; padding-right: 8px; }
+.rline .gl { width: auto; text-align: center; font-size: 12px; }
+.rline .mk { color: var(--muted); }
+.unresolved .gl.src { color: var(--muted); }
+.rfoot { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid var(--line); }
+.proposal { display: grid; gap: 8px; padding-bottom: 8px; border-radius: var(--r-sm); background: var(--sunken); box-shadow: inset 3px 0 0 var(--green-strong), inset 0 0 0 1px var(--line); }
+.proposal .chead { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); font: 600 13px/20px var(--sans); }
+.proposal p, .proposal pre, .proposal .hrow { margin: 0; padding: 0 12px 0 14px; }
+.proposal p { font: 400 12px/16px var(--sans); color: var(--muted); }
+.proposal pre { font: 400 12px/18px var(--mono); white-space: pre-wrap; }
+.note { padding: 8px 10px; border-radius: var(--r-md); font: 400 12px/16px var(--sans); }
+.frow.sel { position: relative; background: var(--selection); }
+.frow.sel::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--green-strong); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const banner = `<div class="banner op" role="group" aria-label="Merge in progress"><span>Merging <span class="ref">origin/main</span> into <span class="ref">main</span> · <span class="st st-C">! 1 conflict</span> · your changes are stashed and will be restored</span><span class="spacer"></span><span class="btn primary">Resolve</span><span class="btn danger">Abort merge</span></div>`;
+
+const rline = (n, gutter, text, cls = "") => `<div class="rline${cls}"><span class="ln">${n}</span><span class="gl${gutter === "C" || gutter === "I" ? " src" : ""}">${gutter}</span><span>${text}</span></div>`;
+
+const resolver = `<section class="panel rpanel" aria-label="Conflict resolver">
+  <div class="rhead"><span class="mono">README.md</span><span class="dim">·</span><span class="dim">conflict 1 of 1</span><span class="dim">·</span><span class="dim">Merging <span class="ref">origin/main</span> into <span class="ref">main</span></span><span class="spacer"></span></div>
+  <div class="rbody">
+    <div class="actions" role="toolbar" aria-label="Conflict navigation">${YF.iconBtn("previous", "Previous conflict")}${YF.iconBtn("next", "Next conflict")}<span class="reason" role="status">0 of 1 resolved · 1 proposal to review</span><span class="spacer"></span><span class="btn sm">${YF.glyph("wand", 14)}Propose resolution</span><span class="btn sm">Take all current</span><span class="btn sm">Take all incoming</span></div>
+    <div class="panes">
+      <div class="cpane" style="--lane: var(--l0)"><div class="chead"><span>Current · <span class="mono">main</span> · <span class="role">your branch</span></span></div><pre>Run \`npm start\`.</pre></div>
+      <div class="cpane" style="--lane: var(--l1)"><div class="chead"><span>Incoming · <span class="mono">origin/main</span> · <span class="role">upstream</span></span></div><pre>Run \`node src/app.js --verbose\` for detailed logs.</pre></div>
+    </div>
+    <section class="proposal" aria-label="Proposed resolution of conflict 1 of 1">
+      <div class="chead">${YF.glyph("wand", 14)}<span>Proposed resolution · draft from your AI provider</span></div>
+      <p>Keep both run modes: the upstream adds a verbose flag and the current branch documents the default start command.</p>
+      <pre>Run \`npm start\`, or \`node src/app.js --verbose\` for detailed logs.</pre>
+      <div class="hrow"><span class="btn sm primary">${YF.glyph("check", 14)}Accept</span><span class="btn sm">${YF.glyph("edit", 14)}Edit</span><span class="btn sm">${YF.glyph("close", 14)}Reject</span></div>
+    </section>
+    <div class="actions" role="group" aria-label="Conflict 1 of 1"><span class="btn sm">Take current</span><span class="btn sm">Take incoming</span><span class="btn sm">Take both (current first)</span><span class="btn sm">Take both (incoming first)</span><span class="btn sm">${YF.glyph("edit", 14)}Edit</span></div>
+    <div class="cpane result"><div class="chead">Result</div>
+      <div class="lines diff-lines">
+        ${rline(1, "", "# sample")}
+        ${rline(2, "", "")}
+        ${rline(3, "", "## Usage")}
+        ${rline(4, "", "")}
+        <div class="unresolved" role="group" aria-label="Unresolved conflict 1 of 1">
+          ${rline(5, "!", "&lt;&lt;&lt;&lt;&lt;&lt;&lt; main")}
+          ${rline(6, "C", "Run \`npm start\`.")}
+          ${rline(7, "", "=======")}
+          ${rline(8, "I", "Run \`node src/app.js --verbose\` for detailed logs.")}
+          ${rline(9, "", "&gt;&gt;&gt;&gt;&gt;&gt;&gt; origin/main")}
+        </div>
+        ${rline(10, "", "")}
+        ${rline(11, "", "## License")}
+        ${rline(12, "", "")}
+      </div>
+    </div>
+  </div>
+  <div class="rfoot"><span class="btn disabled">${YF.glyph("check")}Mark resolved <span class="k">⌘S</span></span><span class="reason">Resolve 1 conflict region first</span><span class="btn">Reset file</span></div>
+</section>`;
+
+const inspector = `<aside class="panel inspector" aria-label="Merge in progress">
+  <div class="ihead"><h2>Merge in progress</h2><p><span class="ref">origin/main</span> into <span class="ref">main</span></p></div>
+  <div class="ilist">
+    ${YF.lhead("warning", "Conflicted · 1")}
+    <div class="frow sel"><span class="badge st-C">!</span><span>README.md</span>${YF.acts("conflict")}</div>
+    ${YF.lhead("check", "Resolved · 0")}
+    <div class="empty">No files resolved yet.</div>
+  </div>
+  <div class="composer">
+    <div class="field"><label>Message</label><div class="input mtext">Merge remote-tracking branch 'origin/main'</div></div>
+    <div class="hrow"><span class="btn disabled" aria-disabled="true">Complete merge</span><span class="spacer"></span><span class="btn danger">Abort merge</span></div>
+    <div class="reason">Resolve 1 conflict first</div>
+  </div>
+</aside>`;
+
+const sidebar = `<aside class="panel sidebar" aria-label="Repository">
+  ${YF.sec("changes", "Changes", 1)}
+  ${YF.sec("branch", "Branches", 7)}
+  <div class="srow current">main <span class="meta up">↑3 · HEAD</span></div>
+  <div class="srow folder">bugfix/</div><div class="srow child">header</div>
+  <div class="srow folder">feature/</div><div class="srow child">greeting <span class="meta up">↑2</span></div><div class="srow child">inline-branch</div><div class="srow child">login</div><div class="srow child">search <span class="meta">↓1</span></div>
+  ${YF.sec("remote", "Remotes", 5)}
+  ${YF.sec("tag", "Tags", 3)}
+  ${YF.sec("stash", "Stashes", 2)}
+  ${YF.sec("worktree", "Worktrees", 2)}
+  <div class="srow">sample <span class="meta">main worktree</span></div>
+  <div class="srow">hotfix/wt-demo <span class="meta">clean</span></div>
+</aside>`;
+
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command({ crumb: ["sample", "main worktree", "main"] })}${YF.strip({ banner })}<div class="main">${sidebar}${resolver}${inspector}</div>${YF.activity({ command: "git merge origin/main", duration: "0.3 s", action: "" })}</div>`);
+document.body.classList.add("op");
+YF.boot("screen 19 · conflict resolver with AI proposals");
+</script>
+</body>
+</html>

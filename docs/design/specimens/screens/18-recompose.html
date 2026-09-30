@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 18 recompose</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.rpanel { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; grid-template-rows: 44px 1fr 52px; }
+.rhead { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px/20px var(--sans); white-space: nowrap; overflow: hidden; }
+.rhead .mono { font: 600 12px/16px var(--mono); }
+.rhead .dim { color: var(--muted); font-weight: 400; }
+.rbody { padding: 12px; display: grid; gap: 10px; align-content: start; overflow: hidden; min-height: 0; }
+.rfoot { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-top: 1px solid var(--line); }
+.rtool { display: flex; align-items: center; gap: 8px; }
+.note { padding: 8px 10px; border-radius: var(--r-md); font: 400 12px/16px var(--sans); }
+.note.attn { background: var(--attention-tint); color: var(--yellow-strong); }
+.split2 { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+h4 { margin: 0 0 6px; font: 600 12px/16px var(--sans); }
+.crow { display: flex; align-items: center; gap: 8px; min-height: 32px; padding: 0 8px; border-radius: var(--r-sm); min-width: 0; }
+.crow.hunk { margin-left: 20px; }
+.crow.focus { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus); }
+.crow .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 400 12px/16px var(--mono); }
+.grip { cursor: var(--cursors-drag); }
+.counts { font: 500 12px/16px var(--mono); }
+.counts .a { color: var(--st-A); } .counts .d { color: var(--danger); }
+.assign { flex: none; }
+.assign.un { color: var(--yellow-strong); }
+.cline { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-left: 44px; font: 400 12px/18px var(--mono); white-space: pre; }
+.cline.a { background: var(--green-soft); } .cline.d { background: rgba(239, 111, 111, 0.12); }
+.cline.sel { box-shadow: inset 2px 0 0 var(--green-strong); }
+.cline .cb { width: 24px; height: 24px; display: grid; place-items: center; font-weight: 500; }
+.cline.a .cb { color: var(--st-A); } .cline.d .cb { color: var(--danger); }
+.group { display: grid; gap: 8px; padding: 12px; border-radius: var(--r-md); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); margin-bottom: 8px; }
+.group.drop { background: var(--green-soft); box-shadow: inset 0 0 0 2px var(--green-strong); }
+.gh2 { display: flex; align-items: center; gap: 4px; }
+.group .input.area { height: 56px; }
+.gitems { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; font: 400 12px/16px var(--sans); }
+.gitems li { display: flex; gap: 8px; align-items: center; }
+.gitems .p { flex: 1; font: 400 12px/16px var(--mono); }
+.muted { color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const chip = (text, cls = "") => `<span class="chip assign ${cls}">${G(cls === "un" ? "warning" : "check", 14)}${text}</span>`;
+const file = (letter, path, chipHtml, extra = "", focus = false) => `<div class="crow${focus ? " focus" : ""}"><span class="icon-btn dense grip" aria-label="Drag ${path}">${G("grip")}</span><span class="icon-btn dense">${YF.icon.chevron}</span><span class="badge st-${letter}">${letter}</span><span class="p">${path}</span>${extra}${chipHtml}${YF.iconBtn("recompose", "Assign to a commit")}</div>`;
+const hunk = (label, a, d, chipHtml) => `<div class="crow hunk"><span class="icon-btn dense grip">${G("grip")}</span><span class="icon-btn dense">${YF.icon.chevron}</span><span class="p">${label}</span><span class="counts"><span class="a">+${a}</span> <span class="d">−${d}</span></span>${chipHtml}${YF.iconBtn("recompose", "Assign to a commit")}</div>`;
+const line = (k, n, text, sel) => `<div class="cline ${k}${sel ? " sel" : ""}"><span class="cb">${sel ? G("check", 14) : (k === "a" ? "+" : "−")}</span><span>${text}</span></div>`;
+const group = (n, msg, items, drop = false) => `<section class="group${drop ? " drop" : ""}" aria-label="Commit ${n}"><div class="gh2"><strong>Commit ${n}</strong><span class="spacer"></span>${YF.iconBtn("previous", "Move earlier")}${YF.iconBtn("next", "Move later")}${YF.iconBtn("trash", "Remove commit")}</div><div class="input area">${msg}</div><ul class="gitems">${items}</ul></section>`;
+const item = (p, scope, counts = "") => `<li><span class="p">${p}</span><span class="muted">${scope}</span>${counts ? `<span class="counts">${counts}</span>` : ""}</li>`;
+const view = `<section class="panel rpanel recompose" aria-label="Recompose">
+  <div class="rhead">${G("recompose")}<span>Recompose</span><span class="mono">origin/feature/greeting..HEAD</span><span class="dim">4 files</span><span class="spacer"></span><span class="btn sm">Back to graph</span></div>
+  <div class="rbody">
+    <div class="rtool"><span class="reason">Base</span><span class="input" style="min-width:220px;height:32px;padding:0 10px;align-items:center">Upstream · origin/feature/greeting ${YF.icon.chevron}</span><span class="reason" role="status">6 of 8 changes assigned</span><span class="spacer"></span><span class="btn sm">${G("wand", 14)}Propose with AI</span><span class="btn sm">${G("undo", 14)}Restore my grouping</span></div>
+    <div class="note attn" role="status">${G("warning")} Some of these commits are already on origin/feature/greeting. Recomposing them means the next push needs a force push.</div>
+    <div class="split2">
+      <section aria-label="Changes to assign"><h4>Changes</h4>
+        ${file("M", "src/util.js", chip("Split", "ok"), "", true)}
+        ${hunk("@@ -3,7 +3,7 @@", 2, 1, chip("Commit 1"))}
+        ${line("d", 4, "  return Math.min(Math.max(value, min), max);", true)}
+        ${line("a", 4, "  return Math.max(min, Math.min(value, max));", true)}
+        ${line("a", 5, "  // clamp keeps the lower bound first", false)}
+        ${hunk("@@ -23,7 +23,7 @@", 1, 1, chip("Commit 2"))}
+        ${file("M", "src/config.js", chip("Commit 1"))}
+        ${file("A", "notes/todo.md", chip("Unassigned", "un"))}
+        ${file("A", "assets/logo.png", chip("Commit 2"), '<span class="muted" style="font:400 12px/16px var(--sans)">binary, whole file</span>')}
+        <p class="reason">Drag a handle onto a commit, or focus a row and press 1–9 for a commit and 0 to unassign.</p>
+      </section>
+      <section aria-label="New commits, oldest first"><h4>New commits · oldest first</h4>
+        ${group(1, "Clamp helper results and raise retries", item("src/util.js", "1 of 2 hunks", '<span class="a" style="color:var(--st-A)">+2</span> <span class="d" style="color:var(--danger)">−1</span>') + item("src/config.js", "whole file", '<span class="a" style="color:var(--st-A)">+1</span> <span class="d" style="color:var(--danger)">−1</span>'))}
+        ${group(2, "Add the logo and slugify trim", item("src/util.js", "1 of 2 hunks", '<span class="a" style="color:var(--st-A)">+1</span> <span class="d" style="color:var(--danger)">−1</span>') + item("assets/logo.png", "whole file"), true)}
+        <span class="btn">${G("plus")}Add commit</span>
+      </section>
+    </div>
+  </div>
+  <div class="rfoot"><span class="btn primary disabled" style="opacity:.55">${G("recompose")}Recompose 2 commits</span><span class="btn">Cancel</span><span class="reason">Changes not assigned to any commit: notes/todo.md</span></div>
+</section>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${view}<aside class="panel inspector" aria-label="Recompose"><div class="ihead"><h2>${G("recompose")}Recompose</h2><p>3 commits become 2</p></div><div class="ilist"><div class="empty">Every change belongs to exactly one commit. Apply is undoable to the recorded HEAD.</div></div></aside></div>${YF.activity({ command: "git reset --mixed origin/feature/greeting", duration: "—", action: "" })}</div>`);
+YF.boot("screen 18 · recompose");
+</script>
+</body>
+</html>

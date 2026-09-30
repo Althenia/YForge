@@ -163,6 +163,15 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 - **Minimum sizes:** 16px for the logo (small variant), 120px wide for the lockup.
 - **App icon:** the logo itself. The family container fills the full canvas as on the other Y products; the macOS build applies the system mask.
 
+### Third-party marks
+
+**Status: approved 2026-09-30 (owner delegation).** The one exception to B5: Settings → AI identifies the AI providers a user can choose with their own official marks, so the user recognizes the account or service behind a provider.
+
+- **Source:** `brand/third-party/` holds the official files, byte-identical to the published downloads, with the source, date, terms, and sha256 of each in `brand/third-party/SOURCE.md`.
+- **Use:** a mark renders only inside the provider card and provider row, scaled proportionally, in the published variant for the current theme (black or Ink on light, white or Cloud on dark), beside the provider name and never larger than it. Never recolor, crop, outline, animate, combine two marks, or place a mark next to the YForge mark.
+- **Attribution:** Settings → AI states that the marks belong to their owners and imply no endorsement.
+- **No mark, no permission:** a provider without a mark, or whose terms do not permit its mark in an app, uses a neutral glyph from the icon set. Claude Code uses the terminal glyph until Anthropic grants written permission.
+
 ## Content
 
 - **Voice:** direct, calm, second person, sentence case.
@@ -230,4 +239,5 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 | B9 (Y motion scale 80, 140, 220, 320ms) | `motion.duration`: quick 120ms, base 180ms, slow 240ms | Kept to avoid changing tuned consumers; `base` means 180ms here, 140ms in YQuery, and 220ms in Y | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery icon grid: 16 units, stroke 1.4) | Icons: 24-unit grid, stroke 1.5 at 16px and 1.6 at 20 and 24px | The Git glyph set is drawn on the 24 grid; common chrome glyphs are not shared across products | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery S12: text-only context menus) | Menu and palette rows: leading 16px icon slot, empty without an established glyph (surface rule S15) | User directive for icon-driven controls | User (family review, 2026-09-30) | 2026-10-31 |
+| B5 (YForge marks only; another product's mark) | Settings → AI provider cards and rows: the OpenAI Blossom and the OpenRouter glyph, unmodified, as recorded in `brand/third-party/SOURCE.md` | The user must recognize which service a provider connects to; each publisher's brand page permits the unmodified mark to identify its service (OpenAI's Design Guidelines and usage terms; OpenRouter's brand assets page). Providers without a permitted mark use a neutral glyph | User (owner delegation, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery single accent) | Light theme: accent fill `#0B8550` (Y `primary-bg`) with `accent-ink` `#0A7B47` for text; YQuery uses `#0A7B47` for both | Filled controls keep the Y button green; text keeps AA on tonal chrome through `accent-ink` | User (family review, 2026-09-30) | 2026-10-31 |

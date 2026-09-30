@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 16 AI settings and add provider</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.app { grid-template-rows: 40px 1fr; }
+.icon-btn.on { background: var(--control-hover); color: var(--green-strong); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px; padding: 2px 10px 10px; min-height: 0; }
+.nav { padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav h2 { margin: 0; padding: 4px 8px 10px; font: 600 16px/22px var(--sans); letter-spacing: -0.01em; }
+.nrow { position: relative; min-height: 28px; display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 14px; border-radius: var(--r-sm); font: 400 13px/20px var(--sans); color: var(--muted); }
+.nrow.sel { background: var(--selection); font-weight: 500; color: var(--text); }
+.nrow.sel::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--green-strong); }
+.content { padding: 24px; display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+.section { max-width: 780px; width: 100%; display: grid; gap: 12px; }
+.section h1 { margin: 0 0 2px; font: 600 20px/26px var(--sans); }
+.section h3 { margin: 0; font: 600 14px/20px var(--sans); }
+.section > p { margin: 0; color: var(--muted); }
+.privacy { display: grid; gap: 6px; padding: 12px 16px; border-radius: var(--r-md); background: var(--control); box-shadow: inset 0 0 0 1px var(--line); }
+.privacy ul { margin: 0; padding-left: 16px; display: grid; gap: 4px; font: 400 12px/16px var(--sans); color: var(--muted); }
+.phead { display: flex; align-items: center; justify-content: space-between; }
+.plist { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.prow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px var(--line); }
+.prow.active { background: var(--selection); box-shadow: inset 2px 0 0 var(--green-strong), inset 0 0 0 1px var(--line); }
+.pname { display: grid; min-width: 0; }
+.pname strong { font: 600 13px/20px var(--sans); }
+.pname span { font: 400 12px/16px var(--sans); color: var(--muted); }
+.logo { width: 24px; height: 24px; display: inline-grid; place-items: center; }
+.logo img { width: 100%; height: 100%; display: block; }
+.logo.lg { width: 32px; height: 32px; }
+.logo.neutral { border-radius: var(--r-sm); background: var(--control); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+.logo.neutral svg { width: 60%; height: 60%; }
+.status { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 12px; border-radius: 999px; font: 500 12px/16px var(--sans); white-space: nowrap; }
+.status.ok { color: var(--green-strong); background: var(--green-soft); }
+.status.attn { color: var(--yellow-strong); background: var(--attention-tint); }
+.status.bad { color: var(--danger); background: rgba(239, 111, 111, 0.12); }
+.acts2 { display: inline-flex; gap: 4px; }
+.attrib { font: 400 12px/16px var(--sans); color: var(--muted); }
+.mono { font-family: var(--mono); }
+.dialog { width: 560px; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.card { border: 0; font: inherit; color: inherit; text-align: left; cursor: var(--cursors-action); display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 4px; padding: 12px; border-radius: var(--r-md); background: var(--control); box-shadow: inset 0 0 0 1px var(--line); }
+.card .logo { grid-row: 1 / span 2; align-self: start; }
+.card b { font: 600 13px/20px var(--sans); }
+.card span.b { font: 400 12px/16px var(--sans); color: var(--muted); }
+.card.hov { background: var(--control-hover); }
+.field { display: grid; gap: 4px; }
+.field label { font: 500 13px/20px var(--sans); }
+.fnote { font: 400 12px/16px var(--sans); color: var(--muted); }
+.codebox { padding: 2px 8px; border-radius: var(--r-sm); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); font: 400 12px/20px var(--mono); }
+.code-big { font: 600 20px/28px var(--mono); letter-spacing: 0.06em; }
+.crow2 { display: flex; align-items: center; gap: 8px; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const brandMark = (file) => new URL(`../../../../brand/third-party/${file}`, location.href).href;
+const dark = YF.theme === "dark";
+const openai = `<span class="logo"><img src="${brandMark(dark ? "openai/OAI_OpenAI-Blossom_White.svg" : "openai/OAI_OpenAI-Blossom_Black.svg")}" alt=""></span>`;
+const openrouter = `<span class="logo"><img src="${brandMark(dark ? "openrouter/glyph-cloud.svg" : "openrouter/glyph-ink.svg")}" alt=""></span>`;
+const neutralCli = `<span class="logo neutral">${G("terminal", 24)}</span>`;
+const neutralApi = `<span class="logo neutral">${G("plug", 24)}</span>`;
+const lg = (html) => html.replace('class="logo', 'class="logo lg');
+const nav = (name, icon, sel = false) => `<div class="nrow${sel ? " sel" : ""}"><span class="icon-slot">${G(icon)}</span>${name}</div>`;
+const ok = `<span class="status ok">${G("check", 14)}Ready</span>`;
+const row = (logo, name, kind, model, status, active, acts) => `<li class="prow${active ? " active" : ""}">${logo}<span class="pname"><strong>${name}</strong><span>${kind} · <span class="mono">${model}</span></span></span>${status}${active ? `<span class="chip ok">${G("check", 14)}Active</span>` : "<span></span>"}<span class="acts2">${acts}</span></li>`;
+const act = (use) => `${use ? '<span class="btn sm">Use</span>' : ""}${YF.iconBtn("edit", "Edit provider")}${YF.iconBtn("trash", "Remove provider")}`;
+const flags = YF.flags;
+const settings = `<section class="section" aria-labelledby="ai">
+  <h1 id="ai">AI</h1>
+  <p>Optional. Every Git workflow works without a provider, and nothing is ever committed, rewritten, or saved for you.</p>
+  <div class="privacy"><h3>What is sent</h3><ul>
+    <li>Nothing is sent until you run an AI action, and only to the provider you chose here.</li>
+    <li>Generate commit sends your staged diff and the subjects of your last 10 commits. Propose resolution sends each conflict's current, incoming, and base text with 3 lines of context. Propose with AI in Recompose sends the changes of the unpushed commits.</li>
+    <li>Files named .env*, *.pem, *.key, id_rsa*, or credentials* are never sent; their names are listed as withheld. Large diffs are cut and binary files go by name only.</li>
+    <li>Answers are drafts you review. Nothing is committed, rewritten, or written to a file for you.</li>
+    <li>API keys are stored in the macOS Keychain, never in YForge's database. YForge never reads or stores the sign-in of the Codex or Claude Code CLIs.</li></ul></div>
+  <div class="phead"><h3>Providers</h3><span class="btn">${G("plus")}Add provider</span></div>
+  <ul class="plist" aria-label="AI providers">
+    ${row(neutralCli, "Claude Code", "Claude Code", "default model", ok, true, act(false))}
+    ${row(openai, "ChatGPT", "ChatGPT", "default model", `<span class="status attn">${G("warning", 14)}Signed out</span>`, false, act(false))}
+    ${row(openrouter, "OpenRouter", "OpenRouter", "anthropic/claude-sonnet", `<span class="status bad">${G("warning", 14)}Key rejected</span>`, false, act(false))}
+    ${row(neutralApi, "Local Ollama", "OpenAI-compatible", "llama3.1", ok, false, act(true))}
+  </ul>
+  <p class="attrib">OpenAI and the OpenAI Blossom are trademarks of OpenAI; OpenRouter and its mark belong to OpenRouter. They identify the providers here and do not imply endorsement.</p>
+</section>`;
+const card = (logo, title, blurb, hov = false) => `<button class="card${hov ? " hov" : ""}" type="button">${lg(logo)}<b>${title}</b><span class="b">${blurb}</span></button>`;
+const addDialog = `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="Add an AI provider">
+  <h3>Add an AI provider</h3>
+  <p>Nothing is sent to a provider until you run an AI action. You can add several and choose one to use.</p>
+  <div class="cards" role="group" aria-label="Provider">
+    ${card(openai, "ChatGPT", "Your ChatGPT subscription, through the installed Codex CLI and its own sign-in.", true)}
+    ${card(neutralCli, "Claude Code", "Your signed-in Claude Code profile, through the installed claude CLI.")}
+    ${card(openrouter, "OpenRouter", "Any model on OpenRouter, with your API key.")}
+    ${card(neutralApi, "OpenAI-compatible", "Any endpoint that speaks the OpenAI chat API. Add as many as you need.")}
+  </div>
+  <div class="foot"><span class="btn">Cancel</span></div>
+</div>`;
+const signIn = `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="AI provider">
+  <h3>AI provider</h3>
+  <div class="crow2">${lg(openai)}<div class="pname" style="flex:1"><strong>ChatGPT</strong><span>ChatGPT</span></div><span class="status attn">${G("warning", 14)}Signed out</span><span class="btn sm">${G("sync", 14)}Check again</span></div>
+  <p class="fnote">${G("check", 14)} codex is installed</p>
+  <div class="field"><h3>Sign in</h3>
+    <p class="fnote">Open this address on any device and enter the code. YForge never sees your password.</p>
+    <div><div class="fnote">Address</div><div class="crow2"><code class="codebox">https://auth.openai.com/codex/device</code>${YF.iconBtn("copy", "Copy address")}</div></div>
+    <div><div class="fnote">Code</div><div class="crow2"><code class="codebox code-big">AB12-CD34</code>${YF.iconBtn("copy", "Copy code")}</div></div>
+    <div><span class="btn sm">${G("close", 14)}Cancel sign-in</span></div>
+  </div>
+  <div class="field"><label>Name</label><div class="input"><span>ChatGPT</span></div></div>
+  <div class="field"><label>Executable path (optional)</label><div class="input"><span style="color:var(--muted)">Found automatically: codex</span></div></div>
+  <div class="foot"><span class="btn text-danger">${G("trash", 14)}Remove provider</span><span class="spacer"></span><span class="btn">Done</span></div>
+</div>`;
+const keyDialog = `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="AI provider">
+  <h3>AI provider</h3>
+  <div class="crow2">${lg(openrouter)}<div class="pname" style="flex:1"><strong>OpenRouter</strong><span>OpenRouter</span></div><span class="status bad">${G("warning", 14)}Key rejected</span><span class="btn sm">${G("sync", 14)}Test connection</span></div>
+  <div class="field"><label>API key</label><div class="crow2">${G("lock")}<span>Key saved in the macOS Keychain</span><span class="btn sm">Replace</span><span class="btn sm text-danger">Clear</span></div><span class="fnote">The saved key is never shown again.</span></div>
+  <div class="field"><label>Model</label><div class="crow2"><div class="input" style="flex:1"><span class="mono">anthropic/claude-sonnet</span></div><span class="btn sm">Load models</span></div><span class="fnote">Type a model id, or load the list from the endpoint.</span></div>
+  <div class="hrow"><span class="btn primary">${G("check")}Use this provider</span><span class="reason">Ready status is required: key rejected</span></div>
+  <div class="foot"><span class="btn text-danger">${G("trash", 14)}Remove provider</span><span class="spacer"></span><span class="btn">Done</span></div>
+</div>`;
+const overlay = flags.has("signin") ? signIn : flags.has("key") ? keyDialog : flags.has("dialog") ? addDialog : "";
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"')}
+<main class="settings"><nav class="panel nav" aria-label="Settings sections"><h2>Settings</h2>${nav("General", "settings")}${nav("Git", "branch")}${nav("Appearance", "theme")}${nav("AI", "wand", true)}${nav("Privacy &amp; diagnostics", "lock")}</nav>
+<div class="panel content">${settings}</div></main></div>${overlay}`);
+YF.boot("screen 16 · AI settings and add provider");
+</script>
+</body>
+</html>
