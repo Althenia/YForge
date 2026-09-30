@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 26 pull requests</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.dialog { width: 520px; }
+.dialog .field { display: grid; gap: 6px; }
+.dialog .field label { font: 500 12px/16px var(--sans); color: var(--muted); }
+.dialog .input.area { min-height: 84px; align-items: flex-start; padding-top: 8px; }
+.dialog .note2 { color: var(--muted); font: 400 12px/18px var(--sans); }
+.dialog .note2 .ref, .dialog p .ref { font: 500 12px/16px var(--mono); color: var(--text); }
+.dialog .names { margin: 0; padding: 0; list-style: none; font: 500 12px/16px var(--mono); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const create = YF.flags.has("create");
+const merge = YF.flags.has("merge");
+const pulls = [
+  { n: 7, title: "Add retry helper", author: "chen", from: "feature/retry", to: "main", current: true, acts: true },
+  { n: 6, title: "Fix header alignment when the sidebar is narrow", author: "bo", from: "bugfix/header", to: "main" },
+  { n: 4, title: "Prototype settings panel", author: "yui", from: "feature/settings", to: "develop" }
+];
+const files = [
+  ["A", "src/", "retry.ts", 42, 0],
+  ["M", "src/", "app.ts", 6, 3],
+  ["M", "src/", "run.ts", 2, 2],
+  ["D", "src/", "old-retry.ts", 0, 18],
+  ["R", "docs/", "retry.md", 4, 1]
+];
+const badgeClass = { A: "st-A", M: "st-M", D: "st-D", R: "st-R" };
+const total = files.reduce(([a, d], f) => [a + f[3], d + f[4]], [0, 0]);
+const inspector = `<aside class="panel inspector" aria-label="Pull request"><div class="ihead"><h2>#7 Add retry helper</h2>
+  <p><span class="chip ok">${G("pullrequest", 14)}Open</span> chen</p>
+  <div class="hrow" style="gap:8px;margin-top:10px"><span class="btn sm">${G("open", 14)}Open in browser</span><span class="btn sm">${G("merge", 14)}Merge…</span></div></div>
+  <div class="ilist">
+    <p class="cbody">Retries a failed remote call with a bounded backoff, so a flaky network no longer aborts a fetch.</p>
+    <div class="cmeta">
+      <div class="mrow"><span class="k">Branches</span><span class="v"><span class="ref">feature/retry</span> → <span class="ref">main</span></span></div>
+      <div class="mrow"><span class="k">Author</span><span class="v">chen</span></div>
+      <div class="mrow"><span class="k">Created</span><span class="v">29 Sep 2026, 08:00 <span class="ago">· 1d ago</span></span></div>
+      <div class="mrow"><span class="k">Updated</span><span class="v">30 Sep 2026, 09:00 <span class="ago">· 3h ago</span></span></div>
+      <div class="mrow"><span class="k">Mergeable</span><span class="v">Can be merged</span></div>
+      <div class="mrow"><span class="k">Address</span><span class="v url">https://github.com/team/app/pull/7</span></div>
+    </div>
+    <div class="lhead"><span class="lhead-title">${G("diff")}Files · ${files.length}</span><span class="delta"><span class="plus">+${total[0]}</span> <span class="minus">−${total[1]}</span></span></div>
+    ${files.map(([letter, dir, name, add, del]) => `<div class="frow"><span class="badge ${badgeClass[letter]}">${letter}</span><span class="path"><bdi dir="ltr">${dir}<b>${name}</b></bdi></span><span class="delta"><span class="plus">+${add}</span> <span class="minus">−${del}</span></span></div>`).join("")}
+  </div>
+  <div class="activity note-line" style="padding:8px 16px;font:400 12px/16px var(--sans);color:var(--muted)">Files and counts are as the platform reports them.</div></aside>`;
+const dialog = create
+  ? `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="New pull request"><h3>New pull request</h3>
+  <p class="note2">On GitHub for <span class="ref">team/app</span></p>
+  <div class="field"><label>Source branch</label><div class="input"><span>feature/retry</span>${YF.icon.chevron}</div></div>
+  <div class="field"><label>Target branch</label><div class="input"><span>main</span>${YF.icon.chevron}</div></div>
+  <div class="field"><label>Title</label><div class="input"><span>Add retry helper</span></div></div>
+  <div class="field"><label>Description</label><div class="input area"><span class="ph">Say what changes and why</span></div></div>
+  <div class="foot"><span class="btn">Cancel</span><span class="btn primary">Create pull request</span></div></div>`
+  : merge
+    ? `<div class="scrim"></div><div class="dialog" role="alertdialog" aria-label="Merge pull request #7"><h3>Merge pull request #7?</h3>
+  <ul class="names"><li>Add retry helper</li></ul>
+  <p>Merges <span class="ref">feature/retry</span> into <span class="ref">main</span> on GitHub. The merge happens on the server and cannot be undone from YForge.</p>
+  <p>YForge then fetches all remotes so your remote-tracking branches catch up. Your local branches are not changed.</p>
+  <div class="foot"><span class="btn focus-ring">Cancel</span><span class="btn primary">Merge pull request</span></div></div>`
+    : "";
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ pulls })}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git remote", duration: "0.0 s", action: "" })}</div>` + dialog);
+YF.mountGraph({ selected: -1, hovered: -1 });
+YF.boot("screen 26 · pull requests");
+</script>
+</body>
+</html>

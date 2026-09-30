@@ -277,7 +277,7 @@ fn reopening_keeps_the_schema_version_data_and_wal_journal() {
     let journal: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 4);
+    assert_eq!(version, 6);
     assert_eq!(journal, "wal");
 }
 
@@ -351,7 +351,7 @@ fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safet
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!((kept.as_str(), version), ("kept", 4));
+    assert_eq!((kept.as_str(), version), ("kept", 6));
     assert!(!dir.path().join("yforge.db.pre-migration").exists());
 }
 

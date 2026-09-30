@@ -183,7 +183,7 @@ function Notices(props: { actions: RepoActions; plain: boolean }) {
       {(notice) => (
         <span class="strip-notice" role="group" aria-label={notice.text}>
           <span classList={{ chip: !props.plain, "chip-attention": !props.plain }}>
-            <Icon name="stash" />
+            <Icon name={notice.icon ?? "stash"} />
             {notice.text}
           </span>
           <Show when={notice.detail}>{(detail) => <span class="hint-text">{detail()}</span>}</Show>

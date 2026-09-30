@@ -20,6 +20,7 @@ import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityMod
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
 import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext, type PanelRequest } from "./palette";
 import type { RepoActions } from "./repoActions";
+import type { PlatformActions } from "./platformActions";
 import { SHORTCUTS } from "./shortcuts";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
 import { activateTab, closeTab, groupTabs, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabGroups, tabId, type MainRoots, type Tab, type TabsState } from "./tabs";
@@ -41,6 +42,7 @@ export type RepoBridge = {
   focusComposer: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
   openPanel: (panel: PanelRequest) => void;
+  platform: PlatformActions;
 };
 
 const PALETTE_SHORTCUT = SHORTCUTS.palette;
@@ -62,6 +64,7 @@ export function createAppState(router: AppRouter) {
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
   const [bridge, setBridge] = createSignal<RepoBridge | undefined>();
+  let platformAddRequested = false;
   const queryClient = createQueryClient();
   const online = createOnline();
   const uiPrefs = createAppUiPrefs(queryClient, (failure) => setNotice(asMessage(failure)));
@@ -106,6 +109,11 @@ export function createAppState(router: AppRouter) {
 
   function openSettings(section: string): void {
     void router.navigate({ to: "/settings/$section", params: { section }, search: { tab: activeTabId() }, replace: true });
+  }
+
+  function addPlatformConnection(): void {
+    platformAddRequested = true;
+    openSettings("platforms");
   }
 
   const tabGroupList = createMemo(() => tabGroups(tabs(), mainRoots()));
@@ -209,6 +217,7 @@ export function createAppState(router: AppRouter) {
     openCreate: () => setEntryDialog("create"),
     closeTab: () => applyTabs(closeTab(tabs(), tabs().active)),
     openSettings,
+    addPlatformConnection,
     toggleDrawer: () => setDrawerOpen((open) => !open),
     openSearch: () => bridge()?.openSearch(),
     openExternal: (with_) => void openExternal(with_),
@@ -235,6 +244,7 @@ export function createAppState(router: AppRouter) {
       undo: path === undefined ? { kind: "unavailable", reason: "Open a repository first" } : undoState(activity(), path),
       anchor: { left: Math.max(16, window.innerWidth / 2 - 160), top: 140 },
       app: paletteApp(),
+      platform: current?.platform,
       revealCommit: (sha) => current?.revealCommit(sha),
       revealRef: (name) => current?.revealRef(name),
       revealHead: () => current?.revealHead(),
@@ -336,6 +346,12 @@ export function createAppState(router: AppRouter) {
     },
     activate: (index: number) => applyTabs(activateTab(tabs(), index)),
     openSettings,
+    addPlatformConnection,
+    takePlatformAddRequest: (): boolean => {
+      const requested = platformAddRequested;
+      platformAddRequested = false;
+      return requested;
+    },
     respondAuth,
     cancelOperationPrompts,
     saveSettings,

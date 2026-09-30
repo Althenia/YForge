@@ -46,6 +46,23 @@ export function removeCopy(worktree: WorktreeStatus, force: boolean): ConfirmCop
   };
 }
 
+export function removeManyCopy(worktrees: readonly WorktreeStatus[]): ConfirmCopy {
+  const dirty = worktrees.filter((worktree) => worktree.dirty).length;
+  const consequences = ["The folders are deleted from disk.", "Their branches stay as branches."];
+  if (dirty === 0) return { title: `Remove ${worktrees.length} worktrees?`, consequences, names: worktrees.map((worktree) => worktree.path), confirmLabel: "Remove worktrees" };
+  return {
+    title: `Remove ${worktrees.length} worktrees and discard changes?`,
+    consequences: [
+      `${dirty === 1 ? "1 of them has" : `${dirty} of them have`} uncommitted changes and untracked files that are deleted with the folder.`,
+      "A safety snapshot of them is saved first; restore it from Recovery while it is kept (30 days).",
+      ...consequences,
+    ],
+    names: worktrees.map((worktree) => worktree.path),
+    confirmLabel: "Remove and discard changes",
+    warning: true,
+  };
+}
+
 export function integrationTargets(source: WorktreeStatus, all: readonly WorktreeStatus[]): IntegrationTarget[] {
   return all
     .filter((other) => other.path !== source.path && other.branch !== null && other.branch !== source.branch && !other.prunable && !other.bare)

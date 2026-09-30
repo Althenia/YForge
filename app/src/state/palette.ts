@@ -8,12 +8,13 @@ import { commitMenu, localTarget, NOT_AVAILABLE, operationBlock, refMenu, remote
 import type { Anchor, RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
 import { pullModes, syncMenu } from "./syncModel";
+import type { PlatformActions } from "./platformActions";
 
 export type PickerOption = { value: string; label: string; note?: string; disabledReason?: string };
 
 export type ArgSpec = { name: string; label: string; options: () => PickerOption[] | Promise<PickerOption[]> };
 
-export type PaletteGroup = "Repository" | "Branches" | "Commits" | "Tags" | "Sync" | "Stash" | "Operation" | "Navigate" | "Application";
+export type PaletteGroup = "Repository" | "Branches" | "Commits" | "Tags" | "Sync" | "Stash" | "Pull requests" | "Operation" | "Navigate" | "Application";
 
 export type PaletteCommand = {
   id: string;
@@ -69,6 +70,10 @@ const commandIcons: Partial<Record<string, IconName>> = {
   "stash.apply": "stash",
   "stash.pop": "stash",
   "stash.drop": "trash",
+  "pulls.create": "pullrequest",
+  "pulls.merge": "merge",
+  "pulls.open": "open",
+  "platforms.add": "plug",
 };
 
 export function commandIcon(id: string): IconName | undefined {
@@ -90,6 +95,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "git", label: "Git", icon: "branch" },
   { id: "appearance", label: "Appearance", icon: "theme" },
   { id: "ai", label: "AI", icon: "wand" },
+  { id: "platforms", label: "Platforms", icon: "plug" },
   { id: "privacy", label: "Privacy & diagnostics", icon: "lock" },
   { id: "repository", label: "This repository", icon: "folder" },
 ];
@@ -101,6 +107,7 @@ export type PaletteApp = {
   openCreate: () => void;
   closeTab: () => void;
   openSettings: (section: string) => void;
+  addPlatformConnection: () => void;
   toggleDrawer: () => void;
   openSearch: () => void;
   openExternal: (with_: "editor" | "terminal" | "finder") => void;
@@ -119,6 +126,7 @@ export type PaletteContext = {
   undo: UndoState;
   anchor: Anchor;
   app: PaletteApp;
+  platform: PlatformActions | undefined;
   revealCommit: (sha: string) => void;
   revealRef: (name: string) => void;
   focusComposer: () => void;
@@ -231,6 +239,16 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
   const noStashes = snapshot !== undefined && snapshot.stashes.length === 0 ? "This repository has no stashes" : undefined;
   const localBranchOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id).filter((option) => option.value.startsWith("local_branch:"))) });
   const tagOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id).filter((option) => option.value.startsWith("tag:"))) });
+  const platform = context.platform;
+  const listedPulls = platform?.pulls() ?? [];
+  const openPulls = listedPulls.filter((pull) => pull.state === "open");
+  const noPlatform = repo !== undefined && platform?.matched() === undefined ? "No platform connection matches this repository's remotes" : undefined;
+  const pullOptions = (pulls: typeof listedPulls): PickerOption[] => pulls.map((pull) => ({ value: String(pull.number), label: `#${pull.number} ${pull.title}`, note: `${pull.source_ref} → ${pull.target_ref}` }));
+  const pullArg = (label: string, pulls: typeof listedPulls): ArgSpec => ({ name: "pull", label, options: () => pullOptions(pulls) });
+  const withPull = (pulls: typeof listedPulls, run: (pull: (typeof listedPulls)[number], platform: PlatformActions) => void) => (values: string[]) => {
+    const pull = pulls.find((entry) => String(entry.number) === values[0]);
+    if (platform !== undefined && pull !== undefined) run(pull, platform);
+  };
   const operation = snapshot?.operation ?? null;
   const noOperation = operation === null ? "No operation is in progress" : undefined;
   const modeCommand = (mode: PullMode, label: string): PaletteCommand =>
@@ -529,6 +547,30 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       ...(noStashes === undefined ? {} : { disabledReason: noStashes }),
       run: withStash((stash, actions) => actions.dropStash(stash)),
     }),
+    command({
+      id: "pulls.create",
+      title: "Create pull request…",
+      group: "Pull requests",
+      ...(noPlatform === undefined ? {} : { disabledReason: noPlatform }),
+      run: () => void platform?.openCreate(),
+    }),
+    command({
+      id: "pulls.merge",
+      title: "Merge pull request…",
+      group: "Pull requests",
+      args: [pullArg("Merge", openPulls)],
+      ...(noPlatform === undefined && openPulls.length > 0 ? {} : { disabledReason: noPlatform ?? "This repository has no open pull requests" }),
+      run: withPull(openPulls, (pull, actions) => actions.requestMerge(pull)),
+    }),
+    command({
+      id: "pulls.open",
+      title: "Open pull request in browser…",
+      group: "Pull requests",
+      args: [pullArg("Open", listedPulls)],
+      ...(noPlatform === undefined && listedPulls.length > 0 ? {} : { disabledReason: noPlatform ?? "This repository has no listed pull requests" }),
+      run: withPull(listedPulls, (pull, actions) => actions.openInBrowser(pull)),
+    }),
+    command({ id: "platforms.add", title: "Add platform connection…", group: "Application", run: () => app.addPlatformConnection() }),
     command({ id: "operation.continue", title: "Continue operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.continueOperation(null) }),
     command({ id: "operation.skip", title: "Skip step", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.skipOperation() }),
     command({ id: "operation.abort", title: "Abort operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => repo?.actions.abortOperation() }),

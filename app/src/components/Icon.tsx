@@ -121,6 +121,41 @@ const glyphs: Record<IconName, () => JSX.Element> = {
   open: () => <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />,
   file: () => <path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4" />,
   history: () => <path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4M12 8v4l3 2" />,
+  github: () => (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="9.5" cy="8.5" r="1.3" />
+      <circle cx="9.5" cy="15.5" r="1.3" />
+      <circle cx="14.5" cy="12" r="1.3" />
+      <path d="M9.5 9.8v4.4M9.5 12h3.7" />
+    </>
+  ),
+  gitlab: () => (
+    <>
+      <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
+      <circle cx="9.5" cy="8.8" r="1.2" />
+      <circle cx="9.5" cy="15.2" r="1.2" />
+      <circle cx="14.5" cy="12" r="1.2" />
+      <path d="M9.5 10v4M9.5 12h3.8" />
+    </>
+  ),
+  bitbucket: () => (
+    <>
+      <path d="M4 5h16l-2.2 14H6.2z" />
+      <circle cx="9.5" cy="9.5" r="1.2" />
+      <circle cx="9.5" cy="14.5" r="1.2" />
+      <circle cx="14.5" cy="12" r="1.2" />
+      <path d="M9.5 10.7v2.6M9.5 12h3.8" />
+    </>
+  ),
+  pullrequest: () => (
+    <>
+      <circle cx="6" cy="5.5" r="2" />
+      <circle cx="6" cy="18.5" r="2" />
+      <circle cx="18" cy="18.5" r="2" />
+      <path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-3M14.5 4.5 12 7l2.5 2.5" />
+    </>
+  ),
 };
 
 const strokeFor = (size: number): number => (size <= 16 ? 1.5 : 1.6);

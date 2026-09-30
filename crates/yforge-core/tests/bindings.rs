@@ -12,12 +12,16 @@ use yforge_core::{
     RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
 use yforge_core::{
-    AiModel, AiSignInEvent, AiSignInMethod, ApiKeyChange, CommitDraft, ConflictProposal,
-    ProviderConfig, ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate,
-    RecomposeProposal,
+    AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod, ApiKeyChange,
+    AuthMode, CommitDraft, ConflictProposal, ModelInfo, ProviderConfig, ProviderInput,
+    ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal,
 };
 use yforge_core::{
     CliInstall, FileAtRevision, GraphVisibility, OpenPathRequested, RepoUiPrefs, StashDetails,
+};
+use yforge_core::{
+    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
+    PullRequest, RepoRef,
 };
 use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
@@ -94,7 +98,11 @@ fn export_all(dir: &Path) {
     ApiKeyChange::export_all(&config).expect("export ApiKeyChange");
     ProviderStatus::export_all(&config).expect("export ProviderStatus");
     ProviderSummary::export_all(&config).expect("export ProviderSummary");
-    AiModel::export_all(&config).expect("export AiModel");
+    ModelInfo::export_all(&config).expect("export ModelInfo");
+    AuthMode::export_all(&config).expect("export AuthMode");
+    AiFeature::export_all(&config).expect("export AiFeature");
+    AiFeatureConfig::export_all(&config).expect("export AiFeatureConfig");
+    AiFeatureSummary::export_all(&config).expect("export AiFeatureSummary");
     AiSignInMethod::export_all(&config).expect("export AiSignInMethod");
     AiSignInEvent::export_all(&config).expect("export AiSignInEvent");
     CommitDraft::export_all(&config).expect("export CommitDraft");
@@ -111,6 +119,15 @@ fn export_all(dir: &Path) {
     AppUiPrefs::export_all(&config).expect("export AppUiPrefs");
     OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
     CliInstall::export_all(&config).expect("export CliInstall");
+    PlatformKind::export_all(&config).expect("export PlatformKind");
+    PlatformConnection::export_all(&config).expect("export PlatformConnection");
+    RepoRef::export_all(&config).expect("export RepoRef");
+    PrState::export_all(&config).expect("export PrState");
+    PullRequest::export_all(&config).expect("export PullRequest");
+    PrFile::export_all(&config).expect("export PrFile");
+    PrDetail::export_all(&config).expect("export PrDetail");
+    CreatePull::export_all(&config).expect("export CreatePull");
+    MatchedRepo::export_all(&config).expect("export MatchedRepo");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

@@ -46,7 +46,12 @@
     plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>',
     open: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
     file: '<path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4"/>',
-    history: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4M12 8v4l3 2"/>'
+    history: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4M12 8v4l3 2"/>',
+    github: '<circle cx="12" cy="12" r="9"/><circle cx="9.5" cy="8.5" r="1.3"/><circle cx="9.5" cy="15.5" r="1.3"/><circle cx="14.5" cy="12" r="1.3"/><path d="M9.5 9.8v4.4M9.5 12h3.7"/>',
+    gitlab: '<path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z"/><circle cx="9.5" cy="8.8" r="1.2"/><circle cx="9.5" cy="15.2" r="1.2"/><circle cx="14.5" cy="12" r="1.2"/><path d="M9.5 10v4M9.5 12h3.8"/>',
+    bitbucket: '<path d="M4 5h16l-2.2 14H6.2z"/><circle cx="9.5" cy="9.5" r="1.2"/><circle cx="9.5" cy="14.5" r="1.2"/><circle cx="14.5" cy="12" r="1.2"/><path d="M9.5 10.7v2.6M9.5 12h3.8"/>',
+    pullrequest: '<circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="18.5" r="2"/><path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-3M14.5 4.5 12 7l2.5 2.5"/>',
+    plug: '<path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/>'
   };
   const glyph = (name, size = 16) => svg(paths[name], size, size <= 16 ? 1.5 : 1.6);
   const icon = {
@@ -165,7 +170,14 @@
 
   const sec = (name, title, n) => `<div class="sec"><span class="sec-title">${glyph(name)}${title}</span> <span class="n">${n}</span></div>`;
 
-  function sidebar({ current = "greeting", repo, recovery = false, worktrees = ["sample|main worktree|", "hotfix/wt-demo|clean|"] } = {}) {
+  const pullState = { Open: ["pullrequest", "ok"], Merged: ["merge", ""], Closed: ["close", "bad"] };
+  const pullRow = ({ n, title, author, from, to, state = "Open", current = false, acts = false }) => {
+    const [icon, tone] = pullState[state];
+    return `<div class="srow pull${current ? " current" : ""}" role="button" aria-label="Pull request #${n}: ${title}, by ${author}, ${from} to ${to}, ${state}"><span class="pull-main"><span class="pull-line"><span class="pull-number">#${n}</span><span class="pull-title">${title}</span></span><span class="pull-sub">${author} · <span class="ref">${from}</span> → <span class="ref">${to}</span></span></span><span class="chip pull-state${tone ? " " + tone : ""}">${glyph(icon, 14)}${state}</span>${acts ? `<span class="acts">${iconBtn("open", `Open pull request #${n} in browser`, 14)}${iconBtn("merge", `Merge pull request #${n}`, 14)}</span>` : ""}</div>`;
+  };
+  const pullsSection = (rows, count) => `<div class="sec"><span class="sec-title">${glyph("pullrequest")}Pull requests</span> <span class="n">${count}</span><span class="icon-btn dense" aria-label="New pull request">${glyph("plus", 14)}</span></div>${rows.map(pullRow).join("")}<div class="srow pull-filter">Show merged and closed</div>`;
+
+  function sidebar({ current = "greeting", repo, recovery = false, pulls = null, worktrees = ["sample|main worktree|", "hotfix/wt-demo|clean|"] } = {}) {
     const row = (name, meta = "", cls = "") => `<div class="srow${cls}${name === current && cls.includes("child") ? " current" : ""}">${name}${meta ? ` <span class="meta${meta.startsWith("↑") ? " up" : ""}">${meta}</span>` : ""}</div>`;
     return `<aside class="panel sidebar" aria-label="Repository">${repo ? `<div class="sec">${repo}</div>` : ""}
       ${sec("changes", "Changes", 2)}
@@ -178,6 +190,7 @@
       ${sec("stash", "Stashes", 2)}
       ${sec("worktree", "Worktrees", 2)}
       ${worktrees.map((entry) => { const [name, meta, cls] = entry.split("|"); return `<div class="srow${cls ? " " + cls : ""}">${name} <span class="meta">${meta}</span></div>`; }).join("")}
+      ${pulls ? pullsSection(pulls, pulls.length) : ""}
       ${recovery ? `${sec("history", "Recovery", "")}<div class="srow">Reflog</div><div class="srow">Lost commits</div><div class="srow">Safety snapshots</div>` : ""}
     </aside>`;
   }
@@ -311,5 +324,5 @@
     }
   }
 
-  window.YF = { flags, theme, icon, glyph, notice, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, aurora, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
+  window.YF = { pullsSection, flags, theme, icon, glyph, notice, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, aurora, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
 })();

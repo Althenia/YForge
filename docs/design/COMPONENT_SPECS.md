@@ -308,3 +308,23 @@ Specimen 25, rule S29. The diff panel frame without the toolbar row: a breadcrum
 
 Rule S30. A Settings → General row "Command line": a secondary button with the `terminal` glyph, "Install yforge command" (then "Reinstall yforge command"), and below it a status note with the written path, whether an earlier copy was replaced, and that `~/.local/bin` must be on PATH. A refusal appears as an alert with the core's cause.
 
+## Platform connections
+
+Settings → Platforms (specimen 14 `#platforms`, rule S31, proposal).
+
+- **Row:** the provider row grid: a 24px neutral platform glyph tile (`github`, `gitlab`, or `bitbucket` in a `material.control` tile with a 1px `rule` inset, never a platform logo), the name in `ui-strong` over the kind and the mono host in `ui-small` muted, the `chip-attention` chip "Certificate not checked" (warning glyph) when the connection accepts an untrusted certificate, a text Test button, and Edit and Remove as 24px icon buttons with tooltips.
+- **Result:** below the row, a `chip-success` "Connected as <login>" (check glyph) or an error note with the warning glyph, the failure text ("Authentication failed for <host>"), and a text-labelled "Edit connection".
+- **Add and edit dialog:** the entry dialog with a `segmented` radio group for GitHub, GitLab, and Bitbucket (glyph and word), Host, Name (defaults to the platform name until edited), Access token (`password`, never filled from storage), the "Accept an untrusted certificate" checkbox with a plain-language warning below it, and "Add and test connection" or "Save and test connection". Editing adds the connection with the new token and removes the old one only after the add succeeds.
+
+## Pull requests
+
+Specimen 26, rule S31 (proposal).
+
+- **Sidebar section:** the section header with the `pullrequest` glyph, "Pull requests", the count, and a plus icon button "New pull request". The section exists only while a connection matches one of the repository's remotes.
+- **Row:** a two-line `srow`: `#number` (mono, muted) and the title, then the author and mono `source → target` in `ui-small` muted; a state chip on the first line (`chip-success` Open with `pullrequest`, plain Merged with `merge`, `chip-danger` Closed with `close`); Open in browser and Merge as 24px icon buttons overlaying the second line on hover, focus, and selection, with Merge `aria-disabled` and its reason unless the pull request is open; the row menu (⇧F10) offers the same two actions. The selected row uses the selection fill and the 2px accent bar.
+- **States:** "No open pull requests" when the list is empty; the platform's error in `danger-ink` with "Edit connection" for a rejected token; "Show merged and closed" and "Show open only" toggle the list between open and all.
+- **Inspector:** the commit inspector frame. The header shows `#number title`, the state chip, the author, and the text buttons Open in browser and Merge…; the body shows the description, the meta rows (Branches, Author, Created and Updated as absolute time with relative age, Mergeable in words or "—" with a tooltip, Address in mono), and Files with the status letter, left-truncated path, and +/- counts, with the totals in the section header.
+- **Create dialog:** the entry dialog with the platform and repository line, Source branch and Target branch selects (defaults: the current branch and the remote's main), Title (defaults to the HEAD subject), Description, a warning-glyph note when the source is not on the remote, and a primary "Create pull request". Success closes it and shows a notice with the pull request's web address.
+- **Merge confirmation:** an `alertdialog` titled "Merge pull request #<n>?" with the pull request title, the sentence that names both branches and the platform and says the merge happens on the server and cannot be undone from YForge, and the sentence that YForge then fetches all remotes; a lead line warns when the platform reports conflicts. Cancel is focused first; the confirm button is the primary "Merge pull request".
+- **Entry points:** the sidebar section, the inspector, and the palette ("Create pull request…", "Merge pull request…", "Open pull request in browser…", and "Add platform connection…").
+

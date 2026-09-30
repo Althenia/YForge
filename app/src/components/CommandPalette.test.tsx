@@ -38,7 +38,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
   const startRebase = vi.fn();
   const openCreateBranchAt = vi.fn();
   const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt } as unknown as RepoActions;
-  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"] } as PaletteApp;
+  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"] } as PaletteApp;
   const closed = vi.fn();
   const context: PaletteContext = {
     snapshot,
@@ -50,6 +50,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
     anchor: { left: 5, top: 6 },
     app,
+    platform: undefined,
     revealCommit: vi.fn(),
     revealHead: vi.fn(),
     revealRef: vi.fn(),

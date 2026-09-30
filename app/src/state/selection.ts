@@ -3,6 +3,7 @@ import type { GraphRow } from "../ipc/bindings/GraphRow";
 export type Selection =
   | { kind: "changes" }
   | { kind: "stash"; sha: string }
+  | { kind: "pull"; number: number }
   | { kind: "commit"; sha: string; anchor?: string; shas?: readonly string[] };
 
 export function selectionOfRow(row: GraphRow): Selection | undefined {
@@ -12,7 +13,7 @@ export function selectionOfRow(row: GraphRow): Selection | undefined {
 }
 
 const matches = (row: GraphRow, selection: Selection): boolean =>
-  selection.kind === "changes" ? row.kind === "changes" || row.kind === "clean_changes" : row.sha === selection.sha;
+  selection.kind === "changes" ? row.kind === "changes" || row.kind === "clean_changes" : selection.kind === "pull" ? false : row.sha === selection.sha;
 
 export function indexOfSelection(rows: ReadonlyMap<number, GraphRow>, selection: Selection | undefined): number | undefined {
   if (selection === undefined) return undefined;

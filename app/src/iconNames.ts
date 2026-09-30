@@ -42,4 +42,8 @@ export type IconName =
   | "plug"
   | "open"
   | "file"
-  | "history";
+  | "history"
+  | "github"
+  | "gitlab"
+  | "bitbucket"
+  | "pullrequest";

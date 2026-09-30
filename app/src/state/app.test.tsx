@@ -1,3 +1,4 @@
+import type { PlatformActions } from "./platformActions";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -183,6 +184,7 @@ describe("app state", () => {
       focusComposer: () => undefined,
       loadCommits: async () => [],
       openPanel: () => undefined,
+      platform: { matched: () => undefined, pulls: () => [] } as unknown as PlatformActions,
     });
     const entry: ActivityEntry = { id: 7, repo: "/a", operation: "stage", summary: "Staged", started_at: 0, duration_ms: 1, ok: true, local: true, toast: false, error: null, commands: [], undo: { kind: "available", scope: "stage" } };
     await emit("activity-recorded", entry);
@@ -232,6 +234,7 @@ describe("app state", () => {
       focusComposer: () => calls.push("composer"),
       loadCommits: async () => [],
       openPanel: () => undefined,
+      platform: { matched: () => undefined, pulls: () => [] } as unknown as PlatformActions,
     });
 
     key("f");

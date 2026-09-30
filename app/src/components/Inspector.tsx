@@ -8,11 +8,14 @@ import type { Selection } from "../state/selection";
 import { ChangesInspector } from "./ChangesInspector";
 import { CommitInspector } from "./CommitInspector";
 import { OperationInspector } from "./OperationInspector";
+import { PullRequestInspector } from "./PullRequestInspector";
+import type { PlatformActions } from "../state/platformActions";
 import { StashInspector } from "./StashInspector";
 
 export function Inspector(props: {
   session: RepoSession;
   actions: RepoActions;
+  platform: PlatformActions;
   composer: Composer;
   selection: Selection | undefined;
   activeTarget: DiffTarget | undefined;
@@ -22,6 +25,7 @@ export function Inspector(props: {
   onCommitted: (sha: string) => void;
 }) {
   const commitSha = () => (props.selection?.kind === "commit" ? props.selection.sha : undefined);
+  const pullNumber = () => (props.selection?.kind === "pull" ? props.selection.number : undefined);
   const stash = () => {
     const current = props.selection;
     return current?.kind === "stash" ? props.session.snapshot().stashes.find((entry) => entry.sha === current.sha) : undefined;
@@ -47,6 +51,7 @@ export function Inspector(props: {
         </Switch>
       }
     >
+      <Match when={pullNumber()}>{(number) => <PullRequestInspector session={props.session} platform={props.platform} number={number()} />}</Match>
       <Match when={stash()}>
         {(entry) => <StashInspector session={props.session} stash={entry()} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />}
       </Match>

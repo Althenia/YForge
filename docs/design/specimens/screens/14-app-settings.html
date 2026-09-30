@@ -56,9 +56,10 @@
 <script>
 const I = YF.icon;
 const tabs = YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"');
-const navIcons = { General: "settings", Git: "branch", Appearance: "theme" };
+const navIcons = { General: "settings", Git: "branch", Appearance: "theme", Platforms: "plug" };
 const git = YF.flags.has("git");
-const privacy = !YF.flags.has("appearance") && !git;
+const platforms = YF.flags.has("platforms");
+const privacy = !YF.flags.has("appearance") && !git && !platforms;
 const navGlyph = (name) => name === "Privacy &amp; diagnostics" ? YF.icon.lock : navIcons[name] ? YF.glyph(navIcons[name]) : "";
 const nav = (name, cls = "", extra = "") => `<div class="nrow${cls}"><span class="icon-slot">${navGlyph(name)}</span>${name}${extra}</div>`;
 const ok = `<span class="st">${YF.glyph("check", 14)}</span>`;
@@ -98,19 +99,34 @@ const privacySection = `
           </ul>
         </div>
       </section>`;
+
+const platformRow = (icon, name, kind, host, { chip = "", result = "" } = {}) => `<li class="platform-row"><span class="tile">${YF.glyph(icon)}</span><span class="pname"><strong>${name}</strong><span>${kind} · <span class="mono">${host}</span></span></span>${chip}<span class="control"><span class="btn sm">${YF.glyph("sync", 14)}Test</span>${YF.iconBtn("edit", `Edit ${name}`)}${YF.iconBtn("trash", `Remove ${name}`)}</span>${result}</li>`;
+const platformsSection = `
+      <section class="section" aria-labelledby="platforms">
+        <h1 id="platforms">Platforms</h1>
+        <p>Connect GitHub, GitLab, or Bitbucket to list, create, and merge pull requests for repositories cloned from that host. Tokens stay in the macOS Keychain; Git itself keeps using your SSH keys and credentials.</p>
+        <div class="dhead"><h2 style="margin:0;font:600 14px/20px var(--sans)">Connections</h2><span class="note"></span><span class="btn">${YF.glyph("plus")}Add connection</span></div>
+        <ul class="rows" aria-label="Platform connections" style="margin-top:8px">
+          ${platformRow("github", "GitHub", "GitHub", "github.com", { result: `<span class="presult"><span class="chip ok">${YF.glyph("check", 14)}Connected as yui</span></span>` })}
+          ${platformRow("gitlab", "Work GitLab", "GitLab", "git.example.com:8443", { chip: `<span class="chip attn">${YF.glyph("warning", 14)}Certificate not checked</span>`, result: `<span class="presult bad">${YF.glyph("warning", 14)}Authentication failed for git.example.com:8443<span class="btn sm">Edit connection</span></span>` })}
+          ${platformRow("bitbucket", "Bitbucket", "Bitbucket", "bitbucket.org")}
+        </ul>
+        <p style="margin-top:12px;font:400 12px/16px var(--sans)">GitHub, GitLab, and Bitbucket are named only to say which service a connection reaches; YForge is not affiliated with them.</p>
+      </section>`;
 const html = `
 <div class="app">
   ${tabs}
   <div class="settings">
     <nav class="panel nav" aria-label="Settings sections">
       <h2>Settings</h2>
-      ${nav("General")}${nav("Git", git ? " sel" : "")}${nav("Accounts &amp; authentication")}${nav("Appearance", privacy || git ? "" : " sel")}${nav("Privacy &amp; diagnostics", privacy ? " sel" : "")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations", "", '<span class="chip">GitHub — coming later</span>')}${nav("Advanced")}
+      ${nav("General")}${nav("Git", git ? " sel" : "")}${nav("Accounts &amp; authentication")}${nav("Appearance", privacy || git || platforms ? "" : " sel")}${nav("Privacy &amp; diagnostics", privacy ? " sel" : "")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Platforms", platforms ? " sel" : "")}${nav("Advanced")}
     </nav>
     <main class="panel content">
       <div class="topline">
         <span class="seg" role="tablist" aria-label="Scope"><span class="on" role="tab" aria-selected="true">All repositories</span><span role="tab">This repository: sample</span></span>
         <div class="input search">${I.search}<span class="ph">Search settings</span><span class="kbd">⌘F</span></div>
       </div>
+      ${platforms ? platformsSection : ""}
       ${privacy ? privacySection : ""}
       ${git ? `<section class="section" aria-labelledby="ssh">
         <h1 id="ssh">SSH</h1>
@@ -120,7 +136,7 @@ const html = `
         <div class="setting"><div><div class="name">Listed keys</div><div class="desc">Private keys in ~/.ssh that have a matching .pub file.</div></div>
           <div class="control"><span class="chip"><span class="ref">ssh-agent (default)</span></span><span class="chip"><span class="ref">id_ed25519</span> ssh-ed25519</span><span class="chip"><span class="ref">work</span> ssh-rsa</span></div></div>
       </section>` : ""}
-      ${privacy || git ? "" : `<section class="section" aria-labelledby="appearance">
+      ${privacy || git || platforms ? "" : `<section class="section" aria-labelledby="appearance">
         <h1 id="appearance">Appearance</h1>
         <p>Applies to every repository.</p>
         <div class="setting"><div><div class="name">Theme</div><div class="desc">Dark, light, or follow the system.</div></div>

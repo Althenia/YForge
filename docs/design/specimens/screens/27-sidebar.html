@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 27 sidebar</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.sidebar { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-body { flex: 1; min-height: 0; overflow: hidden; }
+.sfilter { flex: none; margin: 0 4px; align-items: center; gap: 8px; justify-content: flex-start; padding: 4px 10px; }
+.sfilter .ph { color: var(--muted); }
+.sfilter .typed { color: var(--text); }
+.sfilter .caret { width: 1px; height: 16px; background: var(--text); margin-left: -6px; }
+.sec .sec-title { margin-right: auto; }
+.sec-chevron { display: inline-grid; place-items: center; }
+.sec-chevron.collapsed { transform: rotate(-90deg); }
+.srow .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.srow.selected { background: var(--selection); box-shadow: inset 0 0 0 1px var(--green-strong); }
+.tree-guide, .tree-elbow { position: absolute; left: calc(13px + var(--level) * 14px); pointer-events: none; }
+.tree-guide { top: 0; bottom: 0; width: 0; border-left: 1px solid var(--line-strong); }
+.tree-elbow { top: 0; width: 10px; height: 50%; border-left: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); }
+.srow.folder .tree-elbow { width: 4px; }
+.tree-elbow:not(.last)::after { content: ""; position: absolute; left: -1px; top: 100%; height: 100%; border-left: 1px solid var(--line-strong); }
+.avatar { display: inline-grid; place-items: center; flex: none; width: 24px; height: 24px; border-radius: 999px; overflow: hidden; background: var(--green-soft); color: var(--text); font: 600 11px/16px var(--sans); }
+.avatar svg { width: 100%; height: 100%; display: block; }
+.srow.pull .pull-sub { display: flex; align-items: center; gap: 6px; }
+.pull-sub .avatar, .mrow .v .avatar, .drawer-who .avatar { width: 16px; height: 16px; font-size: 10px; line-height: 12px; }
+.mrow .v .avatar { margin-inline-end: 6px; vertical-align: middle; }
+.menu.bulk { position: absolute; left: 172px; top: 372px; width: 250px; }
+.menu .item.blocked { color: var(--muted); }
+.note-line { padding: 8px 16px; font: 400 12px/16px var(--sans); color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const filter = YF.flags.has("filter");
+const bulk = YF.flags.has("bulk");
+const identicon = `<svg viewBox="0 0 5 5" aria-hidden="true"><rect width="5" height="5" fill="#12332A"/><g fill="#4EE29B"><rect x="0" y="1" width="1" height="1"/><rect x="4" y="1" width="1" height="1"/><rect x="1" y="0" width="1" height="1"/><rect x="3" y="0" width="1" height="1"/><rect x="2" y="2" width="1" height="2"/><rect x="0" y="3" width="1" height="1"/><rect x="4" y="3" width="1" height="1"/><rect x="1" y="4" width="1" height="1"/><rect x="3" y="4" width="1" height="1"/></g></svg>`;
+const badge = (initial, image = false) => `<span class="avatar" aria-hidden="true">${image ? identicon : initial}</span>`;
+const count = (total, shown) => `<span class="n">${filter ? `${shown}/${total}` : total}</span>`;
+const header = (name, title, n, collapsed = false) =>
+  `<div class="sec"><span class="sec-title">${G(name)}${title}<span class="sec-chevron${collapsed ? " collapsed" : ""}">${G("chevron", 14)}</span></span> ${n}</div>`;
+const elbow = (level, last) => `<span class="tree-elbow${last ? " last" : ""}" style="--level:${level}" aria-hidden="true"></span>`;
+const guide = (level) => `<span class="tree-guide" style="--level:${level}" aria-hidden="true"></span>`;
+const folder = (name, meta, pad, tree = "") => `<div class="srow folder" style="padding-left:${pad}px">${tree}<span class="chev">${G("chevron", 14)}</span><span class="name">${name}</span><span class="meta">${meta}</span></div>`;
+const leaf = (name, pad, tree, cls = "", meta = "") => `<div class="srow${cls}" style="padding-left:${pad}px">${tree}<span class="name">${name}</span>${meta ? `<span class="meta">${meta}</span>` : ""}</div>`;
+
+const branches = filter
+  ? `${folder("feature", "2 branches", 6)}${leaf("greeting", 28, elbow(0, false), "", "↑2 · HEAD")}${leaf("login", 28, elbow(0, true))}`
+  : `${leaf("main", 14, "", "", "↑3")}
+     ${folder("bugfix", "1 branch", 6)}${leaf("header", 28, elbow(0, true))}
+     ${folder("feature", "4 branches", 6)}${leaf("greeting", 28, elbow(0, false), bulk ? " selected" : "", "↑2 · HEAD")}${leaf("inline-branch", 28, elbow(0, false), bulk ? " selected" : "")}${leaf("login", 28, elbow(0, false), bulk ? " selected" : "")}${leaf("search", 28, elbow(0, true), "", "↓1")}`;
+const remotes = filter
+  ? `${folder("origin", "2 branches", 6)}${leaf("feature/greeting", 28, elbow(0, false))}${leaf("feature/login", 28, elbow(0, true))}`
+  : `${folder("origin", "5 branches", 6)}${leaf("main", 28, elbow(0, false))}${folder("feature", "3 branches", 20, elbow(0, true))}${leaf("greeting", 42, guide(0) + elbow(1, false))}${leaf("login", 42, guide(0) + elbow(1, false))}${leaf("search", 42, guide(0) + elbow(1, true))}`;
+const pulls = [
+  { n: 7, title: "Add retry helper", author: "chen", from: "feature/retry", to: "main", state: "Open", current: true },
+  { n: 6, title: "Fix header alignment", author: "bo", from: "bugfix/header", to: "main", state: "Open" }
+];
+const pullRows = pulls.map((p) => `<div class="srow pull${p.current ? " current" : ""}" role="button"><span class="pull-main"><span class="pull-line"><span class="pull-number">#${p.n}</span><span class="pull-title">${p.title}</span></span><span class="pull-sub">${badge(p.author[0].toUpperCase())}${p.author} · <span class="ref">${p.from}</span> → <span class="ref">${p.to}</span></span></span><span class="chip pull-state ok">${G("pullrequest", 14)}${p.state}</span></div>`).join("");
+
+const sidebar = `<aside class="panel sidebar" aria-label="Repository">
+  <label class="input sfilter">${YF.icon.search}${filter ? '<span class="typed">feat</span><span class="caret"></span>' : '<span class="ph">Filter</span>'}</label>
+  <div class="sidebar-body">
+    ${header("changes", "Changes", '<span class="n">2</span>')}
+    ${header("branch", "Branches", count(7, 3))}${branches}
+    ${header("remote", "Remotes", count(1, 1))}${remotes}
+    ${header("tag", "Tags", count(3, 0), !filter)}
+    ${filter ? "" : header("stash", "Stashes", count(2, 0))}
+    ${filter ? "" : header("worktree", "Worktrees", count(2, 2), true)}
+    ${filter ? "" : header("pullrequest", "Pull requests", count(2, 2)) + pullRows}
+  </div></aside>`;
+
+const menu = bulk
+  ? `<div class="menu bulk" role="menu"><div class="item danger" role="menuitem"><span class="item-main"><span class="item-icon">${G("trash")}</span>Delete 3 branches…</span></div></div>`
+  : "";
+
+const inspector = `<aside class="panel inspector" aria-label="Commit"><div class="ihead"><h2>Export shout helper</h2></div>
+  <div class="ilist"><div class="cmeta">
+    <div class="mrow"><span class="k">Commit</span><span class="v sha">62db91d</span></div>
+    <div class="mrow"><span class="k">Author</span><span class="v" title="yui@example.com">${badge("Y", true)}Yui</span></div>
+    <div class="mrow"><span class="k">Committer</span><span class="v">Yui</span></div>
+    <div class="mrow"><span class="k">Date</span><span class="v">29 Sep 2026 16:29 <span class="ago">· 1 h ago</span></span></div>
+  </div></div>
+  <div class="note-line">The Author picture is the identicon Gravatar returns for the hashed email; with Settings → Privacy → Profile pictures off, or when the image fails, the initial shows instead (the Pull requests rows show it: the platform reports a login, never an email).</div></aside>`;
+
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${sidebar}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git branch", duration: "0.0 s", action: "" })}</div>` + menu);
+YF.mountGraph({ selected: -1, hovered: -1 });
+YF.boot("screen 27 · sidebar");
+</script>
+</body>
+</html>

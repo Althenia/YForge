@@ -17,6 +17,7 @@ import {
 } from "./palette";
 import { commitMenu, dropPlan, localTarget, refMenu, remoteTarget, resetModeMenu, stashMenu, tagTarget, type MenuEntry, type RefTarget } from "./refMenu";
 import type { RepoActions } from "./repoActions";
+import type { PlatformActions } from "./platformActions";
 import { syncMenu } from "./syncModel";
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
@@ -47,6 +48,7 @@ const app = (): PaletteApp => ({
   openCreate: vi.fn(),
   closeTab: vi.fn(),
   openSettings: vi.fn(),
+  addPlatformConnection: vi.fn(),
   toggleDrawer: vi.fn(),
   openSearch: vi.fn(),
   openExternal: vi.fn(),
@@ -79,6 +81,7 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
     anchor: { left: 10, top: 20 },
     app: app(),
+    platform: undefined,
     revealCommit: vi.fn(),
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
@@ -443,5 +446,60 @@ describe("history editing commands", () => {
     expect(ctx.calls).toEqual([["openRecompose", undefined]]);
     expect(find(buildCommands(context({}, snapshot({ operation: "rebase" }))), "history.recompose").disabledReason).toBe("Finish or abort the rebase first");
     expect(find(buildCommands(context({}, snapshot({ head: { kind: "unborn", branch: "main" } }))), "history.recompose").disabledReason).toBe("Make a first commit before rewriting history");
+  });
+});
+
+describe("platform commands", () => {
+  const open = { number: 7, title: "Add retry", state: "open", source_ref: "feature/retry", target_ref: "main", web_url: "https://x/7" };
+  const merged = { number: 3, title: "Old", state: "merged", source_ref: "old", target_ref: "main", web_url: "https://x/3" };
+  const fakePlatform = (matched: boolean, pulls: unknown[]) => {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const platform = {
+      matched: () => (matched ? { remote: "origin" } : undefined),
+      pulls: () => pulls,
+      openCreate: () => calls.push(["create"]),
+      requestMerge: (pull: { number: number }) => calls.push(["merge", pull.number]),
+      openInBrowser: (pull: { number: number }) => calls.push(["browser", pull.number]),
+    } as unknown as PlatformActions;
+    return { platform, calls };
+  };
+
+  it("disables the pull request commands with a reason when no connection matches, but keeps Add platform connection available", () => {
+    const commands = buildCommands(context({ platform: fakePlatform(false, []).platform }));
+
+    for (const id of ["pulls.create", "pulls.merge", "pulls.open"]) expect(find(commands, id).disabledReason).toBe("No platform connection matches this repository's remotes");
+    const add = find(commands, "platforms.add");
+    expect(add.disabledReason).toBeUndefined();
+    expect(add.group).toBe("Application");
+  });
+
+  it("creates, merges only open pull requests, and opens any listed pull request in the browser", async () => {
+    const { platform, calls } = fakePlatform(true, [open, merged]);
+    const commands = buildCommands(context({ platform }));
+
+    find(commands, "pulls.create").run([]);
+    expect(await find(commands, "pulls.merge").args[0]?.options()).toEqual([{ value: "7", label: "#7 Add retry", note: "feature/retry → main" }]);
+    expect((await find(commands, "pulls.open").args[0]?.options())?.map((option) => option.value)).toEqual(["7", "3"]);
+    find(commands, "pulls.merge").run(["7"]);
+    find(commands, "pulls.merge").run(["3"]);
+    find(commands, "pulls.open").run(["3"]);
+
+    expect(calls).toEqual([["create"], ["merge", 7], ["browser", 3]]);
+  });
+
+  it("disables Merge when nothing is open, and opens Settings → Platforms for Add platform connection", () => {
+    const ctx = context({ platform: fakePlatform(true, [merged]).platform });
+    const commands = buildCommands(ctx);
+
+    expect(find(commands, "pulls.merge").disabledReason).toBe("This repository has no open pull requests");
+    expect(find(commands, "pulls.open").disabledReason).toBeUndefined();
+    find(commands, "platforms.add").run([]);
+    expect(ctx.app.addPlatformConnection).toHaveBeenCalledTimes(1);
+  });
+
+  it("lists Platforms among the settings sections a user can jump to", () => {
+    expect(navigationTargets(context()).some((target) => target.id === "go.settings.platforms" && target.title === "Settings: Platforms")).toBe(true);
+    expect(commandIcon("pulls.create")).toBe("pullrequest");
+    expect(commandIcon("go.settings.platforms")).toBe("plug");
   });
 });
