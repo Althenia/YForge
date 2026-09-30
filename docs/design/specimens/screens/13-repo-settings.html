@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 13 repository settings</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.app { grid-template-rows: 40px 1fr; }
+.icon-btn.on { background: var(--control-hover); color: var(--green-strong); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.settings { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 10px; padding: 2px 10px 10px; min-height: 0; }
+.nav { padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav h2 { margin: 0; padding: 4px 8px 10px; font: 600 16px/22px var(--sans); letter-spacing: -0.01em; }
+.nrow { position: relative; min-height: 28px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; padding: 4px 8px 4px 14px; border-radius: var(--r-sm); font: 400 13px/20px var(--sans); }
+.nrow.sel { background: var(--selection); font-weight: 500; }
+.nrow.sel::before { content: ""; position: absolute; left: 3px; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--green-strong); }
+.content { padding: 24px; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+.topline { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.search { width: 280px; justify-content: flex-start; gap: 8px; color: var(--muted); }
+.search .kbd { margin-left: auto; }
+.section { max-width: 760px; width: 100%; }
+.section h1 { margin: 0 0 2px; font: 600 16px/22px var(--sans); letter-spacing: -0.01em; }
+.section > p { margin: 0 0 6px; color: var(--muted); }
+.setting { display: grid; grid-template-columns: 280px minmax(0, 1fr); gap: 24px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.setting:last-child { border-bottom: 0; }
+.setting .name { font: 500 13px/20px var(--sans); }
+.setting .desc { font: 400 12px/16px var(--sans); color: var(--muted); margin-top: 2px; }
+.control { display: flex; align-items: center; gap: 12px; }
+.source { font: 400 12px/16px var(--sans); color: var(--muted); }
+.source.own { color: var(--green-strong); }
+.input.wide { min-width: 220px; align-items: center; font: 400 12px/20px var(--mono); }
+.select { min-width: 300px; justify-content: space-between; align-items: center; }
+.remote { display: flex; align-items: center; gap: 12px; height: 44px; padding: 0 8px 0 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }
+.remote .name { font: 600 12px/16px var(--mono); color: var(--green-strong); }
+.remote .url { font: 400 12px/16px var(--mono); }
+.remote .btn { height: 24px; padding: 0 10px; font-size: 12px; }
+.foot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font: 400 12px/16px var(--sans); }
+.foot .ok { color: var(--green-strong); display: inline-flex; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const tabs = YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"');
+const nav = (name, cls = "") => `<div class="nrow${cls}">${name}</div>`;
+const html = `
+<div class="app">
+  ${tabs}
+  <div class="settings">
+    <nav class="panel nav" aria-label="Settings sections">
+      <h2>Settings</h2>
+      ${nav("General")}${nav("Git", " sel")}${nav("Accounts &amp; authentication")}${nav("Appearance")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations")}${nav("Advanced")}
+    </nav>
+    <main class="panel content">
+      <div class="topline">
+        <span class="seg" role="tablist" aria-label="Scope"><span role="tab">All repositories</span><span class="on" role="tab" aria-selected="true">This repository: sample</span></span>
+        <div class="input search">${I.search}<span class="ph">Search settings</span><span class="kbd">⌘F</span></div>
+      </div>
+      <section class="section" aria-labelledby="identity">
+        <h1 id="identity">Identity</h1>
+        <p>Name and email written on commits in this repository.</p>
+        <div class="setting"><div><div class="name">Name</div></div>
+          <div class="control"><div class="input wide">YForge Lab</div><span class="source own">from repository config</span></div></div>
+        <div class="setting"><div><div class="name">Email</div></div>
+          <div class="control"><div class="input wide">lab@example.com</div><span class="source">from global config</span><span class="btn sm">Override</span></div></div>
+      </section>
+      <section class="section" aria-labelledby="remotes">
+        <h1 id="remotes">Remotes</h1>
+        <p>Where this repository fetches from and pushes to.</p>
+        <div class="remote"><span class="name">origin</span><span class="url">https://github.com/example/sample.git</span><span class="chip">fetch and push</span><span class="spacer"></span><span class="btn">Edit</span><span class="btn text-danger">Remove</span></div>
+      </section>
+      <section class="section" aria-labelledby="pull">
+        <h1 id="pull">Pull mode override</h1>
+        <p>Strategy used when pulling into branches of this repository.</p>
+        <div class="input select"><span>Fast-forward, merge if needed · inherited</span>${I.chevron}</div>
+      </section>
+      <section class="section" aria-labelledby="hooks">
+        <h1 id="hooks">Hooks path</h1>
+        <p>Directory Git reads hooks from instead of .git/hooks.</p>
+        <div class="control"><div class="input wide">.githooks</div><span class="btn">Browse…</span></div>
+      </section>
+      <div class="foot"><span class="ok">${I.check}</span>Changes are saved automatically to .git/config</div>
+    </main>
+  </div>
+</div>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + html);
+YF.boot("screen 13 · repository settings");
+</script>
+</body>
+</html>

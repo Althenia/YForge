@@ -1,0 +1,425 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YForge × Y family: alignment review</title>
+<link rel="stylesheet" href="../../../app/src/styles/tokens.css">
+<link rel="stylesheet" href="../../../../YDS/YQuery/tokens/tokens.css">
+<style>
+@font-face { font-family: Geist; src: url("../../../brand/fonts/Geist-Variable.woff2") format("woff2"); font-weight: 100 900; }
+@font-face { font-family: "Geist Mono"; src: url("../../../brand/fonts/GeistMono-Variable.woff2") format("woff2"); font-weight: 100 900; }
+
+:root {
+  --a-dur-quick: 120ms; --a-dur-base: 180ms; --a-dur-slow: 240ms;
+  --a-ease-standard: cubic-bezier(0.2, 0, 0, 1); --a-ease-entrance: cubic-bezier(0, 0, 0, 1); --a-ease-exit: cubic-bezier(0.3, 0, 1, 1);
+  --a-glass-panel: color-mix(in srgb, var(--colors-surface-1) 70%, transparent);
+  --a-glass-graph: color-mix(in srgb, var(--colors-canvas) 90%, transparent);
+  --a-control: color-mix(in srgb, var(--colors-surface-2) 66%, transparent);
+}
+[data-theme="light"] { --a-glass-panel: var(--colors-surface-1); --a-glass-graph: var(--colors-canvas); --a-control: var(--colors-surface-2); }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--colors-backdrop); color: var(--colors-text); font: 13px/1.5 Geist, system-ui, sans-serif; }
+code, .mono { font-family: "Geist Mono", ui-monospace, monospace; font-size: 12px; }
+a { color: var(--colors-accent-ink); }
+
+.pg-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 24px; padding: 16px 24px; border-bottom: 1px solid var(--colors-rule-panel); background: var(--colors-surface-1); }
+.pg-head h1 { margin: 0; font-size: 16px; font-weight: 600; }
+.pg-head p { flex: 1 1 360px; margin: 0; color: var(--colors-text-muted); }
+.pg-head nav { display: flex; gap: 16px; }
+.pg-controls { display: flex; flex-wrap: wrap; gap: 8px 24px; padding: 10px 24px; border-bottom: 1px solid var(--colors-rule-panel); background: var(--colors-surface-1); }
+.pg-control { display: inline-flex; align-items: center; gap: 8px; }
+.pg-control > span { color: var(--colors-text-subtle); font-size: 12px; }
+.pg-seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--colors-rule-strong); border-radius: 6px; overflow: hidden; }
+.pg-seg button { height: 26px; padding: 0 10px; border: 0; border-left: 1px solid var(--colors-rule-panel); background: none; color: var(--colors-text-muted); font: 500 12px Geist, system-ui, sans-serif; cursor: pointer; }
+.pg-seg button:first-child { border-left: 0; }
+.pg-seg button[aria-pressed="true"] { background: var(--colors-selection); color: var(--colors-text); box-shadow: inset 0 -2px 0 var(--colors-accent); }
+.pg-seg button:hover { color: var(--colors-text); }
+:focus-visible { outline: 2px solid var(--colors-focus); outline-offset: 2px; }
+.pg-main { padding: 20px 24px 32px; max-width: 1480px; }
+
+.rv-q { margin: 0 0 16px; padding: 12px 14px; border: 1px solid var(--colors-rule-panel); border-left: 3px solid var(--colors-head-junction); border-radius: 6px; background: var(--colors-surface-1); }
+.rv-q b { display: block; margin-bottom: 2px; }
+.rv-q p { margin: 0; color: var(--colors-text-muted); }
+.rv-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 16px; }
+.rv-col { min-width: 0; }
+.rv-col h2 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+.rv-col h2 .tag { padding: 1px 6px; border-radius: 4px; background: var(--colors-surface-3); color: var(--colors-text-muted); font: 500 11px "Geist Mono", monospace; }
+.rv-col h2 small { color: var(--colors-text-subtle); font-weight: 400; font-size: 12px; }
+.rv-notes { margin: 20px 0 0; padding: 0 0 0 18px; color: var(--colors-text-muted); display: grid; gap: 6px; max-width: 1100px; }
+.rv-notes code { color: var(--colors-text); }
+.rv-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.rv-table th, .rv-table td { padding: 5px 8px; border-bottom: 1px solid var(--colors-rule-panel); text-align: left; vertical-align: middle; }
+.rv-table th { color: var(--colors-text-subtle); font-weight: 500; }
+.sw { display: inline-block; width: 14px; height: 14px; margin-right: 6px; border-radius: 3px; vertical-align: -3px; box-shadow: inset 0 0 0 1px rgba(127,127,127,.35); }
+.st { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.st.eq { background: var(--colors-accent-tint); color: var(--colors-accent-ink); }
+.st.ne { background: var(--colors-attention-tint); color: var(--colors-attention-ink); }
+.rv-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.rv-card { padding: 12px 14px; border: 1px solid var(--colors-rule-panel); border-radius: 6px; background: var(--colors-surface-1); }
+.rv-card h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.rv-card p { margin: 0 0 8px; color: var(--colors-text-muted); }
+.rv-card button { height: 26px; padding: 0 10px; border: 1px solid var(--colors-rule-strong); border-radius: 6px; background: none; color: var(--colors-text); font: 500 12px Geist, system-ui, sans-serif; cursor: pointer; }
+.rv-card .urgent { color: var(--colors-attention-ink); font-weight: 600; }
+.rv-sec { margin: 24px 0 8px; font-size: 12px; font-weight: 600; color: var(--colors-text-subtle); }
+
+/* ---------- Stage: A (YForge today) ---------- */
+.stage { position: relative; overflow: hidden; height: 330px; border-radius: 6px; border: 1px solid var(--colors-rule-panel); }
+.A.stage { background: var(--colors-backdrop); font-family: Geist, system-ui, sans-serif; }
+.A .aurora { position: absolute; inset: -25%; pointer-events: none; }
+.A .aurora i { position: absolute; border-radius: 50%; }
+.A .aurora .a1 { width: 76%; height: 80%; left: 2%; top: 8%; background: radial-gradient(closest-side, color-mix(in srgb, #27d17f 16%, transparent), transparent); }
+.A .aurora .a2 { width: 66%; height: 72%; right: 2%; top: 22%; background: radial-gradient(closest-side, color-mix(in srgb, #15a0bf 10%, transparent), transparent); }
+[data-theme="light"] .A .aurora { display: none; }
+.A .panel { position: absolute; inset: 12px; display: flex; flex-direction: column; border: 1px solid var(--colors-rule-panel); background: var(--a-glass-panel); border-radius: var(--rounded-xl); box-shadow: var(--elevation-panel); overflow: hidden; }
+.A .bar { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--colors-rule); }
+.A .chip { display: inline-flex; align-items: center; gap: 6px; height: var(--controls-height-chip); padding: 0 10px; border-radius: var(--rounded-pill); background: var(--a-control); box-shadow: inset 0 0 0 1px var(--colors-rule); font-size: 12px; font-weight: 500; }
+.A .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--controls-height); padding: 0 12px; border-radius: var(--rounded-lg); background: var(--a-control); box-shadow: inset 0 0 0 1px var(--colors-rule); font-size: 13px; font-weight: 500; color: var(--colors-text); }
+.A .graph { flex: 1; background: var(--a-glass-graph); }
+.A .row { display: flex; align-items: center; gap: 10px; height: var(--controls-row-graph); padding: 0 12px; font-size: 13px; }
+.A .row.sel { background: var(--colors-selection); }
+.A .row .msg { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.A .ref { display: inline-flex; align-items: center; gap: 5px; height: var(--controls-ref-label-height); padding: 0 8px 0 6px; border-left: var(--controls-ref-label-edge) solid var(--lane); border-radius: 0 var(--rounded-xs) var(--rounded-xs) 0; background: var(--lane-label); color: var(--colors-text); font: 500 12px "Geist Mono", monospace; white-space: nowrap; }
+.A .node { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--lane); }
+.A .muted { color: var(--colors-text-muted); }
+
+/* ---------- Stage: B (Y family as YQuery applies it) ---------- */
+.B.stage { background: var(--yq-bg); color: var(--yq-text); font-family: var(--yq-font-ui); border-color: var(--yq-border); }
+.B .panel { position: absolute; inset: 12px; display: flex; flex-direction: column; border: 1px solid var(--yq-border); background: var(--yq-surface-muted); border-radius: var(--yq-radius-md); overflow: hidden; }
+.B .bar { display: flex; align-items: center; gap: 6px; height: var(--yq-toolbar-height); padding: 0 8px; border-bottom: 1px solid var(--yq-border); background: var(--yq-bg); }
+.B .chip { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: var(--yq-radius-sm); border: 1px solid var(--yq-border); font-size: 11px; font-weight: 500; color: var(--yq-text-muted); }
+.B .btn { display: inline-flex; align-items: center; gap: 6px; height: var(--yq-control-height); padding: 0 8px; border-radius: var(--yq-radius-md); border: 1px solid var(--yq-border-control); background: var(--yq-surface); font-size: 12px; font-weight: 500; color: var(--yq-text); }
+.B .graph { flex: 1; background: var(--yq-surface); }
+.B .row { display: flex; align-items: center; gap: 8px; height: var(--yq-row-height); padding: 0 8px; font-size: 12px; }
+.B .row.sel { background: var(--yq-surface-selected); }
+.B .row .msg { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.B .ref { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 6px 0 4px; border-left: 3px solid var(--lane); border-radius: 0 var(--yq-radius-sm) var(--yq-radius-sm) 0; background: var(--lane-label); color: var(--colors-text); font: 500 11px var(--yq-font-mono); white-space: nowrap; }
+.B .node { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--lane); }
+.B .muted { color: var(--yq-text-muted); }
+
+.l0 { --lane: var(--colors-lane-0); --lane-label: var(--colors-lane-0-label); }
+.l1 { --lane: var(--colors-lane-1); --lane-label: var(--colors-lane-1-label); }
+.l2 { --lane: var(--colors-lane-2); --lane-label: var(--colors-lane-2-label); }
+svg.ic { flex: none; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- Motion ---------- */
+.mo-stage { position: relative; height: 250px; padding: 14px; }
+.mo-stage .pop { position: absolute; left: 14px; top: 56px; width: 220px; padding: 4px; opacity: 0; }
+.mo-stage .toast { position: absolute; right: 14px; bottom: 14px; width: 230px; padding: 10px 12px; opacity: 0; }
+.mo-stage .pnl { position: absolute; right: 14px; top: 56px; width: 180px; height: 90px; padding: 10px; opacity: 0; }
+.A .pop, .A .toast, .A .pnl { background: var(--colors-surface-raised); border: 1px solid var(--colors-rule-panel); border-radius: var(--rounded-lg); box-shadow: var(--elevation-overlay); }
+.B .pop, .B .toast, .B .pnl { background: var(--yq-bg-elevated); border: 1px solid var(--yq-border); border-radius: var(--yq-radius-md); box-shadow: var(--yq-shadow-popover); }
+.B .pnl { box-shadow: none; }
+.mo-stage .it { padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+.mo-stage .it:first-child { background: var(--colors-selection); }
+.B.mo-stage .it:first-child { background: var(--yq-surface-selected); }
+.A.play .pop { animation: a-pop var(--a-dur-quick) var(--a-ease-entrance) forwards; }
+.A.play .toast { animation: a-toast var(--a-dur-base) var(--a-ease-entrance) forwards; }
+.A.play .pnl { animation: a-pnl var(--a-dur-base) var(--a-ease-entrance) forwards; }
+@keyframes a-pop { from { opacity: 0; transform: scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes a-toast { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes a-pnl { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.B.play .pop { animation: b-rise var(--yq-duration-base) var(--yq-ease-entrance) forwards; }
+.B.play .toast { animation: b-rise var(--yq-duration-slow) var(--yq-ease-entrance) forwards; }
+.B.play .pnl { animation: b-fade var(--yq-duration-base) var(--yq-ease-standard) forwards; }
+@keyframes b-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes b-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .play * { animation-duration: 0ms !important; } }
+.mo-scale { display: grid; grid-template-columns: 90px 1fr 60px; align-items: center; gap: 6px 10px; font-size: 12px; }
+.mo-scale .bar { height: 8px; border-radius: 2px; background: var(--colors-accent); }
+
+/* ---------- Icons ---------- */
+.ic-strip { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 10px; }
+.ic-btn { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 6px; color: var(--colors-text-muted); }
+.B .ic-btn { width: 24px; height: 24px; border-radius: 4px; color: var(--yq-text-muted); }
+.ic-big { display: flex; flex-wrap: wrap; gap: 12px; padding: 10px; }
+.ic-big figure { margin: 0; text-align: center; font-size: 11px; color: var(--colors-text-subtle); }
+.ic-big .cell { display: grid; place-items: center; width: 96px; height: 96px; border: 1px solid var(--colors-rule-panel); background-size: 6px 6px; background-image: linear-gradient(to right, rgba(127,127,127,.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(127,127,127,.18) 1px, transparent 1px); }
+.B .ic-big .cell { background-size: 6px 6px; }
+
+/* ---------- Menus ---------- */
+.menu { width: 340px; padding: 4px; margin: 14px; }
+.A .menu { background: var(--colors-surface-raised); border: 1px solid var(--colors-rule-panel); border-radius: var(--rounded-lg); box-shadow: var(--elevation-overlay); }
+.B .menu { background: var(--yq-bg-elevated); border-radius: var(--yq-radius-md); box-shadow: var(--yq-shadow-popover); }
+.menu .item { display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
+.B .menu .item { height: 24px; border-radius: 2px; font-size: 12px; }
+.menu .slot { display: inline-grid; place-items: center; width: 16px; height: 16px; color: var(--colors-text-muted); }
+.menu .item.sel { background: var(--colors-selection); }
+.B .menu .item.sel { background: var(--yq-surface-selected); }
+.menu .item.danger { color: var(--colors-danger-ink); }
+.B .menu .item.danger { color: var(--yq-danger); }
+.menu .sep { height: 1px; margin: 4px 6px; background: var(--colors-rule-panel); }
+.B .menu .sep { background: var(--yq-border); }
+.menu .r { font-family: "Geist Mono", monospace; font-size: 12px; }
+.B .menu .r { font-family: var(--yq-font-mono); font-size: 11px; }
+
+/* ---------- Type ---------- */
+.ty { padding: 14px; display: grid; gap: 10px; }
+.ty .lbl { color: var(--colors-text-subtle); font: 500 11px "Geist Mono", monospace; }
+.A .ty .s { font: 400 13px/1.54 Geist, system-ui, sans-serif; }
+.A .ty .m { font: 400 12px/1.5 "Geist Mono", monospace; }
+.A .ty .t { font: 600 16px/1.375 Geist, system-ui, sans-serif; }
+.B .ty .s { font: 400 12px/1.4 var(--yq-font-ui); }
+.B .ty .m { font: 400 12px/1.4 var(--yq-font-mono); }
+.B .ty .t { font: 600 16px/1.25 var(--yq-font-ui); }
+.B .ty .lbl { font-family: var(--yq-font-mono); color: var(--yq-text-subtle); }
+
+/* ---------- Focus ---------- */
+.fo { padding: 14px; display: grid; gap: 12px; }
+.fo .list { height: 120px; overflow: auto; border: 1px solid var(--colors-rule-panel); }
+.B .fo .list { border-color: var(--yq-border); }
+.fo .frow { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 10px; font-size: 12px; }
+.B .fo .frow { height: 24px; padding: 0 8px; }
+.A .fo .frow.f { outline: 2px solid var(--colors-focus); outline-offset: 2px; }
+.B .fo .frow.f { outline: 2px solid var(--yq-accent); outline-offset: -2px; }
+.A .fo .fbtn { outline: 2px solid var(--colors-focus); outline-offset: 2px; }
+.B .fo .fbtn { outline: var(--yq-focus-ring); outline-offset: var(--yq-focus-ring-offset); }
+</style>
+</head>
+<body>
+<header class="pg-head">
+  <h1>YForge × Y family: alignment review</h1>
+  <p>Each topic shows YForge as it is today (A) next to the Y-family rule as YQuery applies it (B), rendered from the live token files of both products. Pick A, B, or a mix; nothing changes until you decide.</p>
+  <nav aria-label="Related">
+    <a href="../specimens/workspace.html">YForge workspace specimen</a>
+    <a href="../../../../YQuery/design/yquery-proposal.html">YQuery proposal</a>
+    <a href="../../../../YDS/YQuery/DESIGN.md">YQuery DESIGN.md</a>
+  </nav>
+</header>
+<div class="pg-controls" id="controls"></div>
+<main class="pg-main"><div id="frame"></div><ul class="rv-notes" id="notes"></ul></main>
+
+<script>
+const ST = { topic: "overview", theme: "dark", view: "compare" };
+
+const A_PATHS = {
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  undo: '<path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 0 12"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  check: '<path d="M4 12.5 9.5 18 20 6"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+  folder: '<path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H10l2 2.5h7.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/>',
+  sync: '<path d="M4 12a8 8 0 0 1 13.5-5.8L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.5 5.8L4 15.5M4 20v-4.5h4.5"/>',
+  branch: '<circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="8.5" r="2"/><path d="M6 7.5v9M18 10.5c0 3.5-3 5-8.5 6.3"/>',
+  merge: '<circle cx="6" cy="5.5" r="2"/><circle cx="6" cy="18.5" r="2"/><circle cx="18" cy="15" r="2"/><path d="M6 7.5v9M6 7.5c0 5 12 2 12 5.5"/>',
+  stash: '<path d="M4 9h16v11H4zM7 4h10l3 5H4zM9 14h6"/>',
+  tag: '<path d="M3 12V4h8l10 10-8 8z"/><circle cx="8" cy="8" r="1.5"/>',
+  worktree: '<path d="M12 21V11M12 11 6 5M12 11l6-6"/>',
+  trash: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+  edit: '<path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19zM14.5 6.5l3 3"/>'
+};
+const B_PATHS = {
+  close: ["M4 4l8 8M12 4l-8 8"],
+  undo: ["M3.5 6.5h6a3 3 0 0 1 0 6H6", "M6 3.5l-3 3 3 3"],
+  plus: ["M8 3v10M3 8h10"],
+  check: ["M3.5 8.5l3 3 6-7"],
+  lock: ["M3.5 7h9v6.5h-9z", "M5.5 7V5a2.5 2.5 0 0 1 5 0v2"],
+  folder: ["M2.5 3.5h4l1.5 1.5h5.5v7.5h-11z"]
+};
+const icA = (n, size = 16) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 24 24" stroke-width="${size <= 16 ? 1.5 : 1.6}" aria-hidden="true">${A_PATHS[n]}</svg>`;
+const icB = (n, size = 16) => `<svg class="ic" width="${size}" height="${size}" viewBox="0 0 16 16" stroke-width="1.4" aria-hidden="true">${B_PATHS[n].map(d => `<path d="${d}"/>`).join("")}</svg>`;
+
+const ROWS = [
+  { m: "Export shout helper", l: "l0", refs: [["feature/greeting", "l0"]], sel: true },
+  { m: "Add shout helper", l: "l0" },
+  { m: "Personalize greeting", l: "l1", refs: [["feature/inline-branch", "l1"]] },
+  { m: "Merge remote-tracking branch 'origin/main'", l: "l2", refs: [["main", "l2"]] },
+  { m: "Tune retries and clamp helper", l: "l2" },
+  { m: "Document verbose flag", l: "l2", refs: [["origin/main", "l2"]] },
+  { m: "Switch usage docs to npm start", l: "l1", refs: [["hotfix/wt-demo", "l1"]] }
+];
+const graphRows = () => ROWS.map(r => `<div class="row ${r.sel ? "sel" : ""}"><span class="node ${r.l}"></span>${(r.refs || []).map(([n, l]) => `<span class="ref ${l}">${n}</span>`).join("")}<span class="msg">${r.m}</span></div>`).join("");
+
+const col = (side, title, source, body) => `<section class="rv-col"><h2><span class="tag">${side}</span>${title}<small>${source}</small></h2>${body}</section>`;
+function pair(a, b) {
+  const parts = [];
+  if (ST.view !== "b") parts.push(col("A", "YForge today", a.src, a.html));
+  if (ST.view !== "a") parts.push(col("B", "Y family (YQuery)", b.src, b.html));
+  return `<div class="rv-pair">${parts.join("")}</div>`;
+}
+const question = (title, text) => `<div class="rv-q"><b>${title}</b><p>${text}</p></div>`;
+
+const TOPICS = {
+  overview: {
+    label: "Overview",
+    render: () => `
+      <div class="rv-sec">Decided 2026-09-30: keep A everywhere, recorded as Y-family exceptions under brand rule B9 (<code>DESIGN.md</code> Exceptions)</div>
+      <div class="rv-cards">
+        <div class="rv-card"><h3>1 · Menu items: icon slot kept (A)</h3><p><span class="urgent">Now in the app:</span> the S15 rollout gave every menu and palette row a leading 16px icon slot. YQuery S12 keeps context menus text-only.</p><button data-go="menus">Review menus</button></div>
+        <div class="rv-card"><h3>2 · Family governance: rule B9 added</h3><p>YQuery has rule B1 plus a dated exceptions table for every departure from the Y baseline. YForge has neither, so the aurora, glass, Geist, motion values and icon grid aren't recorded as family exceptions.</p><button data-go="materials">Review materials</button></div>
+        <div class="rv-card"><h3>3 · Motion and icon grid: kept (A), recorded</h3><p>YForge 120/180/240ms and a 24-unit grid; YQuery (and Y) 80/140/220/320ms and a 16-unit grid. Aligning them changes tokens and consumers in both repos.</p><button data-go="motion">Review motion</button> <button data-go="icons">Review icons</button></div>
+      </div>
+      <div class="rv-sec">Already aligned</div>
+      <div class="rv-cards">
+        <div class="rv-card"><h3>Palette</h3><p>Dark theme: every neutral, accent, danger, focus and attention-text value is shared. Light theme: text, borders, danger and focus match; chrome, overlay and the accent fill differ. The Palette topic compares the live values.</p><button data-go="palette">Review palette</button></div>
+        <div class="rv-card"><h3>App icon construction</h3><p>Same container <code>#24282F</code>/<code>#3A404A</code>, arms <code>#67D7A4</code>/<code>#F2F3F5</code>, amber <code>#F0BE62</code>; each product owns its stem.</p>
+          <p><img src="../../../brand/yforge-app-icon.svg" width="64" height="64" alt="YForge app icon"> <img src="../../../../YDS/YQuery/app-icon/installed/source.svg" width="64" height="64" alt="YQuery app icon"></p></div>
+        <div class="rv-card"><h3>State never by colour alone</h3><p>YForge B4 and YQuery S4/S11 say the same thing.</p></div>
+      </div>`,
+    notes: [
+      "Sources: YForge <code>DESIGN.md</code>, <code>app/DESIGN.md</code>, <code>app/src/styles/tokens.css</code>, <code>app/src/components/Icon.tsx</code>; YQuery snapshot <code>YDS/YQuery/DESIGN.md</code>, <code>tokens/tokens.css</code>, <code>icons/iconData.ts</code>.",
+      "YQuery snapshot inconsistencies: its Mark section says no YQuery mark exists while App icon records concept B as approved; its Verification says \"Approved gallery: none yet\" and expects the drift check to report drift; its <code>tokens.css</code> header still says PROPOSED and \"not imported by the app\"; every B1 exception is still <code>pending</code>."
+    ]
+  },
+  palette: {
+    label: "Palette",
+    render: () => {
+      const rows = PAIRS.map(([role, a, b]) => {
+        const va = cssVar(a), vb = cssVar(b), eq = norm(va) === norm(vb);
+        return `<tr><td>${role}</td><td><span class="sw" style="background:${va}"></span><code>--${a}</code> ${va}</td><td><span class="sw" style="background:${vb}"></span><code>--${b}</code> ${vb}</td><td><span class="st ${eq ? "eq" : "ne"}">${eq ? "✓ equal" : "≠ differs"}</span></td></tr>`;
+      }).join("");
+      return question(ST.theme === "light" ? "Check: light chrome tones and the accent fill differ" : "Dark theme: aligned", ST.theme === "light" ? "YForge light uses Y <code>primary-bg #0B8550</code> for the accent fill and <code>#0A7B47</code> for accent text; YQuery uses <code>#0A7B47</code> for both. YForge chrome is <code>#F7F9F8</code>, YQuery's is <code>#EFF3F1</code>. Values are read live from both token files." : "Values are read live from both token files. The differing rows are role differences: YForge's hairline is white at alpha, and its selection and accent tints are a step darker.") +
+        `<table class="rv-table"><thead><tr><th>Role</th><th>A · YForge token</th><th>B · YQuery token</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>`;
+    },
+    notes: [
+      "Mapping follows YQuery's own table (DESIGN.md §Colors): chrome ↔ <code>bg</code>, panels ↔ <code>surface</code>/<code>surface-muted</code>, overlays ↔ <code>bg-elevated</code>.",
+      "YForge's dark <code>rule</code> is white at 7% alpha; YQuery's <code>border</code> is solid. Over a flat surface they read alike; over the aurora only the alpha one lets the glow through.",
+      "YQuery's reason for one accent (DESIGN.md §Colors): <code>#0b8550</code> is 4.18:1 as text on tonal chrome. YForge already avoids that by using <code>accent-ink #0A7B47</code> for text, so its split is a valid alternative, not a defect."
+    ]
+  },
+  materials: {
+    label: "Materials",
+    render: () => question("Decide: keep the aurora and glass as a recorded family exception, or go flat like YQuery B2/S2?",
+      "A is approved in YForge (B7, B8, S14). YQuery B2 bans gradients, glass and pill buttons; S2 allows shadow only on overlays. Switch the theme to Light: A drops the aurora and glass already.") + pair(
+      { src: "B8, S14, materials, rounded xl/lg/pill", html: `<div class="stage A"><div class="aurora"><i class="a1"></i><i class="a2"></i></div><div class="panel"><div class="bar"><span class="btn">${icA("sync")}Sync</span><span class="btn">${icA("branch")}Branch</span><span class="btn">${icA("stash")}Stash</span><span class="chip">${icA("check", 14)}main ↑3</span></div><div class="graph">${graphRows()}</div></div></div>` },
+      { src: "B2, S1, S2, rounded sm/md", html: `<div class="stage B"><div class="panel"><div class="bar"><span class="btn">${icA("sync")}Sync</span><span class="btn">${icA("branch")}Branch</span><span class="btn">${icA("stash")}Stash</span><span class="chip">${icA("check", 14)}main ↑3</span></div><div class="graph">${graphRows()}</div></div></div>` }
+    ),
+    notes: [
+      "A: panel radius 14px (<code>rounded.xl</code>), buttons 10px, chips pill; panel shadow <code>elevation.panel</code>; glass = surface at 70% alpha; two radial glows copied from <code>app/src/styles/app.css</code> (<code>.aurora .a1</code>, <code>.a2</code>), shown static here.",
+      "B: the same YForge content under YQuery's rules: 4px radius maximum, 2px chips, tonal steps and hairlines, no panel shadow, no gradient, 24px rows and controls. Lane colours stay (graph data colours are a YForge exception either way).",
+      "Y web itself uses 6/10/14px radii (YQuery Exceptions, \"B1 (radius)\"), so YForge's radii are closer to Y web than YQuery's; the pill and glass are the real departures."
+    ]
+  },
+  motion: {
+    label: "Motion",
+    render: () => question("Decide: keep YForge's 120/180/240ms, or adopt the Y scale 80/140/220/320ms?",
+      "Press Replay to run the same three entrances on both sides. Use Slow ×10 to see the timing difference. Note that the name <code>base</code> means 180ms in YForge, 140ms in YQuery and 220ms in Y.") +
+      `<p><button id="replay" class="pg-seg" style="height:28px;padding:0 12px;background:none;color:inherit;font:500 12px Geist,sans-serif;cursor:pointer">Replay</button> <label style="font-size:12px"><input type="checkbox" id="slow"> Slow ×10</label></p>` +
+      pair(
+        { src: "DESIGN.md motion.duration", html: `<div class="stage mo-stage A"><span class="btn">${icA("branch")}Branch ▾</span><div class="pop"><div class="it">Create branch here…</div><div class="it">Checkout feature/greeting</div><div class="it">Merge into main</div></div><div class="pnl muted">Panel reveal · base 180ms</div><div class="toast">Committed 45d26bb · <span class="muted">Undo</span></div></div>` + scale([["quick", 120], ["base", 180], ["slow", 240]]) },
+        { src: "YQuery motion.duration", html: `<div class="stage mo-stage B"><span class="btn">${icA("branch")}Branch ▾</span><div class="pop"><div class="it">Create branch here…</div><div class="it">Checkout feature/greeting</div><div class="it">Merge into main</div></div><div class="pnl muted">Panel resize · base 140ms</div><div class="toast">Committed 45d26bb · <span class="muted">Undo</span></div></div>` + scale([["fast", 80], ["base", 140], ["slow", 220], ["slower", 320]]) }
+      ),
+    notes: [
+      "A: popover = overlay-enter (quick, scale .98→1); toast = toast-enter (base, 8px rise); panel = panel-reveal (base, 4px rise). Easing entrance <code>cubic-bezier(0,0,0,1)</code>.",
+      "B: popover = popover-enter (base, 4px rise); toast (slow); panel resize (base, standard). Easing entrance <code>cubic-bezier(0,0,.2,1)</code>. Standard easing <code>cubic-bezier(.2,0,0,1)</code> is identical in both.",
+      "Both reduce to instant changes under <code>prefers-reduced-motion</code>; so does this page."
+    ]
+  },
+  icons: {
+    label: "Icons",
+    render: () => {
+      const names = Object.keys(B_PATHS);
+      const big = (fn, grid) => names.map(n => `<figure><div class="cell" style="background-size:${96 / grid}px ${96 / grid}px">${fn(n, 64)}</div><figcaption>${n}</figcaption></figure>`).join("");
+      return question("Decide: keep the 24-unit grid or move to the 16-unit Y/YQuery grid?",
+        "Same six glyphs from each product's own source. At 16px, A's 1.5-unit stroke on a 24 grid renders 1.0px; B's 1.4-unit stroke on a 16 grid renders 1.4px, so B looks heavier at the same size.") + pair(
+        { src: "Icon.tsx · 24 grid · 1.5 @16", html: `<div class="stage A" style="height:auto"><div class="ic-strip">${names.map(n => `<span class="ic-btn" title="${n}">${icA(n)}</span>`).join("")} <span class="muted" style="font-size:12px">16px · rendered stroke 1.0px</span></div><div class="ic-big">${big(icA, 24)}</div></div>` },
+        { src: "iconData.ts · 16 grid · 1.4", html: `<div class="stage B" style="height:auto"><div class="ic-strip">${names.map(n => `<span class="ic-btn" title="${n}">${icB(n)}</span>`).join("")} <span class="muted" style="font-size:12px">16px · rendered stroke 1.4px</span></div><div class="ic-big">${big(icB, 16)}</div></div>` }
+      );
+    },
+    notes: [
+      "The enlarged cells draw each icon at 64px over its own grid (24 or 16 cells).",
+      "YForge's set is Git-specific (branch, merge, stash, worktree, fetch, push); YQuery's is database-specific. A shared grid would let common chrome glyphs (close, undo, plus, check, lock, folder) be drawn once for the family."
+    ]
+  },
+  menus: {
+    label: "Menus",
+    render: () => {
+      const items = [["", "Checkout <span class=r>feature/greeting</span>"], ["merge", "Merge <span class=r>feature/greeting</span> into <span class=r>main</span>"], ["", "Rebase <span class=r>feature/greeting</span> onto <span class=r>main</span>"], ["", "Fast-forward <span class=r>main</span> to <span class=r>feature/greeting</span>"], "-", ["branch", "Create branch here…"], ["worktree", "Create worktree from <span class=r>feature/greeting</span>…"], ["tag", "Create tag here…"], "-", ["", "Reset <span class=r>feature/greeting</span> ›", "sel"], ["edit", "Edit commit message"], "-", ["trash", "Delete <span class=r>feature/greeting</span>…", "danger"], ["copy", "Copy ›"]];
+      const menu = withIcons => `<div class="menu" role="menu">${items.map(it => it === "-" ? '<div class="sep"></div>' : `<div class="item ${it[2] || ""}">${withIcons ? `<span class="slot">${it[0] ? icA(it[0]) : ""}</span>` : ""}<span>${it[1]}</span></div>`).join("")}</div>`;
+      return question("Decide: A is now implemented in the app; B would remove the menu and palette icon slots.",
+        "YForge S15 and <code>app/DESIGN.md</code> §Icons give menu items a leading 16px slot, left empty where no glyph is established. YQuery S12 keeps context menus text-only and forbids an icon that duplicates its text.") + pair(
+        { src: "S15 · icon slot", html: `<div class="stage A" style="height:auto">${menu(true)}</div>` },
+        { src: "S12 · text-only", html: `<div class="stage B" style="height:auto">${menu(false)}</div>` }
+      );
+    },
+    notes: [
+      "Items are from specimen <code>05-branch-context.html</code>. Which glyph goes on which item here is illustrative; the app sets each icon on its menu entry (<code>state/refMenu.ts</code>).",
+      "A mixed option also exists: text-only menus (B) while keeping S15 icons everywhere else (toolbars, row actions, section headers). It reconciles with YQuery without undoing the rest of the rollout."
+    ]
+  },
+  type: {
+    label: "Typography",
+    render: () => {
+      const spec = `<div class="ty"><div><div class="lbl">title 16/600</div><div class="t">Merge feature/greeting into main</div></div><div><div class="lbl">body</div><div class="s">Personalize greeting · Document the manual release steps so every maintainer follows the same order.</div></div><div><div class="lbl">mono · SHA, ref, path</div><div class="m">45d26bb · origin/feature/greeting · src/cli/greet.ts +12 −3</div></div><div><div class="lbl">digits</div><div class="s" style="font-variant-numeric:tabular-nums">↑3 ↓0 · 1,204 commits · 3 weeks ago</div></div></div>`;
+      return question("Nothing forced: Geist was your directive.", "If you want family governance (decision 2), this becomes a recorded exception: YQuery uses the system UI font and lists Geist Mono only as a mono fallback.") + pair(
+        { src: "Geist Sans / Geist Mono · 13px body", html: `<div class="stage A" style="height:auto">${spec}</div>` },
+        { src: "system-ui / ui-monospace · 12px body", html: `<div class="stage B" style="height:auto">${spec}</div>` }
+      );
+    },
+    notes: ["A body is 13px at 1.54; B default is 12px at 1.4 (<code>ui-sm</code>), 13px only in forms and the editor."]
+  },
+  focus: {
+    label: "Focus",
+    render: () => {
+      const body = `<div class="fo"><div class="list">${["README.md", "src/cli/greet.ts", "src/cli/shout.ts", "package.json", "docs/usage.md"].map((f, i) => `<div class="frow ${i === 0 ? "f" : ""}">${f}</div>`).join("")}</div><div><span class="btn fbtn">${icA("check")}Commit 1 file</span></div></div>`;
+      return question("Minor: ring outside (A) vs inside the row (B)", "YQuery's prose says the ring is drawn inside the element so scroll containers can't clip it. Look at the first row: A's ring loses its top and sides at the list edge; B's stays whole. Buttons use each product's global ring.") + pair(
+        { src: "controls.focus-ring 2px · offset 2px", html: `<div class="stage A" style="height:auto">${body}</div>` },
+        { src: "rows: offset −2px · controls: offset 1px", html: `<div class="stage B" style="height:auto">${body}</div>` }
+      );
+    },
+    notes: ["B rows use the inset outline from YQuery's grid cells (<code>yquery-proposal.html</code>: <code>outline-offset: -2px</code>). YQuery's own token <code>focus-ring-offset: 1px</code> draws outside, which contradicts its prose; that's a YQuery fix, not a YForge one.", "YForge menus already avoid the issue by showing focus as a selection background (<code>.menu .item:focus-visible</code> in <code>app.css</code>). Whether list rows do the same wasn't checked here."]
+  }
+};
+
+const PAIRS = [
+  ["Chrome / backdrop", "colors-backdrop", "yq-bg"],
+  ["Panel", "colors-surface-1", "yq-surface"],
+  ["Canvas / muted panel", "colors-canvas", "yq-surface-muted"],
+  ["Overlay", "colors-surface-raised", "yq-bg-elevated"],
+  ["Text", "colors-text", "yq-text"],
+  ["Text muted", "colors-text-muted", "yq-text-muted"],
+  ["Text subtle", "colors-text-subtle", "yq-text-subtle"],
+  ["Hairline", "colors-rule", "yq-border"],
+  ["Control border", "colors-rule-strong", "yq-border-control"],
+  ["Accent fill (buttons)", "colors-accent", "yq-accent"],
+  ["Accent text", "colors-accent-ink", "yq-accent"],
+  ["On accent", "colors-on-accent", "yq-on-accent"],
+  ["Accent tint", "colors-accent-tint", "yq-accent-subtle"],
+  ["Selection", "colors-selection", "yq-surface-selected"],
+  ["Focus", "colors-focus", "yq-focus-ring-color"],
+  ["Danger", "colors-danger", "yq-danger"],
+  ["Attention text / warning", "colors-attention-ink", "yq-warning"]
+];
+const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue("--" + n).trim();
+const norm = v => v.toLowerCase().replace(/^#([0-9a-f]{6})ff$/, "#$1");
+const scale = steps => `<div class="mo-scale" style="margin-top:10px">${steps.map(([n, ms]) => `<span class="mono">${n}</span><span class="bar" style="width:${ms / 3.2}%"></span><span class="mono">${ms}ms</span>`).join("")}</div>`;
+
+const seg = (label, key, opts) => `<div class="pg-control"><span>${label}</span><div class="pg-seg">${opts.map(([v, t]) => `<button type="button" data-k="${key}" data-v="${v}" aria-pressed="${ST[key] === v}">${t}</button>`).join("")}</div></div>`;
+
+function play(frame) {
+  const slow = frame.querySelector("#slow")?.checked;
+  frame.querySelectorAll(".mo-stage").forEach(s => { s.classList.remove("play"); s.querySelectorAll(".pop,.toast,.pnl").forEach(el => el.style.animationDuration = ""); void s.offsetWidth; });
+  frame.querySelectorAll(".mo-stage").forEach(s => {
+    s.classList.add("play");
+    if (slow) s.querySelectorAll(".pop,.toast,.pnl").forEach(el => { const d = parseFloat(getComputedStyle(el).animationDuration) * 1000; el.style.animationDuration = d * 10 + "ms"; });
+  });
+}
+
+function render() {
+  if (!TOPICS[ST.topic]) ST.topic = "overview";
+  document.documentElement.setAttribute("data-theme", ST.theme);
+  document.getElementById("controls").innerHTML = [
+    seg("Topic", "topic", Object.entries(TOPICS).map(([k, t]) => [k, t.label])),
+    seg("Theme", "theme", [["dark", "Dark"], ["light", "Light"]]),
+    seg("View", "view", [["compare", "A | B"], ["a", "A only"], ["b", "B only"]])
+  ].join("");
+  const t = TOPICS[ST.topic];
+  const frame = document.getElementById("frame");
+  frame.innerHTML = t.render();
+  document.getElementById("notes").innerHTML = t.notes.map(n => `<li>${n}</li>`).join("");
+  document.querySelectorAll("#controls [data-k]").forEach(b => b.addEventListener("click", () => { ST[b.dataset.k] = b.dataset.v; render(); }));
+  frame.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => { ST.topic = b.dataset.go; render(); }));
+  const r = frame.querySelector("#replay");
+  if (r) { r.addEventListener("click", () => play(frame)); play(frame); }
+  history.replaceState(null, "", "#" + new URLSearchParams(ST));
+}
+
+const q = new URLSearchParams(location.hash.slice(1));
+for (const k of Object.keys(ST)) if (q.get(k)) ST[k] = q.get(k);
+window.addEventListener("hashchange", () => { const h = new URLSearchParams(location.hash.slice(1)); for (const k of Object.keys(ST)) if (h.get(k)) ST[k] = h.get(k); render(); });
+render();
+</script>
+</body>
+</html>

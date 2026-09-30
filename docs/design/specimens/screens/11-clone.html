@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 11 clone</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.app { grid-template-rows: 40px 1fr; }
+.stage { display: grid; place-items: center; padding: 10px 10px 20px; min-height: 0; }
+.launcher { width: 640px; max-width: 100%; padding: 32px; display: grid; gap: 24px; overflow: visible; }
+.hero { display: grid; justify-items: center; gap: 8px; text-align: center; }
+.hero h1 { margin: 0; font: 600 24px/30px var(--sans); }
+.actions { display: flex; justify-content: center; gap: 8px; margin-top: 8px; }
+.drop { height: 72px; display: flex; align-items: center; justify-content: center; gap: 10px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); color: var(--muted); }
+.recent { display: grid; gap: 8px; border-top: 1px solid var(--line); padding-top: 20px; }
+.recent-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+.recent-head h2 { margin: 0; font: 600 12px/16px var(--sans); color: var(--muted); }
+.filter { width: 240px; justify-content: flex-start; gap: 8px; color: var(--muted); }
+.rrow { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 16px; align-items: center; padding: 6px 12px 6px 14px; border-radius: var(--r-sm); }
+.rrow.hover { background: var(--selection); }
+.rline { display: flex; align-items: baseline; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.rname { font: 500 13px/20px var(--sans); }
+.rbranch { font: 500 12px/16px var(--mono); }
+.rpath { grid-column: 1; font: 400 12px/16px var(--mono); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rtime { grid-column: 2; grid-row: 1 / span 2; font: 400 12px/16px var(--sans); color: var(--muted); white-space: nowrap; }
+.dot { color: var(--muted); }
+
+.dialog { gap: 16px; }
+.url { font: 400 12px/20px var(--mono); }
+.url-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dest { display: flex; gap: 8px; align-items: stretch; }
+.dest .input { flex: 1; min-width: 0; justify-content: flex-start; font: 400 12px/20px var(--mono); }
+.full-path { display: flex; align-items: baseline; gap: 8px; font: 400 12px/16px var(--sans); color: var(--muted); }
+.full-path .mono { color: var(--text); font-size: 12px; }
+.clone-progress { display: grid; gap: 8px; }
+.clone-progress .line1 { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.clone-progress .status { font: 400 13px/20px var(--sans); font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const tabs = YF.tabs({ repo: "", others: ["New tab"] }).replace('<span class="tab">New tab', '<span class="tab active">New tab');
+const html = `
+<div class="app" aria-hidden="true">
+  ${tabs}
+  <main class="stage">
+    <section class="panel launcher">
+      <div class="hero">
+        <img class="logo" src="../../../../brand/yforge-app-icon.svg" alt="YForge">
+        <h1>Open a repository</h1>
+        <div class="actions"><span class="btn primary">Open…</span><span class="btn">Clone…</span><span class="btn">Create…</span></div>
+      </div>
+      <div class="drop">${I.folder}<span>Drop a folder to open it</span></div>
+      <div class="recent">
+        <div class="recent-head"><h2>Recent</h2><div class="input filter">${I.search}<span class="ph">Filter recent repositories</span></div></div>
+        <div>
+          <div class="rrow">
+            <div class="rline"><span class="rname">sample</span><span class="rbranch">feature/greeting</span><span class="st st-A">↑2</span><span class="dot">·</span><span class="st st-M">M 1</span><span class="st st-U">U 1</span><span class="dot">·</span><span class="muted">2 worktrees</span></div>
+            <div class="rpath">/tmp/yforge-gk-lab/sample</div>
+            <div class="rtime">5 min ago</div>
+          </div>
+          <div class="rrow">
+            <div class="rline"><span class="rname">other-repo</span><span class="rbranch">main</span><span class="dot">·</span><span class="muted">clean</span></div>
+            <div class="rpath">~/Developer/other-repo</div>
+            <div class="rtime">1 h ago</div>
+          </div>
+          <div class="rrow">
+            <div class="rline"><span class="rname">empty-repo</span><span class="rbranch">main (unborn)</span><span class="dot">·</span><span class="muted">no commits yet</span></div>
+            <div class="rpath">~/Developer/empty-repo</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="scrim"></div>
+<div class="dialog" role="dialog" aria-modal="true" aria-labelledby="clone-title">
+  <h3 id="clone-title">Clone repository</h3>
+  <div class="field">
+    <label for="clone-url">Repository URL</label>
+    <div class="input url" id="clone-url"><span class="url-text">https://github.com/example/lab-app.git</span><span class="ok" role="img" aria-label="Valid URL">${I.check}</span></div>
+  </div>
+  <div class="field">
+    <label for="clone-dest">Destination</label>
+    <div class="dest"><div class="input" id="clone-dest"><span>~/Developer</span></div><span class="btn">Browse…</span></div>
+    <div class="full-path"><span>Clones into</span><span class="mono">~/Developer/lab-app</span></div>
+  </div>
+  <span class="check on"><i></i>Open after clone</span>
+  <div class="clone-progress">
+    <div class="line1"><span class="status">Receiving objects 64% (412/640)</span><span class="btn sm">Cancel</span></div>
+    <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="64"><i style="width: 64%"></i></div>
+  </div>
+  <div class="foot"><span class="reason">Clone is unavailable while cloning</span><span class="spacer"></span><span class="btn">Close</span><span class="btn disabled" aria-disabled="true">Clone</span></div>
+</div>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + html);
+YF.boot("screen 11 · clone");
+</script>
+</body>
+</html>

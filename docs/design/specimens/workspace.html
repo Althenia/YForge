@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge workspace specimen</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="specimen.css">
+</head>
+<body>
+<script src="specimen.js"></script>
+<script>
+const rebase = YF.flags.has("rebase");
+const highlight = YF.flags.has("highlight") ? "feature/search" : null;
+const banner = `<div class="banner op"><span>Rebasing <span class="ref">feature/greeting</span> onto <span class="ref">main</span> · step 1 of 1 · <span class="st st-C">! 1 conflict</span></span><span class="spacer"></span><span class="btn primary">Resolve</span><span class="btn">Continue</span><span class="btn">Skip</span><span class="btn danger">Abort</span></div>`;
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
+  <div class="ilist">
+    ${YF.lhead("changes", "Unstaged · 2", { icon: "plus", label: "Stage all" })}
+    <div class="frow focus"><span class="badge st-M">M</span><span>README.md</span>${YF.acts("stage")}</div>
+    <div class="frow"><span class="badge st-U">U</span><span>scratch.txt</span></div>
+    ${YF.lhead("check", "Staged · 0")}
+    <div class="empty">Nothing staged. Stage files, hunks, or lines to commit them.</div>
+  </div>
+  <div class="composer">
+    <div class="input"><span>Summary</span><span class="count">72</span></div>
+    <div class="input area">Description</div>
+    <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
+  </div>
+</aside>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip(rebase ? { banner } : {})}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>`);
+if (rebase) document.body.classList.add("op");
+YF.boot(`workspace${highlight ? " · hovering feature/search" : ""}${rebase ? " · rebase conflict" : ""}`);
+YF.mountGraph({ hovered: highlight ? 15 : 5, highlight, conflict: rebase ? "Conflicts: 1 · resolve README.md to continue the rebase" : null });
+</script>
+</body>
+</html>

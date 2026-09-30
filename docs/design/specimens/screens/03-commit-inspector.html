@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · commit inspector</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.ibtns { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px; }
+.cmeta { margin: 0 8px 4px; padding: 8px 10px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); display: grid; gap: 2px; }
+.mrow { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; min-height: 24px; font: 400 12px/16px var(--sans); }
+.mrow .k { color: var(--muted); }
+.mrow .v { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; text-align: right; }
+.mrow .v .ref { font: 500 12px/16px var(--mono); }
+.mrow .v .link { font: 500 12px/16px var(--mono); color: var(--info); }
+.mrow .v .sha { font: 500 12px/16px var(--mono); color: var(--green-strong); }
+.mrow .v svg { color: var(--muted); }
+.mrow .v .ago { color: var(--muted); }
+.delta { margin-left: auto; font: 500 12px/16px var(--mono); }
+.delta .p { color: var(--st-A); }
+.delta .m { color: var(--st-D); }
+.frow.sel { background: var(--selection); box-shadow: inset 2px 0 0 var(--green-strong); }
+.lhead .delta { margin: 0; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const inspector = `<aside class="panel inspector" aria-label="Commit">
+  <div class="ihead"><h2>Merge remote-tracking branch 'origin/main'</h2><p>Merge commit · 2 parents</p></div>
+  <div>
+    <div class="ibtns"><span class="btn sm">${YF.glyph("branch", 14)}Branch here</span><span class="btn sm">Cherry-pick</span><span class="btn sm">${YF.glyph("undo", 14)}Revert</span><span class="btn sm">Reset main to here ▸</span></div>
+    <div class="cmeta">
+      <div class="mrow"><span class="k">Commit</span><span class="v"><span class="sha">62db91d</span>${YF.iconBtn("copy", "Copy SHA")}</span></div>
+      <div class="mrow"><span class="k">Author</span><span class="v">YForge Lab</span></div>
+      <div class="mrow"><span class="k">Committer</span><span class="v">YForge Lab</span></div>
+      <div class="mrow"><span class="k">Date</span><span class="v">29 Sep 2026 16:29 <span class="ago">· 1 h ago</span></span></div>
+      <div class="mrow"><span class="k">Parents</span><span class="v"><span class="link">99f5ded</span><span class="link">e51c037</span></span></div>
+      <div class="mrow"><span class="k">Refs</span><span class="v"><span class="chip"><span class="ref">main</span></span></span></div>
+    </div>
+    <div class="ilist">
+      <div class="lhead"><span class="lhead-title">${YF.glyph("diff")}Files (1)</span> <span class="delta"><span class="p">+1</span> <span class="m">−1</span></span></div>
+      <div class="frow sel"><span class="badge st-M">M</span><span>README.md</span><span class="delta"><span class="p">+1</span> <span class="m">−1</span></span></div>
+    </div>
+  </div>
+  <div class="activity" style="padding: 10px 16px 14px">Select a file to open its diff. Esc returns to the graph.</div>
+</aside>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>`);
+YF.boot("screen 3 · commit inspector");
+YF.mountGraph({ selected: 4, hovered: 4 });
+</script>
+</body>
+</html>

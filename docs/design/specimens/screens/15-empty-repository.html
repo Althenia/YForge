@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · empty repository</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.stage { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; place-items: center; padding: 24px; }
+.es { width: min(420px, 100%); display: grid; gap: 16px; }
+.es h2 { margin: 0; font: 600 16px/22px var(--sans); letter-spacing: -0.01em; }
+.es p { margin: 4px 0 0; color: var(--muted); font: 400 13px/20px var(--sans); }
+.es .files { border-radius: var(--r-md); background: var(--glass-raised); box-shadow: inset 0 0 0 1px var(--line); padding: 4px 8px 8px; }
+.es .files .lhead { padding-left: 0; padding-right: 0; }
+.es .files .frow { padding: 0 4px; }
+.es .cta { display: flex; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const sidebar = `<aside class="panel sidebar" aria-label="Repository">
+  ${YF.sec("changes", "Changes", 2)}
+  ${YF.sec("branch", "Branches", 1)}
+  <div class="srow current">main <span class="meta">unborn</span></div>
+  ${YF.sec("remote", "Remotes", 0)}
+  ${YF.sec("tag", "Tags", 0)}
+  ${YF.sec("stash", "Stashes", 0)}
+  ${YF.sec("worktree", "Worktrees", 1)}
+  <div class="srow">empty-repo <span class="meta">main worktree</span></div>
+</aside>`;
+
+const emptyState = `<section class="panel stage" aria-label="Empty repository">
+  <div class="es">
+    <div><h2>This repository has no commits yet</h2><p>Stage files and create the first commit to start the history.</p></div>
+    <div class="files">
+      ${YF.lhead("plus", "Untracked files")}
+      <div class="frow"><span class="badge st-U">U</span><span>README.md</span></div>
+      <div class="frow"><span class="badge st-U">U</span><span>src/main.rs</span></div>
+    </div>
+    <div class="cta"><span class="btn primary">Create first commit</span></div>
+  </div>
+</section>`;
+
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">main</span> (unborn) · 2 files</p></div>
+  <div class="ilist">
+    ${YF.lhead("plus", "Untracked · 2", { icon: "plus", label: "Stage all" })}
+    <div class="frow"><span class="badge st-U">U</span><span>README.md</span>${YF.acts("stage")}</div>
+    <div class="frow"><span class="badge st-U">U</span><span>src/main.rs</span>${YF.acts("stage")}</div>
+    ${YF.lhead("check", "Staged · 0")}
+    <div class="empty">Nothing staged. Stage files, hunks, or lines to commit them.</div>
+  </div>
+  <div class="composer">
+    <div class="input"><span class="ph">Summary</span><span class="count">72</span></div>
+    <div class="input area"><span class="ph">Description</span></div>
+    <div class="hrow"><span class="btn disabled" aria-disabled="true">Commit</span><span class="reason">Stage files to commit</span></div>
+  </div>
+</aside>`;
+
+const chips = `${YF.headChip("main (unborn)", "")}<span class="chip">no commits yet</span><span class="chip">${YF.glyph("changes")}Changes <span class="st st-U">U 2</span></span>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs({ repo: "empty-repo", meta: "", others: ["sample"] })}${YF.command({ crumb: ["empty-repo", "main worktree", "main"], sync: "Publish", syncClass: "disabled" })}${YF.strip({ chips, right: "" })}<div class="main">${sidebar}${emptyState}${inspector}</div>${YF.activity({ command: "git init", duration: "0.1 s", action: "" })}</div>`);
+YF.boot("screen 15 · empty repository");
+</script>
+</body>
+</html>

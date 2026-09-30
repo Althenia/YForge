@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · command palette</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.palette .q .typed { flex: 1; display: flex; align-items: center; }
+.palette .q .caret { width: 1px; height: 18px; margin-left: 1px; background: var(--text); }
+.palette .res .item .meta { color: var(--muted); font: 400 12px/16px var(--sans); }
+.palette .res .sep { height: 1px; margin: 5px 4px; background: var(--line); }
+.palette .res .item.off .reason { color: var(--muted); }
+.palette .ctx { display: flex; align-items: center; gap: 12px; }
+.palette .ctx .hints { margin-left: auto; display: flex; gap: 14px; font: 500 11px/16px var(--mono); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
+  <div class="ilist">
+    ${YF.lhead("changes", "Unstaged (2)", { icon: "plus", label: "Stage all" })}
+    <div class="frow"><span class="badge st-M">M</span><span>README.md</span></div>
+    <div class="frow"><span class="badge st-U">U</span><span>scratch.txt</span></div>
+    ${YF.lhead("check", "Staged (0)")}
+    <div class="empty">Nothing staged. Stage files, hunks, or lines to commit them.</div>
+  </div>
+  <div class="composer">
+    <div class="input"><span>Summary</span><span class="count">72</span></div>
+    <div class="input area">Description</div>
+    <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
+  </div>
+</aside>`;
+const palette = `<div class="scrim"></div><div class="palette" role="dialog" aria-label="Command palette">
+  <div class="q"><span class="argchip">Rebase onto ×</span><span class="typed">ma<span class="caret"></span></span></div>
+  <div class="res">
+    <div class="item sel"><span class="pal-icon"></span><span class="mono">main</span><span class="meta">local · <span class="st st-A">↑3</span></span><span class="k">↵</span></div>
+    <div class="item"><span class="pal-icon"></span><span class="mono">origin/main</span><span class="meta">remote</span></div>
+    <div class="item"><span class="pal-icon"></span><span class="mono">origin/feature/remote-only</span><span class="meta">remote</span></div>
+    <div class="sep"></div>
+    <div class="item off"><span class="pal-icon"></span><span>Squash 3 commits</span><span class="reason">— needs a merge-free range on the current branch</span></div>
+  </div>
+  <div class="ctx"><span>Current branch: <span class="mono">feature/greeting</span></span><span class="hints"><span>↑↓ move</span><span>↵ rebase onto main</span><span>esc close</span></span></div>
+</div>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + palette);
+YF.boot("screen 9 · command palette");
+YF.mountGraph({ selected: 0, hovered: -1, dimAll: true });
+</script>
+</body>
+</html>

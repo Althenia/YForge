@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · working tree and commit</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.stg { min-height: 166px; }
+.frow.hov { background: var(--fill-hover); }
+.frow .muted { color: var(--muted); }
+.badge.partial { display: flex; align-items: center; justify-content: center; white-space: nowrap; font-size: 11px; letter-spacing: -0.02em; }
+.badge.partial .half { color: var(--text); }
+.input.area.filled { color: var(--text); }
+.composer .check { padding: 2px 0; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const strip = YF.strip({ chips: `${YF.headChip()}<span class="chip">${YF.glyph("changes")}Changes <span class="st st-M">M 2</span> <span class="st st-U">U 1</span></span><span class="chip ok">${YF.glyph("check")}fetched 2 min ago</span>` });
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 3 files</p></div>
+  <div class="ilist">
+    <div class="stg">
+      ${YF.lhead("changes", "Unstaged (2)", { icon: "plus", label: "Stage all" })}
+      <div class="frow hov"><span class="badge partial st-M" id="partial">M<span class="half">½</span></span><span><span class="muted">src/</span>util.js</span>${YF.acts("stage")}</div>
+      <div class="frow"><span class="badge st-U">U</span><span><span class="muted">notes/</span>todo.md</span></div>
+    </div>
+    <div class="stg">
+      ${YF.lhead("check", "Staged (2)", { icon: "minus", label: "Unstage all" })}
+      <div class="frow"><span class="badge st-M">M</span><span><span class="muted">src/</span>config.js</span></div>
+      <div class="frow"><span class="badge st-M">M</span><span><span class="muted">src/</span>util.js</span></div>
+    </div>
+  </div>
+  <div class="composer">
+    <div class="input"><span>Tune retries and clamp helper</span><span class="count">43</span></div>
+    <div class="input area filled">Raise the default retry count and clamp the helper result to its min and max.</div>
+    <span class="check"><i></i>Push after committing</span>
+    <div class="hrow"><span class="split" id="split"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="btn primary">${I.chevron}</span></span><span class="spacer"></span><span class="btn">Amend</span></div>
+  </div>
+</aside>`;
+const overlays = `<div class="menu" id="cmenu" style="width: 240px"><div class="item sel">Commit</div><div class="item">Commit &amp; Push <span class="k">⌘⇧↵</span></div></div><span class="tooltip" id="tip" style="position: fixed; z-index: 90">Partially staged</span>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${strip}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + overlays);
+YF.boot("screen 2 · working tree and commit");
+YF.mountGraph({ selected: 0, hovered: 0 });
+document.querySelector(".sidebar .sec .n").textContent = "3";
+document.querySelector(".row.wip .sum").textContent = "Changes: 2 modified, 1 untracked";
+const split = document.getElementById("split").getBoundingClientRect();
+const menu = document.getElementById("cmenu");
+menu.style.left = `${split.left - 240 - 6}px`;
+menu.style.bottom = `${innerHeight - split.bottom}px`;
+const badge = document.getElementById("partial").getBoundingClientRect();
+const tip = document.getElementById("tip");
+const tipRect = tip.getBoundingClientRect();
+tip.style.left = `${badge.left - tipRect.width - 8}px`;
+tip.style.top = `${badge.top + badge.height / 2 - tipRect.height / 2}px`;
+</script>
+</body>
+</html>

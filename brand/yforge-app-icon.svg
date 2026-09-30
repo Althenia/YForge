@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<title>YForge app icon: Y with a branch lane into a commit</title>
+<rect x="0" y="0" width="1024" height="1024" rx="176" fill="#24282f"/><rect x="4" y="4" width="1016" height="1016" rx="172" fill="none" stroke="#3a404a" stroke-width="8"/>
+<polygon points="196,194 348,194 602,542 422,542" fill="#67d7a4"/><polygon points="676,194 830,194 602,540 602,826 424,826 424,456 479,456" fill="#f2f3f5"/>
+<path d="M602 620h112a60 60 0 0 1 60 60v70" fill="none" stroke="#67d7a4" stroke-width="64"/><circle cx="774" cy="750" r="76" fill="#f0be62"/>
+</svg>

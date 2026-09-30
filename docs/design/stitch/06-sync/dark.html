@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>YForge Desktop Git Client</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Public+Sans:wght@400;600;700&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "surface-variant": "#2f3731",
+            "surface-container": "#1a211c",
+            "on-tertiary-fixed": "#2b1700",
+            "on-secondary": "#003921",
+            "error": "#ffb4ab",
+            "on-surface-variant": "#bbcabe",
+            "surface-bright": "#333b35",
+            "primary-container": "#4ee29c",
+            "surface-container-low": "#161d18",
+            "on-secondary-container": "#8cc1a0",
+            "inverse-primary": "#006d44",
+            "on-tertiary-fixed-variant": "#673d00",
+            "outline": "#869489",
+            "on-secondary-fixed": "#002111",
+            "surface-container-lowest": "#09100b",
+            "on-primary-fixed-variant": "#005232",
+            "on-error-container": "#ffdad6",
+            "surface-dim": "#0e1510",
+            "secondary": "#9dd2b1",
+            "primary-fixed": "#6cfcb4",
+            "on-background": "#dde5dc",
+            "secondary-fixed-dim": "#9dd2b1",
+            "outline-variant": "#3c4a41",
+            "tertiary": "#ffe0c1",
+            "inverse-surface": "#dde5dc",
+            "tertiary-fixed": "#ffddba",
+            "on-tertiary-container": "#794902",
+            "on-tertiary": "#482900",
+            "background": "#0e1510",
+            "tertiary-fixed-dim": "#fcb96d",
+            "tertiary-container": "#ffbc6f",
+            "inverse-on-surface": "#2b322d",
+            "secondary-fixed": "#b9efcc",
+            "on-primary-fixed": "#002111",
+            "surface-container-highest": "#2f3731",
+            "on-surface": "#dde5dc",
+            "primary": "#70ffb6",
+            "on-error": "#690005",
+            "on-secondary-fixed-variant": "#1d5036",
+            "surface": "#0e1510",
+            "secondary-container": "#1d5036",
+            "surface-tint": "#4bdf99",
+            "on-primary-container": "#00613c",
+            "primary-fixed-dim": "#4bdf99",
+            "surface-container-high": "#242c26",
+            "on-primary": "#003921",
+            "error-container": "#93000a"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-lg": "16px",
+            "gutter": "4px",
+            "space-xl": "24px",
+            "space-sm": "8px",
+            "space-xs": "4px",
+            "space-md": "12px",
+            "margin": "12px"
+          },
+          "fontFamily": {
+            "micro-badge": ["Public Sans"],
+            "metadata": ["Public Sans"],
+            "micro": ["Public Sans"],
+            "ui-text": ["Geist"],
+            "graph-label-active": ["Geist"],
+            "graph-label": ["Geist"],
+            "inspector-title": ["Geist"],
+            "code": ["JetBrains Mono"]
+          },
+          "fontSize": {
+            "micro-badge": ["10px", { "lineHeight": "12px", "fontWeight": "700" }],
+            "metadata": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "micro": ["11px", { "lineHeight": "14px", "fontWeight": "400" }],
+            "ui-text": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "graph-label-active": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "graph-label": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "inspector-title": ["16px", { "lineHeight": "22px", "fontWeight": "600" }],
+            "code": ["12px", { "lineHeight": "16px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 16px;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    /* Lean aurora ambient backdrops */
+    .aurora-bg {
+      background-color: #0B1115;
+      background-image: 
+        radial-gradient(circle at 14% 10%, rgba(39, 209, 127, 0.16) 0%, transparent 45%),
+        radial-gradient(circle at 88% 30%, rgba(21, 160, 191, 0.10) 0%, transparent 40%);
+    }
+    /* Custom subtle scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body class="bg-[#0B1115] text-[#F4F7F6] font-ui-text text-ui-text antialiased h-screen w-screen overflow-hidden select-none aurora-bg">
+<!-- TOP SHELL: IMMUTABLE JSON MATCHED TopNavBar -->
+<header class="bg-surface-container text-primary font-ui-text text-ui-text docked full-width top-0 h-[44px] border-b border-outline-variant flat no shadows transition-colors duration-150 ease-in-out flex justify-between items-center w-full px-space-md shrink-0 z-30">
+<div class="flex items-center gap-space-md">
+<span class="font-inspector-title text-inspector-title font-semibold text-on-surface tracking-tight">YForge</span>
+<!-- Top search input -->
+<div class="relative flex items-center ml-2">
+<span class="material-symbols-outlined absolute left-2 text-on-surface-variant pointer-events-none text-[15px]">search</span>
+<input class="bg-surface-container-low text-on-surface border border-outline-variant rounded px-2 pl-7 py-0.5 font-code text-code w-44 focus:outline-none focus:border-primary placeholder:text-on-surface-variant/60 h-6" placeholder="Search repository..." type="text"/>
+</div>
+<!-- Navigation Links from Shared Components JSON -->
+<nav class="flex items-center space-x-1 ml-3 h-[44px]">
+<a class="px-2.5 h-full flex items-center text-primary border-b-2 border-primary transition-colors duration-150 ease-in-out font-medium" href="#">Repository</a>
+<a class="px-2.5 h-full flex items-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 ease-in-out" href="#">Branch</a>
+<a class="px-2.5 h-full flex items-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 ease-in-out" href="#">Commit</a>
+<a class="px-2.5 h-full flex items-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 ease-in-out" href="#">Stash</a>
+<a class="px-2.5 h-full flex items-center text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors duration-150 ease-in-out" href="#">Terminal</a>
+</nav>
+</div>
+<!-- Trailing Actions from Shared Components JSON -->
+<div class="flex items-center gap-2">
+<div class="flex items-center rounded overflow-hidden border border-outline-variant bg-surface-container-high">
+<button class="px-2.5 py-1 text-primary hover:bg-surface-bright transition-colors font-medium flex items-center gap-1 font-ui-text text-ui-text">
+<span class="material-symbols-outlined text-[15px]">sync</span>
+          Fetch &amp; Pull
+        </button>
+<div class="w-[1px] h-4 bg-outline-variant"></div>
+<button class="px-2.5 py-1 text-on-surface hover:bg-surface-bright transition-colors font-medium font-ui-text text-ui-text">
+          Push
+        </button>
+</div>
+<div class="flex items-center gap-1 ml-1 text-on-surface-variant">
+<button class="p-1 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors" title="terminal">
+<span class="material-symbols-outlined">terminal</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors" title="tune">
+<span class="material-symbols-outlined">tune</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high hover:text-on-surface transition-colors" title="settings">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+</div>
+</header>
+<!-- WINDOW / TAB BAR (40px) -->
+<div class="h-[40px] px-3 flex items-center justify-between shrink-0">
+<div class="flex items-center gap-2.5">
+<!-- macOS window dots -->
+<div class="flex items-center space-x-1.5 mr-2">
+<div class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]"></div>
+<div class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]"></div>
+<div class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]"></div>
+</div>
+<!-- Pill Tabs -->
+<div class="flex items-center gap-1.5">
+<!-- Active Tab -->
+<div class="h-7 px-2.5 flex items-center gap-1.5 rounded-[6px] bg-[#0C1217]/80 border border-white/[0.12] text-[#F4F7F6]">
+<span class="w-4 h-4 rounded bg-[#4EE29B]/20 text-[#4EE29B] font-code font-bold text-[10px] flex items-center justify-center leading-none">Y</span>
+<span class="font-ui-text text-ui-text font-medium text-[#F4F7F6]">sample</span>
+<span class="text-[#99A2AD] text-[11px]">·</span>
+<span class="text-[#99A2AD] font-code text-[11px]">2 worktrees</span>
+<button class="ml-1 text-[#99A2AD] hover:text-[#F4F7F6]"><span class="material-symbols-outlined text-[13px]">close</span></button>
+</div>
+<!-- Inactive Tab -->
+<div class="h-7 px-2.5 flex items-center gap-1.5 rounded-[6px] bg-[#0C1217]/50 border border-white/[0.07] text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-[#0C1217]/80 transition-colors">
+<span class="font-ui-text text-ui-text">other-repo</span>
+</div>
+<!-- Add Repo Button -->
+<button class="w-7 h-7 flex items-center justify-center rounded-[6px] bg-[#0C1217]/50 border border-white/[0.07] text-[#99A2AD] hover:text-[#F4F7F6] transition-colors">
+<span class="material-symbols-outlined text-[15px]">add</span>
+</button>
+</div>
+</div>
+<!-- Right Controls -->
+<div class="flex items-center gap-1">
+<button class="w-7 h-7 flex items-center justify-center rounded-[6px] bg-[#0C1217]/50 border border-white/[0.07] text-[#99A2AD] hover:text-[#F4F7F6] transition-colors">
+<span class="material-symbols-outlined text-[16px]">settings</span>
+</button>
+</div>
+</div>
+<!-- COMMAND BAR (48px) -->
+<div class="h-[48px] px-3 flex items-center justify-between gap-3 shrink-0 relative z-20">
+<!-- Breadcrumb Control -->
+<div class="flex items-center h-8 px-2.5 rounded-[7px] bg-[#0C1217]/70 border border-white/[0.08] font-code text-code text-[#99A2AD]">
+<span>sample</span>
+<span class="mx-1.5 text-white/30">›</span>
+<span>main worktree</span>
+<span class="mx-1.5 text-white/30">›</span>
+<span class="text-[#4EE29B] font-medium flex items-center gap-0.5">
+        feature/greeting
+        <span class="material-symbols-outlined text-[14px]">arrow_drop_down</span>
+</span>
+</div>
+<!-- Center Search Field -->
+<div class="flex-1 max-w-[460px] relative">
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[#99A2AD] text-[15px]">search</span>
+<input class="w-full h-8 pl-8 pr-10 rounded-[7px] bg-[#0C1217]/75 border border-white/[0.08] text-[#F4F7F6] font-ui-text text-ui-text placeholder:text-[#99A2AD]/70 focus:outline-none focus:border-[#4EE29B]/70" placeholder="Search commits, branches, files, or run a command" type="text"/>
+<span class="absolute right-2 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-code bg-white/[0.06] border border-white/[0.08] rounded text-[#99A2AD]">⌘K</span>
+</div>
+<!-- Right-aligned action buttons -->
+<div class="flex items-center gap-1.5 relative">
+<!-- Sync Button Active state with dropdown marker -->
+<button class="h-8 px-3 rounded-[7px] bg-[#122F28] border border-[#4EE29B]/60 text-[#4EE29B] font-ui-text text-ui-text font-medium flex items-center gap-1.5 shadow-[0_0_8px_rgba(78,226,155,0.12)]">
+<span class="material-symbols-outlined text-[15px]">sync_alt</span>
+        Sync ↑2
+        <span class="material-symbols-outlined text-[14px]">arrow_drop_down</span>
+</button>
+<!-- Sync Dropdown Context Menu (Open State as mandated by Screen 6) -->
+<div class="absolute right-36 top-10 w-60 rounded-[6px] bg-[#151E24] border border-[#3A404A] shadow-xl py-1 z-50 text-left font-ui-text text-ui-text">
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Fetch all</span>
+<span class="text-[#99A2AD] font-code text-metadata">⇧⌘F</span>
+</button>
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Pull: fast-forward only</span>
+</button>
+<button class="w-full px-3 py-1.5 text-left text-[#4EE29B] bg-[#122F28]/60 hover:bg-[#122F28] flex items-center justify-between">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#4EE29B]"></span>
+            Pull: fast-forward, merge if needed
+          </span>
+<span class="text-[#4EE29B] text-xs">✓</span>
+</button>
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Pull: rebase</span>
+</button>
+<div class="my-1 border-t border-[#3A404A]"></div>
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Push</span>
+<span class="text-[#99A2AD] font-code text-metadata">⌘P</span>
+</button>
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Push to…</span>
+</button>
+<button class="w-full px-3 py-1.5 text-left text-[#F4F7F6] hover:bg-white/[0.06] flex items-center justify-between">
+<span>Set upstream…</span>
+</button>
+</div>
+<button class="h-8 px-2.5 rounded-[7px] bg-[#0C1217]/70 border border-white/[0.08] text-[#F4F7F6] hover:bg-[#0C1217] transition-colors flex items-center gap-1 font-ui-text text-ui-text">
+<span class="material-symbols-outlined text-[15px]">call_split</span>
+        Branch <span class="text-[#99A2AD] font-code text-metadata">⌘B</span>
+</button>
+<button class="h-8 px-2.5 rounded-[7px] bg-[#0C1217]/70 border border-white/[0.08] text-[#F4F7F6] hover:bg-[#0C1217] transition-colors font-ui-text text-ui-text">
+        Stash
+      </button>
+<button class="h-8 px-2.5 rounded-[7px] bg-[#0C1217]/70 border border-white/[0.08] text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-[#0C1217] transition-colors flex items-center gap-1 font-ui-text text-ui-text">
+        Undo <span class="font-code text-metadata">⌘Z</span>
+</button>
+</div>
+</div>
+<!-- STATE STRIP (36px) -->
+<div class="h-[36px] px-3 flex items-center justify-between shrink-0">
+<div class="flex items-center gap-2 overflow-x-auto text-metadata">
+<!-- HEAD Junction Chip -->
+<div class="h-6 px-2 flex items-center gap-1.5 rounded-[5px] bg-[#0C1217]/80 border border-white/[0.07]">
+<!-- 12px teal dot inside thin amber #F0BE62 ring -->
+<span class="relative flex items-center justify-center w-3 h-3 rounded-full border border-[#F0BE62]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#15A0BF]"></span>
+</span>
+<span class="font-code text-code text-[#F4F7F6]">
+          HEAD <span class="text-[#4EE29B]">feature/greeting</span> → origin/feature/greeting <span class="text-[#F7D37C] font-semibold">↑2</span> <span class="text-[#99A2AD]">↓0</span>
+</span>
+</div>
+<!-- Progress Chip -->
+<div class="h-6 px-2 flex items-center gap-1.5 rounded-[5px] bg-[#0C1217]/80 border border-white/[0.07] text-[#99A2AD]">
+<span class="w-2.5 h-2.5 border border-[#15A0BF] border-t-transparent rounded-full animate-spin"></span>
+<span>Fetching origin… 42%</span>
+<button class="text-xs text-[#99A2AD] hover:text-[#EF6F6F] ml-0.5 underline">Cancel</button>
+</div>
+<!-- Changes Chip -->
+<div class="h-6 px-2 flex items-center gap-1 rounded-[5px] bg-[#0C1217]/80 border border-white/[0.07] font-code text-code">
+<span class="text-[#99A2AD]">Changes</span>
+<span class="text-[#F7D37C] font-semibold">M 1</span>
+<span class="text-[#4EE29B] font-semibold">U 1</span>
+</div>
+<!-- Fetched Chip -->
+<div class="h-6 px-2 flex items-center gap-1 rounded-[5px] bg-[#122F28]/50 border border-[#4EE29B]/30 text-[#4EE29B]">
+<span>✓</span>
+<span>fetched 2 min ago</span>
+</div>
+</div>
+<!-- Right End Worktrees -->
+<div class="h-6 px-2.5 flex items-center gap-1.5 rounded-[5px] bg-[#0C1217]/80 border border-white/[0.07] text-metadata font-code text-[#99A2AD]">
+<span>2 worktrees ·</span>
+<span class="text-[#4EE29B]">hotfix/wt-demo clean</span>
+</div>
+</div>
+<!-- THREE FLAT FLOATING PANELS CONTAINER -->
+<main class="flex-1 px-2.5 pb-2.5 flex gap-[10px] overflow-hidden" style="height: calc(100vh - 158px);">
+<!-- LEFT SIDEBAR PANEL (248px) -->
+<aside class="w-[248px] h-full rounded-[14px] bg-[#11181D]/70 border border-white/[0.12] flex flex-col shrink-0 overflow-hidden backdrop-blur-sm">
+<div class="p-2.5 flex items-center justify-between border-b border-white/[0.06]">
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded bg-[#4EE29B]/15 text-[#4EE29B] flex items-center justify-center font-code text-xs font-bold">Y</div>
+<div>
+<div class="font-inspector-title text-[13px] font-semibold text-[#F4F7F6] leading-none">yforge-core</div>
+<div class="font-code text-[11px] text-[#99A2AD]">main @ 9bf2a1d</div>
+</div>
+</div>
+<button class="h-6 px-2 rounded bg-white/[0.06] hover:bg-white/[0.1] text-xs font-ui-text text-[#F4F7F6] border border-white/[0.08] transition-colors">
+          New branch
+        </button>
+</div>
+<!-- Nav sections -->
+<div class="flex-1 overflow-y-auto py-1 text-ui-text">
+<!-- Changes section -->
+<div class="px-2 py-1">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">pending_actions</span>
+<span>Changes</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#F7D37C]">2</span>
+</div>
+</div>
+<!-- Branches section -->
+<div class="px-2 py-1">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">fork_right</span>
+<span>Branches</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#99A2AD]">7</span>
+</div>
+<!-- Branch list tree -->
+<div class="mt-0.5 space-y-0.5 pl-3">
+<div class="flex items-center justify-between py-1 px-2 rounded text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-white/[0.03] text-[12px] font-code">
+<span class="truncate">main</span>
+<span class="text-[#F7D37C] text-[11px]">↑3</span>
+</div>
+<!-- folder: bugfix/ -->
+<div class="text-[#99A2AD] text-[11px] font-code uppercase tracking-wider pt-1 px-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">folder</span>
+<span>bugfix/</span>
+</div>
+<!-- folder: feature/ -->
+<div class="text-[#99A2AD] text-[11px] font-code uppercase tracking-wider pt-1.5 px-2 flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">folder_open</span>
+<span>feature/</span>
+</div>
+<div class="pl-2 space-y-0.5">
+<!-- Selected: greeting -->
+<div class="flex items-center justify-between py-1 px-2 rounded bg-[#122F28] border-l-2 border-[#4EE29B] text-[#4EE29B] font-code text-[12px] font-medium">
+<span class="truncate">greeting</span>
+<span class="text-[10px] text-[#4EE29B]/90 font-code flex items-center gap-1">
+<span>↑2</span>
+<span class="bg-[#4EE29B]/20 px-1 rounded text-[9px]">HEAD</span>
+</span>
+</div>
+<div class="flex items-center justify-between py-0.5 px-2 rounded text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-white/[0.03] text-[12px] font-code">
+<span class="truncate">inline-branch</span>
+</div>
+<div class="flex items-center justify-between py-0.5 px-2 rounded text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-white/[0.03] text-[12px] font-code">
+<span class="truncate">login</span>
+</div>
+<div class="flex items-center justify-between py-0.5 px-2 rounded text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-white/[0.03] text-[12px] font-code">
+<span class="truncate">search</span>
+<span class="text-[#99A2AD] text-[11px]">↓1</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Remotes -->
+<div class="px-2 py-0.5">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">cloud</span>
+<span>Remotes</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#99A2AD]">5</span>
+</div>
+</div>
+<!-- Tags -->
+<div class="px-2 py-0.5">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">label</span>
+<span>Tags</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#99A2AD]">3</span>
+</div>
+</div>
+<!-- Stashes -->
+<div class="px-2 py-0.5">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">archive</span>
+<span>Stashes</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#99A2AD]">2</span>
+</div>
+</div>
+<!-- Worktrees -->
+<div class="px-2 py-0.5">
+<div class="flex items-center justify-between text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer py-1 px-1.5 rounded hover:bg-white/[0.03]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px]">splitscreen</span>
+<span>Worktrees</span>
+</span>
+<span class="font-code text-micro-badge px-1.5 py-0.2 rounded bg-white/[0.08] text-[#99A2AD]">2</span>
+</div>
+<div class="mt-0.5 space-y-0.5 pl-3">
+<div class="py-0.5 px-2 text-[#99A2AD] text-[11px] font-code truncate">sample · main worktree</div>
+<div class="py-0.5 px-2 text-[#99A2AD] text-[11px] font-code truncate">hotfix/wt-demo · clean</div>
+</div>
+</div>
+</div>
+<!-- Sidebar footer -->
+<div class="p-2 border-t border-white/[0.06] flex items-center justify-between text-[#99A2AD] text-metadata">
+<button class="flex items-center gap-1 px-2 py-1 rounded hover:bg-white/[0.06] hover:text-[#F4F7F6]">
+<span class="material-symbols-outlined text-[15px]">terminal</span>
+<span>Terminal</span>
+</button>
+<button class="flex items-center gap-1 px-2 py-1 rounded hover:bg-white/[0.06] hover:text-[#F4F7F6]">
+<span class="material-symbols-outlined text-[15px]">settings</span>
+<span>Settings</span>
+</button>
+</div>
+</aside>
+<!-- CENTER COMMIT GRAPH PANEL -->
+<section class="flex-1 h-full rounded-[14px] bg-[#0E151A]/90 border border-white/[0.12] flex flex-col shrink overflow-hidden backdrop-blur-sm">
+<!-- 3-column Header (30px) -->
+<div class="h-[30px] px-3 border-b border-white/[0.08] flex items-center text-[11px] font-ui-text text-[#99A2AD] uppercase tracking-wider shrink-0 bg-white/[0.01]">
+<div class="w-[130px] shrink-0">BRANCH / TAG</div>
+<div class="w-[150px] shrink-0 pl-1">GRAPH</div>
+<div class="flex-1 flex items-center justify-between">
+<span>COMMIT MESSAGE</span>
+<span class="material-symbols-outlined text-[14px] text-[#99A2AD] cursor-pointer hover:text-[#F4F7F6]">tune</span>
+</div>
+</div>
+<!-- Graph Rows Container (28px row baselines) -->
+<div class="flex-1 overflow-y-auto divide-y divide-white/[0.02]">
+<!-- Row 1: Changes (uncommitted) -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0 font-code text-[11px] text-[#F7D37C]">Changes</div>
+<!-- Graph visualization SVG lane -->
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<!-- Lane line from bottom to node -->
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="14" y2="28"></line>
+<!-- Dotted ring for changes row -->
+<circle cx="20" cy="14" fill="none" r="5.5" stroke="#F7D37C" stroke-dasharray="2 2" stroke-width="1.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2">
+<span class="text-[#F7D37C] font-ui-text text-ui-text font-medium">1 modified, 1 untracked</span>
+<span class="font-code text-micro text-[#99A2AD]">work in progress</span>
+</div>
+</div>
+<!-- Row 2: Export shout helper (HEAD) - SELECTED -->
+<div class="h-[28px] px-3 flex items-center bg-[#122F28]/70 border-l-2 border-[#4EE29B] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#114A59] border-l-[3px] border-[#15A0BF] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              ✓ feature/greeting
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<!-- Commit node with Initials YL -->
+<circle cx="20" cy="14" fill="#15A0BF" r="7"></circle>
+<text fill="#04150C" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="20" y="17">YL</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text font-medium text-[#F4F7F6]">Export shout helper</span>
+<span class="font-code text-metadata text-[#99A2AD]">9bf2a1d · 4m ago</span>
+</div>
+</div>
+<!-- Row 3: Add shout helper -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0"></div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<circle cx="20" cy="14" fill="#15A0BF" r="7"></circle>
+<text fill="#04150C" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="20" y="17">CN</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Add shout helper</span>
+<span class="font-code text-metadata text-[#99A2AD]">6c891f2 · 22m ago</span>
+</div>
+</div>
+<!-- Row 4: Personalize greeting [feature/inline-branch +1] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#0F2E38] border-l-[3px] border-[#15A0BF] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              feature/inline-branch <span class="ml-1 text-[#4EE29B]">+1</span>
+</span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<!-- fork branch to lane 1 -->
+<path d="M 20 14 Q 35 14 50 28" fill="none" stroke="#0669F7" stroke-width="2"></path>
+<circle cx="20" cy="14" fill="#15A0BF" r="7"></circle>
+<text fill="#04150C" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="20" y="17">BO</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Personalize greeting</span>
+<span class="font-code text-metadata text-[#99A2AD]">f86d53a · 1h ago</span>
+</div>
+</div>
+<!-- Row 5: Merge remote-tracking branch 'origin/main' [main] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#0D2442] border-l-[3px] border-[#0669F7] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              main
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<!-- merge line -->
+<path d="M 50 14 Q 35 14 20 14" fill="none" stroke="#0669F7" stroke-width="2"></path>
+<circle cx="20" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Merge remote-tracking branch 'origin/main'</span>
+<span class="font-code text-metadata text-[#99A2AD]">7a32b01 · 2h ago</span>
+</div>
+</div>
+<!-- Row 6: Tune retries and clamp helper -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0"></div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="7"></circle>
+<text fill="#ffffff" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="50" y="17">AP</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Tune retries and clamp helper</span>
+<span class="font-code text-metadata text-[#99A2AD]">3df21c8 · 3h ago</span>
+</div>
+</div>
+<!-- Row 7: Document verbose flag [main, remote] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0 flex items-center gap-1">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#0D2442] border-l-[3px] border-[#0669F7] font-code text-[10px] text-[#F4F7F6]">
+              main
+            </span>
+<span class="text-[9px] text-[#99A2AD] font-code">remote</span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Document verbose flag</span>
+<span class="font-code text-metadata text-[#99A2AD]">89da041 · 5h ago</span>
+</div>
+</div>
+<!-- Row 8: WIP: try compact header (stash row) -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="text-[#F7D37C] font-code text-[11px] italic">stash@{0}</span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<!-- Dotted square for stash row -->
+<rect fill="none" height="10" stroke="#F7D37C" stroke-dasharray="2 2" stroke-width="1.5" width="10" x="74" y="9"></rect>
+<path d="M 50 14 L 74 14" stroke="#F7D37C" stroke-dasharray="2 2" stroke-width="1"></path>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between italic text-[#99A2AD]">
+<span class="font-ui-text text-ui-text">WIP: try compact header</span>
+<span class="font-code text-metadata text-[#99A2AD]">stash · 6h ago</span>
+</div>
+</div>
+<!-- Row 9: Switch usage docs to npm start [hotfix/wt-demo] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#251138] border-l-[3px] border-[#8E00C2] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              hotfix/wt-demo
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<line stroke="#8E00C2" stroke-width="2" x1="80" x2="80" y1="0" y2="28"></line>
+<circle cx="80" cy="14" fill="#8E00C2" r="7"></circle>
+<text fill="#ffffff" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="80" y="17">AP</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Switch usage docs to npm start</span>
+<span class="font-code text-metadata text-[#99A2AD]">0bb8e93 · 8h ago</span>
+</div>
+</div>
+<!-- Row 10: Prototype settings panel [feature/remote-only] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#2F1536] border-l-[3px] border-[#C517B6] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              feature/remote-only
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="20" x2="20" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<line stroke="#C517B6" stroke-width="2" x1="110" x2="110" y1="0" y2="28"></line>
+<circle cx="110" cy="14" fill="#C517B6" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Prototype settings panel</span>
+<span class="font-code text-metadata text-[#99A2AD]">1024fe1 · 1d ago</span>
+</div>
+</div>
+<!-- Row 11: Add fuzzy matching [feature/search, remote] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#2F1536] border-l-[3px] border-[#C517B6] font-code text-[10px] text-[#F4F7F6] truncate max-w-[124px]">
+              feature/search
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<line stroke="#C517B6" stroke-width="2" x1="110" x2="110" y1="0" y2="28"></line>
+<circle cx="110" cy="14" fill="#C517B6" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Add fuzzy matching</span>
+<span class="font-code text-metadata text-[#99A2AD]">55c1902 · 1d ago</span>
+</div>
+</div>
+<!-- Row 12: Add release checklist [v0.3.0-rc1 tag] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#21282C] border-l-[3px] border-[#869489] font-code text-[10px] text-[#F4F7F6]">
+              v0.3.0-rc1
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Add release checklist</span>
+<span class="font-code text-metadata text-[#99A2AD]">ea49b20 · 2d ago</span>
+</div>
+</div>
+<!-- Row 13: Refresh logo colors -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0"></div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="7"></circle>
+<text fill="#ffffff" font-family="JetBrains Mono" font-size="8" font-weight="700" text-anchor="middle" x="50" y="17">CN</text>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Refresh logo colors</span>
+<span class="font-code text-metadata text-[#99A2AD]">91ca8d1 · 2d ago</span>
+</div>
+</div>
+<!-- Row 14: Update greeting copy -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0"></div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Update greeting copy</span>
+<span class="font-code text-metadata text-[#99A2AD]">e2b1c09 · 3d ago</span>
+</div>
+</div>
+<!-- Row 15: Fix header alignment [bugfix/header] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#0F2E38] border-l-[3px] border-[#15A0BF] font-code text-[10px] text-[#F4F7F6]">
+              bugfix/header
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="28"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Fix header alignment</span>
+<span class="font-code text-metadata text-[#99A2AD]">432fa09 · 4d ago</span>
+</div>
+</div>
+<!-- Row 16: Improve search ranking [feature/search] -->
+<div class="h-[28px] px-3 flex items-center hover:bg-white/[0.03] transition-colors text-ui-text">
+<div class="w-[130px] shrink-0">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[4px] bg-[#2F1536] border-l-[3px] border-[#C517B6] font-code text-[10px] text-[#F4F7F6]">
+              feature/search
+            </span>
+</div>
+<div class="w-[150px] shrink-0 h-full flex items-center">
+<svg class="w-full h-[28px]" fill="none" viewbox="0 0 150 28">
+<line stroke="#0669F7" stroke-width="2" x1="50" x2="50" y1="0" y2="14"></line>
+<circle cx="50" cy="14" fill="#0669F7" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center justify-between">
+<span class="font-ui-text text-ui-text text-[#F4F7F6]">Improve search ranking</span>
+<span class="font-code text-metadata text-[#99A2AD]">2f88a91 · 5d ago</span>
+</div>
+</div>
+</div>
+</section>
+<!-- RIGHT INSPECTOR / CHANGES PANEL (372px) -->
+<aside class="w-[372px] h-full rounded-[14px] bg-[#11181D]/70 border border-white/[0.12] flex flex-col shrink-0 overflow-hidden backdrop-blur-sm">
+<!-- Inspector Header (28px row) -->
+<div class="p-3 border-b border-white/[0.08] flex items-center justify-between shrink-0">
+<div>
+<span class="font-inspector-title text-[14px] font-semibold text-[#F4F7F6]">Commit 9bf2a1d</span>
+<div class="font-code text-[11px] text-[#99A2AD]">feature/greeting (HEAD)</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="p-1 rounded hover:bg-white/[0.06] text-[#99A2AD] hover:text-[#F4F7F6]"><span class="material-symbols-outlined text-[15px]">content_copy</span></button>
+<button class="p-1 rounded hover:bg-white/[0.06] text-[#99A2AD] hover:text-[#F4F7F6]"><span class="material-symbols-outlined text-[15px]">more_vert</span></button>
+</div>
+</div>
+<!-- Commit Meta details -->
+<div class="p-3 border-b border-white/[0.06] space-y-2 text-ui-text">
+<div class="font-ui-text font-medium text-[#F4F7F6]">Export shout helper</div>
+<div class="flex items-center gap-2 font-code text-metadata text-[#99A2AD]">
+<span>Author:</span>
+<span class="text-[#F4F7F6]">YForge Lead &lt;lead@yforge.dev&gt;</span>
+</div>
+<div class="flex items-center gap-2 font-code text-metadata text-[#99A2AD]">
+<span>Date:</span>
+<span>Today at 14:32 (4 minutes ago)</span>
+</div>
+<div class="flex items-center gap-2 font-code text-metadata text-[#99A2AD]">
+<span>Parent:</span>
+<span class="text-[#4EE29B] hover:underline cursor-pointer">6c891f2 (Add shout helper)</span>
+</div>
+</div>
+<!-- File Changes Inspector list -->
+<div class="p-2 border-b border-white/[0.06] flex items-center justify-between text-metadata text-[#99A2AD]">
+<span class="font-ui-text font-medium text-[#F4F7F6]">Changed Files (2)</span>
+<span class="font-code">+18 -2</span>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-1">
+<!-- Changed File 1 -->
+<div class="rounded bg-[#0C1217]/60 border border-white/[0.06] p-2">
+<div class="flex items-center justify-between text-metadata font-code text-[#F4F7F6] mb-1">
+<span class="flex items-center gap-1 text-[#4EE29B]">
+<span class="material-symbols-outlined text-[14px]">edit_document</span>
+              src/helpers/shout.ts
+            </span>
+<span class="text-xs text-[#4EE29B] font-medium">+14</span>
+</div>
+<!-- Tiny Diff Preview -->
+<div class="bg-[#09100B] p-2 rounded font-code text-[11px] leading-relaxed border border-white/[0.03]">
+<div class="text-[#99A2AD]/60">@@ -4,6 +4,11 @@</div>
+<div class="text-[#99A2AD]"> import { format } from './formatter';</div>
+<div class="bg-[#003921]/40 text-[#70ffb6]">+ export function shout(msg: string): string {</div>
+<div class="bg-[#003921]/40 text-[#70ffb6]">+   return format(msg).toUpperCase() + '!!!';</div>
+<div class="bg-[#003921]/40 text-[#70ffb6]">+ }</div>
+</div>
+</div>
+<!-- Changed File 2 -->
+<div class="rounded bg-[#0C1217]/60 border border-white/[0.06] p-2">
+<div class="flex items-center justify-between text-metadata font-code text-[#F4F7F6] mb-1">
+<span class="flex items-center gap-1 text-[#9dd2b1]">
+<span class="material-symbols-outlined text-[14px]">edit_document</span>
+              src/index.ts
+            </span>
+<span class="text-xs text-[#9dd2b1] font-medium">+4 -2</span>
+</div>
+<!-- Tiny Diff Preview -->
+<div class="bg-[#09100B] p-2 rounded font-code text-[11px] leading-relaxed border border-white/[0.03]">
+<div class="text-[#99A2AD]/60">@@ -1,4 +1,4 @@</div>
+<div class="bg-[#93000a]/30 text-[#ffb4ab]">- export { greet } from './helpers/greet';</div>
+<div class="bg-[#003921]/40 text-[#70ffb6]">+ export { greet, shout } from './helpers/shout';</div>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<!-- ACTIVITY BAR (BOTTOM, 30px) -->
+<footer class="h-[30px] px-3 flex items-center justify-between shrink-0 bg-[#0B1115]/90 border-t border-white/[0.07] text-metadata">
+<div class="flex items-center gap-2">
+<div class="h-5 px-2 flex items-center gap-2 rounded bg-[#0C1217]/80 border border-white/[0.07]">
+<span class="text-[#99A2AD] font-code">Activity · Last:</span>
+<span class="text-[#F4F7F6] font-code">git commit -m "Export shout helper"</span>
+<span class="text-[#99A2AD] font-code">· 0.2 s</span>
+</div>
+</div>
+<div>
+<button class="h-5 px-2 rounded bg-white/[0.06] hover:bg-white/[0.1] text-xs font-ui-text text-[#F4F7F6] border border-white/[0.08] transition-colors">
+        Undo commit
+      </button>
+</div>
+</footer>
+<!-- MODAL DIALOG ("Force push with lease") as specified in Screen 6 Brief -->
+<div class="fixed inset-0 bg-black/65 z-50 flex items-center justify-center p-4 backdrop-blur-[2px]">
+<div class="w-full max-w-[480px] rounded-[14px] bg-[#151E24] border border-[#3A404A] p-5 shadow-2xl relative font-ui-text">
+<!-- Title -->
+<div class="flex items-center justify-between mb-3">
+<h2 class="font-inspector-title text-[16px] font-semibold text-[#F4F7F6] flex items-center gap-2">
+<span class="material-symbols-outlined text-[#F7D37C] text-[18px]">warning</span>
+          Force push with lease
+        </h2>
+<button class="text-[#99A2AD] hover:text-[#F4F7F6]"><span class="material-symbols-outlined text-[16px]">close</span></button>
+</div>
+<!-- Warning description -->
+<p class="text-ui-text text-[#F4F7F6] mb-3 leading-snug">
+        You rebased <span class="font-code text-[#4EE29B]">feature/greeting</span>; its history no longer contains <span class="font-code text-[#99A2AD]">origin/feature/greeting</span>.
+      </p>
+<!-- Section header -->
+<div class="text-metadata text-[#99A2AD] mb-2 font-medium">
+        These remote commits will be replaced:
+      </div>
+<!-- Commits box -->
+<div class="rounded-[6px] bg-[#0E151A] border border-[#2C3139] p-2.5 mb-3 space-y-1.5 font-code text-metadata">
+<div class="flex items-center gap-2">
+<span class="text-[#99A2AD]">f86d53a</span>
+<span class="font-ui-text text-[#F4F7F6]">Personalize greeting</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[#99A2AD]">e2b1c09</span>
+<span class="font-ui-text text-[#F4F7F6]">Tweak greeting</span>
+</div>
+</div>
+<!-- Lease condition text -->
+<div class="text-metadata font-code text-[#99A2AD] mb-5">
+        Lease: <span class="text-[#F4F7F6]">origin/feature/greeting</span> must still be at <span class="text-[#4EE29B]">f86d53a</span>
+</div>
+<!-- Dialog Action Buttons at bottom right -->
+<div class="flex items-center justify-end gap-2.5">
+<!-- Cancel button: secondary style, default focused state with green focus ring -->
+<button class="h-8 px-4 rounded-[6px] bg-[#2C3139] border border-white/[0.1] text-[#F4F7F6] font-ui-text text-ui-text font-medium hover:bg-[#343B45] ring-2 ring-[#4EE29B] ring-offset-2 ring-offset-[#151E24] focus:outline-none transition-all">
+          Cancel
+        </button>
+<!-- Force push with lease: danger outline style, strictly NOT default focused -->
+<button class="h-8 px-3.5 rounded-[6px] border border-[#EF6F6F] text-[#EF6F6F] hover:bg-[#EF6F6F]/10 font-ui-text text-ui-text font-medium transition-colors">
+          Force push with lease
+        </button>
+</div>
+</div>
+</div>
+</body></html>

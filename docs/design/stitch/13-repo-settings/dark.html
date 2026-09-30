@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+
+<html class="dark h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>YForge - Repository Settings</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "surface-container-high": "#242c26",
+            "inverse-on-surface": "#2b322d",
+            "on-surface": "#dde5dc",
+            "on-secondary-container": "#8cc1a0",
+            "error": "#ffb4ab",
+            "surface-variant": "#2f3731",
+            "on-primary-fixed-variant": "#005232",
+            "surface": "#0e1510",
+            "secondary-fixed-dim": "#9dd2b1",
+            "on-background": "#dde5dc",
+            "outline-variant": "#3c4a41",
+            "outline": "#869489",
+            "on-tertiary-fixed": "#2b1700",
+            "on-secondary-fixed": "#002111",
+            "tertiary-container": "#ffbc6f",
+            "on-surface-variant": "#bbcabe",
+            "tertiary-fixed-dim": "#fcb96d",
+            "secondary-container": "#1d5036",
+            "inverse-primary": "#006d44",
+            "on-primary-fixed": "#002111",
+            "secondary": "#9dd2b1",
+            "background": "#0e1510",
+            "on-error-container": "#ffdad6",
+            "primary-fixed-dim": "#4bdf99",
+            "on-tertiary-fixed-variant": "#673d00",
+            "tertiary": "#ffe0c1",
+            "surface-tint": "#4bdf99",
+            "surface-container-highest": "#2f3731",
+            "primary-fixed": "#6cfcb4",
+            "surface-container-lowest": "#09100b",
+            "surface-container-low": "#161d18",
+            "on-primary-container": "#00613c",
+            "inverse-surface": "#dde5dc",
+            "on-tertiary": "#482900",
+            "secondary-fixed": "#b9efcc",
+            "on-tertiary-container": "#794902",
+            "surface-bright": "#333b35",
+            "surface-dim": "#0e1510",
+            "primary": "#70ffb6",
+            "surface-container": "#1a211c",
+            "on-secondary-fixed-variant": "#1d5036",
+            "on-error": "#690005",
+            "on-secondary": "#003921",
+            "on-primary": "#003921",
+            "tertiary-fixed": "#ffddba",
+            "primary-container": "#4ee29c",
+            "error-container": "#93000a"
+          },
+          borderRadius: {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          spacing: {
+            "space-sm": "8px",
+            "margin": "12px",
+            "space-md": "12px",
+            "gutter": "4px",
+            "space-xs": "4px",
+            "space-lg": "16px",
+            "space-xl": "24px"
+          },
+          fontFamily: {
+            "ui-text": ["Geist", "sans-serif"],
+            "graph-label": ["Geist", "sans-serif"],
+            "micro-badge": ["Public Sans", "sans-serif"],
+            "micro": ["Public Sans", "sans-serif"],
+            "metadata": ["Public Sans", "sans-serif"],
+            "inspector-title": ["Geist", "sans-serif"],
+            "graph-label-active": ["Geist", "sans-serif"],
+            "code": ["JetBrains Mono", "monospace"]
+          },
+          fontSize: {
+            "ui-text": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+            "graph-label": ["12px", { lineHeight: "16px", fontWeight: "400" }],
+            "micro-badge": ["10px", { lineHeight: "12px", fontWeight: "700" }],
+            "micro": ["11px", { lineHeight: "14px", fontWeight: "400" }],
+            "metadata": ["12px", { lineHeight: "16px", fontWeight: "400" }],
+            "inspector-title": ["16px", { lineHeight: "22px", fontWeight: "600" }],
+            "graph-label-active": ["12px", { lineHeight: "16px", fontWeight: "500" }],
+            "code": ["12px", { lineHeight: "16px", fontWeight: "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 16px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
+    }
+    /* Subtle custom scrollbar for sleek desktop client feel */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+  </style>
+</head>
+<body class="h-full bg-[#0B1115] text-[#BAC0C9] font-ui-text text-ui-text select-none overflow-hidden relative antialiased">
+<!-- Ambient Glow Backgrounds ("Y aurora") -->
+<div class="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+<div class="absolute -top-[120px] -left-[100px] w-[580px] h-[580px] rounded-full blur-[130px] opacity-[0.16] bg-[#27D17F]"></div>
+<div class="absolute top-[20%] -right-[140px] w-[500px] h-[500px] rounded-full blur-[140px] opacity-[0.10] bg-[#15A0BF]"></div>
+</div>
+<div class="relative z-10 flex flex-col h-full w-full">
+<!-- Window Top / Tab Bar (40px) -->
+<header class="h-[40px] w-full flex items-center justify-between px-3 shrink-0 border-b border-white/[0.07] bg-[#0C1217]/80 backdrop-blur-md">
+<!-- Left: macOS traffic lights & tabs -->
+<div class="flex items-center gap-4">
+<!-- Traffic lights -->
+<div class="flex items-center space-x-2 pl-1 pr-1.5">
+<span class="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E]/50 inline-block shadow-sm"></span>
+<span class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123]/50 inline-block shadow-sm"></span>
+<span class="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29]/50 inline-block shadow-sm"></span>
+</div>
+<!-- Pill tabs -->
+<div class="flex items-center gap-1.5">
+<!-- Active repo tab -->
+<div class="flex items-center gap-2 px-3 py-1 bg-[#16221c] border border-white/10 rounded-full text-[#F4F7F6] text-[12px] font-medium shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-[#4EE29B]"></span>
+<span>Y sample · 2 worktrees</span>
+<button class="text-[#869489] hover:text-[#F4F7F6] flex items-center transition-colors">
+<span class="material-symbols-outlined text-[14px]">close</span>
+</button>
+</div>
+<!-- Inactive repo tab -->
+<div class="flex items-center gap-2 px-3 py-1 rounded-full text-[#869489] hover:text-[#BAC0C9] hover:bg-white/[0.04] text-[12px] transition-colors cursor-pointer">
+<span>other-repo</span>
+</div>
+<!-- Add tab button -->
+<button class="w-6 h-6 flex items-center justify-center rounded-full text-[#869489] hover:text-[#F4F7F6] hover:bg-white/[0.06] transition-colors" title="Open repository">
+<span class="material-symbols-outlined text-[15px]">add</span>
+</button>
+</div>
+</div>
+<!-- Right: Settings icon button & controls -->
+<div class="flex items-center gap-2">
+<button class="flex items-center justify-center w-7 h-7 rounded bg-[#0C1217]/66 border border-white/[0.07] text-[#4EE29B] hover:bg-white/[0.06] transition-colors" title="Settings">
+<span class="material-symbols-outlined text-[16px]">settings</span>
+</button>
+<button class="flex items-center justify-center w-7 h-7 rounded text-[#869489] hover:text-[#F4F7F6] hover:bg-white/[0.04] transition-colors" title="Terminal">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+</button>
+</div>
+</header>
+<!-- Main Workspace Layout (Two floating panels with 14px rounded corners & 10px gap) -->
+<main class="flex-1 min-h-0 flex gap-[10px] p-[10px] overflow-hidden">
+<!-- 1. Left Settings Navigation Panel (220px) -->
+<aside class="w-[220px] shrink-0 rounded-[14px] bg-[#11181D]/75 backdrop-blur-md border border-white/[0.12] p-3 flex flex-col justify-between shadow-lg">
+<div class="flex flex-col">
+<!-- Panel Header -->
+<div class="px-2 mb-2">
+<h1 class="text-[14px] font-semibold text-[#F4F7F6] tracking-tight">Settings</h1>
+</div>
+<!-- Navigation Item List (height ~28px, rounded 4px, font size 13px) -->
+<nav class="space-y-0.5">
+<!-- General -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">tune</span>
+<span>General</span>
+</a>
+<!-- Git (SELECTED) -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#4EE29B] font-medium bg-[#122F28] border-l-2 border-[#4EE29B] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#4EE29B]">fork_right</span>
+<span>Git</span>
+</a>
+<!-- Accounts & authentication -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">account_circle</span>
+<span>Accounts &amp; authentication</span>
+</a>
+<!-- Appearance -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">palette</span>
+<span>Appearance</span>
+</a>
+<!-- Diff & merge -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">call_split</span>
+<span>Diff &amp; merge</span>
+</a>
+<!-- Keyboard -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">keyboard</span>
+<span>Keyboard</span>
+</a>
+<!-- Integrations -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">hub</span>
+<span>Integrations</span>
+</a>
+<!-- Advanced -->
+<a class="flex items-center gap-2.5 px-2.5 h-[28px] rounded-[4px] text-[13px] text-[#BAC0C9] hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px] text-[#869489]">settings_suggest</span>
+<span>Advanced</span>
+</a>
+</nav>
+</div>
+<!-- Bottom helper / version info -->
+<div class="px-2 pt-2 border-t border-white/[0.06]">
+<span class="font-micro text-micro text-[#99A2AD] block tracking-wide">YForge v0.9.4 · git 2.43.0</span>
+</div>
+</aside>
+<!-- 2. Right Content Panel (Fills remaining width) -->
+<section class="flex-1 min-w-0 rounded-[14px] bg-[#0E151A]/90 backdrop-blur-md border border-white/[0.12] p-6 flex flex-col overflow-hidden shadow-lg">
+<!-- Top Action Bar / Scope Controls -->
+<div class="flex items-center justify-between pb-4 gap-4 shrink-0">
+<!-- Segmented scope switch -->
+<div class="flex items-center p-0.5 rounded-[6px] bg-[#0C1217] border border-white/[0.07]">
+<button class="px-3 py-1 rounded-[4px] text-[12px] text-[#9AA1AC] hover:text-[#F4F7F6] transition-colors">
+              All repositories
+            </button>
+<button class="flex items-center gap-1.5 px-3 py-1 rounded-[4px] bg-[#16221c] text-[#4EE29B] text-[12px] font-medium border border-[#4EE29B]/20 transition-all shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-[#4EE29B]"></span>
+<span>This repository: sample</span>
+</button>
+</div>
+<!-- Search input field -->
+<div class="relative w-64">
+<div class="absolute inset-y-0 left-2.5 flex items-center pointer-events-none text-[#869489]">
+<span class="material-symbols-outlined text-[15px]">search</span>
+</div>
+<input class="w-full h-[28px] pl-8 pr-12 rounded-[4px] bg-[#0C1217] border border-white/[0.12] text-[12px] text-[#F4F7F6] placeholder-[#99A2AD] focus:outline-none focus:border-[#4EE29B]/60 transition-colors" placeholder="Search settings" type="text"/>
+<div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+<kbd class="font-code text-[10px] text-[#869489] bg-[#1A211C] border border-white/[0.08] px-1 rounded">⌘F</kbd>
+</div>
+</div>
+</div>
+<!-- Horizontal Rule Separator -->
+<div class="h-[1px] w-full bg-white/[0.07] shrink-0 mb-5"></div>
+<!-- Scrollable Settings Sections Container -->
+<div class="flex-1 overflow-y-auto space-y-6 pr-1">
+<!-- Section: Identity -->
+<div class="space-y-3">
+<div>
+<h2 class="text-[12px] font-semibold text-[#F4F7F6]">Identity</h2>
+<p class="text-[12px] text-[#9AA1AC] mt-0.5">Configure user identity used for commits in this repository.</p>
+</div>
+<div class="grid grid-cols-1 gap-3 max-w-2xl bg-[#11171C]/50 p-3.5 rounded-[8px] border border-white/[0.05]">
+<!-- Field Row 1: Name -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+<div class="w-24 shrink-0">
+<label class="text-[12px] text-[#BAC0C9]">Name</label>
+</div>
+<div class="flex-1 flex items-center gap-2">
+<input class="h-[28px] w-full max-w-[280px] px-2.5 py-1 rounded-[4px] bg-[#161D22] border border-[#3A404A] font-code text-[13px] text-[#F4F7F6] focus:border-[#4EE29B] focus:outline-none" type="text" value="YForge Lab"/>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[3px] bg-[#273C38] text-[#67D7A4] font-code text-[11px] whitespace-nowrap">
+                    from repository config
+                  </span>
+</div>
+</div>
+<!-- Field Row 2: Email -->
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-white/[0.04]">
+<div class="w-24 shrink-0">
+<label class="text-[12px] text-[#BAC0C9]">Email</label>
+</div>
+<div class="flex-1 flex items-center gap-2">
+<input class="h-[28px] w-full max-w-[280px] px-2.5 py-1 rounded-[4px] bg-[#161D22] border border-[#3A404A] font-code text-[13px] text-[#F4F7F6] focus:border-[#4EE29B] focus:outline-none opacity-85" type="text" value="lab@example.com"/>
+<span class="inline-flex items-center px-1.5 py-0.5 rounded-[3px] bg-[#252A30] text-[#9AA1AC] font-code text-[11px] whitespace-nowrap">
+                    from global config
+                  </span>
+<button class="h-[28px] px-3 rounded-[4px] bg-[#2C3139] border border-[#626B78] text-[12px] text-[#F4F7F6] hover:bg-[#343b44] transition-colors shrink-0">
+                    Override
+                  </button>
+</div>
+</div>
+</div>
+</div>
+<!-- Section: Remotes -->
+<div class="space-y-3">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="text-[12px] font-semibold text-[#F4F7F6]">Remotes</h2>
+<p class="text-[12px] text-[#9AA1AC] mt-0.5">Manage remote connections and fetch/push targets.</p>
+</div>
+<button class="h-[28px] px-3 rounded-[4px] bg-[#2C3139] border border-[#626B78] text-[12px] text-[#F4F7F6] hover:bg-[#343b44] flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">add</span>
+<span>Add remote</span>
+</button>
+</div>
+<!-- Remote Item Card -->
+<div class="bg-[#141B20] border border-[#2A323A] rounded-[6px] p-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+<div class="flex items-center flex-wrap gap-2.5">
+<span class="font-code text-[12px] font-semibold text-[#4EE29B] bg-[#122F28] px-2 py-0.5 rounded-[4px] border border-[#4EE29B]/25">
+                  origin
+                </span>
+<span class="font-code text-[12px] text-[#BAC0C9] select-all">
+                  https://github.com/example/sample.git
+                </span>
+<span class="text-[11px] text-[#9AA1AC] bg-white/[0.04] px-1.5 py-0.5 rounded">
+                  fetch and push
+                </span>
+</div>
+<div class="flex items-center gap-1.5 shrink-0 self-end md:self-auto">
+<button class="h-[24px] px-2.5 rounded-[4px] bg-[#2C3139] border border-[#626B78] text-[12px] text-[#F4F7F6] hover:bg-[#373d47] transition-colors">
+                  Edit
+                </button>
+<button class="h-[24px] px-2.5 rounded-[4px] text-[#EF6F6F] hover:bg-[#3D2C31] text-[12px] transition-colors">
+                  Remove
+                </button>
+</div>
+</div>
+</div>
+<!-- Section: Pull mode override -->
+<div class="space-y-2">
+<div>
+<h2 class="text-[12px] font-semibold text-[#F4F7F6]">Pull mode override</h2>
+<p class="text-[12px] text-[#9AA1AC] mt-0.5">Default strategy when pulling updates into branches.</p>
+</div>
+<div class="relative w-full max-w-[340px]">
+<div class="h-[28px] w-full px-2.5 rounded-[4px] bg-[#161D22] border border-[#3A404A] text-[12px] text-[#F4F7F6] flex items-center justify-between cursor-pointer hover:border-white/20 transition-colors">
+<span class="truncate">Fast-forward, merge if needed · inherited</span>
+<span class="material-symbols-outlined text-[16px] text-[#869489]">expand_more</span>
+</div>
+</div>
+</div>
+<!-- Section: Hooks path -->
+<div class="space-y-2">
+<div>
+<h2 class="text-[12px] font-semibold text-[#F4F7F6]">Hooks path</h2>
+<p class="text-[12px] text-[#9AA1AC] mt-0.5">Custom directory path for Git hooks instead of .git/hooks.</p>
+</div>
+<div class="flex items-center gap-2">
+<input class="h-[28px] w-[280px] px-2.5 py-1 rounded-[4px] bg-[#161D22] border border-[#3A404A] font-code text-[12px] text-[#F4F7F6] focus:border-[#4EE29B] focus:outline-none" type="text" value=".githooks"/>
+<button class="h-[28px] px-3 rounded-[4px] bg-[#2C3139] border border-[#626B78] text-[12px] text-[#F4F7F6] hover:bg-[#343b44] transition-colors">
+                Browse
+              </button>
+</div>
+</div>
+<!-- Extra density: Line endings & filemode config row -->
+<div class="space-y-2 pt-2">
+<h2 class="text-[12px] font-semibold text-[#F4F7F6]">Core configuration</h2>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
+<div class="p-2.5 rounded-[6px] bg-[#141B20] border border-[#2A323A] flex items-center justify-between">
+<div>
+<div class="text-[12px] text-[#BAC0C9]">core.autocrlf</div>
+<div class="font-code text-[11px] text-[#9AA1AC]">input</div>
+</div>
+<span class="text-[11px] text-[#869489] font-code">inherited</span>
+</div>
+<div class="p-2.5 rounded-[6px] bg-[#141B20] border border-[#2A323A] flex items-center justify-between">
+<div>
+<div class="text-[12px] text-[#BAC0C9]">core.filemode</div>
+<div class="font-code text-[11px] text-[#9AA1AC]">true</div>
+</div>
+<span class="text-[11px] text-[#67D7A4] font-code">local</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Footer in Content Panel -->
+<div class="pt-3 mt-2 border-t border-white/[0.06] flex items-center gap-1.5 shrink-0 text-[#9AA1AC]">
+<span class="material-symbols-outlined text-[14px] text-[#4EE29B]">check_circle</span>
+<span class="text-[11px]">Changes are saved automatically to .git/config</span>
+</div>
+</section>
+</main>
+<!-- Bottom Window Activity Bar (30px) -->
+<footer class="h-[30px] w-full px-3 flex items-center justify-between shrink-0 bg-[#0C1217]/66 border-t border-white/[0.07] text-[#9AA1AC] text-[11px] font-code">
+<!-- Left: Activity and status indicator -->
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#4EE29B] animate-pulse"></span>
+<span>Activity · Last: git config --local user.name 'YForge Lab' · 0.1 s</span>
+</div>
+<!-- Right: Repository & runtime state -->
+<div class="flex items-center gap-3 font-ui-text text-[11px]">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px] text-[#4EE29B]">lock</span>
+<span>sample (clean lock)</span>
+</span>
+<span class="text-white/20">|</span>
+<span>UTF-8</span>
+<span class="text-white/20">|</span>
+<span class="font-code">Git 2.43.0</span>
+</div>
+</footer>
+</div>
+</body></html>

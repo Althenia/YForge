@@ -1,0 +1,282 @@
+mod common;
+
+use common::Fixture;
+use yforge_core::{
+    amend_info, commit, commit_details, commit_file_diff, stage_all, DiffLineKind, ErrorKind,
+    FileStatus, RefKind,
+};
+
+fn ready_repository() -> Fixture {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "1\n", "First");
+    repo
+}
+
+#[test]
+fn commits_the_index_with_summary_and_description_and_returns_the_new_sha() {
+    let repo = ready_repository();
+    repo.write("a.txt", "2\n");
+    repo.write("untouched.txt", "u\n");
+    repo.git(&["add", "a.txt"]);
+
+    let sha = commit(&repo.path, "Change a", "Explain why.\nSecond line.", false).unwrap();
+
+    assert_eq!(sha, repo.git(&["rev-parse", "HEAD"]));
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Change a");
+    assert_eq!(
+        repo.git(&["log", "-1", "--format=%b"]),
+        "Explain why.\nSecond line."
+    );
+    assert_eq!(
+        repo.git(&["show", "--format=", "--name-only", "HEAD"]),
+        "a.txt"
+    );
+    assert_eq!(repo.git(&["status", "--porcelain"]), "?? untouched.txt");
+}
+
+#[test]
+fn rejects_an_empty_summary_and_reports_nothing_to_commit_with_git_output() {
+    let repo = ready_repository();
+
+    assert_eq!(
+        commit(&repo.path, "  ", "", false).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+
+    let error = commit(&repo.path, "Nothing staged", "", false).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::CommitFailed);
+    let payload = yforge_core::ErrorPayload::from(error);
+    assert!(payload
+        .output
+        .is_some_and(|output| output.contains("nothing to commit")));
+}
+
+#[test]
+fn amend_rewrites_head_with_the_new_message_and_staged_changes() {
+    let repo = ready_repository();
+    let original = repo.git(&["rev-parse", "HEAD"]);
+    repo.write("b.txt", "b\n");
+    repo.git(&["add", "b.txt"]);
+
+    let amended = commit(&repo.path, "First, amended", "", true).unwrap();
+
+    assert_ne!(amended, original);
+    assert_eq!(repo.git(&["rev-list", "--count", "HEAD"]), "1");
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "First, amended");
+    assert_eq!(
+        repo.git(&["show", "--format=", "--name-only", "HEAD"]),
+        "a.txt\nb.txt"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failing_pre_commit_hook_surfaces_its_output_and_leaves_head_alone() {
+    use std::os::unix::fs::PermissionsExt;
+    let repo = ready_repository();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    let hook = repo.path.join(".git/hooks/pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\necho \"lint: trailing whitespace\"\necho \"lint: aborting\" >&2\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    repo.write("a.txt", "2\n");
+    stage_all(&repo.path).unwrap();
+
+    let error = commit(&repo.path, "Blocked", "", false).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::CommitFailed);
+    let payload = yforge_core::ErrorPayload::from(error);
+    assert_eq!(payload.kind, ErrorKind::CommitFailed);
+    let output = payload.output.expect("hook output");
+    assert!(output.contains("lint: trailing whitespace"), "{output}");
+    assert!(output.contains("lint: aborting"), "{output}");
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(repo.git(&["diff", "--cached", "--name-only"]), "a.txt");
+}
+
+#[test]
+fn amend_info_reports_the_head_message_and_whether_head_is_on_its_upstream() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "1\n", "Subject line");
+    repo.git(&[
+        "commit",
+        "-q",
+        "--amend",
+        "-m",
+        "Subject line",
+        "-m",
+        "Body text",
+    ]);
+
+    let local = amend_info(&repo.path).unwrap();
+    assert_eq!(local.summary, "Subject line");
+    assert_eq!(local.description, "Body text");
+    assert_eq!(local.sha, repo.git(&["rev-parse", "HEAD"]));
+    assert!(!local.pushed);
+
+    let clone = repo.clone_to("clone");
+    assert!(amend_info(&clone).unwrap().pushed);
+
+    repo.run_in(&clone, &["config", "user.name", "Yui Lin"]);
+    repo.run_in(&clone, &["config", "user.email", "yui@example.test"]);
+    repo.run_in(&clone, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(clone.join("local.txt"), "l\n").unwrap();
+    repo.run_in(&clone, &["add", "local.txt"]);
+    commit(&clone, "Local only", "", false).unwrap();
+    assert!(!amend_info(&clone).unwrap().pushed);
+}
+
+#[test]
+fn amend_info_needs_a_commit_to_amend() {
+    let repo = Fixture::init();
+
+    assert_eq!(
+        amend_info(&repo.path).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+}
+
+#[test]
+fn commit_details_lists_metadata_refs_and_file_counts() {
+    let repo = ready_repository();
+    repo.write("a.txt", "1\n2\n3\n");
+    repo.write("dir/b.txt", "b\n");
+    repo.git(&["add", "a.txt", "dir/b.txt"]);
+    repo.git(&["commit", "-q", "-m", "Second", "-m", "Body one\n\nBody two"]);
+    repo.git(&["tag", "v1"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    let parent = repo.git(&["rev-parse", "HEAD^"]);
+
+    let details = commit_details(&repo.path, &head).unwrap();
+
+    assert_eq!(details.sha, head);
+    assert_eq!(details.summary, "Second");
+    assert_eq!(details.body, "Body one\n\nBody two");
+    assert_eq!(details.parents, vec![parent]);
+    assert_eq!(details.author.name, "Yui Lin");
+    assert_eq!(details.author.email, "yui@example.test");
+    assert_eq!(details.committer.name, "Yui Lin");
+    assert!(details.author.time > 1_700_000_000);
+    let refs: Vec<(&str, RefKind, bool)> = details
+        .refs
+        .iter()
+        .map(|entry| (entry.name.as_str(), entry.kind, entry.is_head))
+        .collect();
+    assert_eq!(
+        refs,
+        vec![
+            ("main", RefKind::LocalBranch, true),
+            ("v1", RefKind::Tag, false)
+        ]
+    );
+    let files: Vec<(&str, FileStatus, Option<u32>, Option<u32>)> = details
+        .files
+        .iter()
+        .map(|file| {
+            (
+                file.path.as_str(),
+                file.status,
+                file.additions,
+                file.deletions,
+            )
+        })
+        .collect();
+    assert_eq!(
+        files,
+        vec![
+            ("a.txt", FileStatus::Modified, Some(2), Some(0)),
+            ("dir/b.txt", FileStatus::Added, Some(1), Some(0)),
+        ]
+    );
+}
+
+#[test]
+fn commit_details_of_a_root_commit_has_no_parents_and_lists_added_files() {
+    let repo = ready_repository();
+    let root = repo.git(&["rev-parse", "HEAD"]);
+
+    let details = commit_details(&repo.path, &root).unwrap();
+
+    assert!(details.parents.is_empty());
+    assert_eq!(details.files.len(), 1);
+    assert_eq!(details.files[0].status, FileStatus::Added);
+    let diff = commit_file_diff(&repo.path, &root, "a.txt").unwrap();
+    assert_eq!(diff.hunks[0].lines[0].kind, DiffLineKind::Added);
+    assert_eq!(diff.hunks[0].lines[0].text, "1");
+}
+
+#[test]
+fn merge_commit_details_and_diff_are_taken_against_the_first_parent() {
+    let repo = ready_repository();
+    repo.git(&["checkout", "-q", "-b", "feature"]);
+    repo.commit("feature.txt", "f\n", "Feature work");
+    repo.git(&["checkout", "-q", "main"]);
+    repo.commit("main.txt", "m\n", "Main work");
+    repo.git(&["merge", "--no-ff", "-q", "feature", "-m", "Merge feature"]);
+    let merge = repo.git(&["rev-parse", "HEAD"]);
+    let first_parent = repo.git(&["rev-parse", "HEAD^1"]);
+    let second_parent = repo.git(&["rev-parse", "HEAD^2"]);
+
+    let details = commit_details(&repo.path, &merge).unwrap();
+
+    assert_eq!(details.parents, vec![first_parent, second_parent]);
+    assert_eq!(details.summary, "Merge feature");
+    let paths: Vec<&str> = details
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(paths, vec!["feature.txt"]);
+    let diff = commit_file_diff(&repo.path, &merge, "feature.txt").unwrap();
+    assert_eq!(diff.hunks.len(), 1);
+    assert_eq!(diff.hunks[0].lines.len(), 1);
+    assert_eq!(diff.hunks[0].lines[0].text, "f");
+    assert!(commit_file_diff(&repo.path, &merge, "main.txt")
+        .unwrap()
+        .hunks
+        .is_empty());
+}
+
+#[test]
+fn commit_details_and_diff_report_renames_with_their_source() {
+    let repo = ready_repository();
+    repo.numbered("big.txt", &[]);
+    repo.git(&["add", "big.txt"]);
+    repo.git(&["commit", "-q", "-m", "Add big"]);
+    repo.git(&["mv", "big.txt", "moved.txt"]);
+    repo.numbered("moved.txt", &[(5, "line five edited")]);
+    repo.git(&["add", "moved.txt"]);
+    repo.git(&["commit", "-q", "-m", "Move and edit"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+
+    let details = commit_details(&repo.path, &head).unwrap();
+
+    assert_eq!(details.files.len(), 1);
+    assert_eq!(details.files[0].status, FileStatus::Renamed);
+    assert_eq!(details.files[0].original_path.as_deref(), Some("big.txt"));
+    assert_eq!(details.files[0].additions, Some(1));
+    let diff = commit_file_diff(&repo.path, &head, "moved.txt").unwrap();
+    assert_eq!(diff.original_path.as_deref(), Some("big.txt"));
+    assert_eq!(diff.hunks.len(), 1);
+}
+
+#[test]
+fn commit_details_rejects_ids_that_are_not_hexadecimal() {
+    let repo = ready_repository();
+
+    assert_eq!(
+        commit_details(&repo.path, "HEAD").unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+    assert_eq!(
+        commit_file_diff(&repo.path, "--all", "a.txt")
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidRequest
+    );
+}

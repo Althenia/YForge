@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · component sheet</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+body { overflow: auto; }
+.sheet { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 40px 16px 16px; min-height: 100vh; align-content: start; }
+.sheet .panel { padding: 14px 16px 16px; display: grid; gap: 10px; align-content: start; overflow: visible; }
+.sheet h4 { margin: 0; font: 600 12px/16px var(--sans); color: var(--muted); }
+.line { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.wide { grid-column: span 2; }
+.lanes { display: grid; grid-template-columns: repeat(5, max-content); justify-items: start; gap: 6px; --canvas: var(--graph-bg); }
+.lanes .label { box-shadow: inset 3px 0 0 var(--lane); }
+.nodes svg { display: block; }
+.demo-graph { --canvas: var(--graph-bg); background: var(--graph-bg); border-radius: var(--r-md); padding: 8px; }
+.inline-menu, .inline-dialog, .inline-toast, .inline-palette { position: static; transform: none; left: auto; top: auto; right: auto; bottom: auto; }
+.inline-menu { width: 100%; }
+.inline-dialog { width: 100%; }
+.inline-palette { width: 100%; }
+.stack { display: grid; gap: 8px; }
+.srow.demo-current { background: var(--selection); }
+.srow.demo-current::before { content: ""; position: absolute; left: 3px; top: 7px; bottom: 7px; width: 2px; border-radius: 2px; background: var(--green-strong); }
+.bar.demo { padding: 0; height: 36px; }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const lane = (n, name, extra = "") => `<span class="label${extra}" style="--lane: var(--l${n})"><span class="name">${name}</span>${I.local}</span>`;
+const node = (kind, color, text = "") => {
+  if (kind === "commit") return `<svg width="26" height="26"><circle cx="13" cy="13" r="10" fill="var(--${color})" stroke="var(--${color})" stroke-width="2"/><text x="13" y="13" dy="0.35em" text-anchor="middle" font-family="Geist, system-ui, sans-serif" font-size="10" font-weight="700" fill="#000">${text}</text></svg>`;
+  if (kind === "merge") return `<svg width="26" height="26"><circle cx="13" cy="13" r="6" fill="var(--${color})"/></svg>`;
+  if (kind === "wip") return `<svg width="26" height="26"><circle cx="13" cy="13" r="10" fill="none" stroke="var(--${color})" stroke-width="2" stroke-dasharray="2 3" stroke-linecap="round"/></svg>`;
+  return `<svg width="26" height="26"><rect x="3" y="3" width="20" height="20" fill="none" stroke="var(--${color})" stroke-width="2" stroke-dasharray="2 2"/><g transform="translate(7 7) scale(.5)" fill="none" stroke="var(--${color})" stroke-width="3.2" stroke-linejoin="round"><path d="M4 9h16v11H4zM7 4h10l3 5H4zM9 14h6"/></g></svg>`;
+};
+const html = `
+<div class="sheet">
+  <section class="panel"><h4>Buttons</h4>
+    <div class="line"><span class="btn primary">${YF.glyph("commit")}Commit</span><span class="btn">Amend</span><span class="btn danger">Abort</span></div>
+    <div class="line"><span class="icon-btn" aria-label="Settings">${YF.glyph("settings")}</span><span class="icon-btn" aria-label="New tab">${YF.glyph("plus")}</span><span class="split"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="btn primary">${I.chevron}</span></span></div>
+    <div class="line"><span class="btn disabled">Complete merge</span><span class="reason">Resolve 1 conflict first</span></div>
+    <div class="line"><span class="btn focus">Cancel</span><span class="btn text-danger">Remove</span></div>
+  </section>
+  <section class="panel"><h4>Bar controls</h4>
+    <div class="line"><span class="tab active"><img class="mark" src="${YF.brand("yforge-app-icon-small.svg")}" alt="">sample <span class="n">2 worktrees</span><span class="tab-close">${YF.glyph("close", 14)}</span></span><span class="tab">other-repo<span class="tab-close">${YF.glyph("close", 14)}</span></span></div>
+    <div class="line"><span class="chip">${YF.glyph("changes")}Changes <span class="st st-M">M 1</span> <span class="st st-U">U 1</span></span><span class="chip ok">${YF.glyph("check")}fetched 2 min ago</span></div>
+    <div class="line"><span class="cmd" style="margin:0;flex-basis:100%">${I.search}<span class="ph">Search commits, branches, files, or run a command</span><span class="kbd">⌘K</span></span></div>
+    <div class="line"><span class="crumb">sample <span class="sep">›</span> main worktree <span class="sep">›</span> <span class="br">feature/greeting</span> ▾</span></div>
+  </section>
+  <section class="panel"><h4>Status letters and graph nodes</h4>
+    <div class="line inspector">${["M","A","D","R","U","C"].map(s => `<span class="frow" style="padding:0;height:24px"><span class="badge st-${s}">${s === "C" ? "!" : s}</span></span>`).join("")}</div>
+    <div class="line nodes demo-graph">${node("commit","l0","YL")}${node("merge","l0")}${node("wip","l0")}${node("stash","l2")}</div>
+    <div class="line"><span class="tooltip">origin/main</span></div>
+  </section>
+  <section class="panel wide"><h4>Ref labels (tinted Rail)</h4>
+    <div class="lanes">${[0,1,2,3,4,5,6,7,8,9].map(n => lane(n, `lane ${n}`)).join("")}</div>
+    <div class="lanes">
+      <span class="label active" style="--lane: var(--l0)">${I.check}<span class="name">feature/greeting</span>${I.local}</span>
+      <span class="label" style="--lane: var(--l1)"><span class="name">main</span>${I.remote}</span>
+      <span class="label" style="--lane: var(--l2)"><span class="name">feature/login</span>${I.local}${I.remote}</span>
+      <span class="label" style="--lane: var(--l0)"><span class="name">hotfix/wt-demo</span>${I.local}${I.worktree}</span>
+      <span class="label tag"><span class="name">v0.2.0</span>${I.tag}</span>
+      <span class="more" style="--lane: var(--l0)">+2</span>
+      <span class="label hover" style="--lane: var(--l3)"><span class="name">feature/search</span>${I.local}</span>
+      <span class="label ghost" style="--lane: var(--l0)"><span class="name">main</span>${I.local}</span>
+    </div>
+  </section>
+  <section class="panel"><h4>Rows</h4>
+    <div class="srow demo-current">greeting <span class="meta up">↑2 · HEAD</span></div>
+    <div class="srow">login</div>
+    <div class="inspector"><div class="frow focus"><span class="badge st-M">M</span><span>README.md</span>${YF.acts("stage")}</div></div>
+    <div class="field"><label>Summary</label><div class="input focus"><span>Tune retries and clamp helper</span><span class="count">43</span></div></div>
+    <div class="line"><span class="check on"><i></i>Push after committing</span><span class="switch on"></span><span class="seg"><span>Light</span><span class="on">Dark</span><span>System</span></span></div>
+  </section>
+  <section class="panel wide"><h4>State strip</h4>
+    <div class="bar chips demo">${YF.headChip()}<span class="chip">${YF.glyph("changes")}Changes <span class="st st-M">M 1</span> <span class="st st-U">U 1</span></span><span class="chip ok">${YF.glyph("check")}fetched 2 min ago</span></div>
+    <div class="bar demo"><div class="banner op"><span>Rebasing <span class="ref">feature/greeting</span> onto <span class="ref">main</span> · step 1 of 1 · <span class="st st-C">! 1 conflict</span></span><span class="spacer"></span><span class="btn primary">Resolve</span><span class="btn">Continue</span><span class="btn">Skip</span><span class="btn danger">Abort</span></div></div>
+    <div class="bar demo"><div class="banner danger">${I.warn}<span>Push rejected: origin/feature/greeting has commits you don't have</span><span class="spacer"></span><span class="btn">Details</span></div></div>
+    <div class="bar demo"><span class="chip" style="color:var(--yellow-strong)">${I.warn}HEAD detached at <span class="ref">1a2b3c4</span></span><span class="btn sm">Create branch here</span></div>
+  </section>
+  <section class="panel"><h4>Menu</h4>
+    <div class="menu inline-menu">
+      ${YF.item("check", "Checkout feature/login", { cls: "sel" })}
+      ${YF.item("merge", "Merge feature/login into main")}
+      ${YF.item("", "Rebase feature/login onto main")}
+      <div class="sep"></div>
+      ${YF.item("copy", "Copy branch name", { note: '<span class="k">⌘C</span>' })}
+      <div class="sep"></div>
+      ${YF.item("trash", "Delete feature/login…", { cls: "danger" })}
+    </div>
+  </section>
+  <section class="panel"><h4>Dialog</h4>
+    <div class="dialog inline-dialog">
+      <h3>Delete feature/login?</h3>
+      <p>The branch has 2 commits that are not on main. They stay recoverable from the reflog for 90 days.</p>
+      <div class="foot"><span class="btn focus">Cancel</span><span class="btn danger">Delete</span></div>
+    </div>
+  </section>
+  <section class="panel"><h4>Palette and toast</h4>
+    <div class="palette inline-palette"><div class="q"><span class="argchip">Rebase onto ×</span>ma</div><div class="res"><div class="item sel"><span class="pal-icon"></span><span class="mono">main</span><span class="muted">local · ↑3</span><span class="k">↵</span></div><div class="item off"><span class="pal-icon"></span>Squash 3 commits — needs a merge-free range</div></div></div>
+    <div class="toast inline-toast">Committed 2 files<span class="btn sm">Undo</span>${YF.iconBtn("close", "Dismiss", 14)}</div>
+  </section>
+  <section class="panel wide"><h4>Diff hunk</h4>
+    <div class="hunk diff">
+      <div class="hunk-head">@@ -3,7 +3,7 @@ <span class="spacer"></span>${YF.iconBtn("plus", "Stage hunk")}<span class="btn sm text-danger">${YF.glyph("trash", 14)}Discard hunk</span></div>
+      <div class="dline"><span class="ln">3</span><span class="ln">3</span><span class="mk"></span><span>export function clamp(value, min, max) {</span></div>
+      <div class="dline del"><span class="ln">4</span><span class="ln"></span><span class="mk">−</span><span>  return <span class="w-del">Math.min(Math.max(value, min), max)</span>;</span></div>
+      <div class="dline add picked"><span class="ln"></span><span class="ln">4</span><span class="mk">+</span><span>  return <span class="w-add">Math.max(min, Math.min(value, max))</span>;</span></div>
+      <div class="dline"><span class="ln">5</span><span class="ln">5</span><span class="mk"></span><span>}</span></div>
+      <div class="linebar"><span class="btn sm">Stage 1 line</span><span class="btn sm text-danger">Discard 1 line</span></div>
+    </div>
+  </section>
+  <section class="panel"><h4>Conflict block</h4>
+    <div class="cpane" style="--lane: var(--l0)"><div class="chead">Current · main <span class="role">your branch</span></div><pre>Run \`npm start\`.</pre></div>
+    <div class="cpane" style="--lane: var(--l1)"><div class="chead">Incoming · origin/main <span class="role">upstream</span></div><pre>Run \`node src/app.js --verbose\` for detailed logs.</pre></div>
+    <div class="line"><span class="btn sm">Take current</span><span class="btn sm">Take incoming</span><span class="btn sm">Take both</span></div>
+  </section>
+
+  <section class="panel wide"><h4>Icon-driven controls (S15)</h4>
+    <div class="tiers">
+      <div class="tier"><b>Icon only</b>
+        <div class="stack">
+          <div class="line">${YF.iconBtn("plus", "Stage")}${YF.iconBtn("minus", "Unstage")}${YF.iconBtn("diff", "Open diff")}${YF.iconBtn("edit", "Open in editor")}${YF.iconBtn("copy", "Copy")}${YF.iconBtn("more", "More")}${YF.iconBtn("previous", "Previous conflict")}${YF.iconBtn("next", "Next conflict")}<span class="icon-btn" aria-label="New tab">${YF.glyph("plus")}</span><span class="icon-btn" aria-label="Activity">${YF.glyph("activity")}</span><span class="icon-btn" aria-label="Toggle theme">${YF.glyph("theme")}</span><span class="icon-btn" aria-label="Settings">${YF.glyph("settings")}</span><span class="icon-btn" aria-label="Search commits">${YF.glyph("search")}</span></div>
+          <div class="line">${YF.tool("sync", "Sync", { primary: true, narrow: true, hint: "↑2" })}${YF.tool("branch", "Branch", { narrow: true })}${YF.tool("stash", "Stash", { narrow: true })}${YF.tool("undo", "Undo", { narrow: true })}<span class="reason">Toolbar at compact and minimum widths (below 1280)</span></div>
+          <div class="line">${YF.tip("Stage", "S")}${YF.tip("Open diff", "↵")}${YF.tip("Search commits", "⌘F")}${YF.tip("Toggle theme")}<span class="reason">Tooltip on hover and keyboard focus: action, then the shortcut in mono</span></div>
+        </div>
+      </div>
+      <div class="tier"><b>Icon and label</b>
+        <div class="stack">
+          <div class="line">${YF.tool("sync", "Sync", { primary: true, hint: "↑2", caret: true })}${YF.tool("branch", "Branch")}${YF.tool("stash", "Stash")}${YF.tool("undo", "Undo")}<span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="reason">Toolbar at 1280 and above, and the Commit button</span></div>
+          <div class="line"><span class="sec-title">${YF.glyph("branch")}Branches</span><span class="sec-title">${YF.glyph("remote")}Remotes</span><span class="sec-title">${YF.glyph("tag")}Tags</span><span class="chip">${YF.glyph("changes")}Changes <span class="st st-M">M 1</span></span><span class="chip ok">${YF.glyph("check")}fetched 2 min ago</span></div>
+          <div class="menu inline-menu" style="width: 300px">${YF.item("fetch", "Fetch all")}${YF.item("pull", "Pull: rebase")}${YF.item("", "Push to…")}</div>
+        </div>
+      </div>
+      <div class="tier"><b>Text</b>
+        <div class="stack">
+          <div class="line"><span class="btn focus">Cancel</span><span class="btn danger">Delete</span><span class="btn primary">Resolve</span><span class="btn">Continue</span><span class="btn">Skip</span><span class="btn danger">Abort</span><span class="btn sm text-danger">${YF.glyph("trash", 14)}Discard hunk</span></div>
+          <div class="reason">Dialog and confirmation buttons, operation-banner actions, and destructive actions keep the label; a leading icon is optional.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + html);
+YF.boot("screen 0 · component sheet");
+</script>
+</body>
+</html>

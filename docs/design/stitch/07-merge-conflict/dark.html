@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+
+<html class="dark h-full" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=1440, initial-scale=1.0" name="viewport"/>
+<title>YForge - Merge conflict state (S08)</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;family=Public+Sans:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "secondary": "#9dd2b1",
+            "surface-variant": "#2f3731",
+            "on-secondary-fixed": "#002111",
+            "primary-container": "#4ee29c",
+            "primary": "#70ffb6",
+            "on-primary-fixed": "#002111",
+            "on-error": "#690005",
+            "tertiary-fixed-dim": "#fcb96d",
+            "secondary-fixed-dim": "#9dd2b1",
+            "tertiary-container": "#ffbc6f",
+            "inverse-surface": "#dde5dc",
+            "error-container": "#93000a",
+            "outline-variant": "#3c4a41",
+            "surface-tint": "#4bdf99",
+            "on-surface-variant": "#bbcabe",
+            "on-error-container": "#ffdad6",
+            "on-tertiary-fixed-variant": "#673d00",
+            "on-tertiary": "#482900",
+            "primary-fixed-dim": "#4bdf99",
+            "on-tertiary-fixed": "#2b1700",
+            "tertiary": "#ffe0c1",
+            "surface-container": "#1a211c",
+            "on-secondary": "#003921",
+            "background": "#0e1510",
+            "surface-bright": "#333b35",
+            "on-tertiary-container": "#794902",
+            "inverse-primary": "#006d44",
+            "surface-container-low": "#161d18",
+            "on-primary": "#003921",
+            "error": "#ffb4ab",
+            "on-primary-container": "#00613c",
+            "inverse-on-surface": "#2b322d",
+            "tertiary-fixed": "#ffddba",
+            "on-background": "#dde5dc",
+            "on-primary-fixed-variant": "#005232",
+            "on-secondary-fixed-variant": "#1d5036",
+            "surface-container-highest": "#2f3731",
+            "surface-container-high": "#242c26",
+            "primary-fixed": "#6cfcb4",
+            "secondary-fixed": "#b9efcc",
+            "outline": "#869489",
+            "surface": "#0e1510",
+            "on-surface": "#dde5dc",
+            "secondary-container": "#1d5036",
+            "surface-dim": "#0e1510",
+            "surface-container-lowest": "#09100b",
+            "on-secondary-container": "#8cc1a0"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xl": "24px",
+            "space-md": "12px",
+            "space-sm": "8px",
+            "margin": "12px",
+            "gutter": "4px",
+            "space-xs": "4px",
+            "space-lg": "16px"
+          },
+          "fontFamily": {
+            "micro": ["Public Sans"],
+            "metadata": ["Public Sans"],
+            "graph-label-active": ["Geist"],
+            "ui-text": ["Geist"],
+            "code": ["JetBrains Mono"],
+            "graph-label": ["Geist"],
+            "micro-badge": ["Public Sans"],
+            "inspector-title": ["Geist"]
+          },
+          "fontSize": {
+            "micro": ["11px", { "lineHeight": "14px", "fontWeight": "400" }],
+            "metadata": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "graph-label-active": ["12px", { "lineHeight": "16px", "fontWeight": "500" }],
+            "ui-text": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+            "code": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "graph-label": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+            "micro-badge": ["10px", { "lineHeight": "12px", "fontWeight": "700" }],
+            "inspector-title": ["16px", { "lineHeight": "22px", "fontWeight": "600" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 350, 'GRAD' 0, 'opsz' 20;
+      font-size: 16px;
+      line-height: 1;
+      display: inline-block;
+      vertical-align: middle;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.22);
+    }
+  </style>
+</head>
+<body class="h-screen w-[1440px] max-w-[1440px] mx-auto overflow-hidden bg-[#0B1115] text-[#F4F7F6] font-ui-text text-ui-text select-none relative flex flex-col antialiased">
+<!-- Lean Y Aurora ambient subtle backdrop -->
+<div class="pointer-events-none absolute inset-0 z-0 overflow-hidden">
+<div class="absolute -top-[120px] -left-[100px] w-[620px] h-[580px] rounded-full blur-[140px] opacity-16 bg-[#27D17F]"></div>
+<div class="absolute top-[180px] -right-[140px] w-[580px] h-[520px] rounded-full blur-[160px] opacity-10 bg-[#15A0BF]"></div>
+</div>
+<!-- MAIN WRAPPER -->
+<div class="relative z-10 flex flex-col h-full w-full">
+<!-- Top Tab Bar (40px) -->
+<header class="h-[40px] w-full flex items-center justify-between px-space-md shrink-0 bg-transparent">
+<!-- Window controls & repo pill tabs -->
+<div class="flex items-center gap-3">
+<!-- macOS Window Dots -->
+<div class="flex items-center gap-2 pr-2">
+<span class="w-3 h-3 rounded-full bg-[#FF5F56] border border-black/20 block"></span>
+<span class="w-3 h-3 rounded-full bg-[#FFBD2E] border border-black/20 block"></span>
+<span class="w-3 h-3 rounded-full bg-[#27C93F] border border-black/20 block"></span>
+</div>
+<!-- Pill tabs -->
+<div class="flex items-center gap-1.5">
+<!-- Active Tab: Y sample · 2 worktrees -->
+<div class="h-[28px] px-2.5 rounded-[6px] bg-[#0C1217]/70 border border-white/[0.07] flex items-center gap-2 shadow-sm">
+<span class="w-4 h-4 rounded-[3px] bg-[#27D17F]/20 text-[#4EE29B] font-code text-[11px] font-bold flex items-center justify-center leading-none">Y</span>
+<span class="font-ui-text text-ui-text font-medium text-[#F4F7F6]">sample · 2 worktrees</span>
+<span class="material-symbols-outlined text-[13px] text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer ml-0.5">close</span>
+</div>
+<!-- Inactive Tab: other-repo -->
+<div class="h-[28px] px-2.5 rounded-[6px] bg-[#0C1217]/40 border border-transparent hover:border-white/[0.05] hover:bg-[#0C1217]/60 flex items-center gap-2 cursor-pointer transition-colors text-[#99A2AD]">
+<span class="font-ui-text text-ui-text">other-repo</span>
+<span class="material-symbols-outlined text-[13px] text-[#99A2AD]/60 hover:text-[#F4F7F6]">close</span>
+</div>
+<!-- Add Tab Button -->
+<button class="h-[26px] w-[26px] rounded-[5px] bg-[#0C1217]/40 border border-white/[0.07] flex items-center justify-center text-[#99A2AD] hover:text-[#F4F7F6] hover:bg-[#0C1217]/70 transition-colors">
+<span class="material-symbols-outlined text-[15px]">add</span>
+</button>
+</div>
+</div>
+<!-- Right controls -->
+<div class="flex items-center gap-2">
+<button class="h-[26px] w-[26px] rounded-[5px] bg-[#0C1217]/50 border border-white/[0.07] flex items-center justify-center text-[#99A2AD] hover:text-[#F4F7F6] transition-colors">
+<span class="material-symbols-outlined text-[15px]">settings</span>
+</button>
+</div>
+</header>
+<!-- Top Command Bar (48px) -->
+<div class="h-[48px] w-full flex items-center justify-between px-space-md gap-4 shrink-0 bg-transparent">
+<!-- Breadcrumb control -->
+<div class="h-[30px] px-2.5 rounded-[6px] bg-[#0C1217]/65 border border-white/[0.07] flex items-center gap-1.5 font-code text-[12px] text-[#99A2AD] shrink-0">
+<span class="text-[#F4F7F6]">sample</span>
+<span class="text-[#99A2AD]/60">›</span>
+<span>main worktree</span>
+<span class="text-[#99A2AD]/60">›</span>
+<span class="text-[#4EE29B] font-medium flex items-center gap-0.5">
+          main
+          <span class="material-symbols-outlined text-[13px] text-[#4EE29B]">arrow_drop_down</span>
+</span>
+</div>
+<!-- Centered Search Field -->
+<div class="flex-1 max-w-[540px] relative">
+<div class="h-[30px] w-full rounded-[6px] bg-[#0C1217]/70 border border-white/[0.08] focus-within:border-[#4EE29B]/60 focus-within:ring-1 focus-within:ring-[#4EE29B]/20 flex items-center px-2.5 transition-all">
+<span class="material-symbols-outlined text-[15px] text-[#99A2AD] mr-2">search</span>
+<input class="bg-transparent border-0 p-0 text-ui-text font-ui-text text-[#F4F7F6] placeholder-[#99A2AD]/70 focus:outline-none focus:ring-0 w-full" placeholder="Search commits, branches, files, or run a command" readonly="" type="text"/>
+<kbd class="ml-2 px-1.5 py-0.5 text-[10px] font-code rounded bg-white/[0.05] border border-white/[0.1] text-[#99A2AD]">⌘K</kbd>
+</div>
+</div>
+<!-- Right action controls -->
+<div class="flex items-center gap-1.5 shrink-0">
+<!-- Sync button (Disabled during merge) -->
+<button class="h-[30px] px-2.5 rounded-[6px] bg-[#0C1217]/40 border border-white/[0.05] text-[#99A2AD]/40 flex items-center gap-1.5 cursor-not-allowed text-ui-text" disabled="" title="Sync is disabled during a merge conflict">
+<span class="material-symbols-outlined text-[15px] opacity-40">sync</span>
+<span>Sync</span>
+</button>
+<button class="h-[30px] px-2.5 rounded-[6px] bg-[#0C1217]/65 border border-white/[0.07] hover:bg-[#0C1217] text-[#F4F7F6] flex items-center gap-1.5 transition-colors text-ui-text">
+<span class="material-symbols-outlined text-[15px] text-[#99A2AD]">fork_right</span>
+<span>Branch</span>
+<span class="text-[10px] font-code text-[#99A2AD] ml-0.5">⌘B</span>
+</button>
+<button class="h-[30px] px-2.5 rounded-[6px] bg-[#0C1217]/65 border border-white/[0.07] hover:bg-[#0C1217] text-[#F4F7F6] flex items-center gap-1.5 transition-colors text-ui-text">
+<span class="material-symbols-outlined text-[15px] text-[#99A2AD]">archive</span>
+<span>Stash</span>
+</button>
+<button class="h-[30px] px-2.5 rounded-[6px] bg-[#0C1217]/65 border border-white/[0.07] hover:bg-[#0C1217] text-[#F4F7F6] flex items-center gap-1.5 transition-colors text-ui-text">
+<span class="material-symbols-outlined text-[15px] text-[#99A2AD]">undo</span>
+<span>Undo</span>
+<span class="text-[10px] font-code text-[#99A2AD] ml-0.5">⌘Z</span>
+</button>
+</div>
+</div>
+<!-- State Strip (36px) - S08 Merge Conflict Banner -->
+<div class="h-[36px] px-space-md flex items-center shrink-0 mb-2.5">
+<div class="w-full h-[32px] rounded-[7px] bg-[#302F27] border border-[#F0BE62]/40 flex items-center justify-between px-3 shadow-sm">
+<div class="flex items-center gap-2.5">
+<span class="w-4 h-4 rounded-full bg-[#F0BE62]/20 border border-[#F0BE62]/60 flex items-center justify-center text-[#F7D37C] text-[11px] font-bold">!</span>
+<span class="text-[12px] font-ui-text text-[#F7D37C] tracking-wide">
+            Merging <span class="font-code text-[11px] font-semibold text-[#F4F7F6]">origin/main</span> into <span class="font-code text-[11px] font-semibold text-[#F4F7F6]">main</span> · <span class="font-medium text-[#F7D37C]">1 conflict</span> · your changes are stashed and will be restored
+          </span>
+</div>
+<div class="flex items-center gap-2">
+<!-- Abort merge: Danger outline, NOT default focus -->
+<button class="h-[24px] px-2.5 rounded-[4px] border border-[#EF6F6F]/70 text-[#EF6F6F] hover:bg-[#EF6F6F]/10 text-[11px] font-medium font-ui-text transition-colors">
+            Abort merge
+          </button>
+<!-- Resolve: Primary highlight -->
+<button class="h-[24px] px-3 rounded-[4px] bg-[#4EE29B] hover:bg-[#45d48e] text-[#04150C] font-semibold text-[11px] font-ui-text flex items-center gap-1 shadow-sm transition-colors">
+<span class="material-symbols-outlined text-[13px]">bolt</span>
+            Resolve
+          </button>
+</div>
+</div>
+</div>
+<!-- MAIN THREE-PANEL WORKSPACE (10px gaps, 14px rounded corners, 1px white-12% borders) -->
+<div class="flex-1 flex gap-[10px] px-space-md pb-2 min-h-0 overflow-hidden">
+<!-- LEFT SIDEBAR PANEL (248px) -->
+<aside class="w-[248px] shrink-0 rounded-[14px] bg-[#11181D]/70 backdrop-blur-md border border-white/[0.12] flex flex-col justify-between overflow-hidden shadow-lg">
+<div class="flex flex-col flex-1 min-h-0">
+<!-- Sidebar Header -->
+<div class="p-3 border-b border-white/[0.06] flex items-center justify-between">
+<div class="flex items-center gap-2 min-w-0">
+<span class="material-symbols-outlined text-[#4EE29B] text-[18px]">folder_special</span>
+<div class="truncate">
+<div class="font-inspector-title text-[13px] font-semibold text-[#F4F7F6] truncate">yforge-core</div>
+<div class="font-code text-[11px] text-[#99A2AD] truncate">main @ 9bf2a1d</div>
+</div>
+</div>
+<button class="h-[24px] px-2 rounded-[5px] bg-[#0C1217]/80 hover:bg-[#0C1217] border border-white/[0.08] text-[#4EE29B] font-ui-text text-[11px] font-medium flex items-center gap-1 shrink-0 transition-colors">
+<span class="material-symbols-outlined text-[13px]">add</span>
+              New branch
+            </button>
+</div>
+<!-- Sidebar Nav Tree -->
+<div class="flex-1 overflow-y-auto custom-scroll p-1.5 space-y-3 font-ui-text text-ui-text">
+<!-- Changes Section (Conflicted 1) -->
+<div>
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px] text-[#EF6F6F]">pending_actions</span>
+                  Changes
+                </span>
+<span class="font-code text-[10px] font-bold px-1.5 py-0.2 rounded-full bg-[#EF6F6F]/20 text-[#EF6F6F] border border-[#EF6F6F]/30">1</span>
+</div>
+<div class="ml-2 pl-2 border-l border-white/[0.06] mt-0.5 space-y-0.5">
+<div class="flex items-center justify-between px-1.5 py-1 rounded-[4px] bg-[#302F27]/60 text-[#F7D37C] text-[11px] font-code border border-[#F0BE62]/20">
+<div class="flex items-center gap-1.5 truncate">
+<span class="text-[#EF6F6F] font-bold text-[11px]">!</span>
+<span class="truncate">README.md</span>
+</div>
+<span class="text-[9px] text-[#F7D37C]/80 shrink-0 font-micro">conflict</span>
+</div>
+</div>
+</div>
+<!-- Branches Section (7) -->
+<div>
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px]">fork_right</span>
+                  Branches
+                </span>
+<span class="font-code text-[10px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-[#99A2AD]">7</span>
+</div>
+<!-- Branch List -->
+<div class="mt-0.5 space-y-0.5">
+<!-- main (Selected: #122F28 fill and green bar) -->
+<div class="flex items-center justify-between px-2 py-1 rounded-[4px] bg-[#122F28] border-l-2 border-[#4EE29B] text-[#4EE29B] font-code text-[11px] font-medium cursor-pointer">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[13px] text-[#4EE29B]">done</span>
+<span class="truncate">main</span>
+</div>
+<span class="text-[9px] font-code bg-[#27D17F]/20 px-1 rounded text-[#4EE29B]">HEAD</span>
+</div>
+<!-- Folder: bugfix/ -->
+<div class="flex items-center gap-1 px-2 py-1 text-[11px] text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer">
+<span class="material-symbols-outlined text-[13px] text-[#99A2AD]">folder</span>
+<span>bugfix/</span>
+</div>
+<!-- Folder: feature/ -->
+<div class="flex items-center gap-1 px-2 py-0.5 text-[11px] text-[#99A2AD] hover:text-[#F4F7F6] cursor-pointer">
+<span class="material-symbols-outlined text-[13px] text-[#99A2AD]">folder_open</span>
+<span>feature/</span>
+</div>
+<!-- Sub branches inside feature/ -->
+<div class="ml-3 pl-2 border-l border-white/[0.06] space-y-0.5 font-code text-[11px] text-[#99A2AD]">
+<div class="px-1.5 py-0.5 rounded hover:bg-white/[0.04] hover:text-[#F4F7F6] cursor-pointer truncate flex items-center justify-between">
+<span class="truncate">greeting</span>
+</div>
+<div class="px-1.5 py-0.5 rounded hover:bg-white/[0.04] hover:text-[#F4F7F6] cursor-pointer truncate">
+                    inline-branch
+                  </div>
+<div class="px-1.5 py-0.5 rounded hover:bg-white/[0.04] hover:text-[#F4F7F6] cursor-pointer truncate">
+                    login
+                  </div>
+<div class="px-1.5 py-0.5 rounded hover:bg-white/[0.04] hover:text-[#F4F7F6] cursor-pointer truncate flex items-center justify-between">
+<span class="truncate">search</span>
+<span class="text-[10px] text-tertiary-fixed-dim">↓1</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Remotes (5) -->
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px]">cloud</span>
+                Remotes
+              </span>
+<span class="font-code text-[10px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-[#99A2AD]">5</span>
+</div>
+<!-- Tags (3) -->
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px]">label</span>
+                Tags
+              </span>
+<span class="font-code text-[10px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-[#99A2AD]">3</span>
+</div>
+<!-- Stashes (2) -->
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px]">archive</span>
+                Stashes
+              </span>
+<span class="font-code text-[10px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-[#99A2AD]">2</span>
+</div>
+<!-- Worktrees (2) -->
+<div>
+<div class="flex items-center justify-between px-2 py-1 text-[#99A2AD] text-[11px] font-medium hover:text-[#F4F7F6] cursor-pointer">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[13px]">splitscreen</span>
+                  Worktrees
+                </span>
+<span class="font-code text-[10px] px-1.5 py-0.2 rounded-full bg-white/[0.06] text-[#99A2AD]">2</span>
+</div>
+<div class="ml-2 pl-2 border-l border-white/[0.06] mt-0.5 space-y-0.5 text-[11px]">
+<div class="px-1.5 py-0.5 rounded text-[#4EE29B] font-code flex items-center justify-between truncate bg-white/[0.02]">
+<span class="truncate">sample · main</span>
+<span class="text-[9px] text-[#99A2AD]">active</span>
+</div>
+<div class="px-1.5 py-0.5 rounded text-[#99A2AD] font-code flex items-center justify-between truncate hover:text-[#F4F7F6] cursor-pointer">
+<span class="truncate">hotfix/wt-demo</span>
+<span class="text-[9px] text-[#4EE29B]/70">clean</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Sidebar Footer -->
+<div class="p-2 border-t border-white/[0.06] flex items-center justify-between text-[#99A2AD] font-ui-text text-[12px] bg-[#0C1217]/50">
+<button class="flex items-center gap-1.5 px-2 py-1 rounded hover:text-[#F4F7F6] hover:bg-white/[0.05] transition-colors">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+<span>Terminal</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 rounded hover:text-[#F4F7F6] hover:bg-white/[0.05] transition-colors">
+<span class="material-symbols-outlined text-[14px]">settings</span>
+<span>Settings</span>
+</button>
+</div>
+</aside>
+<!-- CENTER COMMIT GRAPH PANEL (GitKraken topology, YForge tinted Rail styling) -->
+<main class="flex-1 rounded-[14px] bg-[#0E151A]/90 backdrop-blur-md border border-white/[0.12] flex flex-col overflow-hidden shadow-lg min-w-0">
+<!-- Table Header (30px) -->
+<div class="h-[30px] border-b border-white/[0.08] px-3 flex items-center bg-[#0C1217]/70 text-[#99A2AD] font-micro uppercase tracking-wider text-[10px] shrink-0">
+<div class="w-[130px] shrink-0">BRANCH / TAG</div>
+<div class="w-[150px] shrink-0">GRAPH</div>
+<div class="flex-1 flex items-center justify-between min-w-0">
+<span>COMMIT MESSAGE</span>
+<span class="material-symbols-outlined text-[14px] text-[#99A2AD]/70 hover:text-[#F4F7F6] cursor-pointer">tune</span>
+</div>
+</div>
+<!-- Graph Scroll Area -->
+<div class="flex-1 overflow-y-auto custom-scroll divide-y divide-white/[0.03]">
+<!-- ROW 1 (TOP CONFLICT ROW - Attention ink #F7D37C on #302F27) -->
+<div class="h-[28px] flex items-center px-3 bg-[#302F27] border-l-2 border-[#F0BE62] relative group">
+<!-- Ref column (130px) -->
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-code font-bold bg-[#EF6F6F]/20 text-[#EF6F6F] border border-[#EF6F6F]/40 leading-none">
+                conflict
+              </span>
+</div>
+<!-- Graph Topology SVG Column (150px) -->
+<div class="w-[150px] h-[28px] shrink-0 relative flex items-center">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<!-- dashed connector to target commit below -->
+<line stroke="#F0BE62" stroke-dasharray="3 3" stroke-width="2" x1="24" x2="24" y1="14" y2="28"></line>
+<!-- Conflict pulsing ring -->
+<circle cx="24" cy="14" fill="#302F27" r="8" stroke="#F0BE62" stroke-width="1.8"></circle>
+<circle cx="24" cy="14" fill="#EF6F6F" r="3"></circle>
+</svg>
+</div>
+<!-- Commit Message Column -->
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F7D37C]">
+<span class="w-[2px] h-3.5 bg-[#F0BE62] opacity-60 shrink-0"></span>
+<span class="font-code text-[11px] font-bold text-[#F28BC7] bg-[#F28BC7]/15 px-1 rounded">!</span>
+<span class="font-medium truncate text-[#F7D37C]">Conflicts: 1 · resolve README.md to continue the merge</span>
+</div>
+</div>
+<!-- ROW 2: Target commit (Merge remote-tracking branch 'origin/main') -->
+<div class="h-[28px] flex items-center px-3 bg-white/[0.02] hover:bg-white/[0.04] transition-colors relative">
+<!-- Ref label -->
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#0F2E38] border-l-[3px] border-[#15A0BF] px-1.5 py-0.5 text-[11px] font-code text-[#70ffb6] truncate shadow-sm">
+<span class="truncate">main</span>
+</div>
+</div>
+<!-- Graph Topology SVG -->
+<div class="w-[150px] h-[28px] shrink-0 relative flex items-center">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<path d="M 24 14 Q 44 14 56 28" fill="none" stroke="#0669F7" stroke-width="2"></path>
+<!-- Merge Node -->
+<circle cx="24" cy="14" fill="#0B1115" r="6" stroke="#15A0BF" stroke-width="2.5"></circle>
+<circle cx="24" cy="14" fill="#70ffb6" r="2.5"></circle>
+</svg>
+</div>
+<!-- Message -->
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="font-medium truncate">Merge remote-tracking branch 'origin/main'</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">9bf2a1d</span>
+</div>
+</div>
+<!-- ROW 3: Export shout helper [✓ feature/greeting] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#0D2442] border-l-[3px] border-[#0669F7] px-1.5 py-0.5 text-[11px] font-code text-[#bbcabe] truncate">
+<span class="text-[#4EE29B] mr-1 text-[10px]">✓</span>
+<span class="truncate">feature/greeting</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="56" x2="56" y1="0" y2="28"></line>
+<circle cx="56" cy="14" fill="#0B1115" r="5" stroke="#0669F7" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#0669F7] opacity-60 shrink-0"></span>
+<span class="truncate">Export shout helper</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">c401eb8</span>
+</div>
+</div>
+<!-- ROW 4: Add shout helper -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2"></div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="56" x2="56" y1="0" y2="28"></line>
+<circle cx="56" cy="14" fill="#0669F7" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#0669F7] opacity-60 shrink-0"></span>
+<span class="truncate">Add shout helper</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">6a29df1</span>
+</div>
+</div>
+<!-- ROW 5: Personalize greeting [feature/inline-branch +1] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#251138] border-l-[3px] border-[#8E00C2] px-1.5 py-0.5 text-[11px] font-code text-[#bbcabe] truncate">
+<span class="truncate">feature/inline-branch</span>
+<span class="text-[9px] text-[#8E00C2] ml-1 font-bold">+1</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<path d="M 56 0 Q 72 14 88 28" fill="none" stroke="#8E00C2" stroke-width="2"></path>
+<circle cx="56" cy="14" fill="#0B1115" r="5" stroke="#8E00C2" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#8E00C2] opacity-60 shrink-0"></span>
+<span class="truncate">Personalize greeting</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">31e502c</span>
+</div>
+</div>
+<!-- ROW 6: Tune retries and clamp helper -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2"></div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#8E00C2" stroke-width="2" x1="88" x2="88" y1="0" y2="28"></line>
+<circle cx="24" cy="14" fill="#15A0BF" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="truncate">Tune retries and clamp helper</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">5e12f04</span>
+</div>
+</div>
+<!-- ROW 7: Document verbose flag [main, remote] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#0F2E38] border-l-[3px] border-[#15A0BF] px-1.5 py-0.5 text-[11px] font-code text-[#99A2AD] truncate">
+<span class="truncate">main, remote</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#8E00C2" stroke-width="2" x1="88" x2="88" y1="0" y2="28"></line>
+<circle cx="24" cy="14" fill="#0B1115" r="5" stroke="#15A0BF" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="truncate">Document verbose flag</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">7981ab2</span>
+</div>
+</div>
+<!-- ROW 8: WIP: try compact header (stash, italic) -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors opacity-85">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-code bg-white/[0.07] text-[#99A2AD]">stash@{0}</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<circle cx="24" cy="14" fill="none" r="3.5" stroke="#99A2AD" stroke-dasharray="2 2" stroke-width="1.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#99A2AD] italic">
+<span class="w-[2px] h-3.5 bg-outline-variant opacity-60 shrink-0"></span>
+<span class="truncate">WIP: try compact header</span>
+<span class="text-[11px] font-code text-[#99A2AD]/60 ml-auto pl-2 shrink-0">stash</span>
+</div>
+</div>
+<!-- ROW 9: Switch usage docs to npm start [hotfix/wt-demo] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#2F1536] border-l-[3px] border-[#C517B6] px-1.5 py-0.5 text-[11px] font-code text-[#bbcabe] truncate">
+<span class="truncate">hotfix/wt-demo</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#C517B6" stroke-width="2" x1="120" x2="120" y1="0" y2="28"></line>
+<circle cx="120" cy="14" fill="#C517B6" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#C517B6] opacity-60 shrink-0"></span>
+<span class="truncate">Switch usage docs to npm start</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">912a77f</span>
+</div>
+</div>
+<!-- ROW 10: Prototype settings panel [feature/remote-only, remote] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#0D2442] border-l-[3px] border-[#0669F7] px-1.5 py-0.5 text-[11px] font-code text-[#99A2AD] truncate">
+<span class="truncate">feature/remote-only</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#0669F7" stroke-width="2" x1="56" x2="56" y1="0" y2="28"></line>
+<circle cx="56" cy="14" fill="#0669F7" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#0669F7] opacity-60 shrink-0"></span>
+<span class="truncate">Prototype settings panel</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">34f901e</span>
+</div>
+</div>
+<!-- ROW 11: Add fuzzy matching [feature/search, remote] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#251138] border-l-[3px] border-[#8E00C2] px-1.5 py-0.5 text-[11px] font-code text-[#99A2AD] truncate">
+<span class="truncate">feature/search</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<line stroke="#8E00C2" stroke-width="2" x1="56" x2="56" y1="0" y2="28"></line>
+<circle cx="56" cy="14" fill="#8E00C2" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#8E00C2] opacity-60 shrink-0"></span>
+<span class="truncate">Add fuzzy matching</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">8fa2901</span>
+</div>
+</div>
+<!-- ROW 12: Add release checklist [v0.3.0-rc1 tag] -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2 flex items-center">
+<div class="inline-flex items-center max-w-full rounded bg-[#333b35] border-l-[3px] border-[#4EE29B] px-1.5 py-0.5 text-[10px] font-code text-[#F4F7F6] truncate">
+<span class="material-symbols-outlined text-[11px] text-[#4EE29B] mr-0.5">label</span>
+<span class="truncate">v0.3.0-rc1</span>
+</div>
+</div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<circle cx="24" cy="14" fill="#0B1115" r="5" stroke="#15A0BF" stroke-width="2"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#F4F7F6]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="truncate">Add release checklist</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">05db8a2</span>
+</div>
+</div>
+<!-- ROW 13: Setup initial CI pipeline -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2"></div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="28"></line>
+<circle cx="24" cy="14" fill="#15A0BF" r="4.5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#99A2AD]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="truncate">Setup initial CI pipeline</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">1c828e0</span>
+</div>
+</div>
+<!-- ROW 14: Initial repository scaffold -->
+<div class="h-[28px] flex items-center px-3 hover:bg-white/[0.04] transition-colors">
+<div class="w-[130px] shrink-0 pr-2"></div>
+<div class="w-[150px] h-[28px] shrink-0 relative">
+<svg class="w-[150px] h-[28px] absolute inset-0" fill="none" viewbox="0 0 150 28">
+<line stroke="#15A0BF" stroke-width="2" x1="24" x2="24" y1="0" y2="14"></line>
+<circle cx="24" cy="14" fill="#15A0BF" r="5"></circle>
+</svg>
+</div>
+<div class="flex-1 flex items-center gap-2 min-w-0 font-ui-text text-ui-text text-[#99A2AD]">
+<span class="w-[2px] h-3.5 bg-[#15A0BF] opacity-60 shrink-0"></span>
+<span class="truncate">Initial repository scaffold</span>
+<span class="text-[11px] font-code text-[#99A2AD]/80 ml-auto pl-2 shrink-0">001fa12</span>
+</div>
+</div>
+</div>
+</main>
+<!-- RIGHT INSPECTOR PANEL (372px - Merge Conflict Resolution Mode) -->
+<aside class="w-[372px] shrink-0 rounded-[14px] bg-[#11181D]/70 backdrop-blur-md border border-white/[0.12] flex flex-col justify-between overflow-hidden shadow-lg">
+<!-- Scrollable content -->
+<div class="flex-1 overflow-y-auto custom-scroll p-4 space-y-4">
+<!-- Header -->
+<div class="space-y-1">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2.5 h-2.5 rounded-full bg-[#F0BE62] animate-pulse"></span>
+<h2 class="font-inspector-title text-inspector-title text-[#F4F7F6]">Merge in progress</h2>
+</div>
+<span class="font-code text-[11px] font-medium px-2 py-0.5 rounded bg-[#302F27] border border-[#F0BE62]/40 text-[#F7D37C]">conflict state</span>
+</div>
+<p class="font-ui-text text-[12px] text-[#99A2AD] leading-relaxed">
+              Resolve conflicts and commit to finish merging <span class="font-code text-[11px] text-[#F4F7F6]">origin/main</span> into <span class="font-code text-[11px] text-[#4EE29B]">main</span>.
+            </p>
+</div>
+<!-- Section: Conflicted (1) -->
+<div class="space-y-2">
+<div class="flex items-center justify-between text-[12px] font-medium text-[#F4F7F6]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-[#EF6F6F]">warning</span>
+<span>Conflicted</span>
+</span>
+<span class="font-code text-[11px] px-1.5 rounded-full bg-[#EF6F6F]/20 text-[#EF6F6F] border border-[#EF6F6F]/30">1</span>
+</div>
+<!-- Conflicted file row -->
+<div class="p-2 rounded-[8px] bg-[#0C1217]/85 border border-[#EF6F6F]/30 hover:border-[#EF6F6F]/50 transition-colors flex items-center justify-between gap-2 shadow-sm">
+<div class="flex items-center gap-2 min-w-0">
+<span class="font-code text-[11px] font-bold text-[#F28BC7] bg-[#F28BC7]/15 px-1 rounded shrink-0">!</span>
+<div class="truncate">
+<div class="font-code text-[12px] text-[#F4F7F6] truncate">README.md</div>
+<div class="font-micro text-[10px] text-[#EF6F6F]">both modified</div>
+</div>
+</div>
+<!-- Resolve Action Button -->
+<button class="h-[26px] px-2.5 rounded-[5px] bg-[#4EE29B] hover:bg-[#45d48e] text-[#04150C] font-semibold text-[11px] font-ui-text shrink-0 flex items-center gap-1 transition-all shadow">
+<span class="material-symbols-outlined text-[13px]">difference</span>
+                Resolve
+              </button>
+</div>
+</div>
+<!-- Section: Resolved (0) -->
+<div class="space-y-2">
+<div class="flex items-center justify-between text-[12px] font-medium text-[#99A2AD]">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[15px] text-[#99A2AD]">check_circle</span>
+<span>Resolved</span>
+</span>
+<span class="font-code text-[11px] px-1.5 rounded-full bg-white/[0.05] text-[#99A2AD]">0</span>
+</div>
+<div class="p-3 rounded-[8px] border border-dashed border-white/[0.08] text-center text-[#99A2AD]/70 font-ui-text text-[12px]">
+              No resolved files yet
+            </div>
+</div>
+<!-- Editable Commit Message Area -->
+<div class="space-y-2 pt-1 border-t border-white/[0.06]">
+<div class="flex items-center justify-between">
+<label class="font-ui-text text-[12px] font-medium text-[#F4F7F6]">Commit message</label>
+<span class="text-[10px] font-code text-[#99A2AD]">auto-generated</span>
+</div>
+<!-- Title Input -->
+<input class="w-full h-[32px] px-2.5 rounded-[6px] bg-[#0C1217]/80 border border-white/[0.1] focus:border-[#4EE29B] focus:ring-1 focus:ring-[#4EE29B]/20 text-[12px] font-code text-[#F4F7F6] focus:outline-none transition-all" type="text" value="Merge remote-tracking branch 'origin/main'"/>
+<!-- Description Textarea -->
+<textarea class="w-full p-2.5 rounded-[6px] bg-[#0C1217]/80 border border-white/[0.1] focus:border-[#4EE29B] focus:ring-1 focus:ring-[#4EE29B]/20 text-[11px] font-code text-[#99A2AD] focus:outline-none resize-none transition-all" rows="3">Conflicts:
+  README.md</textarea>
+</div>
+</div>
+<!-- Inspector Footer / Actions -->
+<div class="p-3 border-t border-white/[0.08] bg-[#0C1217]/60 space-y-2">
+<!-- Disabled Complete Merge Button -->
+<div class="relative group">
+<button class="w-full h-[34px] rounded-[6px] bg-[#4EE29B]/50 text-[#04150C]/80 font-semibold font-ui-text text-[13px] flex items-center justify-center gap-1.5 cursor-not-allowed" disabled="">
+<span class="material-symbols-outlined text-[16px]">merge</span>
+              Complete merge
+            </button>
+<!-- Tooltip helper -->
+<div class="text-center font-micro text-[11px] text-[#F7D37C] mt-1 flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-[12px]">lock</span>
+              Resolve 1 conflict first
+            </div>
+</div>
+<!-- Danger Abort Merge button -->
+<button class="w-full h-[30px] rounded-[6px] border border-[#EF6F6F]/70 text-[#EF6F6F] hover:bg-[#EF6F6F]/10 font-ui-text text-[12px] font-medium flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">cancel</span>
+            Abort merge
+          </button>
+</div>
+</aside>
+</div>
+<!-- Activity Bar (Bottom, 30px) -->
+<footer class="h-[30px] px-space-md border-t border-white/[0.06] bg-[#09100B]/90 flex items-center justify-between shrink-0 font-ui-text text-[11px] text-[#99A2AD] select-none">
+<div class="flex items-center gap-3">
+<!-- Status Chip -->
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded-[4px] bg-[#302F27] text-[#F7D37C] border border-[#F0BE62]/30 font-code text-[11px]">
+<span class="w-2 h-2 rounded-full bg-[#EF6F6F]"></span>
+<span>Merge in progress · 1 conflicted file</span>
+</div>
+<!-- Active branch info -->
+<div class="flex items-center gap-1 font-code text-[11px]">
+<span class="material-symbols-outlined text-[13px] text-[#4EE29B]">fork_right</span>
+<span class="text-[#F4F7F6]">main</span>
+<span class="text-[#99A2AD]">· 9bf2a1d</span>
+</div>
+</div>
+<!-- Right terminal & git log shortcut -->
+<div class="flex items-center gap-2">
+<button class="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors">
+<span class="material-symbols-outlined text-[13px]">terminal</span>
+<span class="font-code text-[11px]">Terminal</span>
+</button>
+<span class="text-white/20">|</span>
+<button class="flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-white/[0.05] hover:text-[#F4F7F6] transition-colors">
+<span class="material-symbols-outlined text-[13px]">article</span>
+<span>Git Output</span>
+</button>
+</div>
+</footer>
+</div>
+</body></html>

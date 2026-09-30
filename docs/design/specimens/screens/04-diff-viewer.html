@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · diff viewer</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.dpanel { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; grid-template-rows: 44px 44px 1fr; }
+.dhead, .dtool { display: flex; align-items: center; gap: 8px; padding: 0 12px 0 14px; border-bottom: 1px solid var(--line); min-width: 0; }
+.dtool { gap: 8px; padding-left: 12px; white-space: nowrap; }
+.crumbs { display: flex; align-items: center; gap: 6px; font: 400 12px/16px var(--sans); color: var(--muted); white-space: nowrap; min-width: 0; }
+.crumbs .path { font: 500 12px/16px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; }
+.dtool .seg span { padding: 0 10px; }
+.tgl { display: inline-flex; align-items: center; gap: 7px; font: 500 12px/16px var(--sans); color: var(--text); }
+.dtool .icon-btn { width: 26px; height: 26px; }
+.icon-btn.up svg { transform: rotate(180deg); }
+.dbody { padding: 12px; overflow: auto; min-height: 0; }
+.dbody .hunk:last-child { margin-bottom: 0; }
+.frow.sel { position: relative; background: var(--selection); }
+.frow.sel::before { content: ""; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--green-strong); }
+.frow .dir { color: var(--muted); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const dline = (kind, o, n, code, extra = "") => `<div class="dline${kind ? " " + kind : ""}${extra}"><span class="ln">${o}</span><span class="ln">${n}</span><span class="mk">${kind === "add" ? "+" : kind === "del" ? "−" : ""}</span><span>${code}</span></div>`;
+
+const hunk1 = `<section class="hunk diff" aria-label="Hunk 1 of 2, lines 3–9">
+  <div class="hunk-head">@@ -3,7 +3,7 @@<span class="spacer"></span>${YF.iconBtn("plus", "Stage hunk")}<span class="btn sm text-danger">${YF.glyph("trash", 14)}Discard hunk</span></div>
+  ${dline("", 3, 3, "export const DEFAULT_RETRIES = 3;")}
+  ${dline("", 4, 4, "")}
+  ${dline("", 5, 5, "export function clamp(value, min, max) {")}
+  ${dline("del", 6, "", "  return <span class=\"w-del\">Math.min(Math.max(value, min), max)</span>;")}
+  ${dline("add", "", 6, "  return <span class=\"w-add\">Math.max(min, Math.min(value, max))</span>;", " picked")}
+  ${dline("", 7, 7, "}")}
+  ${dline("", 8, 8, "")}
+  ${dline("", 9, 9, "export function shout(text) {")}
+  <div class="linebar"><span class="btn sm">Stage 1 line</span><span class="btn sm text-danger">Discard 1 line</span></div>
+</section>`;
+
+const hunk2 = `<section class="hunk diff" aria-label="Hunk 2 of 2, lines 23–29">
+  <div class="hunk-head">@@ -23,7 +23,7 @@<span class="spacer"></span>${YF.iconBtn("plus", "Stage hunk")}<span class="btn sm text-danger">${YF.glyph("trash", 14)}Discard hunk</span></div>
+  ${dline("", 23, 23, "}")}
+  ${dline("", 24, 24, "")}
+  ${dline("", 25, 25, "export function slugify(text) {")}
+  ${dline("del", 26, "", "  return text.toLowerCase().replace(/[^a-z0-9]+/g, \"-\");")}
+  ${dline("add", "", 26, "  return text<span class=\"w-add\">.trim()</span>.toLowerCase().replace(/[^a-z0-9]+/g, \"-\");")}
+  ${dline("", 27, 27, "}")}
+  ${dline("", 28, 28, "")}
+  ${dline("", 29, 29, "export function pluralize(count, word) {")}
+</section>`;
+
+const diffPanel = `<section class="panel dpanel" aria-label="Diff">
+  <div class="dhead"><nav class="crumbs" aria-label="Breadcrumb"><span>Graph</span><span>›</span><span>Changes</span><span>›</span><span class="path">src/util.js</span></nav><span class="spacer"></span><span class="chip">Unstaged</span></div>
+  <div class="dtool" role="toolbar" aria-label="Diff options">
+    <span class="seg"><span>File view</span><span class="on">Diff view</span></span>
+    <span class="seg"><span class="on">Hunk</span><span>Inline</span><span>Split</span></span>
+    <span class="tgl"><span class="switch"></span>Ignore whitespace</span>
+    <span class="tgl"><span class="switch"></span>Wrap</span>
+    <span class="spacer"></span>
+    ${YF.iconBtn("previous", "Previous change")}${YF.iconBtn("next", "Next change")}
+  </div>
+  <div class="dbody">${hunk1}${hunk2}</div>
+</section>`;
+
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
+  <div class="ilist">
+    ${YF.lhead("changes", "Unstaged · 2", { icon: "plus", label: "Stage all" })}
+    <div class="frow sel"><span class="badge st-M">M</span><span><span class="dir">src/</span>util.js</span>${YF.acts("stage")}</div>
+    <div class="frow"><span class="badge st-U">U</span><span><span class="dir">notes/</span>todo.md</span></div>
+    ${YF.lhead("check", "Staged · 0")}
+    <div class="empty">Nothing staged. Stage files, hunks, or lines to commit them.</div>
+  </div>
+  <div class="composer">
+    <div class="input"><span class="ph">Summary</span><span class="count">72</span></div>
+    <div class="input area"><span class="ph">Description</span></div>
+    <div class="hrow"><span class="btn disabled" aria-disabled="true">Commit</span><span class="reason">Stage files to commit</span><span class="spacer"></span><span class="btn">Amend</span></div>
+  </div>
+</aside>`;
+
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${diffPanel}${inspector}</div>${YF.activity()}</div>`);
+YF.boot("screen 4 · diff viewer");
+</script>
+</body>
+</html>

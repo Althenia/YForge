@@ -1,0 +1,1166 @@
+---
+version: alpha
+name: YForge desktop
+description: Dense, keyboard-complete desktop Git client UI (Vite + SolidJS in a Rust desktop shell) covering the graph, inspector, diff, and conflict resolver; macOS first.
+surface: web
+extends: ../DESIGN.md
+colors:
+  backdrop: "{colors.mark-canvas}"
+  canvas: "#0E151A"
+  surface-1: "{colors.mark-surface}"
+  surface-2: "#0C1217"
+  surface-3: "#182229"
+  surface-raised: "#151E24"
+  rule: "#FFFFFF12"
+  rule-panel: "#FFFFFF1F"
+  rule-strong: "#718278"
+  text: "{colors.frost}"
+  text-muted: "#99A2AD"
+  text-subtle: "#7D8792"
+  text-inverse: "{colors.mark-canvas}"
+  accent: "#4EE29B"
+  on-accent: "#04150C"
+  accent-tint: "#12332A"
+  accent-ink: "#4EE29B"
+  on-attention: "#1B1405"
+  attention-tint: "#302F27"
+  attention-ink: "#F7D37C"
+  head-junction: "{colors.attention}"
+  danger: "#EF6F6F"
+  on-danger: "#1E0B0B"
+  danger-tint: "#2E2226"
+  danger-ink: "#EF6F6F"
+  info: "#79B8FF"
+  info-tint: "#2A3746"
+  info-ink: "#79B8FF"
+  focus: "#4EE29B"
+  selection: "#122F28"
+  status-added: "#4EE29B"
+  status-modified: "#F7D37C"
+  status-deleted: "#EF6F6F"
+  status-renamed: "#79B8FF"
+  status-untracked: "#5CD2DC"
+  status-conflicted: "#F28BC7"
+  status-ignored: "#99A2AD"
+  lane-0: "#15A0BF"
+  lane-1: "#0669F7"
+  lane-2: "#8E00C2"
+  lane-3: "#C517B6"
+  lane-4: "#D90171"
+  lane-5: "#CD0101"
+  lane-6: "#F25D2E"
+  lane-7: "#F2CA33"
+  lane-8: "#7BD938"
+  lane-9: "#2ECE9D"
+  lane-0-label: "#0F2E38"
+  lane-1-label: "#0D2442"
+  lane-2-label: "#251138"
+  lane-3-label: "#2F1536"
+  lane-4-label: "#33112A"
+  lane-5-label: "#301116"
+  lane-6-label: "#37221E"
+  lane-7-label: "#37361E"
+  lane-8-label: "#22381F"
+  lane-9-label: "#143632"
+  lane-0-label-active: "#114A59"
+  lane-1-label-active: "#0B356E"
+  lane-2-label-active: "#3F0D5A"
+  lane-3-label-active: "#541655"
+  lane-4-label-active: "#5B0D3B"
+  lane-5-label-active: "#570D10"
+  lane-6-label-active: "#653022"
+  lane-7-label-active: "#655A24"
+  lane-8-label-active: "#375F25"
+  lane-9-label-active: "#1A5B4C"
+  graph-initials-dark: "#000000"
+  graph-initials-light: "#FFFFFF"
+  graph-text: "#C3C4C6"
+  graph-text-body: "#9FA1A3"
+  graph-text-dim: "#3E4448"
+  graph-text-active: "#FFFFFF"
+  graph-row-hover: "#1A2125"
+  graph-pill: "#21282C"
+typography:
+  ui-body:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.54
+  ui-label:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 13px
+    fontWeight: 500
+    lineHeight: 1.54
+  ui-strong:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 13px
+    fontWeight: 600
+    lineHeight: 1.54
+  ui-small:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.33
+  ui-caption:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 12px
+    fontWeight: 500
+    lineHeight: 1.33
+  ui-section:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 12px
+    fontWeight: 600
+    lineHeight: 1.33
+  ui-micro:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 11px
+    fontWeight: 500
+    lineHeight: 1.45
+  title:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 16px
+    fontWeight: 600
+    lineHeight: 1.375
+    letterSpacing: -0.01em
+  heading:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 20px
+    fontWeight: 600
+    lineHeight: 1.3
+  code:
+    fontFamily: "Geist Mono, ui-monospace, SF Mono, Menlo, monospace"
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.5
+  ref:
+    fontFamily: "Geist Mono, ui-monospace, SF Mono, Menlo, monospace"
+    fontSize: 12px
+    fontWeight: 500
+    lineHeight: 1.33
+  graph:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 12px
+    fontWeight: 400
+    lineHeight: 1.33
+  graph-strong:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 12px
+    fontWeight: 500
+    lineHeight: 1.33
+  graph-tag:
+    fontFamily: "Geist Mono, ui-monospace, SF Mono, Menlo, monospace"
+    fontSize: 11px
+    fontWeight: 400
+    lineHeight: 1.45
+  graph-micro:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 10px
+    fontWeight: 500
+    lineHeight: 1.4
+    letterSpacing: 0.08em
+  graph-initials:
+    fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
+    fontSize: 10px
+    fontWeight: 700
+    lineHeight: 1
+rounded:
+  xs: 2px
+  sm: 4px
+  md: 6px
+  lg: 10px
+  xl: 14px
+  pill: 999px
+spacing:
+  "0-5": 2px
+  "1": 4px
+  "1-5": 6px
+  "2": 8px
+  "3": 12px
+  "4": 16px
+  "5": 20px
+  "6": 24px
+  "8": 32px
+controls:
+  height: 32px
+  height-tab: 28px
+  height-chip: 26px
+  height-dense: 24px
+  hit-min: 24px
+  focus-ring: 2px
+  focus-offset: 2px
+  selection-bar: 2px
+  row-graph: 28px
+  graph-row-inner: 22px
+  graph-header: 30px
+  graph-gutter: 28px
+  graph-lane-pitch: 22px
+  graph-node: 22px
+  graph-merge-node: 12px
+  graph-line: 2px
+  graph-arc-radius: 11px
+  graph-lane-strip: 2px
+  graph-gutter-compact: 10px
+  graph-lane-pitch-compact: 10px
+  graph-node-compact: 10px
+  graph-line-compact: 1px
+  ref-label-height: 22px
+  ref-label-edge: 3px
+  row-list: 28px
+  row-file: 32px
+  banner: 30px
+  bar-tabs: 40px
+  bar-command: 48px
+  bar-state: 36px
+  bar-activity: 30px
+  divider-hit: 8px
+layout:
+  sidebar: 248px
+  sidebar-medium: 220px
+  sidebar-rail: 48px
+  inspector: 372px
+  inspector-medium: 340px
+  inspector-compact: 320px
+  panel-gap: 10px
+  command-field: 440px
+  command-field-medium: 300px
+  window-min-width: 960px
+  window-min-height: 600px
+  commit-summary-guide: 72ch
+  list-min-rows: 4
+  graph-ref-column: 130px
+  graph-ref-column-min: 32px
+  graph-ref-column-max: 300px
+  graph-column: 150px
+  graph-column-min: 56px
+  graph-message-column-min: 50px
+  graph-author-column: 130px
+  graph-date-column: 130px
+  graph-sha-column: 100px
+components:
+  button-primary:
+    backgroundColor: "{colors.accent}"
+    textColor: "{colors.on-accent}"
+    typography: "{typography.ui-strong}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  button-secondary:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-label}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  button-danger:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.danger}"
+    typography: "{typography.ui-label}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  button-icon:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-label}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height-tab}"
+  input:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  command-field:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  breadcrumb:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text}"
+    typography: "{typography.ref}"
+    rounded: "{rounded.lg}"
+    height: "{controls.height}"
+  menu:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.lg}"
+  menu-item-danger:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.danger-ink}"
+    typography: "{typography.ui-body}"
+    height: "{controls.height-dense}"
+  palette:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.xl}"
+  tooltip:
+    backgroundColor: "{colors.text}"
+    textColor: "{colors.text-inverse}"
+    typography: "{typography.ui-small}"
+    rounded: "{rounded.md}"
+  toast:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.lg}"
+  dialog:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.xl}"
+  composer:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.xl}"
+  tab-active:
+    backgroundColor: "{colors.surface-3}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-label}"
+    rounded: "{rounded.pill}"
+    height: "{controls.height-tab}"
+  tab-inactive:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-label}"
+    rounded: "{rounded.pill}"
+    height: "{controls.height-tab}"
+  chip:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-caption}"
+    rounded: "{rounded.pill}"
+    height: "{controls.height-chip}"
+  chip-success:
+    backgroundColor: "{colors.accent-tint}"
+    textColor: "{colors.accent-ink}"
+    typography: "{typography.ui-caption}"
+    rounded: "{rounded.pill}"
+    height: "{controls.height-chip}"
+  state-strip:
+    backgroundColor: "{colors.surface-2}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-caption}"
+    height: "{controls.bar-state}"
+  banner-operation:
+    backgroundColor: "{colors.attention-tint}"
+    textColor: "{colors.attention-ink}"
+    typography: "{typography.ui-strong}"
+    rounded: "{rounded.pill}"
+    height: "{controls.banner}"
+  banner-danger:
+    backgroundColor: "{colors.danger-tint}"
+    textColor: "{colors.danger-ink}"
+    typography: "{typography.ui-strong}"
+    rounded: "{rounded.pill}"
+    height: "{controls.banner}"
+  banner-info:
+    backgroundColor: "{colors.info-tint}"
+    textColor: "{colors.info-ink}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.pill}"
+    height: "{controls.banner}"
+  panel:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text}"
+    typography: "{typography.ui-body}"
+    rounded: "{rounded.xl}"
+  sidebar-section:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-section}"
+  sidebar-row:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text}"
+    typography: "{typography.ref}"
+    rounded: "{rounded.md}"
+    height: "{controls.row-list}"
+  sidebar-row-selected:
+    backgroundColor: "{colors.selection}"
+    textColor: "{colors.text}"
+    typography: "{typography.ref}"
+    rounded: "{rounded.md}"
+    height: "{controls.row-list}"
+  sidebar-row-meta:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.ui-small}"
+  file-row:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.text}"
+    typography: "{typography.code}"
+    rounded: "{rounded.md}"
+    height: "{controls.row-file}"
+  graph-row:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    height: "{controls.row-graph}"
+  graph-row-body:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.graph-text-body}"
+    typography: "{typography.graph}"
+  graph-row-hover:
+    backgroundColor: "{colors.graph-row-hover}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    height: "{controls.row-graph}"
+  graph-row-selected:
+    backgroundColor: "{colors.selection}"
+    textColor: "{colors.text}"
+    typography: "{typography.graph}"
+    height: "{controls.row-graph}"
+  graph-row-conflict:
+    backgroundColor: "{colors.attention-tint}"
+    textColor: "{colors.attention-ink}"
+    typography: "{typography.graph-strong}"
+    height: "{controls.row-graph}"
+  graph-row-meta:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.graph}"
+  graph-header:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text-subtle}"
+    typography: "{typography.graph-micro}"
+    height: "{controls.graph-header}"
+  graph-time-pill:
+    backgroundColor: "{colors.graph-pill}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.graph-micro}"
+    rounded: "{rounded.pill}"
+  sha:
+    backgroundColor: "{colors.canvas}"
+    textColor: "{colors.text-muted}"
+    typography: "{typography.code}"
+  ref-label-lane-0:
+    backgroundColor: "{colors.lane-0-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-1:
+    backgroundColor: "{colors.lane-1-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-2:
+    backgroundColor: "{colors.lane-2-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-3:
+    backgroundColor: "{colors.lane-3-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-4:
+    backgroundColor: "{colors.lane-4-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-5:
+    backgroundColor: "{colors.lane-5-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-6:
+    backgroundColor: "{colors.lane-6-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-7:
+    backgroundColor: "{colors.lane-7-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-8:
+    backgroundColor: "{colors.lane-8-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-lane-9:
+    backgroundColor: "{colors.lane-9-label}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-tag:
+    backgroundColor: "{colors.graph-pill}"
+    textColor: "{colors.graph-text}"
+    typography: "{typography.graph-tag}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-0:
+    backgroundColor: "{colors.lane-0-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-1:
+    backgroundColor: "{colors.lane-1-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-2:
+    backgroundColor: "{colors.lane-2-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-3:
+    backgroundColor: "{colors.lane-3-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-4:
+    backgroundColor: "{colors.lane-4-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-5:
+    backgroundColor: "{colors.lane-5-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-6:
+    backgroundColor: "{colors.lane-6-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-7:
+    backgroundColor: "{colors.lane-7-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-8:
+    backgroundColor: "{colors.lane-8-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  ref-label-active-lane-9:
+    backgroundColor: "{colors.lane-9-label-active}"
+    textColor: "{colors.graph-text-active}"
+    typography: "{typography.graph-strong}"
+    rounded: "{rounded.sm}"
+    height: "{controls.ref-label-height}"
+  graph-node-lane-0:
+    backgroundColor: "{colors.lane-0}"
+    textColor: "{colors.graph-initials-dark}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-1:
+    backgroundColor: "{colors.lane-1}"
+    textColor: "{colors.graph-initials-light}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-2:
+    backgroundColor: "{colors.lane-2}"
+    textColor: "{colors.graph-initials-light}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-3:
+    backgroundColor: "{colors.lane-3}"
+    textColor: "{colors.graph-initials-light}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-4:
+    backgroundColor: "{colors.lane-4}"
+    textColor: "{colors.graph-initials-light}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-5:
+    backgroundColor: "{colors.lane-5}"
+    textColor: "{colors.graph-initials-light}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-6:
+    backgroundColor: "{colors.lane-6}"
+    textColor: "{colors.graph-initials-dark}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-7:
+    backgroundColor: "{colors.lane-7}"
+    textColor: "{colors.graph-initials-dark}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-8:
+    backgroundColor: "{colors.lane-8}"
+    textColor: "{colors.graph-initials-dark}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  graph-node-lane-9:
+    backgroundColor: "{colors.lane-9}"
+    textColor: "{colors.graph-initials-dark}"
+    typography: "{typography.graph-initials}"
+    rounded: "{rounded.pill}"
+    size: "{controls.graph-node}"
+  status-added:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-added}"
+    typography: "{typography.ref}"
+  status-modified:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-modified}"
+    typography: "{typography.ref}"
+  status-deleted:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-deleted}"
+    typography: "{typography.ref}"
+  status-renamed:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-renamed}"
+    typography: "{typography.ref}"
+  status-untracked:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-untracked}"
+    typography: "{typography.ref}"
+  status-conflicted:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-conflicted}"
+    typography: "{typography.ref}"
+  status-ignored:
+    backgroundColor: "{colors.surface-1}"
+    textColor: "{colors.status-ignored}"
+    typography: "{typography.ref}"
+themes:
+  light:
+    colors:
+      backdrop: "#F7F9F8"
+      canvas: "{colors.neutral-paper}"
+      surface-1: "{colors.neutral-paper}"
+      surface-2: "{colors.neutral-paper}"
+      surface-3: "#F3F6F5"
+      surface-raised: "#F7F9F8"
+      rule: "#E4E8E6"
+      rule-panel: "#D5DBD8"
+      rule-strong: "#78847E"
+      text: "{colors.neutral-ink}"
+      text-muted: "#5C6672"
+      text-subtle: "#646D78"
+      text-inverse: "{colors.frost}"
+      accent: "#0B8550"
+      on-accent: "#FFFFFF"
+      accent-tint: "#E5F9F0"
+      accent-ink: "#0A7B47"
+      on-attention: "#1B1405"
+      attention-tint: "#F6F0E0"
+      attention-ink: "#946200"
+      head-junction: "#B87800"
+      danger: "#C53A3A"
+      on-danger: "#FFFFFF"
+      danger-tint: "#F9EBEB"
+      danger-ink: "#9E2A2A"
+      info: "#1C64C2"
+      info-tint: "#E3EEFB"
+      info-ink: "#154E98"
+      focus: "#0B8B50"
+      selection: "#E1F9ED"
+      status-added: "#0A7B47"
+      status-modified: "#946200"
+      status-deleted: "#C53A3A"
+      status-renamed: "#1C64C2"
+      status-untracked: "#0A6D76"
+      status-conflicted: "#AE2C73"
+      status-ignored: "#5C6672"
+      lane-0-label: "#D5EEF3"
+      lane-1-label: "#D2E4FE"
+      lane-2-label: "#EBD1F4"
+      lane-3-label: "#F5D5F2"
+      lane-4-label: "#F8D1E5"
+      lane-5-label: "#F6D1D1"
+      lane-6-label: "#FDE2D9"
+      lane-7-label: "#FDF5DA"
+      lane-8-label: "#E7F8DB"
+      lane-9-label: "#D9F6ED"
+      lane-0-label-active: "#A6DBE7"
+      lane-1-label-active: "#A0C6FC"
+      lane-2-label-active: "#D49EE8"
+      lane-3-label-active: "#E9A7E3"
+      lane-4-label-active: "#F19EC9"
+      lane-5-label-active: "#EC9E9E"
+      lane-6-label-active: "#FAC1B0"
+      lane-7-label-active: "#FAEBB1"
+      lane-8-label-active: "#CDF1B3"
+      lane-9-label-active: "#B0ECDA"
+      graph-text: "#191919"
+      graph-text-body: "#666666"
+      graph-text-dim: "#CCCCCC"
+      graph-text-active: "#191919"
+      graph-row-hover: "#F3F6F5"
+      graph-pill: "#F3F6F5"
+    elevation:
+      panel: "0 8px 24px rgba(11, 15, 20, 0.08)"
+      raised: "0 1px 2px rgba(16, 24, 40, 0.06), 0 0 0 1px rgba(16, 24, 40, 0.08)"
+      overlay: "0 8px 24px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.08)"
+      modal: "0 24px 48px rgba(16, 24, 40, 0.18), 0 4px 12px rgba(16, 24, 40, 0.10)"
+    materials:
+      aurora: "none"
+      glass-panel: "surface-1, opaque"
+      glass-graph: "canvas, opaque"
+      glass-raised: "surface-raised, opaque"
+      control: "surface-2, opaque"
+      control-hover: "surface-3, opaque"
+elevation:
+  panel: "0 10px 30px rgba(0, 0, 0, 0.45)"
+  raised: "0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04)"
+  overlay: "0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.30)"
+  modal: "0 24px 48px rgba(0, 0, 0, 0.55), 0 4px 12px rgba(0, 0, 0, 0.35)"
+materials:
+  aurora: "backdrop plus two radial glows fading to transparent at their closest side: trace at 16% alpha (76vw x 80vh, from 2% left and 8% top) and tide at 10% alpha (66vw x 72vh, from 2% right and 22% top); during a Git operation an attention glow at 22% alpha (72vw x 82vh, right, 16% top) fades in and the other glows drop to 30% opacity"
+  glass-panel: "surface-1 at 70% alpha over the aurora, with a 1px rule-panel border and panel elevation"
+  glass-graph: "canvas at 90% alpha over the aurora"
+  glass-raised: "surface-raised at 90% alpha"
+  control: "surface-2 at 66% alpha with a 1px inset rule"
+  control-hover: "surface-3 at 78% alpha with a 1px inset rule"
+layers:
+  aurora: 0
+  sticky: 10
+  sidebar-overlay: 20
+  drawer: 30
+  popover: 40
+  menu: 50
+  palette: 60
+  dialog: 70
+  toast: 80
+  tooltip: 90
+breakpoints:
+  compact: 1024
+  medium: 1280
+  large: 1440
+devices:
+  minimum:
+    width: 960
+    height: 600
+    pointer: fine
+    hover: true
+    dpr: 2
+  laptop:
+    width: 1280
+    height: 720
+    pointer: fine
+    hover: true
+    dpr: 2
+  desktop:
+    width: 1440
+    height: 900
+    pointer: fine
+    hover: true
+    dpr: 2
+  wide:
+    width: 1920
+    height: 1080
+    pointer: fine
+    hover: true
+    dpr: 1
+motion:
+  recipes:
+    panel-reveal: "opacity 0 to 1 and translateY 4px to 0 over base with entrance easing"
+    overlay-enter: "opacity 0 to 1 and scale 0.98 to 1 over quick with entrance easing"
+    overlay-exit: "opacity 1 to 0 over quick with exit easing"
+    toast-enter: "opacity 0 to 1 and translateY 8px to 0 over base with entrance easing"
+    graph-refresh: "row opacity cross-fade over quick; rows never slide"
+    graph-dim: "message text opacity down to the dimmed level over base (search non-matches after a 1s delay over slow); instant under reduced motion"
+    aurora-drift: "each glow alternates between translate 0 and scale 1, translate 4vw 3vh and scale 1.06, and translate -3vw 5vh and scale 0.97, over 58s (trace), 71s (tide), and 67s (attention) with ease-in-out; paused while the window is hidden or unfocused; static under reduced motion"
+    aurora-operation: "attention glow opacity 0 to 1 and the other glows 1 to 0.3 over slow with standard easing, reversed when the operation ends; instant under reduced motion"
+---
+
+# YForge desktop surface rules
+
+## Overview
+
+This surface is the YForge desktop application: a dense professional tool with one repository per tab. It contains:
+
+- tab bar, command bar, state strip;
+- sidebar, graph, inspector;
+- center views (diff, conflict resolver);
+- the Activity drawer.
+
+The defaults are:
+
+- **Density:** "default" graph lanes (22px pitch and nodes) or "compact" lanes (10px pitch and nodes, 1px lines), GitKraken's two modes; graph rows stay 28px.
+- **Theme:** Dark is the base theme and sits on the Y aurora; Light and System are first-class, and Light has no aurora.
+- **Motion:** functional, plus the ambient aurora drift (brand B7).
+- **Viewports:** 1440×900 is the primary design viewport; 1280×720 is the supported laptop viewport; 960×600 is the minimum window.
+
+This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and values were approved on 2026-09-29 (Phase 8), revised by the approved GitKraken graph parity (P-G1) and the approved lean Y Aurora direction with tinted Rail graph styling (2026-09-29). The UI is built with Vite + SolidJS and rendered in the system webview of a Rust desktop shell, so web-surface practices apply:
+
+- `color-scheme` set per theme;
+- owned scrollbars;
+- hover styles only for hover-capable pointers;
+- focus styled with `:focus-visible`.
+
+## Principles
+
+- **The graph is the canvas.** Chrome recedes into flat, quiet controls and panels so that lanes, ref labels, and nodes carry the signal.
+- **Lean atmosphere.** In the dark theme, three flat panels float over a faint aurora backdrop. The aurora is the only gradient; panels, controls, and labels are flat fills with hairline edges (brand B8).
+- **Graph topology parity with GitKraken.** The commit graph reproduces GitKraken Desktop 12.5.0's lane colors, lane assignment, geometry, edge routing, and node kinds (change P-G1, approved 2026-09-29), so users read topology the way they already know it. Row and ref label styling is YForge's own **tinted Rail** treatment, and the chrome around the graph stays YForge's own.
+- **Meaning is layered.** Every state is encoded in at least two channels:
+  - color;
+  - shape or glyph;
+  - text.
+
+  This lets lane and status colors stay readable in both themes, and without color (B4).
+- **Density with rhythm.** A 4px spacing scale, 28px graph and list rows, 13px UI text, and 12px graph text. Alignment comes from columns, not boxes, so there are no card grids.
+- **Stable geometry.** Async regions reserve their final size, and refreshes keep stale rows visible and marked busy.
+- **Parity of input.** Anything a pointer can do is reachable by keyboard, and every hover affordance has a focus equivalent.
+
+## Rules
+
+| ID | Status | Binding statement | Enforcing check |
+|---|---|---|---|
+| S1 | approved | Graph nodes MUST encode kind by shape in addition to lane color: author disc (commit), 12px dot (merge), dotted ring (Changes), dotted square (stash). | review-only: approved 2026-09-29 (P-G1) |
+| S2 | approved | Graph ref labels MUST use the tinted Rail treatment: a solid 18% lane-tint fill with a 3px lane-color inline-start edge, graph text, and a ref-kind glyph; the checked-out branch MUST show a check on the 38% lane fill; tags MUST use the solid outlined tag label and MUST NEVER be hidden behind the `+N` overflow. | review-only: approved 2026-09-29 (tinted Rail) |
+| S3 | approved | Every file status color MUST pair with its status letter (M, A, D, R, U, !, T, I). | review-only: approved 2026-09-29 |
+| S4 | approved | The state strip MUST be visible in every repository view and MUST show the operation state whenever Git is mid-operation. | review-only: approved 2026-09-29 |
+| S5 | approved | Destructive actions MUST use danger tokens and MUST NEVER be the default focused control. | review-only: approved 2026-09-29 |
+| S6 | approved | Selected rows MUST show the selection fill plus a 2px inline-start accent bar, except graph rows, which MUST show the selection fill plus the full-opacity lane strip; keyboard focus MUST show a 2px focus ring with a 2px offset. | review-only: approved 2026-09-29 (Rail) |
+| S7 | approved | An action shown on hover MUST also be available on focus or selection; NEVER create hover-only actions. | review-only: approved 2026-09-29 |
+| S8 | approved | Async regions MUST reserve their final geometry, and refreshes MUST keep stale rows visible and marked busy. | review-only: approved 2026-09-29 |
+| S9 | approved | At 1280×720 the window MUST NOT scroll horizontally, and each staging list MUST show at least four rows. | review-only: approved 2026-09-29 |
+| S10 | approved | Text MUST reach 4.5:1 and meaningful graphics 3:1 in every theme, measured against the worst-case aurora composite; text MUST NEVER sit directly on the backdrop. | `python3 ~/.agents/skills/daedalus/scripts/design_md.py lint app/DESIGN.md --strict` for token pairs; render checks after implementation |
+| S11 | approved | Motion MUST use brand durations, animate only opacity and transform, and NEVER slide graph rows; the aurora drift is the one ambient recipe. | review-only: approved 2026-09-29 (Y Aurora) |
+| S12 | approved | SHAs, paths, commands, and ref names outside the graph MUST use the mono roles; graph ref labels MUST use the `graph` role and graph tags the `graph-tag` role; paths MUST truncate from the left. | review-only: approved 2026-09-29 (Rail) |
+| S13 | approved | The commit graph MUST follow GitKraken 12.5.0: lane color by column index over 10 colors, leftmost-free column reuse, 22px lane pitch and author discs, 2px orthogonal edges with 11px rounded corners; row treatments MUST follow COMPONENT_SPECS § Graph row. | review-only: approved 2026-09-29 (P-G1, Rail); render checks after implementation |
+| S14 | approved | The aurora MUST render only in the dark theme, behind the panels at layer `aurora`, MUST pause while the window is hidden or unfocused, and MUST be static under reduced motion; panels and controls MUST stay flat. | review-only: approved 2026-09-29 (Y Aurora); render checks after implementation |
+| S15 | approved | Controls and labels MUST be icon-driven where an established glyph carries the meaning (row actions, tab and pane controls, toolbar actions, section headers, state chips, menu items); every icon-only control MUST have an accessible name and a tooltip naming the action and its shortcut; confirmation, dialog, operation-banner, and destructive buttons MUST keep a text label; an icon MUST NEVER be the only carrier of state (B4). | review-only: approved 2026-09-30 |
+
+## Colors
+
+**Backdrop and materials.** Dark is the base theme, and Light overrides it under `themes.light`.
+
+| Role | Dark | Light | Use |
+|---|---|---|---|
+| backdrop | `#0B1115` (Y mark-canvas) + aurora | `#F7F9F8`, no aurora | Window background behind the bars and panels |
+| canvas | `#0E151A` (graph glass at 90%) | `#FFFFFF` | Graph, diff, center views, inputs |
+| surface-1 | `#11181D` (Y mark-surface; glass at 70%) | `#FFFFFF` | Sidebar and inspector panels |
+| surface-2 | `#0C1217` (control at 66%) | `#FFFFFF` | Tabs, chips, buttons, command field, breadcrumb |
+| surface-3 | `#182229` (control hover at 78%) | `#F3F6F5` | Active tab, control hover |
+| surface-raised | `#151E24` (at 90%) | `#F7F9F8` | Composer, menus, palette, dialogs, toasts (with elevation) |
+| rule / rule-panel | white at 7% / 12% | `#E4E8E6` / `#D5DBD8` | Hairlines and control outlines / panel borders, tag outlines, dashed empty states |
+| rule-strong | `#718278` | `#78847E` | Input boundaries (≥3.87:1 dark worst case; ≥3.67:1 light) |
+
+Opaque values are the token pairs that lint checks. Translucent values are the dark materials in the front matter (`materials`). Every text pair is also measured on the worst-case aurora composite: both glows at peak alpha overlapping, idle and during an operation.
+
+**Ink.**
+
+| Role | Dark | Light | Contrast (worst case) | Use |
+|---|---|---|---|---|
+| text | `#F4F7F6` (Frost) | `#0B0F14` | 12.48 / 16.89 | Primary text |
+| text-muted | `#99A2AD` | `#5C6672` | 5.20 / 5.13 | Secondary text, metadata, section labels |
+| text-subtle | `#7D8792` | `#646D78` | 4.86 / 5.25 (canvas) | Canvas-only: the graph column header |
+
+`text-subtle` fails on dark glass (4.31:1 worst case), so it is used only on the canvas.
+
+**Semantic roles.**
+
+| Role | Dark | Light | Meaning |
+|---|---|---|---|
+| accent / accent-ink | `#4EE29B` | `#0B8550` fill; `#0A7B47` ink | Primary action, success, "in sync", current branch |
+| attention / head-junction | ink `#F7D37C`; ring `#F0BE62` | ink `#946200`; ring `#B87800` | HEAD in the state strip, pending work, the operation glow |
+| danger | `#EF6F6F` | `#C53A3A`; ink `#9E2A2A` | Destructive, errors, deleted |
+| info | `#79B8FF` | `#1C64C2` | Links, informational banners |
+| focus | `#4EE29B` | `#0B8B50` | Focus ring |
+| selection | `#122F28` | `#E1F9ED` | Selected rows (plus the S6 bar or lane strip) |
+
+Tints are opaque so their contrast does not depend on the aurora:
+
+- accent-tint `#12332A` / `#E5F9F0`;
+- attention-tint `#302F27` / `#F6F0E0`;
+- danger-tint `#2E2226` / `#F9EBEB`;
+- info-tint `#2A3746` / `#E3EEFB`.
+
+All tint and ink pairs are ≥4.60:1. Danger text on the attention tint (the Abort button in the operation banner) is 4.59:1 dark and 4.57:1 light.
+
+**Git status colors.** Each is always paired with a letter (S3).
+
+| Status | Letter | Dark | Light |
+|---|---|---|---|
+| Added | A | `#4EE29B` | `#0A7B47` |
+| Modified | M | `#F7D37C` | `#946200` |
+| Deleted | D | `#EF6F6F` | `#C53A3A` |
+| Renamed | R | `#79B8FF` | `#1C64C2` |
+| Untracked | U | `#5CD2DC` | `#0A6D76` |
+| Conflicted | ! | `#F28BC7` | `#AE2C73` |
+| Type changed | T | text-muted | text-muted |
+| Ignored | I | `#99A2AD` | `#5C6672` |
+
+**Graph lanes.** These are GitKraken's ten lane colors. They are assigned by column index (column 0 is the leftmost lane), not by branch identity, and columns are reused leftmost-first (S13). Both themes use the same line colors.
+
+| Column | Line | Dark label / checked-out | Light label / checked-out | Initials | Line vs canvas (dark / light) |
+|---|---|---|---|---|---|
+| 0 | `#15A0BF` | `#0F2E38` / `#114A59` | `#D5EEF3` / `#A6DBE7` | black | 5.97 / 3.08 |
+| 1 | `#0669F7` | `#0D2442` / `#0B356E` | `#D2E4FE` / `#A0C6FC` | white | 3.83 / 4.80 |
+| 2 | `#8E00C2` | `#251138` / `#3F0D5A` | `#EBD1F4` / `#D49EE8` | white | 2.57 / 7.17 |
+| 3 | `#C517B6` | `#2F1536` / `#541655` | `#F5D5F2` / `#E9A7E3` | white | 3.66 / 5.03 |
+| 4 | `#D90171` | `#33112A` / `#5B0D3B` | `#F8D1E5` / `#F19EC9` | white | 3.68 / 5.01 |
+| 5 | `#CD0101` | `#301116` / `#570D10` | `#F6D1D1` / `#EC9E9E` | white | 3.16 / 5.83 |
+| 6 | `#F25D2E` | `#37221E` / `#653022` | `#FDE2D9` / `#FAC1B0` | black | 5.59 / 3.29 |
+| 7 | `#F2CA33` | `#37361E` / `#655A24` | `#FDF5DA` / `#FAEBB1` | black | 11.63 / 1.58 |
+| 8 | `#7BD938` | `#22381F` / `#375F25` | `#E7F8DB` / `#CDF1B3` | black | 10.36 / 1.78 |
+| 9 | `#2ECE9D` | `#143632` / `#1A5B4C` | `#D9F6ED` / `#B0ECDA` | black | 9.14 / 2.01 |
+
+Derived Rail treatments:
+
+- **Ref label:** a solid fill of the lane mixed 18% into the canvas, with a 3px lane-color inline-start edge and `graph-text`. The fill is opaque, so connector lines stop at the label edge.
+- **Checked-out label:** the lane mixed 38% into the canvas, with `graph-text-active`.
+- **Hovered label:** the lane mixed 28% into the canvas, with `graph-text-active`.
+- **Tag label:** a solid `graph-pill` fill with a 1px `rule-panel` outline, `graph-tag` text, and the tag glyph.
+- **Lane strip:** 2px of lane color where the message column starts, at 60% opacity; 100% on the selected row.
+- **Initials:** black or white, whichever contrasts more with the lane.
+- **Row text:** `graph-text` (white 75% into the canvas) for summaries, `graph-text-body` (60%) for the inline body, and `graph-text-dim` (20%) for dimmed rows; `graph-row-hover` (5%) fills the hovered row.
+
+Measured contrast:
+
+- **Label text:** dark ≥7.04:1 at rest, ≥9.24:1 hovered, and ≥6.90:1 checked out; light ≥12.52:1, ≥10.24:1, and ≥8.25:1. Tag labels: 8.57:1 dark, 16.17:1 light.
+- **Initials on the lane:** ≥4.80:1.
+- **Lane lines against the canvas:** at least 3:1, except dark lane 2 and light lanes 7–9, which are recorded exceptions (S10).
+
+The graph never relies on hue alone: column position, ref labels, and author initials identify every lane.
+
+## Typography
+
+| Role | Spec | Use |
+|---|---|---|
+| ui-body | Sans 13/20, 400 | Default UI, inputs, command field |
+| ui-label | Sans 13/20, 500 | Buttons, tabs |
+| ui-strong | Sans 13/20, 600 | Primary buttons, banner text |
+| ui-small | Sans 12/16, 400 | Metadata, sidebar row meta |
+| ui-caption | Sans 12/16, 500 | State strip chips |
+| ui-section | Sans 12/16, 600 | Sidebar section and list headers (sentence case) |
+| ui-micro | Sans 11/16, 500 | Counts in badges and keyboard hints |
+| title | Sans 16/22, 600, −0.01em | Inspector titles, dialog titles |
+| heading | Sans 20/26, 600 | Settings section titles |
+| display | Brand display 24/30, 600 | Launcher heading only |
+| code | Mono 12/18, 400 | Diffs, commands, output, file paths |
+| ref | Mono 12/16, 500 | Branch, tag, and remote names outside the graph; SHAs; status letters |
+| graph | Sans 12/16, 400 | Graph messages and ref labels |
+| graph-strong | Sans 12/16, 500 | The checked-out ref label |
+| graph-tag | Mono 11/16, 400 | Tag labels in the graph |
+| graph-micro | Sans 10/14, 500 | Graph column header (uppercase, 0.08em tracking) and time pills |
+| graph-initials | Sans 10/10, 700 | Author initials in commit nodes |
+
+Section labels are never uppercase: GitKraken's uppercase sections read as heavy chrome (subjective finding). The graph column header is the one uppercase exception (P-G1).
+
+## Layout
+
+- **Regions:**
+  - tab bar 40px;
+  - command bar 48px;
+  - state strip 36px;
+  - three panels with a 10px gap and a 10px outer inset: sidebar 248px, graph (fills the remaining width), inspector 372px;
+  - activity bar 30px.
+- **Bars:** transparent over the backdrop; every bar item is a control, chip, or button on `surface-2` (S10).
+- **Tab bar:** pill tabs 28px tall; the active tab leads with the YForge mark (brand B5) and a worktree count.
+- **Command bar:** breadcrumb (repository › worktree › branch in `accent-ink`), a centered command field (search commits, branches, files, or run a command; ⌘K) up to 440px, then Sync (primary), Branch, Stash, and Undo.
+- **Graph columns** (GitKraken defaults; widths are resizable and saved per repository):
+  - Branch / Tag 130 (32–300);
+  - Graph 150 (min 56): a 28px gutter, then lanes every 22px;
+  - Commit message fills the remaining width (min 50);
+  - optional and hidden by default: Author 130 (initials at 32), Date / Time 130, SHA 100.
+- **Graph header:** 30px, with the labels "BRANCH / TAG", "GRAPH", and "COMMIT MESSAGE" and a column-settings button at the end.
+- **Alignment:**
+  - Panels share one 8px list inset and a 16px header inset.
+  - Graph rows center the label, node, and text on the row's 22px inner band.
+  - Inspector sections share one label column.
+- **Scroll owners:** the graph, each staging list, the inspector body, and the diff each own their scroll. Headers stick at layer `sticky`.
+
+## Responsive
+
+| Class | Range | What changes | Why |
+|---|---|---|---|
+| minimum | 960–1023 | Sidebar is a 48px rail; the inspector becomes an overlay drawer; the graph hides its optional columns | Keeps the graph readable at the minimum window |
+| compact | 1024–1279 | Sidebar rail (expands as an overlay); inspector docked at 320px; toolbar labels hidden by priority | 1280 laptops with a side-by-side editor |
+| medium | 1280–1439 | Sidebar 220px; inspector 340px; command field 300px; the optional Author column shows initials | Supported laptop target (1280×720) |
+| large | ≥ 1440 | Full layout | Primary target (1440×900) |
+
+Reflow patterns in use:
+
+- rail to drawer (3);
+- column drop (2);
+- toolbar to overflow by priority (8).
+
+Height rules:
+
+- Below 800px, the composer collapses its description.
+- Below 700px, the activity bar hides.
+- Staging lists always keep at least 4 rows (S9).
+
+Required device profiles: `minimum`, `laptop`, `desktop`, `wide`.
+
+## Elevation & Depth
+
+- **Strategy:** flat panels over the backdrop. Depth comes from the panel material, a 1px `rule-panel` border, and the `panel` shadow; there is no sheen, glow, or gradient rim (brand B8).
+- **Materials (dark):** the aurora at layer `aurora`, then `glass-panel` (sidebar, inspector), `glass-graph` (graph), `glass-raised` (composer), and `control` / `control-hover` for bar items and buttons. Rows, tints, and selection fills on top of glass are opaque.
+- **Materials (light):** no aurora; every material is opaque.
+- **Overlays:** menus, the palette, dialogs, and toasts use the `overlay` and `modal` shadows, always paired with a 1px `rule-panel` border for a crisp edge.
+- **Themes:** dark and light have their own shadow values.
+- **Layers:**
+  - aurora 0;
+  - sticky 10;
+  - sidebar-overlay 20;
+  - drawer 30;
+  - popover 40;
+  - menu 50;
+  - palette 60;
+  - dialog 70;
+  - toast 80;
+  - tooltip 90.
+
+## Shapes
+
+| Radius | Value | Used on |
+|---|---|---|
+| xs | 2px | Hunk and line selection marks |
+| sm | 4px | Graph ref labels (Rail: trailing corners only) and tag labels |
+| md | 6px | List and file rows, status badges, the "Y" glyph tile, tooltips |
+| lg | 10px | Buttons, inputs, the command field, the breadcrumb, menus, toasts, empty-state boxes |
+| xl | 14px | Panels, the composer, dialogs, the palette |
+| pill | 999px | Tabs, chips, banners, time pills, counts |
+
+A child radius never exceeds its parent's radius.
+
+**Graph node shapes** (GitKraken 12.5.0):
+
+- commit: a 22px author disc, filled with the lane color inside a 2px lane ring, with the author's initials in `graph-initials`;
+- merge: a 12px solid lane dot;
+- Changes row: a 22px dotted ring (2px stroke, 2px dash, 3px gap, round caps) with a dotted edge to HEAD;
+- stash: a 22px square with a 2px dotted lane border and the stash glyph;
+- HEAD: no node treatment; the checked-out ref label carries the check (S2);
+- compact lanes: 10px nodes and merge dots with 1px lines.
+
+## Motion
+
+- **Recipes** (front matter `motion.recipes`):
+  - panel-reveal;
+  - overlay enter and exit;
+  - toast enter;
+  - graph refresh as a cross-fade;
+  - graph dimming for branch-hover highlights and search non-matches, through message-text opacity;
+  - aurora drift (ambient, dark only);
+  - aurora operation shift, when a Git operation starts or ends.
+- **No motion on:** hover and press, which change state instantly. Rows never slide (S11).
+- **Reduced motion:** every recipe becomes an instant change, and the aurora is static (S14). The indeterminate operation indicator becomes the static label "In progress…".
+
+## Icons
+
+- **Grid and stroke:** brand icon grammar (24 grid, stroke 1.5 at 16, 1.6 at 20 and 24, `currentColor`).
+- **Sizes on this surface:**
+  - 14px glyphs in graph ref labels, 5px apart;
+  - 16px in other rows, menus, and the command field;
+  - 20px in the command bar.
+- **Rendering:** one owned `Icon` component renders every icon.
+- **Icon-driven labels (S15):** three tiers, applied by where the control lives:
+
+  | Tier | Where | Treatment |
+  |---|---|---|
+  | Icon only | Repeated row actions (stage, unstage, discard, open diff, open in editor, copy, more); tab controls (new, close); window controls (settings, theme, activity, search); pane navigation (previous and next change or conflict); toolbar actions in the `compact` and `minimum` classes | 16px glyph (20px in the command bar) in a control of at least `controls.hit-min`; `aria-label` and a tooltip with the action and shortcut |
+  | Icon and label | Toolbar actions at `medium` and above (Sync, Branch, Stash, Undo); the Commit button; sidebar and inspector section headers; state strip chips; menu items (a leading 16px icon slot, kept empty for items without an established glyph so labels align) | Icon before the label, 6px gap |
+  | Text (optional leading icon) | Dialog and confirmation buttons, operation-banner actions (Resolve, Continue, Skip, Abort), destructive actions, form labels, and body copy | The label names the operation and its consequence (brand B6) |
+
+- **Registry by meaning:**
+  - Git objects: commit, merge, stash, changes, HEAD, checked-out, branch-local, branch-remote, tag, worktree;
+  - operations: sync, fetch, pull, push, stash, undo, search, palette, stage, unstage, discard, commit, branch-create, merge, rebase, cherry-pick, revert, reset, tag-create, open-diff, open-in-editor, open-in-terminal, copy;
+  - status: warning, error, success, conflict;
+  - view: collapse, expand, settings, activity, theme, previous, next, more, close, new-tab.
+
+## Components
+
+| Component | Purpose | Spec | Consumers |
+|---|---|---|---|
+| App shell (tab bar, command bar, activity bar) | Window frame | This file · [../docs/design/COMPONENT_SPECS.md](../docs/design/COMPONENT_SPECS.md) | S01–S31 |
+| Aurora backdrop and panels | Window atmosphere and region containers | This file (§Elevation & Depth, `materials`) | S01–S31 |
+| State strip / operation banner | Seven-question orientation; operation control | COMPONENT_SPECS § State strip | S02, S07–S11, S26–S29 |
+| Graph row (ref label, lane art, node, lane strip, message) | History navigation | COMPONENT_SPECS § Graph row | S02, S05, S22 |
+| Ref label (tinted rail, checked-out, tag) | Branch, tag, and remote identity | COMPONENT_SPECS § Ref label | S02, S04, S06, S12 |
+| File row with status badge | Changes and commit file lists | COMPONENT_SPECS § File row | S03, S04, S06, S15 |
+| Diff line and hunk header | Diff and staging | COMPONENT_SPECS § Diff hunk | S07, S09 |
+| Conflict block | Resolve Current / Incoming / Both | COMPONENT_SPECS § Conflict block | S09 |
+| Sidebar section and row | Ref navigation | This file | S02, S29 |
+| Buttons (primary, secondary, danger, icon, split) | Actions | Front matter tokens | All |
+| Tabs, chips, command field, breadcrumb | Bar controls | Front matter tokens | S01–S31 |
+| Composer | Commit message entry | Front matter tokens | S03, S04 |
+| Menu, context menu, drop menu | Direct manipulation | UX_PATTERNS §6–7 | S12 |
+| Command palette | Keyboard access | SCREEN_INVENTORY S21 | S21 |
+| Dialog, confirmation | Risky actions | SCREEN_INVENTORY S11, S13, S14 | S11–S19 |
+| Toast, tooltip, badge, progress | Feedback | Front matter tokens | S30 and all |
+| Split pane, resizable divider | Layout | This file (`controls.divider-hit`) | S02, S07, S09 |
+| Empty state | Guidance | SCREEN_INVENTORY | S01, S03, S26, S29 |
+
+The danger button is an outline: transparent fill, a 1px `danger` border, and `danger` text. Its token pair is checked on `surface-2`; on the operation banner it measures 4.59:1 dark and 4.57:1 light.
+
+## Content
+
+- Follow the brand Content rules.
+- **Surface specifics:**
+  - Menu labels name the source and target ("Rebase feature/greeting onto main").
+  - Disabled items carry a reason.
+  - Counts use tabular figures.
+  - Relative time is shown ("2m", "3d") with the absolute value in a tooltip.
+  - Unknown values render as "—" with a tooltip; they are never shown as zero.
+  - Remote-only graph labels show the branch name without the remote prefix, plus the remote glyph; the tooltip gives the full name ("origin/main").
+  - Graph time pills use relative buckets ("an hour ago", "3 weeks ago") on the first row of each bucket.
+
+## Accessibility
+
+- **Keyboard:** F6 cycles regions. J/K and the arrow keys move within the graph and lists. Every menu is keyboard-openable (⇧F10, the menu key, or the row "⋯" button).
+- **Graph:** exposed as a list of rows with the accessible name "<summary>, <author>, <age>, refs: …, <node kind>".
+- **Focus:** a 2px `focus` ring with a 2px offset. It is never hidden under sticky headers, because scroll padding reserves space for them.
+- **Hit targets:** at least 24px, including 8px divider hit areas.
+- **Contrast:** token pairs are validated by lint, and translucent materials by the worst-case aurora composite recorded in §Colors (S10). Rendered contrast is checked in both themes after implementation.
+- **Aurora:** decorative and `aria-hidden`; it never carries state that the operation banner does not also state in text.
+
+## Verification
+
+- **Lint:** `python3 ~/.agents/skills/daedalus/scripts/design_md.py lint app/DESIGN.md --strict`, which checks component contrast in both themes (S10).
+- **Render matrix:** `python3 ~/.agents/skills/daedalus/scripts/design_md.py matrix app/DESIGN.md`. The specimens in [../docs/design/specimens/](../docs/design/specimens/) exercise it: `workspace.html` (screen 1) and one file per screen in `screens/`, built on the shared `specimen.css` and `specimen.js`. Each specimen's hash selects the theme and state (`dark`, `light`, `-still0` for a deterministic aurora phase; the workspace also takes `-rebase` and `-highlight`). Specimens are proposal evidence, not implementation.
+- **Review-only until implementation:** S1–S9, S11–S15. Implementation must add:
+  - a token source;
+  - a repository drift test comparing this front matter with the token source in both directions;
+  - render checks at `minimum`, `laptop`, `desktop`, and `wide` in both themes, with the aurora at its worst-case phase.
+
+## Maintenance
+
+- Change the rule here first and obtain approval.
+- Update the token source, components, tests, and this file in the same change.
+- Run the strict lint and, once code exists, the repository drift check.
+- **Placement:** this surface file lives beside the SolidJS frontend as `app/DESIGN.md`; its token source is `app/src/styles/tokens.css`, and `app/src/styles/tokens.test.ts` checks drift in both directions (`pnpm test` in `app/`).
+
+## Do's and Don'ts
+
+- Do encode state in two channels, keep tags visible, name both refs in integration verbs, and put every bar item on a control or chip.
+- Don't add card grids, gradients or glows outside the aurora, uppercase section labels, hover-only actions, a default-focused destructive button, or GitKraken service surfaces.
+
+## Exceptions
+
+| Rule | Scope | Reason | Approved by | Review date |
+|---|---|---|---|---|
+| S10 | Rendered contrast | Only token pairs are linted until an implementation exists; specimen renders and the worst-case composites are advisory | User (Phase 8 approval, 2026-09-29) | 2026-10-29 |
+| S10 | Graph lane lines: dark lane 2 (2.57:1); light lanes 7 (1.58:1), 8 (1.78:1), and 9 (2.01:1) | GitKraken-exact palette (P-G1); column position, labels, and initials also identify lanes. Contrast-safe values if revisited: dark 2 `#A800E6`; light 7 `#B4900B`, 8 `#58A720`, 9 `#26A880` | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
+| S10 | Dimmed graph rows (branch-hover highlight, search non-match): 1.86:1 dark, 1.61:1 light | Transient de-emphasis that matches GitKraken; highlighted rows keep full contrast | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
+| Brand Typography (no uppercase headers) | Graph column header | GitKraken parity (P-G1) | User (P-G1 approval, 2026-09-29) | 2026-10-29 |

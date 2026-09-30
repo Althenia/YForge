@@ -1,0 +1,328 @@
+import { createResource, createSignal, For, Match, Show, Switch } from "solid-js";
+import type { AppSettings } from "../ipc/bindings/AppSettings";
+import type { ConfigValue } from "../ipc/bindings/ConfigValue";
+import type { IdentityField } from "../ipc/bindings/IdentityField";
+import type { PullMode } from "../ipc/bindings/PullMode";
+import type { RemoteInfo } from "../ipc/bindings/RemoteInfo";
+import { client } from "../ipc/client";
+import { basename } from "../format";
+import { useApp } from "../state/app";
+import { removeRemoteCopy, type ConfirmCopy } from "../state/confirmCopy";
+import { SETTINGS_SECTIONS } from "../state/palette";
+import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, sourceLabel } from "../state/settingsModel";
+import { pullModes } from "../state/syncModel";
+import { ConfirmDialog } from "./ConfirmDialog";
+import { Icon } from "./Icon";
+
+const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
+
+function Segmented<T extends string>(props: { label: string; value: T; options: ReadonlyArray<{ value: T; label: string }>; onChange: (value: T) => void }) {
+  return (
+    <div class="segmented" role="radiogroup" aria-label={props.label}>
+      <For each={props.options}>
+        {(option) => (
+          <button type="button" role="radio" aria-checked={props.value === option.value} classList={{ on: props.value === option.value }} onClick={() => props.onChange(option.value)}>
+            {option.label}
+          </button>
+        )}
+      </For>
+    </div>
+  );
+}
+
+function Row(props: { title: string; note: string; children: import("solid-js").JSX.Element }) {
+  return (
+    <div class="setting">
+      <div class="setting-text">
+        <span class="setting-title">{props.title}</span>
+        <span class="setting-note">{props.note}</span>
+      </div>
+      <div class="setting-control">{props.children}</div>
+    </div>
+  );
+}
+
+function TextSetting(props: { label: string; value: string; placeholder?: string; onCommit: (value: string) => void; suffix?: string }) {
+  const [draft, setDraft] = createSignal<string | undefined>();
+  const shown = () => draft() ?? props.value;
+  const commit = () => {
+    const value = draft();
+    setDraft(undefined);
+    if (value !== undefined && value !== props.value) props.onCommit(value);
+  };
+  return (
+    <span class="input">
+      <input
+        type="text"
+        aria-label={props.label}
+        value={shown()}
+        placeholder={props.placeholder}
+        onInput={(event) => setDraft(event.currentTarget.value)}
+        onBlur={commit}
+        onKeyDown={(event) => event.key === "Enter" && commit()}
+      />
+      <Show when={props.suffix}>{(text) => <span class="value-source">{text()}</span>}</Show>
+    </span>
+  );
+}
+
+function Identity(props: { path: string | null }) {
+  const [identity, { refetch }] = createResource(() => ({ path: props.path }), ({ path }) => client.identityRead(path));
+  const [failure, setFailure] = createSignal<string | undefined>();
+  const write = async (field: IdentityField, value: string | null) => {
+    setFailure(undefined);
+    try {
+      await client.identityWrite(props.path, field, value);
+      await refetch();
+    } catch (error) {
+      setFailure(message(error));
+    }
+  };
+  const field = (label: string, key: IdentityField, pick: () => ConfigValue | undefined) => (
+    <Row title={label} note={props.path === null ? "Written on commits in every repository." : "Written on commits in this repository."}>
+      <TextSetting
+        label={label}
+        value={pick()?.value ?? ""}
+        placeholder="Not set"
+        suffix={pick() === undefined ? undefined : sourceLabel(pick() as ConfigValue)}
+        onCommit={(next) => void write(key, next.trim() === "" ? null : next)}
+      />
+      <Show when={props.path !== null && pick()?.source === "repository"}>
+        <button type="button" class="btn sm" onClick={() => void write(key, null)}>
+          Remove override
+        </button>
+      </Show>
+    </Row>
+  );
+  return (
+    <>
+      <h3>Identity</h3>
+      {field("Name", "name", () => identity()?.name)}
+      {field("Email", "email", () => identity()?.email)}
+      <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
+      <Show when={props.path === null}>
+        <p class="field-note">Saved with <code>git config --global</code>.</p>
+      </Show>
+      <Show when={props.path !== null}>
+        <p class="field-note">
+          <Icon name="check" /> Changes are saved automatically to <code>.git/config</code>
+        </p>
+      </Show>
+    </>
+  );
+}
+
+function Remotes(props: { path: string }) {
+  const [remotes, { refetch }] = createResource(() => props.path, (path) => client.remotesList(path));
+  const [editing, setEditing] = createSignal<{ original: string | undefined; name: string; url: string } | undefined>();
+  const [failure, setFailure] = createSignal<string | undefined>();
+  const [pendingRemoval, setPendingRemoval] = createSignal<RemoteInfo | undefined>();
+
+  const save = async () => {
+    const draft = editing();
+    if (draft === undefined || remoteProblem(draft.name, draft.url) !== undefined) return;
+    setFailure(undefined);
+    try {
+      if (draft.original === undefined) await client.remoteAdd(props.path, draft.name, draft.url);
+      else await client.remoteEdit(props.path, draft.original, draft.name, draft.url);
+      setEditing(undefined);
+      await refetch();
+    } catch (error) {
+      setFailure(message(error));
+    }
+  };
+  const copy = (): ConfirmCopy | undefined => {
+    const remote = pendingRemoval();
+    return remote === undefined ? undefined : removeRemoteCopy(remote.name, remote.fetch_url);
+  };
+  const confirmRemoval = async () => {
+    const remote = pendingRemoval();
+    setPendingRemoval(undefined);
+    if (remote === undefined) return;
+    try {
+      await client.remoteRemove(props.path, remote.name);
+      await refetch();
+    } catch (error) {
+      setFailure(message(error));
+    }
+  };
+
+  return (
+    <>
+      <h3>Remotes</h3>
+      <p class="setting-note">Where this repository fetches from and pushes to.</p>
+      <ul class="remotes">
+        <For each={remotes() ?? []} fallback={<li class="setting-note">No remotes configured.</li>}>
+          {(remote) => (
+            <li>
+              <span class="ref">{remote.name}</span>
+              <span class="remote-url path-line" title={remote.fetch_url}>
+                <bdi dir="ltr">{remote.fetch_url}</bdi>
+              </span>
+              <span class="setting-note">{remote.push_url === null ? "fetch and push" : `push to ${remote.push_url}`}</span>
+              <span class="recent-acts">
+                <button type="button" class="btn sm" onClick={() => setEditing({ original: remote.name, name: remote.name, url: remote.fetch_url })}>
+                  Edit
+                </button>
+                <button type="button" class="btn sm text-danger" onClick={() => setPendingRemoval(remote)}>
+                  Remove
+                </button>
+              </span>
+            </li>
+          )}
+        </For>
+      </ul>
+      <Show
+        when={editing()}
+        fallback={
+          <button type="button" class="btn" onClick={() => setEditing({ original: undefined, name: "", url: "" })}>
+            Add remote…
+          </button>
+        }
+      >
+        {(draft) => (
+          <form
+            class="remote-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void save();
+            }}
+          >
+            <span class="input">
+              <input type="text" aria-label="Remote name" placeholder="origin" value={draft().name} onInput={(event) => setEditing({ ...draft(), name: event.currentTarget.value })} />
+            </span>
+            <span class="input">
+              <input type="text" aria-label="Remote address" placeholder="https://github.com/example/repo.git" value={draft().url} onInput={(event) => setEditing({ ...draft(), url: event.currentTarget.value })} />
+            </span>
+            <button type="submit" class="btn primary" disabled={remoteProblem(draft().name, draft().url) !== undefined}>
+              {draft().original === undefined ? "Add" : "Save"}
+            </button>
+            <button type="button" class="btn" onClick={() => setEditing(undefined)}>
+              Cancel
+            </button>
+            <Show when={draft().url !== "" && remoteProblem(draft().name || "x", draft().url)}>{(text) => <span class="field-note error">{text()}</span>}</Show>
+          </form>
+        )}
+      </Show>
+      <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
+      <Show when={copy()}>{(value) => <ConfirmDialog copy={value()} onConfirm={() => void confirmRemoval()} onCancel={() => setPendingRemoval(undefined)} />}</Show>
+    </>
+  );
+}
+
+const pullOptions = pullModes.map((entry) => ({ value: entry.mode, label: pullModeLabel(entry.mode) }));
+
+export function SettingsView(props: { section: string }) {
+  const app = useApp();
+  const [failure, setFailure] = createSignal<string | undefined>();
+  const repository = () => app.activePath();
+  const scope = () => (props.section === "repository" && repository() !== undefined ? "repository" : "all");
+  const section = () => (props.section === "repository" ? "git" : props.section);
+  const settings = () => app.settings();
+
+  const change = async (patch: Partial<AppSettings>) => {
+    setFailure(await app.saveSettings({ ...settings(), ...patch }));
+  };
+  const overrideMode = () => {
+    const path = repository();
+    return path === undefined ? undefined : app.repoSettings()[path];
+  };
+  const setOverride = async (mode: PullMode | null) => {
+    const path = repository();
+    if (path !== undefined) setFailure(await app.saveRepoSettings(path, { pull_mode: mode }));
+  };
+  const navigation = SETTINGS_SECTIONS.filter((entry) => entry.id !== "repository");
+
+  return (
+    <main class="settings" aria-label="Settings">
+      <nav class="settings-nav" aria-label="Settings sections">
+        <For each={navigation}>
+          {(entry) => (
+            <button type="button" classList={{ sel: section() === entry.id }} aria-current={section() === entry.id ? "page" : undefined} onClick={() => app.openSettings(entry.id)}>
+              <Icon name={entry.icon} />
+              {entry.label}
+            </button>
+          )}
+        </For>
+      </nav>
+      <div class="settings-body">
+        <div class="settings-scope" role="tablist" aria-label="Settings scope">
+          <button type="button" role="tab" aria-selected={scope() === "all"} classList={{ on: scope() === "all" }} onClick={() => app.openSettings(section())}>
+            All repositories
+          </button>
+          <Show when={repository()}>
+            {(path) => (
+              <button type="button" role="tab" aria-selected={scope() === "repository"} classList={{ on: scope() === "repository" }} onClick={() => app.openSettings("repository")}>
+                This repository: {basename(path())}
+              </button>
+            )}
+          </Show>
+        </div>
+        <Switch>
+          <Match when={scope() === "repository" && repository()}>
+            {(path) => (
+              <>
+                <h2>Repository settings</h2>
+                <Identity path={path()} />
+                <Remotes path={path()} />
+                <h3>Pull mode override</h3>
+                <Row title="Pull mode" note="Strategy used when pulling into branches of this repository.">
+                  <select
+                    aria-label="Pull mode override"
+                    value={overrideMode()?.pull_mode ?? ""}
+                    onChange={(event) => void setOverride(event.currentTarget.value === "" ? null : (event.currentTarget.value as PullMode))}
+                  >
+                    <option value="">Inherit · {pullModeLabel(effectivePullMode(settings(), undefined).mode)}</option>
+                    <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
+                  </select>
+                </Row>
+              </>
+            )}
+          </Match>
+          <Match when={section() === "general"}>
+            <h2>General</h2>
+            <p class="setting-note">Applies to every repository.</p>
+            <Row title="External editor" note="Command that opens a file or the repository. Leave empty to use the system default.">
+              <TextSetting label="External editor command" value={settings().editor_command} placeholder="code" onCommit={(value) => void change({ editor_command: value.trim() })} />
+            </Row>
+            <Row title="External terminal" note="Command that opens the repository folder. Leave empty for Terminal.">
+              <TextSetting label="External terminal command" value={settings().terminal_command} placeholder="open -a iTerm" onCommit={(value) => void change({ terminal_command: value.trim() })} />
+            </Row>
+          </Match>
+          <Match when={section() === "git"}>
+            <h2>Git</h2>
+            <Identity path={null} />
+            <h3>Defaults</h3>
+            <Row title="Default branch" note="Name of the first branch in repositories you create.">
+              <TextSetting label="Default branch" value={settings().default_branch} onCommit={(value) => void change({ default_branch: value })} />
+            </Row>
+            <Row title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
+              <select aria-label="Pull mode" value={settings().pull_mode} onChange={(event) => void change({ pull_mode: event.currentTarget.value as PullMode })}>
+                <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
+              </select>
+            </Row>
+            <Row title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
+              <Segmented
+                label="Auto-fetch interval"
+                value={String(settings().auto_fetch_minutes)}
+                options={AUTO_FETCH_OPTIONS.map((option) => ({ value: String(option.minutes), label: option.label }))}
+                onChange={(value) => void change({ auto_fetch_minutes: Number(value) })}
+              />
+            </Row>
+          </Match>
+          <Match when={section() === "appearance"}>
+            <h2>Appearance</h2>
+            <p class="setting-note">Applies to every repository.</p>
+            <Row title="Theme" note="Dark, light, or follow the system.">
+              <Segmented label="Theme" value={settings().theme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} onChange={(value) => void change({ theme: value })} />
+            </Row>
+            <Row title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
+              <Segmented label="Density" value={settings().density} options={[{ value: "compact", label: "Compact" }, { value: "default", label: "Default" }]} onChange={(value) => void change({ density: value })} />
+            </Row>
+          </Match>
+        </Switch>
+        <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
+      </div>
+    </main>
+  );
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · pull, push, and sync state</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.menu .r, .dialog .r { font: 400 12px/16px var(--mono); }
+.menu .item .lead { width: 6px; flex: none; }
+.btn.primary.open { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--focus); }
+.chip .progress { width: 56px; }
+.dialog h3 svg { color: var(--danger-ink); }
+.dialog .label-line { font: 500 12px/16px var(--sans); color: var(--muted); }
+.dialog .commits { display: grid; padding: 4px; border-radius: var(--r-md); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); }
+.dialog .commits .crow { height: 32px; display: flex; align-items: center; gap: 12px; padding: 0 8px; border-radius: var(--r-sm); font: 400 13px/20px var(--sans); }
+.dialog .commits .crow .r { color: var(--muted); }
+.dialog .lease { font: 400 12px/18px var(--sans); color: var(--muted); }
+.dialog .lease .r { color: var(--text); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const menuOnly = YF.flags.has("menu");
+const I = YF.icon;
+const r = name => `<span class="r">${name}</span>`;
+const fetching = `<span class="chip"><span>Fetching <span class="ref">origin</span>… 42%</span><span class="progress" role="progressbar" aria-valuenow="42" aria-valuemin="0" aria-valuemax="100"><i style="width: 42%"></i></span></span><span class="btn sm">Cancel</span>`;
+const strip = YF.strip({ fresh: fetching });
+const command = YF.command({ sync: `Sync <span class="k">↑2</span>${I.chevron}`, syncClass: "primary open" });
+const syncMenu = `<div class="menu" id="sync" style="width: 340px">
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("fetch")}</span>Fetch all</span></div>
+  <div class="sep"></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: fast-forward only</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: fast-forward, merge if needed</span><span class="k">default</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: rebase</span></div>
+  <div class="sep"></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("push")}</span>Push</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon"></span>Push to…</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon"></span>Set upstream…</span></div>
+</div>`;
+const dialog = `<div class="scrim"></div><div class="dialog" role="alertdialog" aria-labelledby="fp-title">
+  <h3 id="fp-title">${I.warn}Force push with lease</h3>
+  <p>You rebased ${r("feature/greeting")}; its history no longer contains ${r("origin/feature/greeting")}.</p>
+  <div class="label-line">These remote commits will be replaced</div>
+  <div class="commits">
+    <div class="crow"><span class="r">f86d53a</span>Personalize greeting</div>
+    <div class="crow"><span class="r">e2b1c09</span>Tweak greeting</div>
+  </div>
+  <div class="lease">Lease: ${r("origin/feature/greeting")} must still be at ${r("f86d53a")}</div>
+  <div class="foot"><span class="btn focus">Cancel</span><span class="btn danger">Force push with lease</span></div>
+</div>`;
+const inspector = `<aside class="panel inspector" aria-label="Changes">
+  <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
+  <div class="ilist">
+    ${YF.lhead("changes", "Unstaged (2)", { icon: "plus", label: "Stage all" })}
+    <div class="frow"><span class="badge st-M">M</span><span>README.md</span></div>
+    <div class="frow"><span class="badge st-U">U</span><span>scratch.txt</span></div>
+    ${YF.lhead("check", "Staged (0)")}
+    <div class="empty">Nothing staged. Stage files, hunks, or lines to commit them.</div>
+  </div>
+  <div class="composer">
+    <div class="input"><span>Summary</span><span class="count">72</span></div>
+    <div class="input area">Description</div>
+    <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
+  </div>
+</aside>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${command}${strip}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + syncMenu + (menuOnly ? "" : dialog));
+YF.boot(`screen 6 · pull, push, and sync state${menuOnly ? " · sync menu" : ""}`);
+YF.mountGraph({ selected: 0, hovered: -1 });
+const sync = document.querySelector(".bar .btn.primary").getBoundingClientRect();
+const menu = document.getElementById("sync");
+menu.style.left = `${Math.min(sync.left, innerWidth - 340 - 10)}px`;
+menu.style.top = `${sync.bottom + 8}px`;
+</script>
+</body>
+</html>

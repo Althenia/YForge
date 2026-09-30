@@ -1,0 +1,356 @@
+import { emit } from "@tauri-apps/api/event";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { afterEach, describe, expect, it } from "vitest";
+import type { GraphPage } from "./bindings/GraphPage";
+import { client, IpcError } from "./client";
+
+afterEach(() => clearMocks());
+
+describe("typed IPC client", () => {
+  it("invokes each command by name with its arguments and returns the typed result", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    const page: GraphPage = { rows: [], carried: [], total: 0 };
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      if (cmd === "app_info") return { app_version: "0.1.0", git_version: "2.55.0" };
+      if (cmd === "launch_path") return "/repo";
+      if (cmd === "repo_graph") return page;
+      return undefined;
+    });
+
+    expect(await client.appInfo()).toEqual({ app_version: "0.1.0", git_version: "2.55.0" });
+    expect(await client.launchPath()).toBe("/repo");
+    expect(await client.repoGraph("/repo", 20, 10)).toEqual(page);
+    expect(calls).toEqual([
+      { cmd: "app_info", args: {} },
+      { cmd: "launch_path", args: {} },
+      { cmd: "repo_graph", args: { path: "/repo", offset: 20, limit: 10 } },
+    ]);
+  });
+
+  it("sends the repository path to repo_open", async () => {
+    let received: unknown;
+    mockIPC((_cmd, args) => {
+      received = args;
+      return undefined;
+    });
+
+    await client.repoOpen("/some/repo");
+
+    expect(received).toEqual({ path: "/some/repo" });
+  });
+
+  it("invokes every working-tree command by name with its arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+    const hunk = { old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, heading: "", lines: [] };
+
+    await client.diffFile("/r", "a.txt", "staged");
+    await client.stageFiles("/r", ["a.txt"]);
+    await client.unstageFiles("/r", ["a.txt"]);
+    await client.stageAll("/r");
+    await client.unstageAll("/r");
+    await client.discardFiles("/r", ["a.txt"]);
+    await client.stageHunk("/r", "a.txt", hunk);
+    await client.unstageHunk("/r", "a.txt", hunk);
+    await client.discardHunk("/r", "a.txt", hunk);
+    await client.commit("/r", "Summary", "Body", true);
+    await client.amendInfo("/r");
+    await client.commitDetails("/r", "abc1234");
+    await client.commitFileDiff("/r", "abc1234", "a.txt");
+    await client.repoWatch("/r");
+
+    expect(calls).toEqual([
+      { cmd: "diff_file", args: { path: "/r", file: "a.txt", area: "staged" } },
+      { cmd: "stage_files", args: { path: "/r", files: ["a.txt"] } },
+      { cmd: "unstage_files", args: { path: "/r", files: ["a.txt"] } },
+      { cmd: "stage_all", args: { path: "/r" } },
+      { cmd: "unstage_all", args: { path: "/r" } },
+      { cmd: "discard_files", args: { path: "/r", files: ["a.txt"] } },
+      { cmd: "stage_hunk", args: { path: "/r", file: "a.txt", hunk } },
+      { cmd: "unstage_hunk", args: { path: "/r", file: "a.txt", hunk } },
+      { cmd: "discard_hunk", args: { path: "/r", file: "a.txt", hunk } },
+      { cmd: "commit", args: { path: "/r", summary: "Summary", description: "Body", amend: true } },
+      { cmd: "amend_info", args: { path: "/r" } },
+      { cmd: "commit_details", args: { path: "/r", sha: "abc1234" } },
+      { cmd: "commit_file_diff", args: { path: "/r", sha: "abc1234", file: "a.txt" } },
+      { cmd: "repo_watch", args: { path: "/r" } },
+    ]);
+  });
+
+  it("invokes every branch, stash, sync, and operation command by name with its arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+    const lease = { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "abc1234" };
+
+    await client.checkout("/r", { kind: "tag", name: "v1" }, true);
+    await client.checkBranchName("/r", "topic");
+    await client.createBranch("/r", "topic", "abc1234", false);
+    await client.renameBranch("/r", "topic", "topic2");
+    await client.branchDeletePreview("/r", "topic2");
+    await client.deleteBranch("/r", "topic2", true);
+    await client.stashPush("/r", "wip", true);
+    await client.stashApply("/r", 1, "s1");
+    await client.stashPop("/r", 1, "s1");
+    await client.stashDrop("/r", 1, "s1");
+    await client.fetch("/r", "op-1", false);
+    await client.pull("/r", "op-2", "rebase");
+    await client.push("/r", "op-3");
+    await client.pushPlan("/r");
+    await client.pushForce("/r", "op-4", lease);
+    await client.operationCancel("op-1");
+    await client.operationContinue("/r", null);
+    await client.operationSkip("/r");
+    await client.operationAbort("/r");
+    await client.markResolved("/r", ["a.txt"]);
+
+    expect(calls).toEqual([
+      { cmd: "checkout", args: { path: "/r", target: { kind: "tag", name: "v1" }, stash: true } },
+      { cmd: "check_branch_name", args: { path: "/r", name: "topic" } },
+      { cmd: "create_branch", args: { path: "/r", name: "topic", at: "abc1234", checkout: false } },
+      { cmd: "rename_branch", args: { path: "/r", from: "topic", to: "topic2" } },
+      { cmd: "branch_delete_preview", args: { path: "/r", name: "topic2" } },
+      { cmd: "delete_branch", args: { path: "/r", name: "topic2", force: true } },
+      { cmd: "stash_push", args: { path: "/r", message: "wip", untracked: true } },
+      { cmd: "stash_apply", args: { path: "/r", index: 1, sha: "s1" } },
+      { cmd: "stash_pop", args: { path: "/r", index: 1, sha: "s1" } },
+      { cmd: "stash_drop", args: { path: "/r", index: 1, sha: "s1" } },
+      { cmd: "fetch", args: { path: "/r", id: "op-1", prune: false } },
+      { cmd: "pull", args: { path: "/r", id: "op-2", mode: "rebase" } },
+      { cmd: "push", args: { path: "/r", id: "op-3" } },
+      { cmd: "push_plan", args: { path: "/r" } },
+      { cmd: "push_force", args: { path: "/r", id: "op-4", lease } },
+      { cmd: "operation_cancel", args: { id: "op-1" } },
+      { cmd: "operation_continue", args: { path: "/r", message: null } },
+      { cmd: "operation_skip", args: { path: "/r" } },
+      { cmd: "operation_abort", args: { path: "/r" } },
+      { cmd: "mark_resolved", args: { path: "/r", files: ["a.txt"] } },
+    ]);
+  });
+
+  it("sends the integration, tag, and conflict commands with their arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return undefined;
+    });
+
+    await client.integrationPreview("/r", null, "topic");
+    await client.merge("/r", "topic", "merge_commit");
+    await client.rebase("/r", "origin/main");
+    await client.fastForward("/r", "main", "topic");
+    await client.cherryPick("/r", "abc1234");
+    await client.revert("/r", "abc1234");
+    await client.reset("/r", "abc1234", "hard");
+    await client.createTag("/r", "v1", "abc1234", null);
+    await client.deleteTag("/r", "v1");
+    await client.pushTag("/r", "op-5", "origin", "v1");
+    await client.deleteRemoteTag("/r", "op-6", "origin", "v1");
+    await client.conflictFile("/r", "a.txt");
+    await client.conflictResolve("/r", "a.txt", "x\n");
+    await client.conflictTakeSide("/r", "a.txt", "incoming");
+    await client.conflictReset("/r", "a.txt");
+
+    expect(calls).toEqual([
+      { cmd: "integration_preview", args: { path: "/r", base: null, other: "topic" } },
+      { cmd: "merge", args: { path: "/r", source: "topic", mode: "merge_commit" } },
+      { cmd: "rebase", args: { path: "/r", onto: "origin/main" } },
+      { cmd: "fast_forward", args: { path: "/r", branch: "main", target: "topic" } },
+      { cmd: "cherry_pick", args: { path: "/r", sha: "abc1234" } },
+      { cmd: "revert", args: { path: "/r", sha: "abc1234" } },
+      { cmd: "reset", args: { path: "/r", target: "abc1234", mode: "hard" } },
+      { cmd: "create_tag", args: { path: "/r", name: "v1", at: "abc1234", message: null } },
+      { cmd: "delete_tag", args: { path: "/r", name: "v1" } },
+      { cmd: "push_tag", args: { path: "/r", id: "op-5", remote: "origin", name: "v1" } },
+      { cmd: "delete_remote_tag", args: { path: "/r", id: "op-6", remote: "origin", name: "v1" } },
+      { cmd: "conflict_file", args: { path: "/r", file: "a.txt" } },
+      { cmd: "conflict_resolve", args: { path: "/r", file: "a.txt", content: "x\n" } },
+      { cmd: "conflict_take_side", args: { path: "/r", file: "a.txt", side: "incoming" } },
+      { cmd: "conflict_reset", args: { path: "/r", file: "a.txt" } },
+    ]);
+  });
+
+  it("delivers operation-progress payloads with the operation id until unlistened", async () => {
+    mockIPC(() => undefined, { shouldMockEvents: true });
+    const received: Array<[string, string, number | null]> = [];
+    const unlisten = await client.onOperationProgress((progress) => received.push([progress.id, progress.phase, progress.percent]));
+
+    await emit("operation-progress", { id: "op-1", phase: "Receiving objects", percent: 42 });
+    await emit("operation-progress", { id: "op-1", phase: "Fetching origin", percent: null });
+    unlisten();
+    await emit("operation-progress", { id: "op-2", phase: "later", percent: 1 });
+
+    expect(received).toEqual([
+      ["op-1", "Receiving objects", 42],
+      ["op-1", "Fetching origin", null],
+    ]);
+  });
+
+  it("maps typed sync errors to an IpcError with their kind and output", async () => {
+    mockIPC(() => {
+      throw { kind: "auth_failed", message: "Authentication failed for origin", output: "fatal: could not read Username" };
+    });
+
+    const failure = await client.fetch("/r", "op-1", false).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(IpcError);
+    expect(failure).toMatchObject({ kind: "auth_failed", message: "Authentication failed for origin", output: "fatal: could not read Username" });
+  });
+
+  it("delivers repo-changed payloads to the handler until it is unlistened", async () => {
+    mockIPC(() => undefined, { shouldMockEvents: true });
+    const received: string[] = [];
+    const unlisten = await client.onRepoChanged((change) => received.push(change.path));
+
+    await emit("repo-changed", { path: "/r" });
+    unlisten();
+    await emit("repo-changed", { path: "/later" });
+
+    expect(received).toEqual(["/r"]);
+  });
+
+  it("carries hook output on the IpcError of a failed commit", async () => {
+    mockIPC(() => {
+      throw { kind: "commit_failed", message: "`git commit` exited with status 1", output: "hook says no" };
+    });
+
+    const failure = await client.commit("/r", "s", "", false).catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(IpcError);
+    expect(failure).toMatchObject({ kind: "commit_failed", output: "hook says no" });
+  });
+
+  it("turns a serialized backend error into an IpcError with its kind and message", async () => {
+    mockIPC(() => {
+      throw { kind: "not_a_repository", message: "/tmp/x is not inside a Git repository" };
+    });
+
+    const failure = await client.repoOpen("/tmp/x").catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(IpcError);
+    expect(failure).toMatchObject({ kind: "not_a_repository", message: "/tmp/x is not inside a Git repository" });
+  });
+
+  it("wraps a non-payload failure as an internal IpcError instead of swallowing it", async () => {
+    mockIPC(() => {
+      throw "command repo_open not found";
+    });
+
+    const failure = await client.repoOpen("/x").catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(IpcError);
+    expect(failure).toMatchObject({ kind: "internal", message: "command repo_open not found" });
+  });
+
+  it("invokes every phase 3b command by name with camelCase arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+    const settings = {
+      theme: "light",
+      density: "compact",
+      default_branch: "main",
+      pull_mode: "rebase",
+      auto_fetch_minutes: 5,
+      editor_command: "",
+      terminal_command: "",
+    } as const;
+
+    await client.fetch("/r", "op-1", false, false);
+    await client.publish("/r", "op-2", "origin");
+    await client.authRespond("op-1/auth-1", { kind: "trust" });
+    await client.searchCommits("/r", "fix");
+    await client.cloneRepo("op-3", "https://example.test/a.git", "/d/a");
+    await client.initRepo("/d/new");
+    await client.settingsLoad();
+    await client.settingsSave(settings);
+    await client.repoSettingsLoad("/r");
+    await client.repoSettingsSave("/r", { pull_mode: null });
+    await client.identityRead(null);
+    await client.identityWrite("/r", "email", null);
+    await client.remotesList("/r");
+    await client.remoteAdd("/r", "origin", "https://example.test/a.git");
+    await client.remoteEdit("/r", "origin", "upstream", "https://example.test/b.git");
+    await client.remoteRemove("/r", "upstream");
+    await client.recentsList();
+    await client.recentAdd("/r");
+    await client.recentRemove("/r");
+    await client.recentStatuses(["/r"]);
+    await client.sessionLoad();
+    await client.sessionSave({ tabs: ["/r"], active: 0 });
+    await client.openPath("/r/a.txt", "editor");
+    await client.activityList();
+    await client.activityClear(null);
+    await client.undoLast("/r", 7);
+
+    expect(calls).toEqual([
+      { cmd: "fetch", args: { path: "/r", id: "op-1", prune: false, interactive: false } },
+      { cmd: "publish", args: { path: "/r", id: "op-2", remote: "origin" } },
+      { cmd: "auth_respond", args: { id: "op-1/auth-1", reply: { kind: "trust" } } },
+      { cmd: "search_commits", args: { path: "/r", query: "fix" } },
+      { cmd: "clone_repo", args: { id: "op-3", url: "https://example.test/a.git", destination: "/d/a" } },
+      { cmd: "init_repo", args: { path: "/d/new" } },
+      { cmd: "settings_load", args: {} },
+      { cmd: "settings_save", args: { settings } },
+      { cmd: "repo_settings_load", args: { path: "/r" } },
+      { cmd: "repo_settings_save", args: { path: "/r", settings: { pull_mode: null } } },
+      { cmd: "identity_read", args: { path: null } },
+      { cmd: "identity_write", args: { path: "/r", field: "email", value: null } },
+      { cmd: "remotes_list", args: { path: "/r" } },
+      { cmd: "remote_add", args: { path: "/r", name: "origin", url: "https://example.test/a.git" } },
+      { cmd: "remote_edit", args: { path: "/r", name: "origin", newName: "upstream", url: "https://example.test/b.git" } },
+      { cmd: "remote_remove", args: { path: "/r", name: "upstream" } },
+      { cmd: "recents_list", args: {} },
+      { cmd: "recent_add", args: { path: "/r" } },
+      { cmd: "recent_remove", args: { path: "/r" } },
+      { cmd: "recent_statuses", args: { paths: ["/r"] } },
+      { cmd: "session_load", args: {} },
+      { cmd: "session_save", args: { session: { tabs: ["/r"], active: 0 } } },
+      { cmd: "open_path", args: { path: "/r/a.txt", with: "editor" } },
+      { cmd: "activity_list", args: {} },
+      { cmd: "activity_clear", args: { repo: null } },
+      { cmd: "undo_last", args: { path: "/r", id: 7 } },
+    ]);
+  });
+
+  it("delivers auth prompt and activity events to their handlers", async () => {
+    mockIPC(() => null, { shouldMockEvents: true });
+    const prompts: string[] = [];
+    const entries: number[] = [];
+    const stopPrompt = await client.onAuthPrompt((event) => prompts.push(event.prompt.id));
+    const stopActivity = await client.onActivity((entry) => entries.push(entry.id));
+
+    await emit("auth-prompt", { operation: "op-1", prompt: { id: "op-1/auth-1" } });
+    await emit("activity-recorded", { id: 4 });
+    stopPrompt();
+    stopActivity();
+
+    expect(prompts).toEqual(["op-1/auth-1"]);
+    expect(entries).toEqual([4]);
+  });
+
+  it("returns the folder chosen in the native picker, or undefined when it is dismissed", async () => {
+    let choice: string | null = "/picked";
+    let received: unknown;
+    mockIPC((cmd, args) => {
+      if (cmd === "plugin:dialog|open") {
+        received = args;
+        return choice;
+      }
+      return null;
+    });
+
+    expect(await client.pickFolder("Open a repository")).toBe("/picked");
+    expect(received).toMatchObject({ options: { directory: true, multiple: false, title: "Open a repository" } });
+    choice = null;
+    expect(await client.pickFolder("Open a repository")).toBeUndefined();
+  });
+});

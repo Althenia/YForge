@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 12 authentication</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.app { grid-template-rows: 40px 1fr; }
+.stage { display: grid; align-content: center; padding: 10px 20px 30px; min-height: 0; }
+.quad { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.dialog.static { position: static; transform: none; left: auto; top: auto; width: auto; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.dialog.static .foot { margin-top: auto; padding-top: 4px; }
+.dialog.static h3 { min-height: 26px; }
+.dialog h3 .chip { margin-left: auto; }
+.fp { padding: 8px 10px; border-radius: var(--r-md); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-strong); font: 400 12px/18px var(--mono); word-break: break-all; }
+.warnline { display: flex; gap: 8px; align-items: flex-start; color: var(--yellow-strong); font: 400 13px/20px var(--sans); }
+.warnline svg { flex: none; margin-top: 2px; }
+.code-row { display: flex; gap: 8px; align-items: center; }
+.code { flex: 1; min-width: 0; text-align: center; padding: 10px 12px; border-radius: var(--r-md); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line-strong); font: 600 28px/36px var(--mono); letter-spacing: 0.06em; }
+.btn.wide { width: 100%; justify-content: center; }
+.dialog .mono { font-size: 12px; color: var(--text); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const I = YF.icon;
+const html = `
+<div class="app">
+  ${YF.tabs({ repo: "", others: [] })}
+  <main class="stage">
+    <div class="quad">
+      <section class="dialog static" role="dialog" aria-labelledby="d-https">
+        <h3 id="d-https">${I.lock}HTTPS credentials</h3>
+        <p>github.com needs credentials for fetch.</p>
+        <div class="field"><label for="https-user">Username</label><div class="input" id="https-user"><span>yforge-lab</span></div></div>
+        <div class="field"><label for="https-token">Token</label><div class="input" id="https-token"><span>••••••••••••••••</span></div></div>
+        <span class="check"><i></i>Save with Git credential helper</span>
+        <div class="foot"><span class="btn">Cancel</span><span class="btn primary">Fetch</span></div>
+      </section>
+      <section class="dialog static" role="dialog" aria-labelledby="d-ssh">
+        <h3 id="d-ssh">${I.key}SSH key passphrase</h3>
+        <p>Enter the passphrase for <span class="mono">~/.ssh/id_ed25519</span>.</p>
+        <div class="field"><label for="ssh-pass">Passphrase</label><div class="input" id="ssh-pass"><span>••••••••••</span></div></div>
+        <div class="foot"><span class="btn">Cancel</span><span class="btn primary">Unlock key</span></div>
+      </section>
+      <section class="dialog static" role="alertdialog" aria-labelledby="d-host">
+        <h3 id="d-host">${I.warn}Confirm host key</h3>
+        <p>The authenticity of <span class="mono">github.com</span> can't be verified yet. Compare this fingerprint with the one the host publishes.</p>
+        <div class="field"><label>SHA256 fingerprint</label><div class="fp">SHA256:+DiY3wvvV6TuJJhbpZisF/zLDA0zPMSvHdkr4UvCOqU</div></div>
+        <div class="warnline">${I.warn}<span>Trusting an unknown host lets it read the credentials you send.</span></div>
+        <div class="foot"><span class="btn focus">Cancel</span><span class="btn primary">Trust and continue</span></div>
+      </section>
+      <section class="dialog static" role="dialog" aria-labelledby="d-device">
+        <h3 id="d-device">Connect GitHub<span class="chip">Post-MVP</span></h3>
+        <p>Enter this code on GitHub to authorize YForge.</p>
+        <div class="code-row"><div class="code" aria-label="Device code WDJB-MJHT">WDJB-MJHT</div><span class="icon-btn" aria-label="Copy code">${I.copy}</span></div>
+        <span class="btn primary wide">Open github.com/login/device</span>
+        <span class="reason">Waiting for authorization…</span>
+        <div class="foot"><span class="btn">Cancel</span></div>
+      </section>
+    </div>
+  </main>
+</div>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + html);
+YF.boot("screen 12 · authentication");
+</script>
+</body>
+</html>
