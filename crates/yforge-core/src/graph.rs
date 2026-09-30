@@ -1,9 +1,10 @@
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::error::CoreError;
 use crate::git;
-use crate::layout::{self, index_u32};
+use crate::layout::{self, index_u32, RowLayout};
 use crate::model::{
     Author, CarriedEdge, ChangeCounts, GraphPage, GraphRef, GraphRow, Head, NodeKind, RefKind,
     SearchResult, StashEntry,
@@ -220,7 +221,7 @@ fn ordered_seeds(
             RowSeed {
                 sha: None,
                 parents: head_sha.into_iter().collect(),
-                summary: changes_summary(&status.counts),
+                summary: String::new(),
                 author: None,
                 time: None,
                 kind: NodeKind::Changes,
@@ -231,6 +232,77 @@ fn ordered_seeds(
     Ok(seeds)
 }
 
+struct History {
+    seeds: Vec<RowSeed>,
+    layouts: Vec<RowLayout>,
+}
+
+impl History {
+    fn summary(&self, row: usize, status: &ParsedStatus) -> String {
+        let seed = &self.seeds[row];
+        match seed.kind {
+            NodeKind::Changes => changes_summary(&status.counts),
+            _ => seed.summary.clone(),
+        }
+    }
+}
+
+fn history_key(
+    root: &Path,
+    status: &ParsedStatus,
+    stashes: &[StashEntry],
+) -> Result<String, CoreError> {
+    let refs = git::run(root, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
+    let head = match &status.head {
+        Head::Branch { sha, .. } | Head::Detached { sha } => sha.as_str(),
+        Head::Unborn { .. } => "",
+    };
+    let stash_shas: Vec<&str> = stashes.iter().map(|stash| stash.sha.as_str()).collect();
+    Ok(format!(
+        "{head}\n{}\n{}\n{refs}",
+        status.counts.total() > 0,
+        stash_shas.join(" ")
+    ))
+}
+
+struct CachedHistory {
+    key: String,
+    history: Arc<History>,
+}
+
+static HISTORIES: LazyLock<Mutex<HashMap<PathBuf, CachedHistory>>> = LazyLock::new(Mutex::default);
+
+fn history(
+    root: &Path,
+    status: &ParsedStatus,
+    stashes: &[StashEntry],
+) -> Result<Arc<History>, CoreError> {
+    let key = history_key(root, status, stashes)?;
+    let cached = HISTORIES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(root)
+        .filter(|cached| cached.key == key)
+        .map(|cached| Arc::clone(&cached.history));
+    if let Some(history) = cached {
+        return Ok(history);
+    }
+    let seeds = ordered_seeds(root, status, stashes)?;
+    let layouts = layout::layout(&parent_indices(&seeds));
+    let history = Arc::new(History { seeds, layouts });
+    HISTORIES
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .insert(
+            root.to_owned(),
+            CachedHistory {
+                key,
+                history: Arc::clone(&history),
+            },
+        );
+    Ok(history)
+}
+
 pub fn graph_page(path: &Path, offset: usize, limit: usize) -> Result<GraphPage, CoreError> {
     git::ensure_supported()?;
     let root = repo::resolve_root(path)?;
@@ -238,13 +310,13 @@ pub fn graph_page(path: &Path, offset: usize, limit: usize) -> Result<GraphPage,
     let refs = refs::read_refs(&root)?;
     let stashes = refs::read_stashes(&root)?;
 
-    let seeds = ordered_seeds(&root, &status, &stashes)?;
-    let layouts = layout::layout(&parent_indices(&seeds));
+    let history = history(&root, &status, &stashes)?;
     let mut labels = ref_labels(&refs, &status.head);
-    let total = index_u32(seeds.len());
-    let carried = seeds
+    let total = index_u32(history.seeds.len());
+    let carried = history
+        .seeds
         .iter()
-        .zip(&layouts)
+        .zip(&history.layouts)
         .enumerate()
         .take(offset)
         .flat_map(|(row, (seed, row_layout))| {
@@ -263,25 +335,27 @@ pub fn graph_page(path: &Path, offset: usize, limit: usize) -> Result<GraphPage,
                 })
         })
         .collect();
-    let rows = seeds
-        .into_iter()
-        .zip(layouts)
+    let rows = history
+        .seeds
+        .iter()
+        .zip(&history.layouts)
+        .enumerate()
         .skip(offset)
         .take(limit)
-        .map(|(seed, row_layout)| GraphRow {
+        .map(|(row, (seed, row_layout))| GraphRow {
             refs: seed
                 .sha
                 .as_ref()
                 .and_then(|sha| labels.remove(sha))
                 .unwrap_or_default(),
-            sha: seed.sha,
-            parents: seed.parents,
-            summary: seed.summary,
-            author: seed.author,
+            sha: seed.sha.clone(),
+            parents: seed.parents.clone(),
+            summary: history.summary(row, &status),
+            author: seed.author.clone(),
             time: seed.time,
             kind: seed.kind,
             column: index_u32(row_layout.column),
-            edges: row_layout.edges,
+            edges: row_layout.edges.clone(),
         })
         .collect();
     Ok(GraphPage {
@@ -351,7 +425,8 @@ pub fn search_commits(path: &Path, query: &str) -> Result<SearchResult, CoreErro
     let root = repo::resolve_root(path)?;
     let status = repo::read_status(&root)?;
     let stashes = refs::read_stashes(&root)?;
-    let seeds = ordered_seeds(&root, &status, &stashes)?;
+    let history = history(&root, &status, &stashes)?;
+    let seeds = &history.seeds;
     let commits = seeds
         .iter()
         .filter(|seed| seed.kind != NodeKind::Changes)
@@ -490,6 +565,94 @@ mod tests {
     fn stash_whose_base_is_unreachable_is_still_listed() {
         let merged = with_stashes(vec![commit("c1", 100)], &[stash("s", "gone", 10)]);
         assert_eq!(order(&merged), vec!["c1", "s"]);
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Yui Lin")
+            .env("GIT_AUTHOR_EMAIL", "yui@example.test")
+            .env("GIT_COMMITTER_NAME", "Yui Lin")
+            .env("GIT_COMMITTER_EMAIL", "yui@example.test")
+            .output()
+            .expect("git runs");
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    fn repository() -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        git_in(&root, &["init", "-q", "-b", "main"]);
+        git_in(&root, &["commit", "-q", "--allow-empty", "-m", "First"]);
+        git_in(&root, &["commit", "-q", "--allow-empty", "-m", "Second"]);
+        (dir, root)
+    }
+
+    fn cached(root: &Path) -> Arc<History> {
+        let status = repo::read_status(root).unwrap();
+        let stashes = refs::read_stashes(root).unwrap();
+        history(root, &status, &stashes).unwrap()
+    }
+
+    #[test]
+    fn a_second_request_reuses_the_layout_computed_for_the_same_refs_and_head() {
+        let (_dir, root) = repository();
+
+        let first = cached(&root);
+        let second = cached(&root);
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(first.layouts.len(), 2);
+    }
+
+    #[test]
+    fn a_new_commit_a_new_ref_or_a_new_stash_invalidates_the_cached_layout() {
+        let (_dir, root) = repository();
+        let first = cached(&root);
+
+        git_in(&root, &["branch", "topic"]);
+        let with_ref = cached(&root);
+        assert!(!Arc::ptr_eq(&first, &with_ref));
+        assert_eq!(with_ref.layouts.len(), 2);
+
+        git_in(&root, &["commit", "-q", "--allow-empty", "-m", "Third"]);
+        let with_commit = cached(&root);
+        assert!(!Arc::ptr_eq(&with_ref, &with_commit));
+        assert_eq!(with_commit.layouts.len(), 3);
+
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        git_in(&root, &["add", "a.txt"]);
+        let with_changes = cached(&root);
+        assert!(!Arc::ptr_eq(&with_commit, &with_changes));
+        assert_eq!(with_changes.layouts.len(), 4);
+        git_in(&root, &["stash", "push", "-q"]);
+        let with_stash = cached(&root);
+        assert!(!Arc::ptr_eq(&with_changes, &with_stash));
+        assert_eq!(with_stash.layouts.len(), 4);
+    }
+
+    #[test]
+    fn editing_more_files_keeps_the_layout_and_refreshes_the_changes_summary() {
+        let (_dir, root) = repository();
+        std::fs::write(root.join("a.txt"), "a\n").unwrap();
+        let first = cached(&root);
+        let one = graph_page(&root, 0, 10).unwrap();
+
+        std::fs::write(root.join("b.txt"), "b\n").unwrap();
+        let second = cached(&root);
+        let two = graph_page(&root, 0, 10).unwrap();
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(one.rows[0].summary, "Changes: 1 untracked");
+        assert_eq!(two.rows[0].summary, "Changes: 2 untracked");
     }
 
     #[test]

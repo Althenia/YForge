@@ -1,4 +1,5 @@
 import { createSignal } from "solid-js";
+import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AutoStash } from "../ipc/bindings/AutoStash";
 import type { CheckoutTarget } from "../ipc/bindings/CheckoutTarget";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
@@ -22,6 +23,7 @@ import {
   rebaseCopy,
   resetCopy,
   stashAndSwitchCopy,
+  undoForcePushCopy,
   type ConfirmCopy,
 } from "./confirmCopy";
 import { abortCopy } from "./operationModel";
@@ -106,7 +108,12 @@ export function restoreMessage(kind: "apply" | "pop", restore: StashRestore): st
 let sequence = 0;
 const nextId = (): string => `op-${Date.now()}-${(sequence += 1)}`;
 
-export type RepoActionDeps = { selectedSha: () => string | undefined; onSelectionGone: () => void; pullMode: () => PullMode };
+export type RepoActionDeps = {
+  selectedSha: () => string | undefined;
+  onSelectionGone: () => void;
+  pullMode: () => PullMode;
+  undoEntry: (id: number) => ActivityEntry | undefined;
+};
 
 export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const path = session.path;
@@ -180,6 +187,15 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function undo(id: number): Promise<void> {
+    const entry = deps.undoEntry(id);
+    if (entry?.operation === "Force push" && entry.undo.kind === "available") {
+      confirm(undoForcePushCopy(entry.undo.scope), () => runUndo(id));
+      return;
+    }
+    await runUndo(id);
+  }
+
+  async function runUndo(id: number): Promise<void> {
     try {
       await client.undoLast(path, id);
     } catch (failure) {

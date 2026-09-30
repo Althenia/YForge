@@ -19,10 +19,17 @@ export const NOT_AVAILABLE = "Not available yet";
 
 export type MenuContext = { current: string | undefined; remotes: readonly string[]; operation: Operation | null };
 
-const operationNoun: Record<Operation, string> = { merge: "merge", rebase: "rebase", cherry_pick: "cherry-pick", revert: "revert" };
+const operationBlockReason: Record<Operation, string> = {
+  merge: "Finish or abort the merge first",
+  rebase: "Finish or abort the rebase first",
+  cherry_pick: "Finish or abort the cherry-pick first",
+  revert: "Finish or abort the revert first",
+  cherry_pick_sequence: "Finish or abort the cherry-pick first",
+  revert_sequence: "Finish or abort the revert first",
+  bisect: "Reset the bisect first",
+};
 
-export const operationBlock = (operation: Operation | null): string | undefined =>
-  operation === null ? undefined : `Finish or abort the ${operationNoun[operation]} first`;
+export const operationBlock = (operation: Operation | null): string | undefined => (operation === null ? undefined : operationBlockReason[operation]);
 
 export const MERGE_COMMIT_REASON = "A merge commit needs a parent choice, which is not available yet";
 export const NO_REMOTE = "This repository has no remote";

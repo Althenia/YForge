@@ -168,27 +168,29 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
         <span class="st st-conflicted">! {conflictLabel(conflicts())}</span>
       </Show>
       <span class="spacer" />
-      <button
-        type="button"
-        class="btn primary"
-        disabled={buttons().resolve.disabledReason !== undefined}
-        title={buttons().resolve.disabledReason}
-        onClick={() => {
-          const file = target();
-          if (file !== undefined) props.onResolve(file);
-        }}
-      >
-        Resolve
-      </button>
-      <button
-        type="button"
-        class="btn"
-        disabled={buttons().continue.disabledReason !== undefined}
-        title={buttons().continue.disabledReason}
-        onClick={() => void props.actions.continueOperation(null)}
-      >
-        Continue
-      </button>
+      <Show when={buttons().resolvable}>
+        <button
+          type="button"
+          class="btn primary"
+          disabled={buttons().resolve.disabledReason !== undefined}
+          title={buttons().resolve.disabledReason}
+          onClick={() => {
+            const file = target();
+            if (file !== undefined) props.onResolve(file);
+          }}
+        >
+          Resolve
+        </button>
+        <button
+          type="button"
+          class="btn"
+          disabled={buttons().continue.disabledReason !== undefined}
+          title={buttons().continue.disabledReason}
+          onClick={() => void props.actions.continueOperation(null)}
+        >
+          Continue
+        </button>
+      </Show>
       <Show when={buttons().skip}>
         <button type="button" class="btn" disabled={props.actions.operationBusy()} onClick={() => void props.actions.skipOperation()}>
           Skip
@@ -201,7 +203,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
         aria-label={buttons().abortLabel}
         onClick={props.actions.abortOperation}
       >
-        Abort
+        {buttons().abortText}
       </button>
     </div>
   );

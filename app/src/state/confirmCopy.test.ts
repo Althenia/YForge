@@ -16,6 +16,7 @@ import {
   resetCopy,
   stashAndSwitchCopy,
   uncommittedTracked,
+  undoForcePushCopy,
 } from "./confirmCopy";
 
 const file = (path: string, area: FileChange["area"]): FileChange => ({ path, original_path: null, area, status: area === "untracked" ? "untracked" : "modified" });
@@ -219,5 +220,21 @@ describe("remove remote copy", () => {
     expect(copy.consequences.join(" ")).toContain("Nothing changes on the remote itself");
     expect(copy.confirmLabel).toBe("Remove remote");
     expect(copy.neutral).toBeUndefined();
+  });
+});
+
+describe("undo force push confirmation copy", () => {
+  it("states the plan from the undo scope and what the remote and local branch end up as", () => {
+    const scope = "Undo force push: force-pushes origin/main back to f86d53a with a lease on e2b1c09, so it is refused if the remote moved since";
+
+    const copy = undoForcePushCopy(scope);
+
+    expect(copy.title).toBe("Undo the force push?");
+    expect(copy.warning).toBe(true);
+    expect(copy.lead).toBe(scope);
+    expect(copy.confirmLabel).toBe("Force push back");
+    expect(copy.consequences.join(" ")).toMatch(/removed from it for everyone who fetches/);
+    expect(copy.consequences.join(" ")).toMatch(/local branch is not changed/);
+    expect(copy.consequences.join(" ")).toMatch(/moved since your force push, git refuses the push and nothing changes/);
   });
 });

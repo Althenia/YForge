@@ -399,6 +399,74 @@ fn a_commit_is_recorded_with_its_command_line_and_can_be_undone_once() {
 }
 
 #[test]
+fn a_force_push_is_undoable_and_undo_puts_the_previous_remote_commit_back() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    let remote = tempfile::tempdir().expect("tempdir");
+    git(remote.path(), &["init", "-q", "--bare", "-b", "main"]);
+    git(
+        repo.path(),
+        &["remote", "add", "origin", remote.path().to_str().unwrap()],
+    );
+    git(repo.path(), &["push", "-q", "-u", "origin", "main"]);
+    std::fs::write(repo.path().join("b.txt"), "1\n").unwrap();
+    git(repo.path(), &["add", "b.txt"]);
+    git(repo.path(), &["commit", "-q", "-m", "Original work"]);
+    git(repo.path(), &["push", "-q"]);
+    let original = git(repo.path(), &["rev-parse", "HEAD"]);
+    git(
+        repo.path(),
+        &["commit", "-q", "--amend", "-m", "Rewritten work"],
+    );
+    let rewritten = git(repo.path(), &["rev-parse", "HEAD"]);
+    let plan = invoke(&h.window, "push_plan", json!({ "path": path })).unwrap();
+
+    invoke(
+        &h.window,
+        "push_force",
+        json!({ "path": path, "id": "op-1", "lease": plan["lease"] }),
+    )
+    .unwrap();
+
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/main"]),
+        rewritten
+    );
+    let entry = entries(&h).last().unwrap().clone();
+    assert_eq!(entry["operation"], "Force push");
+    assert_eq!(entry["local"], true);
+    assert_eq!(entry["undo"]["kind"], "available");
+    assert!(entry["undo"]["scope"]
+        .as_str()
+        .unwrap()
+        .contains("origin/main"));
+
+    let message = invoke(
+        &h.window,
+        "undo_last",
+        json!({ "path": path, "id": entry["id"] }),
+    )
+    .unwrap();
+
+    assert!(message.as_str().unwrap().contains("refs/heads/main"));
+    assert_eq!(
+        git(remote.path(), &["rev-parse", "refs/heads/main"]),
+        original
+    );
+    assert_eq!(git(repo.path(), &["rev-parse", "HEAD"]), rewritten);
+    let listed = entries(&h);
+    assert_eq!(
+        listed
+            .iter()
+            .find(|item| item["id"] == entry["id"])
+            .unwrap()["undo"]["kind"],
+        "undone"
+    );
+    assert_eq!(listed.last().unwrap()["operation"], "Undo");
+}
+
+#[test]
 fn only_the_last_local_operation_can_be_undone_and_unsafe_ones_say_why() {
     let h = harness();
     let repo = repository();

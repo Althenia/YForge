@@ -67,9 +67,9 @@ pub use sync::{fetch, publish, pull, push, push_force, push_plan, Progress};
 pub use tag::{create_tag, delete_remote_tag, delete_tag, push_tag};
 pub use undo::{
     branch_snapshot, capture_state, head_ref, plan_branch_create, plan_branch_delete,
-    plan_checkout, plan_commit, plan_discard, plan_integration, plan_reset, plan_stash_restore,
-    snapshot_files, undo, BranchSnapshot, HeadRef, Planned, RepoState, SnapshotFile, UndoAction,
-    UndoPlan,
+    plan_checkout, plan_commit, plan_discard, plan_force_push, plan_integration, plan_reset,
+    plan_stash_restore, snapshot_files, undo, undo_with, BranchSnapshot, HeadRef, Planned,
+    RepoState, SnapshotFile, UndoAction, UndoPlan,
 };
 pub use watch::{watch_repo, RepoWatcher};
 

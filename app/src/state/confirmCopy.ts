@@ -117,6 +117,21 @@ export function forcePushCopy(plan: ForcePushPlan): ConfirmCopy {
   };
 }
 
+export function undoForcePushCopy(scope: string): ConfirmCopy {
+  return {
+    title: "Undo the force push?",
+    warning: true,
+    lead: scope,
+    names: [],
+    consequences: [
+      "The remote branch moves back to the commit it had before your force push; the commits your force push put there are removed from it for everyone who fetches from it.",
+      "Your local branch is not changed.",
+      "If the remote branch has moved since your force push, git refuses the push and nothing changes.",
+    ],
+    confirmLabel: "Force push back",
+  };
+}
+
 const commitLine = (commit: { sha: string; summary: string }): string => `${commit.sha.slice(0, 7)} ${commit.summary}`;
 
 export function rebaseCopy(current: string, onto: string, replayed: RevisionRange): ConfirmCopy {

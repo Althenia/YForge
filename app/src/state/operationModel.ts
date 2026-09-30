@@ -8,9 +8,22 @@ export const operationTitle: Record<Operation, string> = {
   rebase: "Rebase in progress",
   cherry_pick: "Cherry-pick in progress",
   revert: "Revert in progress",
+  cherry_pick_sequence: "Cherry-pick sequence in progress",
+  revert_sequence: "Revert sequence in progress",
+  bisect: "Bisecting",
 };
 
-const noun: Record<Operation, string> = { merge: "merge", rebase: "rebase", cherry_pick: "cherry-pick", revert: "revert" };
+const noun: Record<Operation, string> = {
+  merge: "merge",
+  rebase: "rebase",
+  cherry_pick: "cherry-pick",
+  revert: "revert",
+  cherry_pick_sequence: "cherry-pick sequence",
+  revert_sequence: "revert sequence",
+  bisect: "bisect",
+};
+
+const abortVerb = (operation: Operation): string => (operation === "bisect" ? "Reset" : "Abort");
 
 const currentName = (snapshot: RepoSnapshot): string =>
   snapshot.head.kind === "branch" ? snapshot.head.name : snapshot.head.kind === "unborn" ? snapshot.head.branch : "HEAD";
@@ -29,6 +42,12 @@ export function operationSummary(snapshot: RepoSnapshot): MenuPart[] {
       return ["Cherry-picking ", ...(named.length > 0 ? named : ["a commit"])];
     case "revert":
       return ["Reverting ", ...(named.length > 0 ? named : ["a commit"])];
+    case "cherry_pick_sequence":
+      return ["Cherry-picking ", ...(named.length > 0 ? named : ["a sequence of commits"])];
+    case "revert_sequence":
+      return ["Reverting ", ...(named.length > 0 ? named : ["a sequence of commits"])];
+    case "bisect":
+      return ["Bisecting · Reset returns to ", { ref: snapshot.operation_detail?.current ?? currentName(snapshot) }];
   }
 }
 
@@ -42,7 +61,9 @@ export const conflictLabel = (count: number): string => `${count} ${count === 1 
 export type OperationButtons = {
   resolve: { disabledReason: string | undefined };
   continue: { label: string; disabledReason: string | undefined };
+  resolvable: boolean;
   skip: boolean;
+  abortText: string;
   abortLabel: string;
 };
 
@@ -54,8 +75,10 @@ export function operationButtons(operation: Operation, conflicts: number, busy: 
       label: operation === "merge" ? "Complete merge" : "Continue",
       disabledReason: busy ? "Working…" : unresolved,
     },
-    skip: operation === "rebase",
-    abortLabel: `Abort ${noun[operation]}`,
+    resolvable: operation !== "bisect",
+    skip: operation === "rebase" || operation === "cherry_pick_sequence" || operation === "revert_sequence",
+    abortText: abortVerb(operation),
+    abortLabel: `${abortVerb(operation)} ${noun[operation]}`,
   };
 }
 
@@ -68,12 +91,15 @@ export function abortCopy(snapshot: RepoSnapshot): ConfirmCopy | undefined {
     rebase: ["The rebase stops and the branch returns to where it was before the rebase started.", "Conflict resolutions made during this rebase are discarded."],
     cherry_pick: ["The cherry-pick is cancelled and the files return to how they were before it started.", "Conflict resolutions made so far are discarded."],
     revert: ["The revert is cancelled and the files return to how they were before it started.", "Conflict resolutions made so far are discarded."],
+    cherry_pick_sequence: ["The remaining commits are not applied, and the commits this sequence already applied are undone.", "The branch returns to where it was before the sequence started."],
+    revert_sequence: ["The remaining reverts are not applied, and the reverts this sequence already made are undone.", "The branch returns to where it was before the sequence started."],
+    bisect: ["The bisect ends and the repository returns to its starting point.", "The good and bad marks made so far are cleared."],
   };
   return {
-    title: `Abort the ${noun[operation]}?`,
+    title: `${abortVerb(operation)} the ${noun[operation]}?`,
     consequences: consequences[operation],
     names: incoming === null ? [] : [incoming],
-    confirmLabel: `Abort ${noun[operation]}`,
+    confirmLabel: `${abortVerb(operation)} ${noun[operation]}`,
   };
 }
 
@@ -89,16 +115,19 @@ export function conflictSides(snapshot: RepoSnapshot): ConflictSides {
     case "rebase":
       return { current: { name: current, role: "rebase target" }, incoming: { name: incoming ?? "your branch", role: "your commit being replayed" } };
     case "cherry_pick":
+    case "cherry_pick_sequence":
       return { current: { name: current, role: "your branch" }, incoming: { name: incoming ?? "a commit", role: "commit being picked" } };
     case "revert":
+    case "revert_sequence":
       return { current: { name: current, role: "your branch" }, incoming: { name: incoming ?? "a commit", role: "commit being reverted" } };
+    case "bisect":
     case null:
       return { current: { name: current, role: "your branch" }, incoming: { name: "stash", role: "stashed changes being applied" } };
   }
 }
 
 export const conflictDescription = (snapshot: RepoSnapshot): MenuPart[] =>
-  snapshot.operation === null ? ["Applying stashed changes to ", { ref: currentName(snapshot) }] : operationSummary(snapshot);
+  snapshot.operation === null || snapshot.operation === "bisect" ? ["Applying stashed changes to ", { ref: currentName(snapshot) }] : operationSummary(snapshot);
 
 export function firstConflict(snapshot: RepoSnapshot): string | undefined {
   return snapshot.files.find((file) => file.area === "conflicted")?.path;

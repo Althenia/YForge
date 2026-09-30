@@ -1,5 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
+import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import { autoStashMessage, createRepoActions, restoreMessage } from "./repoActions";
@@ -30,7 +31,7 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapshot(), selectedSha?: string, onSelectionGone: () => void = () => undefined) {
+function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapshot(), selectedSha?: string, onSelectionGone: () => void = () => undefined, entries: ActivityEntry[] = []) {
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
     const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
@@ -39,7 +40,7 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
     return handler(call);
   });
   const session = createRepoSession("/r", initial);
-  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge" });
+  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", undoEntry: (id) => entries.find((entry) => entry.id === id) });
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
 
@@ -650,7 +651,7 @@ describe("integration actions", () => {
 describe("phase 3b actions", () => {
   it("pulls with the effective default mode", async () => {
     const { actions, calls } = setup(() => null, snapshot(), undefined);
-    const rebasing = createRepoActions(createRepoSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase" });
+    const rebasing = createRepoActions(createRepoSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", undoEntry: () => undefined });
 
     await rebasing.pullDefault();
     await actions.pullDefault();
@@ -712,6 +713,21 @@ describe("phase 3b actions", () => {
     });
     await refused.actions.undo(7);
     expect(refused.session.notice()).toContain("Nothing was changed");
+  });
+
+  it("asks for confirmation that states the consequence before undoing a force push, and runs the undo only when confirmed", async () => {
+    const scope = "Undo force push: force-pushes origin/main back to f86d53a with a lease on e2b1c09, so it is refused if the remote moved since";
+    const forcePush = { id: 7, operation: "Force push", local: true, ok: true, undo: { kind: "available", scope } } as ActivityEntry;
+    const { actions, calls } = setup(() => "Restored refs/heads/main on origin to f86d53a", snapshot(), undefined, () => undefined, [forcePush]);
+
+    await actions.undo(7);
+
+    expect(calls).toEqual([]);
+    const dialog = actions.dialog();
+    expect(dialog?.copy.title).toBe("Undo the force push?");
+    expect(dialog?.copy.lead).toBe(scope);
+    await dialog?.run();
+    expect(calls.find((call) => call.cmd === "undo_last")?.args).toEqual({ path: "/r", id: 7 });
   });
 
   it("drops a selected commit that the undo removed from the graph, and keeps one that is still in it", async () => {

@@ -290,5 +290,8 @@ describe("operation block reason", () => {
   it("names the operation in progress and is empty otherwise", () => {
     expect(operationBlock(null)).toBeUndefined();
     expect(operationBlock("cherry_pick")).toBe("Finish or abort the cherry-pick first");
+    expect(operationBlock("cherry_pick_sequence")).toBe("Finish or abort the cherry-pick first");
+    expect(operationBlock("revert_sequence")).toBe("Finish or abort the revert first");
+    expect(operationBlock("bisect")).toBe("Reset the bisect first");
   });
 });

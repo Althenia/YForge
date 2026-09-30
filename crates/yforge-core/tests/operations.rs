@@ -327,6 +327,150 @@ fn cherry_pick_and_revert_conflicts_can_continue_or_abort() {
     assert_eq!(repo.read("a.txt"), "later\n");
 }
 
+fn cherry_pick_sequence() -> (Fixture, Vec<String>) {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "base\n", "Base");
+    repo.git(&["switch", "-q", "-c", "topic"]);
+    let picked = vec![
+        repo.commit("a.txt", "topic one\n", "Topic one"),
+        repo.commit("b.txt", "topic two\n", "Topic two"),
+        repo.commit("c.txt", "topic three\n", "Topic three"),
+    ];
+    repo.git(&["switch", "-q", "main"]);
+    repo.commit("a.txt", "main\n", "Main edit");
+    repo.git_expecting_conflict(&["cherry-pick", &picked[0], &picked[1], &picked[2]]);
+    (repo, picked)
+}
+
+#[test]
+fn a_cherry_pick_sequence_continues_through_every_remaining_commit() {
+    let (repo, _) = cherry_pick_sequence();
+    resolve(&repo, "a.txt");
+
+    assert_eq!(
+        operation_continue(&repo.path, None).unwrap(),
+        OperationOutcome::Completed
+    );
+
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    assert_eq!(
+        repo.git(&["log", "--format=%s", "-4"]),
+        "Topic three\nTopic two\nTopic one\nMain edit"
+    );
+}
+
+#[test]
+fn a_cherry_pick_sequence_skips_the_stopped_commit_and_applies_the_rest() {
+    let (repo, _) = cherry_pick_sequence();
+
+    assert_eq!(
+        operation_skip(&repo.path).unwrap(),
+        OperationOutcome::Completed
+    );
+
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    assert_eq!(
+        repo.git(&["log", "--format=%s", "-3"]),
+        "Topic three\nTopic two\nMain edit"
+    );
+    assert_eq!(repo.read("a.txt"), "main\n");
+}
+
+#[test]
+fn a_cherry_pick_sequence_aborts_back_to_where_it_started() {
+    let (repo, _) = cherry_pick_sequence();
+    let before = repo.git(&["rev-parse", "main"]);
+
+    operation_abort(&repo.path).unwrap();
+
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn a_revert_sequence_continues_skips_and_aborts_with_the_revert_command() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "base\n", "Base");
+    let first = repo.commit("a.txt", "one\n", "One");
+    let second = repo.commit("b.txt", "two\n", "Two");
+    repo.commit("a.txt", "later\n", "Later");
+    let before = repo.git(&["rev-parse", "HEAD"]);
+    repo.git_expecting_conflict(&["revert", "--no-edit", &second, &first]);
+    assert_eq!(
+        repo_snapshot(&repo.path).unwrap().operation,
+        Some(Operation::RevertSequence)
+    );
+
+    operation_abort(&repo.path).unwrap();
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), before);
+
+    repo.git_expecting_conflict(&["revert", "--no-edit", &second, &first]);
+    assert_eq!(
+        operation_skip(&repo.path).unwrap(),
+        OperationOutcome::Completed
+    );
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+
+    repo.git(&["reset", "-q", "--hard", &before]);
+    repo.git_expecting_conflict(&["revert", "--no-edit", &second, &first]);
+    resolve(&repo, "a.txt");
+    assert_eq!(
+        operation_continue(&repo.path, None).unwrap(),
+        OperationOutcome::Completed
+    );
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    assert_eq!(repo.read("a.txt"), RESOLVED);
+}
+
+fn bisecting() -> Fixture {
+    let repo = Fixture::init();
+    repo.identity();
+    let first = repo.commit("a.txt", "1\n", "One");
+    repo.commit("a.txt", "2\n", "Two");
+    repo.commit("a.txt", "3\n", "Three");
+    repo.git(&["bisect", "start"]);
+    repo.git(&["bisect", "bad", "HEAD"]);
+    repo.git(&["bisect", "good", &first]);
+    repo
+}
+
+#[test]
+fn a_bisect_is_left_with_reset_and_has_nothing_to_continue_or_skip() {
+    let repo = bisecting();
+    assert_eq!(
+        repo_snapshot(&repo.path).unwrap().operation,
+        Some(Operation::Bisect)
+    );
+    assert_eq!(
+        operation_continue(&repo.path, None).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+    assert_eq!(
+        operation_skip(&repo.path).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+    assert_eq!(repo.git(&["rev-parse", "--abbrev-ref", "HEAD"]), "HEAD");
+
+    operation_abort(&repo.path).unwrap();
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+    assert_eq!(snapshot.operation, None);
+    assert!(matches!(snapshot.head, Head::Branch { ref name, .. } if name == "main"));
+}
+
+#[test]
+fn integration_commands_refuse_to_run_during_a_bisect() {
+    let repo = bisecting();
+
+    let error =
+        yforge_core::merge(&repo.path, "main", yforge_core::MergeMode::MergeCommit).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert!(error.to_string().contains("bisect"));
+}
+
 #[test]
 fn a_conflicted_file_shows_its_working_tree_content_with_markers_as_a_diff() {
     let repo = merge_conflict();

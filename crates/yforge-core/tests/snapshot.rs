@@ -135,6 +135,97 @@ fn repository_mid_cherry_pick_reports_the_operation() {
 }
 
 #[test]
+fn repository_mid_revert_reports_the_operation_and_the_reverted_commit() {
+    let repo = Fixture::init();
+    repo.commit("f.txt", "base\n", "Base");
+    let reverted = repo.commit("f.txt", "topic\n", "Topic edit");
+    repo.commit("f.txt", "later\n", "Later edit");
+    repo.git_expecting_conflict(&["revert", "--no-edit", &reverted]);
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+
+    assert_eq!(snapshot.operation, Some(Operation::Revert));
+    assert_eq!(snapshot.counts.conflicted, 1);
+    assert_eq!(
+        snapshot.operation_detail.unwrap().incoming,
+        Some(format!("{} Topic edit", &reverted[..7]))
+    );
+}
+
+#[test]
+fn repository_mid_bisect_reports_the_operation_until_it_is_reset() {
+    let repo = Fixture::init();
+    let first = repo.commit("f.txt", "1\n", "One");
+    repo.commit("f.txt", "2\n", "Two");
+    repo.commit("f.txt", "3\n", "Three");
+    repo.commit("f.txt", "4\n", "Four");
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+
+    repo.git(&["bisect", "start"]);
+    repo.git(&["bisect", "bad", "HEAD"]);
+    repo.git(&["bisect", "good", &first]);
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+    assert_eq!(snapshot.operation, Some(Operation::Bisect));
+    assert_eq!(snapshot.operation_detail.unwrap().current, "main");
+
+    repo.git(&["bisect", "reset"]);
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+}
+
+fn conflicting_topic(repo: &Fixture) -> Vec<String> {
+    repo.commit("f.txt", "base\n", "Base");
+    repo.git(&["switch", "-q", "-c", "topic"]);
+    let picked = vec![
+        repo.commit("f.txt", "topic one\n", "Topic one"),
+        repo.commit("g.txt", "topic two\n", "Topic two"),
+        repo.commit("h.txt", "topic three\n", "Topic three"),
+    ];
+    repo.git(&["switch", "-q", "main"]);
+    repo.commit("f.txt", "main\n", "Main edit");
+    picked
+}
+
+#[test]
+fn repository_mid_multi_commit_cherry_pick_reports_the_sequence_in_both_of_its_stops() {
+    let repo = Fixture::init();
+    repo.identity();
+    let picked = conflicting_topic(&repo);
+    repo.git_expecting_conflict(&["cherry-pick", &picked[0], &picked[1], &picked[2]]);
+
+    let stopped = repo_snapshot(&repo.path).unwrap();
+    assert_eq!(stopped.operation, Some(Operation::CherryPickSequence));
+    assert_eq!(stopped.counts.conflicted, 1);
+    assert_eq!(
+        stopped.operation_detail.unwrap().incoming,
+        Some(format!("{} Topic one", &picked[0][..7]))
+    );
+
+    repo.write("f.txt", "resolved\n");
+    repo.git(&["add", "f.txt"]);
+    repo.git(&["commit", "-q", "--no-edit"]);
+
+    let paused = repo_snapshot(&repo.path).unwrap();
+    assert_eq!(paused.operation, Some(Operation::CherryPickSequence));
+    assert_eq!(paused.counts.conflicted, 0);
+}
+
+#[test]
+fn repository_mid_multi_commit_revert_reports_the_revert_sequence() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("f.txt", "base\n", "Base");
+    let first = repo.commit("f.txt", "one\n", "One");
+    let second = repo.commit("g.txt", "two\n", "Two");
+    repo.commit("f.txt", "later\n", "Later");
+    repo.git_expecting_conflict(&["revert", "--no-edit", &second, &first]);
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+
+    assert_eq!(snapshot.operation, Some(Operation::RevertSequence));
+}
+
+#[test]
 fn unborn_repository_reports_the_unborn_branch() {
     let repo = Fixture::init();
     repo.write("draft.txt", "x\n");

@@ -80,6 +80,9 @@ pub enum Operation {
     Rebase,
     CherryPick,
     Revert,
+    CherryPickSequence,
+    RevertSequence,
+    Bisect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

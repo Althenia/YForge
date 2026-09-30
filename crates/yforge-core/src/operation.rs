@@ -105,11 +105,13 @@ pub(crate) fn detail(
             };
             (head_name(root)?, incoming, merge_message(git_dir), None)
         }
-        Operation::CherryPick | Operation::Revert => {
-            let head = if operation == Operation::Revert {
-                "REVERT_HEAD"
-            } else {
-                "CHERRY_PICK_HEAD"
+        Operation::CherryPick
+        | Operation::Revert
+        | Operation::CherryPickSequence
+        | Operation::RevertSequence => {
+            let head = match operation {
+                Operation::Revert | Operation::RevertSequence => "REVERT_HEAD",
+                _ => "CHERRY_PICK_HEAD",
             };
             let incoming = match read_line(git_dir, head) {
                 Some(sha) => Some(commit_label(root, &sha)?),
@@ -130,6 +132,13 @@ pub(crate) fn detail(
                 None => head_name(root)?,
             };
             (onto, branch, String::new(), rebase_step(git_dir))
+        }
+        Operation::Bisect => {
+            let origin = match read_line(git_dir, "BISECT_START") {
+                Some(origin) => origin,
+                None => head_name(root)?,
+            };
+            (origin, None, String::new(), None)
         }
     };
     Ok(OperationDetail {
@@ -162,14 +171,17 @@ fn operation_noun(operation: Operation) -> &'static str {
     match operation {
         Operation::Merge => "merge",
         Operation::Rebase => "rebase",
-        Operation::CherryPick => "cherry-pick",
-        Operation::Revert => "revert",
+        Operation::CherryPick | Operation::CherryPickSequence => "cherry-pick",
+        Operation::Revert | Operation::RevertSequence => "revert",
+        Operation::Bisect => "bisect",
     }
 }
 
 fn require_operation(root: &Path) -> Result<Operation, CoreError> {
     repo::read_operation(root)?.0.ok_or_else(|| {
-        CoreError::invalid_request("no merge, rebase, cherry-pick, or revert is in progress")
+        CoreError::invalid_request(
+            "no merge, rebase, cherry-pick, revert, or bisect is in progress",
+        )
     })
 }
 
@@ -221,8 +233,15 @@ pub fn operation_continue(
         (Operation::Merge, Some(text)) => vec!["commit", "--quiet", "-m", text],
         (Operation::Merge, None) => vec!["commit", "--quiet", "--no-edit"],
         (Operation::Rebase, _) => vec!["rebase", "--continue"],
-        (Operation::CherryPick, _) => vec!["cherry-pick", "--continue"],
-        (Operation::Revert, _) => vec!["revert", "--continue"],
+        (Operation::CherryPick | Operation::CherryPickSequence, _) => {
+            vec!["cherry-pick", "--continue"]
+        }
+        (Operation::Revert | Operation::RevertSequence, _) => vec!["revert", "--continue"],
+        (Operation::Bisect, _) => {
+            return Err(CoreError::invalid_request(
+                "a bisect has nothing to continue; reset it to finish",
+            ))
+        }
     };
     let completed = git::run_unchecked(&root, &args, None)?;
     settle(&root, &args, completed)
@@ -230,18 +249,28 @@ pub fn operation_continue(
 
 pub fn operation_skip(path: &Path) -> Result<OperationOutcome, CoreError> {
     let root = repo::open(path)?;
-    if require_operation(&root)? != Operation::Rebase {
-        return Err(CoreError::invalid_request("only a rebase can skip a step"));
-    }
-    let args = ["rebase", "--skip"];
+    let args = match require_operation(&root)? {
+        Operation::Rebase => ["rebase", "--skip"],
+        Operation::CherryPickSequence => ["cherry-pick", "--skip"],
+        Operation::RevertSequence => ["revert", "--skip"],
+        _ => {
+            return Err(CoreError::invalid_request(
+                "only a rebase or a multi-commit cherry-pick or revert can skip a step",
+            ))
+        }
+    };
     let completed = git::run_unchecked(&root, &args, None)?;
     settle(&root, &args, completed)
 }
 
 pub fn operation_abort(path: &Path) -> Result<(), CoreError> {
     let root = repo::open(path)?;
-    let command = operation_noun(require_operation(&root)?);
-    git::run(&root, &[command, "--abort"]).map(drop)
+    let operation = require_operation(&root)?;
+    let args = match operation {
+        Operation::Bisect => ["bisect", "reset"],
+        _ => [operation_noun(operation), "--abort"],
+    };
+    git::run(&root, &args).map(drop)
 }
 
 pub(crate) fn has_conflict_markers(text: &str) -> bool {

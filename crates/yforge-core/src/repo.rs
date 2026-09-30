@@ -68,15 +68,39 @@ pub(crate) fn read_status(root: &Path) -> Result<ParsedStatus, CoreError> {
     status::parse_status(&output)
 }
 
+fn sequence_operation(git_dir: &Path) -> Operation {
+    let next_step = std::fs::read_to_string(git_dir.join("sequencer/todo"))
+        .ok()
+        .and_then(|todo| {
+            todo.lines()
+                .find(|line| !line.trim().is_empty() && !line.starts_with('#'))
+                .and_then(|line| line.split_whitespace().next().map(str::to_owned))
+        });
+    let reverting = match next_step.as_deref() {
+        Some("revert" | "r") => true,
+        Some(_) => false,
+        None => git_dir.join("REVERT_HEAD").is_file(),
+    };
+    if reverting {
+        Operation::RevertSequence
+    } else {
+        Operation::CherryPickSequence
+    }
+}
+
 pub(crate) fn detect_operation(git_dir: &Path) -> Option<Operation> {
     if git_dir.join("rebase-merge").is_dir() || git_dir.join("rebase-apply").is_dir() {
         Some(Operation::Rebase)
     } else if git_dir.join("MERGE_HEAD").is_file() {
         Some(Operation::Merge)
+    } else if git_dir.join("sequencer").is_dir() {
+        Some(sequence_operation(git_dir))
     } else if git_dir.join("CHERRY_PICK_HEAD").is_file() {
         Some(Operation::CherryPick)
     } else if git_dir.join("REVERT_HEAD").is_file() {
         Some(Operation::Revert)
+    } else if git_dir.join("BISECT_LOG").is_file() {
+        Some(Operation::Bisect)
     } else {
         None
     }
@@ -211,6 +235,7 @@ mod tests {
             ("MERGE_HEAD", false, Operation::Merge),
             ("CHERRY_PICK_HEAD", false, Operation::CherryPick),
             ("REVERT_HEAD", false, Operation::Revert),
+            ("BISECT_LOG", false, Operation::Bisect),
             ("rebase-merge", true, Operation::Rebase),
             ("rebase-apply", true, Operation::Rebase),
         ];
@@ -224,6 +249,70 @@ mod tests {
             }
             assert_eq!(detect_operation(git_dir.path()), Some(expected), "{entry}");
         }
+    }
+
+    #[test]
+    fn a_sequencer_directory_takes_its_kind_from_the_next_todo_step_or_the_stop_marker() {
+        let cases = [
+            (
+                Some("pick abc subject\n"),
+                None,
+                Operation::CherryPickSequence,
+            ),
+            (Some("p abc subject\n"), None, Operation::CherryPickSequence),
+            (
+                Some("revert abc subject\n"),
+                None,
+                Operation::RevertSequence,
+            ),
+            (Some("r abc subject\n"), None, Operation::RevertSequence),
+            (
+                Some("# note\n\nrevert abc x\n"),
+                None,
+                Operation::RevertSequence,
+            ),
+            (None, Some("REVERT_HEAD"), Operation::RevertSequence),
+            (
+                None,
+                Some("CHERRY_PICK_HEAD"),
+                Operation::CherryPickSequence,
+            ),
+            (None, None, Operation::CherryPickSequence),
+            (
+                Some("pick abc x\n"),
+                Some("REVERT_HEAD"),
+                Operation::CherryPickSequence,
+            ),
+        ];
+        for (todo, marker, expected) in cases {
+            let git_dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir(git_dir.path().join("sequencer")).unwrap();
+            if let Some(todo) = todo {
+                std::fs::write(git_dir.path().join("sequencer/todo"), todo).unwrap();
+            }
+            if let Some(marker) = marker {
+                std::fs::write(git_dir.path().join(marker), "x").unwrap();
+            }
+            assert_eq!(
+                detect_operation(git_dir.path()),
+                Some(expected),
+                "{todo:?} {marker:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_merge_takes_precedence_over_a_sequencer_and_a_sequencer_over_a_bisect() {
+        let git_dir = tempfile::tempdir().unwrap();
+        std::fs::write(git_dir.path().join("BISECT_LOG"), "x").unwrap();
+        assert_eq!(detect_operation(git_dir.path()), Some(Operation::Bisect));
+        std::fs::create_dir(git_dir.path().join("sequencer")).unwrap();
+        assert_eq!(
+            detect_operation(git_dir.path()),
+            Some(Operation::CherryPickSequence)
+        );
+        std::fs::write(git_dir.path().join("MERGE_HEAD"), "x").unwrap();
+        assert_eq!(detect_operation(git_dir.path()), Some(Operation::Merge));
     }
 
     #[test]

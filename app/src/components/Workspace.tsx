@@ -51,6 +51,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     },
     onSelectionGone: () => select({ kind: "changes" }),
     pullMode: () => effectivePullMode(app.settings(), repoSettings()).mode,
+    undoEntry: (id) => app.activity().find((entry) => entry.id === id),
   });
   const popoverOf = <K extends PopoverState["kind"]>(...kinds: K[]) => {
     const state = actions.popover();

@@ -1,14 +1,16 @@
 mod common;
 
 use std::fs;
+use std::path::PathBuf;
 
 use common::Fixture;
 use yforge_core::{
     branch_snapshot, capture_state, cherry_pick, commit, create_branch, delete_branch,
     discard_files, discard_hunk, head_ref, merge, plan_branch_create, plan_branch_delete,
-    plan_checkout, plan_commit, plan_discard, plan_integration, plan_reset, plan_stash_restore,
-    rebase, reset, revert, snapshot_files, stash_apply, stash_pop, undo, CheckoutTarget, ErrorKind,
-    MergeMode, Planned, ResetMode, UndoAction,
+    plan_checkout, plan_commit, plan_discard, plan_force_push, plan_integration, plan_reset,
+    plan_stash_restore, push_force, push_plan, rebase, reset, revert, snapshot_files, stash_apply,
+    stash_pop, undo, CancelToken, CheckoutTarget, ErrorKind, ForceLease, MergeMode, Planned,
+    ResetMode, UndoAction,
 };
 
 fn repo() -> Fixture {
@@ -458,4 +460,96 @@ fn discard_snapshots_refuse_directories() {
     let error = snapshot_files(&repo.path, &["dir".to_owned()]).unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+}
+
+struct Published {
+    repo: Fixture,
+    remote: PathBuf,
+    original: String,
+    rewritten: String,
+    lease: ForceLease,
+}
+
+fn remote_head(published: &Published) -> String {
+    published
+        .repo
+        .run_in(&published.remote, &["rev-parse", "refs/heads/main"])
+}
+
+fn force_pushed() -> (Published, Planned) {
+    let repo = repo();
+    let remote = repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    let original = repo.commit("b.txt", "first\n", "Original work");
+    repo.git(&["push", "-q"]);
+    repo.git(&["commit", "-q", "--amend", "-m", "Rewritten work"]);
+    let rewritten = head(&repo);
+    let lease = push_plan(&repo.path).unwrap().lease;
+    let pushed = branch_snapshot(&repo.path, "main").unwrap().unwrap();
+    push_force(&repo.path, &lease, &CancelToken::new(), &mut |_| {}).unwrap();
+    let planned = plan_force_push(&lease, &pushed.sha);
+    let published = Published {
+        repo,
+        remote,
+        original,
+        rewritten,
+        lease,
+    };
+    (published, planned)
+}
+
+#[test]
+fn undoing_a_force_push_puts_the_previous_commit_back_on_the_remote_branch() {
+    let (published, planned) = force_pushed();
+    assert_eq!(remote_head(&published), published.rewritten);
+    let Planned::Available(plan) = &planned else {
+        panic!("expected an undo plan");
+    };
+    assert!(plan.scope.contains("origin/main"));
+    assert!(plan.scope.contains(&published.original[..7]));
+    assert!(plan.scope.contains(&published.rewritten[..7]));
+
+    let message = undo(&published.repo.path, &plan.action).unwrap();
+
+    assert_eq!(remote_head(&published), published.original);
+    assert_eq!(head(&published.repo), published.rewritten);
+    assert_eq!(
+        published
+            .repo
+            .git(&["rev-parse", "refs/remotes/origin/main"]),
+        published.original
+    );
+    assert!(message.contains("main"));
+}
+
+#[test]
+fn undoing_a_force_push_is_refused_when_the_remote_moved_since_and_changes_nothing() {
+    let (published, planned) = force_pushed();
+    let other = published.repo.clone_of(&published.remote, "other");
+    let moved = published
+        .repo
+        .commit_in(&other, "c.txt", "c\n", "Someone else's work");
+    published.repo.run_in(&other, &["push", "-q"]);
+
+    let error = undo(&published.repo.path, &action(planned)).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert!(error.to_string().contains("moved"), "{error}");
+    assert!(error.to_string().contains("Nothing was changed"), "{error}");
+    assert_eq!(remote_head(&published), moved);
+}
+
+#[test]
+fn a_force_push_that_did_not_move_the_remote_has_no_undo() {
+    let (published, _) = force_pushed();
+    let pushed = head(&published.repo);
+
+    assert!(reason(plan_force_push(
+        &ForceLease {
+            expected_sha: pushed.clone(),
+            ..published.lease.clone()
+        },
+        &pushed
+    ))
+    .contains("did not move"));
 }

@@ -5,7 +5,7 @@ use crate::branch;
 use crate::commit::{parse_briefs, validate_sha, BRIEF_FORMAT};
 use crate::error::CoreError;
 use crate::git::{self, CancelToken, Completed};
-use crate::model::{ForceLease, ForcePushPlan, PullMode, PullOutcome};
+use crate::model::{ForceLease, ForcePushPlan, Operation, PullMode, PullOutcome};
 use crate::refs;
 use crate::repo;
 
@@ -190,7 +190,10 @@ pub fn pull(
             PullOutcome::Updated
         });
     }
-    if repo::read_operation(&root)?.0.is_some() {
+    if repo::read_operation(&root)?
+        .0
+        .is_some_and(|operation| operation != Operation::Bisect)
+    {
         return Ok(PullOutcome::Conflicts);
     }
     if mode == PullMode::FastForwardOnly

@@ -3,10 +3,13 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use crate::branch;
+use crate::commit::validate_sha;
 use crate::error::CoreError;
-use crate::git;
-use crate::model::ResetMode;
+use crate::git::{self, CancelToken};
+use crate::model::{ForceLease, ResetMode};
+use crate::refs;
 use crate::repo;
+use crate::sync::{run_network, Progress};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RepoState {
@@ -63,6 +66,12 @@ pub enum UndoAction {
     },
     RestoreFiles {
         files: Vec<SnapshotFile>,
+    },
+    ForcePush {
+        remote: String,
+        remote_ref: String,
+        pushed: String,
+        previous: String,
     },
 }
 
@@ -269,6 +278,30 @@ pub fn plan_branch_delete(name: &str, snapshot: &BranchSnapshot) -> Planned {
     )
 }
 
+pub fn plan_force_push(lease: &ForceLease, pushed: &str) -> Planned {
+    if lease.expected_sha == pushed {
+        return unavailable("The force push did not move the remote branch");
+    }
+    let branch = lease
+        .remote_ref
+        .strip_prefix("refs/heads/")
+        .unwrap_or(&lease.remote_ref);
+    available(
+        UndoAction::ForcePush {
+            remote: lease.remote.clone(),
+            remote_ref: lease.remote_ref.clone(),
+            pushed: pushed.to_owned(),
+            previous: lease.expected_sha.clone(),
+        },
+        format!(
+            "Undo force push: force-pushes {}/{branch} back to {} with a lease on {}, so it is refused if the remote moved since",
+            lease.remote,
+            short(&lease.expected_sha),
+            short(pushed)
+        ),
+    )
+}
+
 pub fn plan_checkout(
     before: &Option<HeadRef>,
     after: &Option<HeadRef>,
@@ -429,6 +462,15 @@ fn switch_to(root: &Path, head: &HeadRef) -> Result<(), CoreError> {
 }
 
 pub fn undo(path: &Path, action: &UndoAction) -> Result<String, CoreError> {
+    undo_with(path, action, &CancelToken::new(), &mut |_| {})
+}
+
+pub fn undo_with(
+    path: &Path,
+    action: &UndoAction,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<String, CoreError> {
     let root = repo::open(path)?;
     require_settled(&root)?;
     match action {
@@ -519,6 +561,40 @@ pub fn undo(path: &Path, action: &UndoAction) -> Result<String, CoreError> {
                 git::run(&root, &["stash", "store", "-m", subject, sha])?;
             }
             Ok("Discarded the applied stash changes".to_owned())
+        }
+        UndoAction::ForcePush {
+            remote,
+            remote_ref,
+            pushed,
+            previous,
+        } => {
+            validate_sha(pushed)?;
+            validate_sha(previous)?;
+            if !refs::read_remotes(&root)?.contains(remote) {
+                return Err(refuse(format!(
+                    "{remote} is no longer a remote of this repository"
+                )));
+            }
+            let with_lease = format!("--force-with-lease={remote_ref}:{pushed}");
+            let refspec = format!("{previous}:{remote_ref}");
+            match run_network(
+                &root,
+                &["push", "--progress", &with_lease, remote, &refspec],
+                remote,
+                cancel,
+                on_progress,
+            ) {
+                Ok(()) => Ok(format!(
+                    "Restored {remote_ref} on {remote} to {}",
+                    short(previous)
+                )),
+                Err(CoreError::PushRejected { detail }) if detail.contains("stale info") => {
+                    Err(refuse(format!(
+                        "{remote_ref} on {remote} moved after the force push, so restoring it would discard later remote work"
+                    )))
+                }
+                Err(error) => Err(error),
+            }
         }
         UndoAction::RestoreFiles { files } => {
             for file in files {

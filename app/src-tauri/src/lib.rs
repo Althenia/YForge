@@ -101,6 +101,42 @@ impl<R: Runtime> Network<'_, R> {
         T: Send + 'static,
         F: FnOnce(&CancelToken, &mut dyn FnMut(Progress)) -> Result<T, CoreError> + Send + 'static,
     {
+        let operation = meta.operation;
+        self.run_planned(
+            meta,
+            id,
+            interactive,
+            summarize,
+            task,
+            (
+                || Ok(()),
+                move |(), _| {
+                    Ok(Planned::Unavailable(format!(
+                        "{operation} has no safe undo"
+                    )))
+                },
+            ),
+        )
+        .await
+    }
+
+    async fn run_planned<T, S, F>(
+        &self,
+        meta: Track,
+        id: String,
+        interactive: bool,
+        summarize: impl FnOnce(&T) -> String + Send + 'static,
+        task: F,
+        (prepare, plan): (
+            impl FnOnce() -> Result<S, CoreError> + Send + 'static,
+            impl FnOnce(S, &T) -> Result<Planned, CoreError> + Send + 'static,
+        ),
+    ) -> Result<T, ErrorPayload>
+    where
+        T: Send + 'static,
+        S: Send + 'static,
+        F: FnOnce(&CancelToken, &mut dyn FnMut(Progress)) -> Result<T, CoreError> + Send + 'static,
+    {
         let token = if interactive {
             CancelToken::with_auth(self.prompts.handler(
                 self.recorder.app.clone(),
@@ -114,24 +150,30 @@ impl<R: Runtime> Network<'_, R> {
         let announced = id.clone();
         let app = self.recorder.app.clone();
         let joined = tauri::async_runtime::spawn_blocking(move || {
-            plain(&meta, summarize, || {
-                task(&token, &mut |progress| {
-                    let payload = OperationProgress {
-                        id: announced.clone(),
-                        phase: progress.phase,
-                        percent: progress.percent,
-                    };
-                    log::debug!(
-                        "operation-progress id={} phase={:?} percent={:?}",
-                        payload.id,
-                        payload.phase,
-                        payload.percent
-                    );
-                    if let Err(error) = app.emit(OPERATION_PROGRESS_EVENT, payload) {
-                        log::warn!("could not emit {OPERATION_PROGRESS_EVENT}: {error}");
-                    }
-                })
-            })
+            execute(
+                &meta,
+                summarize,
+                prepare,
+                || {
+                    task(&token, &mut |progress| {
+                        let payload = OperationProgress {
+                            id: announced.clone(),
+                            phase: progress.phase,
+                            percent: progress.percent,
+                        };
+                        log::debug!(
+                            "operation-progress id={} phase={:?} percent={:?}",
+                            payload.id,
+                            payload.phase,
+                            payload.percent
+                        );
+                        if let Err(error) = app.emit(OPERATION_PROGRESS_EVENT, payload) {
+                            log::warn!("could not emit {OPERATION_PROGRESS_EVENT}: {error}");
+                        }
+                    })
+                },
+                plan,
+            )
         })
         .await;
         self.registry.finish(&id);
@@ -1044,10 +1086,12 @@ async fn push_force<R: Runtime>(
     lease: ForceLease,
 ) -> Result<(), ErrorPayload> {
     log::debug!("push_force path={path} id={id} lease={lease:?}");
-    let meta = track(&path, "Force push", false, true);
+    let meta = track(&path, "Force push", true, true);
     let label = format!("Force pushed {}", lease.branch);
+    let prepared = (path.clone(), lease.branch.clone());
+    let planned = lease.clone();
     let result = network(&app, &log, &operations)
-        .run(
+        .run_planned(
             meta,
             id,
             true,
@@ -1055,6 +1099,22 @@ async fn push_force<R: Runtime>(
             move |cancel, progress| {
                 yforge_core::push_force(Path::new(&path), &lease, cancel, progress)
             },
+            (
+                move || {
+                    let (path, branch) = prepared;
+                    Ok(yforge_core::branch_snapshot(Path::new(&path), &branch)?
+                        .map(|snapshot| snapshot.sha))
+                },
+                move |pushed, ()| {
+                    Ok(match pushed {
+                        Some(pushed) => yforge_core::plan_force_push(&planned, &pushed),
+                        None => Planned::Unavailable(
+                            "The local branch no longer exists, so the pushed commit is unknown"
+                                .to_owned(),
+                        ),
+                    })
+                },
+            ),
         )
         .await;
     log_outcome("push_force", &result, |()| String::new());
@@ -1874,6 +1934,7 @@ fn activity_clear(log: State<'_, ActivityLog>, repo: Option<String>) {
 async fn undo_last<R: Runtime>(
     app: AppHandle<R>,
     log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
     path: String,
     id: u32,
 ) -> Result<String, ErrorPayload> {
@@ -1881,11 +1942,15 @@ async fn undo_last<R: Runtime>(
     let (operation, action) = log.undo_target(&path, id)?;
     let target = path.clone();
     let label = operation.clone();
-    let result = recorder(&app, &log)
-        .recorded(
+    let result = network(&app, &log, &operations)
+        .run(
             track(&path, "Undo", false, true),
+            format!("undo-{id}"),
+            true,
             move |message: &String| format!("Undid {label}: {message}"),
-            move || yforge_core::undo(Path::new(&target), &action),
+            move |cancel, progress| {
+                yforge_core::undo_with(Path::new(&target), &action, cancel, progress)
+            },
         )
         .await;
     if result.is_ok() {

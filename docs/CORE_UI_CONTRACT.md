@@ -125,11 +125,11 @@ The watcher (`crates/yforge-core/src/watch.rs`, the `notify` crate) watches the 
 | `upstream` | `null`, or `{ name, ahead_behind }`; `ahead_behind` is `null` when git reports no counts (for example, a gone upstream) |
 | `counts` | `{ modified, added, deleted, renamed, untracked, conflicted }`: one count per path, using the staged letter if any, else the unstaged letter; type changes count as modified and copies as renamed |
 | `files` | `FileChange { path, original_path, area, status }`: `area` is `staged`, `unstaged`, `untracked`, or `conflicted`; a path changed on both sides appears once per side |
-| `operation` | `null`, `merge`, `rebase`, `cherry_pick`, or `revert`, from `MERGE_HEAD`, `rebase-merge/`, `rebase-apply/`, `CHERRY_PICK_HEAD`, and `REVERT_HEAD` in the directory reported by `git rev-parse --git-dir` |
+| `operation` | `null`, `merge`, `rebase`, `cherry_pick`, `revert`, `cherry_pick_sequence`, `revert_sequence`, or `bisect`, from `rebase-merge/`, `rebase-apply/`, `MERGE_HEAD`, `sequencer/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, and `BISECT_LOG` in the directory reported by `git rev-parse --git-dir`, checked in that order. A `sequencer/` directory (a multi-commit cherry-pick or revert, whether stopped on a conflict or paused after the conflict was committed) is a revert sequence when the first step of `sequencer/todo` is `revert` (or `r`), or when that file is empty or missing and `REVERT_HEAD` exists; otherwise a cherry-pick sequence |
 | `worktrees` | `git worktree list --porcelain -z`: `{ path, head, branch, bare, locked, prunable, current }` |
 | `branches`, `remote_branches`, `remotes`, `tags` | Names, sorted by ref name; `origin/HEAD` symrefs are omitted |
 | `stashes` | `{ index, sha, base_sha, author_name, message, time }`, newest first |
-| `operation_detail` | `null` unless `operation` is set; then `{ current, incoming, message, step, resolved }`. `current` is the checked-out branch (else the short HEAD id), or for a rebase the `onto` commit as a branch name (else its short id). `incoming` is the ref at `MERGE_HEAD` (local branches before remote-tracking ones, else the short id), the `<short id> <subject>` of `CHERRY_PICK_HEAD` or `REVERT_HEAD`, or the branch being rebased. `message` is `MERGE_MSG` without comment lines (merge only). `step` is `{ current, total }` for a rebase (`rebase-merge/msgnum` and `end`, or `rebase-apply/next` and `last`). `resolved` lists paths that were conflicted and were then staged (`git ls-files --resolve-undo`), minus paths that are conflicted again |
+| `operation_detail` | `null` unless `operation` is set; then `{ current, incoming, message, step, resolved }`. `current` is the checked-out branch (else the short HEAD id), or for a rebase the `onto` commit as a branch name (else its short id). `incoming` is the ref at `MERGE_HEAD` (local branches before remote-tracking ones, else the short id), the `<short id> <subject>` of `CHERRY_PICK_HEAD` or `REVERT_HEAD`, or the branch being rebased. `message` is `MERGE_MSG` without comment lines (merge only). For a sequence, `incoming` is the stopped commit, and `null` while the sequence is paused between commits. For a bisect, `current` is the content of `BISECT_START` (the branch or commit `git bisect reset` returns to), else the checked-out branch, and `incoming` is `null`. `step` is `{ current, total }` for a rebase (`rebase-merge/msgnum` and `end`, or `rebase-apply/next` and `last`). `resolved` lists paths that were conflicted and were then staged (`git ls-files --resolve-undo`), minus paths that are conflicted again |
 | `last_fetch` | Unix seconds of the modification time of `FETCH_HEAD` in the git directory, or `null` if the repository was never fetched or pulled |
 
 ### `FileDiff`
@@ -203,16 +203,16 @@ Hunk commands cover tracked files. An untracked file has no unstaged diff, so a 
 
 ### Operation commands
 
-For a merge, rebase, cherry-pick, or revert in progress (`RepoSnapshot.operation`):
+For a merge, rebase, cherry-pick, revert, cherry-pick or revert sequence, or bisect in progress (`RepoSnapshot.operation`):
 
-- `operation_continue`: fails with `invalid_request` while any file is conflicted, or when no operation is in progress. Merge: `git commit --quiet -m <message>` (a blank message is `invalid_request`), or `--no-edit` when `message` is `null`. Rebase, cherry-pick, and revert: `--continue`. When git stops again on conflicts (the next rebase step), the result is `conflicts`.
-- `operation_skip`: `git rebase --skip`; any other operation is `invalid_request`. Result as for continue.
-- `operation_abort`: `git merge|rebase|cherry-pick|revert --abort`.
+- `operation_continue`: fails with `invalid_request` while any file is conflicted, or when no operation is in progress. Merge: `git commit --quiet -m <message>` (a blank message is `invalid_request`), or `--no-edit` when `message` is `null`. Rebase, cherry-pick, revert, and their sequences: `--continue` of the matching command; a bisect has nothing to continue (`invalid_request`). When git stops again on conflicts (the next rebase step), the result is `conflicts`.
+- `operation_skip`: `git rebase --skip`, or `git cherry-pick|revert --skip` for a sequence; any other operation is `invalid_request`. Result as for continue.
+- `operation_abort`: `git merge|rebase|cherry-pick|revert --abort`; for a bisect, `git bisect reset`.
 - `mark_resolved`: every file must be conflicted. If a file contains a conflict block (a line starting with `<<<<<<<`, later a line that is exactly `=======`, later a line starting with `>>>>>>>`), the call fails with `conflict_markers` and stages nothing. Otherwise it runs `git add --all -- <files>` (a deleted file stages its deletion).
 
 ### Integration commands
 
-These run against the checked-out branch and fail with `invalid_request` while a merge, rebase, cherry-pick, or revert is in progress. `source`, `onto`, `branch`, and `target` are local branch names, or remote-tracking names such as `origin/main`; a tag is never accepted. The `OperationOutcome` is `completed`, or `conflicts` when git stopped with conflicted files (the operation is then in `RepoSnapshot.operation`; continue, skip, and abort use the operation commands).
+These run against the checked-out branch and fail with `invalid_request` while a merge, rebase, cherry-pick, revert, sequence, or bisect is in progress. `source`, `onto`, `branch`, and `target` are local branch names, or remote-tracking names such as `origin/main`; a tag is never accepted. The `OperationOutcome` is `completed`, or `conflicts` when git stopped with conflicted files (the operation is then in `RepoSnapshot.operation`; continue, skip, and abort use the operation commands).
 
 - `integration_preview`: `base` (default `HEAD`) and `other` may be a branch name, `HEAD`, a commit id, or a full ref. `incoming` is `base..other` and `outgoing` is `other..base`, each `{ count, commits }` with at most 20 `CommitBrief` entries, newest first. `fast_forward` is true when `incoming.count > 0` and `outgoing.count == 0`.
 - `merge`: `fast_forward` runs `git merge --ff-only` and fails with `not_fast_forward` when the branches diverged; `merge_commit` runs `git merge --no-ff`. A branch that shares its name with a tag is merged by its full ref. Overlapping local changes are `local_changes`.
@@ -275,11 +275,11 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 ## Threading and cancellation
 
 - Commands are `async`. Git work runs through `tauri::async_runtime::spawn_blocking`, off the main thread.
-- Each call runs its own git processes and returns one response. The only shared state is the single repository watcher held by the shell (`repo_watch`); there is no cache.
+- Each call runs its own git processes and returns one response. The shared state is the single repository watcher held by the shell (`repo_watch`) and the core's graph layout cache.
 - Mutating commands take git's own locks; a concurrent git process in the terminal surfaces as `git_failed` with git's message.
-- `repo_graph` recomputes the full layout on every call, then slices the window. Pages are consistent only while the repository does not change between calls.
+- `repo_graph` and `search_commits` reuse one computed history and layout per repository root. The cache key is every ref and its target (`git for-each-ref`), the HEAD commit, the stash commits, and whether the working tree has changes; any difference recomputes the full layout, and the working-tree summary text is always read fresh. Pages are consistent only while the key does not change between calls. The ignored test `crates/yforge-core/tests/graph_perf.rs` gates the first page at under 1 s for 10k commits and under 3 s for 100k commits (`cargo test --release -p yforge-core -- --ignored`).
 - `fetch`, `pull`, `push`, `push_force`, `push_tag`, `delete_remote_tag`, `publish`, and `clone_repo` register their `id` in a registry held by the shell (`OperationRegistry`); `operation_cancel` sets the cancel flag of the registered operation, and the id is removed when the call ends.
-- Deferred: cancelling any call other than the network commands, layout caching or incremental layout, line-level staging, cherry-pick and revert of merge commits (parent choice), and interactive rebase.
+- Deferred: cancelling any call other than the network commands, incremental layout, line-level staging, cherry-pick and revert of merge commits (parent choice), and interactive rebase.
 
 ## Authentication prompts
 
@@ -293,7 +293,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 
 - The shell wraps every mutating command in a thread-local recorder. Each `git` invocation except read-only queries (`rev-parse`, `status`, `log`, `diff`, `for-each-ref`, `config --get`, and similar) becomes a `CommandRecord { command, status, duration_ms, output }` with secrets redacted and output capped at 64 KB (hook output included). One `ActivityEntry { id, repo, operation, summary, started_at, duration_ms, ok, local, toast, error, commands, undo }` is kept per command in an in-memory log (300 entries, this session only) and announced with `activity-recorded`. `local` is true for operations that change refs, history, or discard content; `toast` marks the outcomes the UI reports.
 - `undo` is `available { scope }`, `unavailable { reason }`, or `undone`. The scope names what undo will do and is the button tooltip.
-- Undoable operations, with what `undo_last` does (each first requires that no merge, rebase, cherry-pick, or revert is in progress):
+- Undoable operations, with what `undo_last` does (each first requires that no merge, rebase, cherry-pick, revert, sequence, or bisect is in progress):
 
 | Operation | Undo | Refused when |
 |---|---|---|
@@ -304,6 +304,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `checkout` | switch back to the previous branch or detached commit; unavailable when the auto-stash was kept | HEAD is no longer where the checkout left it, or git refuses the switch |
 | `stash_pop`, `stash_apply` | discard the applied changes (and store the entry again after a pop) | the tree differs from the recorded post-apply tree; unavailable when the tree was dirty before, the stash has untracked files, or it applied with conflicts |
 | `merge`, `rebase`, `cherry_pick`, `revert`, `fast_forward`, `reset` | `git reset --hard <recorded HEAD>` | HEAD moved, or the tracked working tree is not clean; unavailable when the operation stopped on conflicts, HEAD did not move, a hard reset started dirty, or a soft or mixed reset left changes |
+| `push_force` | `git push --force-with-lease=<remote ref>:<pushed sha> <remote> <previous sha>:<remote ref>`, where the previous sha is the lease's `expected_sha` and the pushed sha is the local branch tip recorded before the push. The entry is `local`, so it joins the undo chain; the UI asks for confirmation that states the consequence first. The push runs with authentication prompts like any network command (operation id `undo-<entry id>`) | the remote branch moved after the force push (the lease fails, `invalid_request`, nothing changes), or the remote is gone; unavailable when the push did not move the remote branch |
 | `discard_files`, `discard_hunk` | write back the blobs stored by `git hash-object -w` before discarding | a file changed after the discard; unavailable when a path is a directory or symlink |
 
 Every other command records `unavailable { reason: "<operation> has no safe undo" }`.
