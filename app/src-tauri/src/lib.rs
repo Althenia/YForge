@@ -13,10 +13,11 @@ use yforge_core::{
     ActivityEntry, AmendInfo, AppInfo, AppSettings, AuthReply, CancelToken, ChangeArea,
     CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide,
     CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
-    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode,
+    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode, MessageEdit,
     OperationKind, OperationOutcome, OperationProgress, Planned, Progress, PullMode, PullOutcome,
-    RecentRepo, RecentStatus, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoWatcher,
-    ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
+    PullReport, PushTarget, RecentRepo, RecentStatus, RemoteInfo, RepoChanged, RepoSettings,
+    RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore, SwitchStash,
+    TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -149,7 +150,11 @@ impl<R: Runtime> Network<'_, R> {
         } else {
             CancelToken::new()
         };
-        let token = self.registry.register(&id, token)?;
+        let dir = self.recorder.app.state::<DataDir>().0.clone();
+        let repository = meta.repo.clone();
+        let key = blocking(move || yforge_core::ssh_key_for(&dir, &repository)).await?;
+        log::debug!("network id={id} ssh_key_set={}", key.is_some());
+        let token = self.registry.register(&id, token.with_ssh_key(key))?;
         let announced = id.clone();
         let app = self.recorder.app.clone();
         let joined = tauri::async_runtime::spawn_blocking(move || {
@@ -409,9 +414,18 @@ async fn search_commits(path: String, query: String) -> Result<SearchResult, Err
 }
 
 #[tauri::command]
-async fn diff_file(path: String, file: String, area: ChangeArea) -> Result<FileDiff, ErrorPayload> {
-    log::debug!("diff_file path={path} file={file} area={area:?}");
-    let result = blocking(move || yforge_core::diff_file(Path::new(&path), &file, area)).await;
+async fn diff_file(
+    path: String,
+    file: String,
+    area: ChangeArea,
+    ignore_whitespace: Option<bool>,
+) -> Result<FileDiff, ErrorPayload> {
+    log::debug!(
+        "diff_file path={path} file={file} area={area:?} ignore_whitespace={ignore_whitespace:?}"
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let result =
+        blocking(move || yforge_core::diff_file(Path::new(&path), &file, area, ignore)).await;
     log_outcome("diff_file", &result, |diff| {
         format!("hunks={} binary={}", diff.hunks.len(), diff.binary)
     });
@@ -555,18 +569,20 @@ async fn stage_hunk<R: Runtime>(
     path: String,
     file: String,
     hunk: DiffHunk,
+    ignore_whitespace: Option<bool>,
 ) -> Result<(), ErrorPayload> {
     log::debug!(
-        "stage_hunk path={path} file={file} hunk={}",
+        "stage_hunk path={path} file={file} hunk={} ignore_whitespace={ignore_whitespace:?}",
         hunk_label(&hunk)
     );
+    let ignore = ignore_whitespace.unwrap_or(false);
     let target = path.clone();
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::StageHunk, false, false),
             move |()| format!("Staged a hunk of {name}"),
-            move || yforge_core::stage_hunk(Path::new(&target), &file, &hunk),
+            move || yforge_core::stage_hunk(Path::new(&target), &file, &hunk, ignore),
         )
         .await;
     log_outcome("stage_hunk", &result, |()| String::new());
@@ -580,18 +596,20 @@ async fn unstage_hunk<R: Runtime>(
     path: String,
     file: String,
     hunk: DiffHunk,
+    ignore_whitespace: Option<bool>,
 ) -> Result<(), ErrorPayload> {
     log::debug!(
-        "unstage_hunk path={path} file={file} hunk={}",
+        "unstage_hunk path={path} file={file} hunk={} ignore_whitespace={ignore_whitespace:?}",
         hunk_label(&hunk)
     );
+    let ignore = ignore_whitespace.unwrap_or(false);
     let target = path.clone();
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::UnstageHunk, false, false),
             move |()| format!("Unstaged a hunk of {name}"),
-            move || yforge_core::unstage_hunk(Path::new(&target), &file, &hunk),
+            move || yforge_core::unstage_hunk(Path::new(&target), &file, &hunk, ignore),
         )
         .await;
     log_outcome("unstage_hunk", &result, |()| String::new());
@@ -605,11 +623,13 @@ async fn discard_hunk<R: Runtime>(
     path: String,
     file: String,
     hunk: DiffHunk,
+    ignore_whitespace: Option<bool>,
 ) -> Result<(), ErrorPayload> {
     log::debug!(
-        "discard_hunk path={path} file={file} hunk={}",
+        "discard_hunk path={path} file={file} hunk={} ignore_whitespace={ignore_whitespace:?}",
         hunk_label(&hunk)
     );
+    let ignore = ignore_whitespace.unwrap_or(false);
     let target = path.clone();
     let name = file.clone();
     let listed = vec![file.clone()];
@@ -618,7 +638,7 @@ async fn discard_hunk<R: Runtime>(
             track(&path, OperationKind::DiscardHunk, true, true),
             move |()| format!("Discarded a hunk of {name}"),
             snapshot_of(&path, listed),
-            move || yforge_core::discard_hunk(Path::new(&target), &file, &hunk),
+            move || yforge_core::discard_hunk(Path::new(&target), &file, &hunk, ignore),
             discard_plan(path.clone()),
         )
         .await;
@@ -717,11 +737,16 @@ async fn commit_file_diff(
 async fn checkout<R: Runtime>(
     app: AppHandle<R>,
     log: State<'_, ActivityLog>,
+    data: State<'_, DataDir>,
     path: String,
     target: CheckoutTarget,
     stash: bool,
+    leave_stashed: Option<bool>,
 ) -> Result<CheckoutOutcome, ErrorPayload> {
-    log::debug!("checkout path={path} target={target:?} stash={stash}");
+    log::debug!(
+        "checkout path={path} target={target:?} stash={stash} leave_stashed={leave_stashed:?}"
+    );
+    let leave_in = (stash && leave_stashed.unwrap_or(false)).then(|| data_dir(&data));
     let label = checkout_label(&target);
     let location = path.clone();
     let planned = path.clone();
@@ -733,7 +758,12 @@ async fn checkout<R: Runtime>(
                 let path = path.clone();
                 move || yforge_core::head_ref(Path::new(&path))
             },
-            move || yforge_core::checkout(Path::new(&location), &target, stash),
+            move || match &leave_in {
+                Some(dir) => {
+                    yforge_core::checkout_leaving_stash(Path::new(&location), &target, dir)
+                }
+                None => yforge_core::checkout(Path::new(&location), &target, stash),
+            },
             move |before, outcome| {
                 let after = yforge_core::head_ref(Path::new(&planned))?;
                 let kept = matches!(
@@ -2057,6 +2087,514 @@ async fn undo_last<R: Runtime>(
     result
 }
 
+#[tauri::command]
+async fn stage_lines<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+    hunk: DiffHunk,
+    lines: Vec<u32>,
+    ignore_whitespace: Option<bool>,
+) -> Result<(), ErrorPayload> {
+    log::debug!(
+        "stage_lines path={path} file={file} hunk={} lines={} ignore_whitespace={ignore_whitespace:?}",
+        hunk_label(&hunk),
+        lines.len()
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let target = path.clone();
+    let name = file.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::StageLines, false, false),
+            move |()| format!("Staged lines of {name}"),
+            move || yforge_core::stage_lines(Path::new(&target), &file, &hunk, &lines, ignore),
+        )
+        .await;
+    log_outcome("stage_lines", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn unstage_lines<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+    hunk: DiffHunk,
+    lines: Vec<u32>,
+    ignore_whitespace: Option<bool>,
+) -> Result<(), ErrorPayload> {
+    log::debug!(
+        "unstage_lines path={path} file={file} hunk={} lines={} ignore_whitespace={ignore_whitespace:?}",
+        hunk_label(&hunk),
+        lines.len()
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let target = path.clone();
+    let name = file.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::UnstageLines, false, false),
+            move |()| format!("Unstaged lines of {name}"),
+            move || yforge_core::unstage_lines(Path::new(&target), &file, &hunk, &lines, ignore),
+        )
+        .await;
+    log_outcome("unstage_lines", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn discard_lines<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+    hunk: DiffHunk,
+    lines: Vec<u32>,
+    ignore_whitespace: Option<bool>,
+) -> Result<(), ErrorPayload> {
+    log::debug!(
+        "discard_lines path={path} file={file} hunk={} lines={} ignore_whitespace={ignore_whitespace:?}",
+        hunk_label(&hunk),
+        lines.len()
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let target = path.clone();
+    let name = file.clone();
+    let listed = vec![file.clone()];
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::DiscardLines, true, true),
+            move |()| format!("Discarded lines of {name}"),
+            snapshot_of(&path, listed),
+            move || yforge_core::discard_lines(Path::new(&target), &file, &hunk, &lines, ignore),
+            discard_plan(path.clone()),
+        )
+        .await;
+    log_outcome("discard_lines", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn edit_head_message<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    sha: String,
+    summary: String,
+    description: String,
+) -> Result<MessageEdit, ErrorPayload> {
+    log::debug!(
+        "edit_head_message path={path} sha={sha} summary={summary:?} description_bytes={}",
+        description.len()
+    );
+    let target = path.clone();
+    let planned = path.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::EditMessage, true, true),
+            |edit: &MessageEdit| format!("Edited the message of {}", short(&edit.sha)),
+            state_of(&path),
+            move || {
+                yforge_core::edit_head_message(Path::new(&target), &sha, &summary, &description)
+            },
+            move |before, _| {
+                let after = yforge_core::capture_state(Path::new(&planned))?;
+                Ok(yforge_core::plan_commit(&before, &after, true))
+            },
+        )
+        .await;
+    log_outcome("edit_head_message", &result, |edit| {
+        format!("sha={} pushed={}", edit.sha, edit.pushed)
+    });
+    result
+}
+
+#[tauri::command]
+async fn delete_remote_branch<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    remote: String,
+    name: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("delete_remote_branch path={path} id={id} remote={remote} name={name}");
+    let meta = track(&path, OperationKind::DeleteRemoteBranch, true, true);
+    let label = format!("Deleted {remote}/{name}");
+    let prepared = (path.clone(), remote.clone(), name.clone());
+    let planned = (remote.clone(), name.clone());
+    let result = network(&app, &log, &operations)
+        .run_planned(
+            meta,
+            id,
+            true,
+            move |()| label,
+            move |cancel, progress| {
+                yforge_core::delete_remote_branch(
+                    Path::new(&path),
+                    &remote,
+                    &name,
+                    cancel,
+                    progress,
+                )
+            },
+            (
+                move || {
+                    let (path, remote, name) = prepared;
+                    yforge_core::remote_branch_sha(Path::new(&path), &remote, &name)
+                },
+                move |sha, ()| {
+                    Ok(yforge_core::plan_remote_branch_delete(
+                        &planned.0, &planned.1, sha,
+                    ))
+                },
+            ),
+        )
+        .await;
+    log_outcome("delete_remote_branch", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn set_upstream<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    branch: String,
+    upstream: Option<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!("set_upstream path={path} branch={branch} upstream={upstream:?}");
+    let target = path.clone();
+    let planned = path.clone();
+    let (named, label) = (
+        branch.clone(),
+        match &upstream {
+            Some(name) => format!("{branch} now tracks {name}"),
+            None => format!("{branch} no longer tracks a branch"),
+        },
+    );
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::SetUpstream, true, true),
+            move |()| label,
+            {
+                let (path, branch) = (path.clone(), branch.clone());
+                move || {
+                    Ok(yforge_core::branch_snapshot(Path::new(&path), &branch)?
+                        .and_then(|snapshot| snapshot.upstream))
+                }
+            },
+            move || yforge_core::set_upstream(Path::new(&target), &branch, upstream.as_deref()),
+            move |before, ()| {
+                let after = yforge_core::branch_snapshot(Path::new(&planned), &named)?
+                    .and_then(|snapshot| snapshot.upstream);
+                Ok(yforge_core::plan_upstream(&named, &before, &after))
+            },
+        )
+        .await;
+    log_outcome("set_upstream", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn push_to<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    target: PushTarget,
+) -> Result<(), ErrorPayload> {
+    log::debug!("push_to path={path} id={id} target={target:?}");
+    let PushTarget {
+        remote,
+        name,
+        set_upstream,
+    } = target;
+    let meta = track(&path, OperationKind::PushTo, false, true);
+    let label = format!("Pushed to {remote}/{name}");
+    let result = network(&app, &log, &operations)
+        .run(
+            meta,
+            id,
+            true,
+            move |()| label,
+            move |cancel, progress| {
+                yforge_core::push_to(
+                    Path::new(&path),
+                    &remote,
+                    &name,
+                    set_upstream,
+                    cancel,
+                    progress,
+                )
+            },
+        )
+        .await;
+    log_outcome("push_to", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn stash_rename<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    index: u32,
+    sha: String,
+    message: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("stash_rename path={path} index={index} sha={sha} message={message:?}");
+    let target = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::RenameStash, true, true),
+            move |()| format!("Renamed stash@{{{index}}}"),
+            move || yforge_core::stash_rename(Path::new(&target), index, &sha, &message),
+        )
+        .await;
+    log_outcome("stash_rename", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn pull_with_autostash<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    mode: PullMode,
+) -> Result<PullReport, ErrorPayload> {
+    log::debug!("pull_with_autostash path={path} id={id} mode={mode:?}");
+    let meta = track(&path, OperationKind::PullAutostash, false, true);
+    let result = network(&app, &log, &operations)
+        .run(
+            meta,
+            id,
+            true,
+            |report: &PullReport| format!("Pull: {:?}, stash: {:?}", report.outcome, report.stash),
+            move |cancel, progress| {
+                yforge_core::pull_autostash(Path::new(&path), mode, cancel, progress)
+            },
+        )
+        .await;
+    log_outcome("pull_with_autostash", &result, |report| {
+        format!("{:?} {:?}", report.outcome, report.stash)
+    });
+    result
+}
+
+#[tauri::command]
+async fn switch_stashes(
+    data: State<'_, DataDir>,
+    path: String,
+    branch: String,
+) -> Result<Vec<SwitchStash>, ErrorPayload> {
+    log::debug!("switch_stashes path={path} branch={branch}");
+    let dir = data_dir(&data);
+    let result =
+        blocking(move || yforge_core::switch_stashes(&dir, Path::new(&path), &branch)).await;
+    log_outcome("switch_stashes", &result, |stashes| {
+        format!("stashes={}", stashes.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn switch_stash_restore<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    data: State<'_, DataDir>,
+    path: String,
+    branch: String,
+    sha: String,
+) -> Result<StashRestore, ErrorPayload> {
+    log::debug!("switch_stash_restore path={path} branch={branch} sha={sha}");
+    let dir = data_dir(&data);
+    let lookup = (dir.clone(), path.clone(), branch.clone(), sha.clone());
+    let index = blocking(move || {
+        let (dir, path, branch, sha) = lookup;
+        yforge_core::switch_stashes(&dir, Path::new(&path), &branch)?
+            .into_iter()
+            .find(|entry| entry.sha == sha)
+            .map(|entry| entry.index)
+            .ok_or_else(|| CoreError::InvalidRequest {
+                detail: format!("the changes stashed when you left {branch} are gone"),
+            })
+    })
+    .await?;
+    let result = restore_stash(&app, &log, path.clone(), index, sha.clone(), true).await;
+    if result.is_ok() {
+        let forget = (path, branch, sha);
+        blocking(move || {
+            let (path, branch, sha) = forget;
+            yforge_core::dismiss_switch_stash(&dir, Path::new(&path), &branch, &sha)
+        })
+        .await?;
+    }
+    log_outcome("switch_stash_restore", &result, |restore| {
+        format!("{restore:?}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn switch_stash_dismiss(
+    data: State<'_, DataDir>,
+    path: String,
+    branch: String,
+    sha: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("switch_stash_dismiss path={path} branch={branch} sha={sha}");
+    let dir = data_dir(&data);
+    let result =
+        blocking(move || yforge_core::dismiss_switch_stash(&dir, Path::new(&path), &branch, &sha))
+            .await;
+    log_outcome("switch_stash_dismiss", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn ssh_keys_list() -> Result<Vec<SshKey>, ErrorPayload> {
+    log::debug!("ssh_keys_list");
+    let result = blocking(|| {
+        let home = std::env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .ok_or_else(|| CoreError::InvalidRequest {
+                detail: "HOME is not set, so ~/.ssh cannot be read".to_owned(),
+            })?;
+        yforge_core::list_ssh_keys(&Path::new(&home).join(".ssh"))
+    })
+    .await;
+    log_outcome("ssh_keys_list", &result, |keys| {
+        format!("keys={}", keys.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn worktree_list(path: String) -> Result<Vec<WorktreeStatus>, ErrorPayload> {
+    log::debug!("worktree_list path={path}");
+    let result = blocking(move || yforge_core::list_worktrees(Path::new(&path))).await;
+    log_outcome("worktree_list", &result, |worktrees| {
+        format!("worktrees={}", worktrees.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn worktree_suggest_path(path: String, branch: String) -> Result<String, ErrorPayload> {
+    log::debug!("worktree_suggest_path path={path} branch={branch}");
+    let result =
+        blocking(move || yforge_core::suggest_worktree_path(Path::new(&path), &branch)).await;
+    log_outcome("worktree_suggest_path", &result, |suggested| {
+        format!("path={suggested}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn worktree_create<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    branch: String,
+    create: bool,
+    start: Option<String>,
+    destination: String,
+) -> Result<String, ErrorPayload> {
+    log::debug!(
+        "worktree_create path={path} branch={branch} create={create} start={start:?} destination={destination}"
+    );
+    let target = path.clone();
+    let label = format!("Created a worktree for {branch} at {destination}");
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::CreateWorktree, true, true),
+            move |_: &String| label,
+            move || {
+                yforge_core::create_worktree(
+                    Path::new(&target),
+                    &branch,
+                    create,
+                    start.as_deref(),
+                    Path::new(&destination),
+                )
+            },
+        )
+        .await;
+    log_outcome("worktree_create", &result, |location| {
+        format!("path={location}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn worktree_remove<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    worktree: String,
+    force: bool,
+) -> Result<(), ErrorPayload> {
+    log::debug!("worktree_remove path={path} worktree={worktree} force={force}");
+    let target = path.clone();
+    let label = format!("Removed the worktree at {worktree}");
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::RemoveWorktree, true, true),
+            move |()| label,
+            move || yforge_core::remove_worktree(Path::new(&target), &worktree, force),
+        )
+        .await;
+    log_outcome("worktree_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn worktree_integrate<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    worktree: String,
+    target: String,
+    cleanup: bool,
+) -> Result<WorktreeIntegration, ErrorPayload> {
+    log::debug!(
+        "worktree_integrate path={path} worktree={worktree} target={target} cleanup={cleanup}"
+    );
+    let location = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::IntegrateWorktree, true, true),
+            {
+                let target = target.clone();
+                move |outcome: &WorktreeIntegration| match outcome {
+                    WorktreeIntegration::Integrated { cleaned_up, .. } => format!(
+                        "Integrated the worktree into {target}{}",
+                        if *cleaned_up { " and removed it" } else { "" }
+                    ),
+                    WorktreeIntegration::Conflicts { worktree } => {
+                        format!("Rebase stopped on conflicts in {worktree}")
+                    }
+                }
+            },
+            move || {
+                yforge_core::integrate_worktree(Path::new(&location), &worktree, &target, cleanup)
+            },
+        )
+        .await;
+    log_outcome("worktree_integrate", &result, |outcome| {
+        format!("{outcome:?}")
+    });
+    result
+}
+
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     builder
         .manage(WatchState::default())
@@ -2077,7 +2615,11 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             stage_hunk,
             unstage_hunk,
             discard_hunk,
+            stage_lines,
+            unstage_lines,
+            discard_lines,
             commit,
+            edit_head_message,
             amend_info,
             commit_details,
             commit_file_diff,
@@ -2087,13 +2629,21 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             rename_branch,
             branch_delete_preview,
             delete_branch,
+            delete_remote_branch,
+            set_upstream,
             stash_push,
+            stash_rename,
+            switch_stashes,
+            switch_stash_restore,
+            switch_stash_dismiss,
             stash_apply,
             stash_pop,
             stash_drop,
             fetch,
             pull,
+            pull_with_autostash,
             push,
+            push_to,
             publish,
             push_plan,
             push_force,
@@ -2119,6 +2669,12 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             conflict_take_side,
             conflict_reset,
             repo_watch,
+            ssh_keys_list,
+            worktree_list,
+            worktree_suggest_path,
+            worktree_create,
+            worktree_remove,
+            worktree_integrate,
             clone_repo,
             init_repo,
             settings_load,

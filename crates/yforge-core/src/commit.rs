@@ -6,8 +6,9 @@ use crate::error::CoreError;
 use crate::git;
 use crate::graph;
 use crate::model::{
-    AmendInfo, CommitBrief, CommitDetails, CommitFile, FileDiff, FileStatus, Signature,
+    AmendInfo, CommitBrief, CommitDetails, CommitFile, FileDiff, FileStatus, MessageEdit, Signature,
 };
+use crate::operation;
 use crate::refs;
 use crate::repo;
 
@@ -332,6 +333,46 @@ pub fn commit(
         });
     }
     Ok(git::run(&root, &["rev-parse", "HEAD"])?.trim().to_owned())
+}
+
+pub fn edit_head_message(
+    path: &Path,
+    sha: &str,
+    summary: &str,
+    description: &str,
+) -> Result<MessageEdit, CoreError> {
+    let root = repo::open(path)?;
+    validate_sha(sha)?;
+    if summary.trim().is_empty() {
+        return Err(CoreError::invalid_request("the commit summary is empty"));
+    }
+    operation::require_settled(&root)?;
+    let head = git::run_unchecked(&root, &["rev-parse", "--verify", "--quiet", "HEAD"], None)?;
+    if !head.succeeded() || !head.stdout.trim().starts_with(sha) {
+        return Err(CoreError::NotHead {
+            sha: sha.to_owned(),
+        });
+    }
+    let pushed = head_is_on_upstream(&root)?;
+    let mut args = vec!["commit", "--quiet", "--amend", "--only", "-m", summary];
+    if !description.trim().is_empty() {
+        args.extend(["-m", description]);
+    }
+    let completed = git::run_unchecked(&root, &args, None)?;
+    if !completed.succeeded() {
+        return Err(CoreError::CommitFailed {
+            status: completed.status,
+            output: [completed.stdout.trim(), completed.stderr.trim()]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        });
+    }
+    Ok(MessageEdit {
+        sha: git::run(&root, &["rev-parse", "HEAD"])?.trim().to_owned(),
+        pushed,
+    })
 }
 
 #[cfg(test)]

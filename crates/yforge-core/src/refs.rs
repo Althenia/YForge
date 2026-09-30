@@ -11,6 +11,16 @@ pub(crate) struct RefEntry {
     pub target: String,
 }
 
+pub(crate) fn require_remote(root: &Path, remote: &str) -> Result<(), CoreError> {
+    if read_remotes(root)?.iter().any(|known| known == remote) {
+        Ok(())
+    } else {
+        Err(CoreError::invalid_request(format!(
+            "{remote} is not a remote of this repository"
+        )))
+    }
+}
+
 const REFS_COMMAND: &str = "git for-each-ref";
 const STASH_COMMAND: &str = "git stash list";
 

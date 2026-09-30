@@ -7,6 +7,13 @@ export const appKeys = {
   identity: ["identity"] as const,
 };
 
+export const diagnosticsKeys = {
+  crashes: ["diagnostics", "crashes"] as const,
+  usage: ["diagnostics", "usage"] as const,
+  history: (path: string) => ["activity-history", path] as const,
+  allHistory: ["activity-history"] as const,
+};
+
 export const repoKeys = {
   all: (path: string) => ["repo", path] as const,
   snapshot: (path: string) => ["repo", path, "snapshot"] as const,

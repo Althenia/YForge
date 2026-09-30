@@ -6,11 +6,12 @@ use std::path::PathBuf;
 use common::Fixture;
 use yforge_core::{
     branch_snapshot, capture_state, cherry_pick, commit, create_branch, delete_branch,
-    discard_files, discard_hunk, head_ref, merge, plan_branch_create, plan_branch_delete,
-    plan_checkout, plan_commit, plan_discard, plan_force_push, plan_integration, plan_reset,
-    plan_stash_restore, push_force, push_plan, rebase, reset, revert, snapshot_files, stash_apply,
-    stash_pop, undo, CancelToken, CheckoutTarget, ErrorKind, ForceLease, MergeMode, Planned,
-    ResetMode, UndoAction,
+    delete_remote_branch, discard_files, discard_hunk, head_ref, merge, plan_branch_create,
+    plan_branch_delete, plan_checkout, plan_commit, plan_discard, plan_force_push,
+    plan_integration, plan_remote_branch_delete, plan_reset, plan_stash_restore, plan_upstream,
+    push_force, push_plan, rebase, remote_branch_sha, reset, revert, set_upstream, snapshot_files,
+    stash_apply, stash_pop, undo, CancelToken, CheckoutTarget, ErrorKind, ForceLease, MergeMode,
+    Planned, ResetMode, UndoAction,
 };
 
 fn repo() -> Fixture {
@@ -437,9 +438,14 @@ fn a_discarded_hunk_is_restored_and_undo_is_refused_after_later_edits() {
     let edited = repo.read("n.txt");
     let file = vec!["n.txt".to_owned()];
     let snapshot = snapshot_files(&repo.path, &file).unwrap();
-    let diff =
-        yforge_core::diff_file(&repo.path, "n.txt", yforge_core::ChangeArea::Unstaged).unwrap();
-    discard_hunk(&repo.path, "n.txt", &diff.hunks[0]).unwrap();
+    let diff = yforge_core::diff_file(
+        &repo.path,
+        "n.txt",
+        yforge_core::ChangeArea::Unstaged,
+        false,
+    )
+    .unwrap();
+    discard_hunk(&repo.path, "n.txt", &diff.hunks[0], false).unwrap();
     let plan = action(plan_discard(&repo.path, snapshot).unwrap());
     repo.write("n.txt", "edited again\n");
 
@@ -552,4 +558,145 @@ fn a_force_push_that_did_not_move_the_remote_has_no_undo() {
         &pushed
     ))
     .contains("did not move"));
+}
+
+fn published_topic() -> (Fixture, PathBuf, String) {
+    let repo = repo();
+    let remote = repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    let topic = repo.commit("t.txt", "t\n", "Topic work");
+    repo.git(&["push", "-q", "origin", "main:topic"]);
+    (repo, remote, topic)
+}
+
+fn delete_topic(repo: &Fixture) -> Planned {
+    let recorded = remote_branch_sha(&repo.path, "origin", "topic").unwrap();
+    delete_remote_branch(
+        &repo.path,
+        "origin",
+        "topic",
+        &CancelToken::new(),
+        &mut |_| {},
+    )
+    .unwrap();
+    plan_remote_branch_delete("origin", "topic", recorded)
+}
+
+#[test]
+fn undoing_a_remote_branch_delete_pushes_the_recorded_commit_back_under_the_same_name() {
+    let (repo, remote, topic) = published_topic();
+    let planned = delete_topic(&repo);
+    let Planned::Available(plan) = &planned else {
+        panic!("expected an undo plan");
+    };
+    assert!(plan.scope.contains("origin/topic") && plan.scope.contains(&topic[..7]));
+    assert_eq!(
+        repo.run_in(&remote, &["for-each-ref", "refs/heads/topic"]),
+        ""
+    );
+
+    let message = undo(&repo.path, &plan.action).unwrap();
+
+    assert_eq!(
+        repo.run_in(&remote, &["rev-parse", "refs/heads/topic"]),
+        topic
+    );
+    assert!(message.contains("topic"), "{message}");
+}
+
+#[test]
+fn undoing_a_remote_branch_delete_is_refused_when_the_name_exists_again() {
+    let (repo, remote, _) = published_topic();
+    let planned = delete_topic(&repo);
+    let other = repo.clone_of(&remote, "other");
+    repo.run_in(&other, &["switch", "-q", "-c", "topic"]);
+    let recreated = repo.commit_in(&other, "n.txt", "n\n", "New topic");
+    repo.run_in(&other, &["push", "-q", "origin", "topic"]);
+
+    let error = undo(&repo.path, &action(planned)).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert!(error.to_string().contains("exists again"), "{error}");
+    assert!(error.to_string().contains("Nothing was changed"), "{error}");
+    assert_eq!(
+        repo.run_in(&remote, &["rev-parse", "refs/heads/topic"]),
+        recreated
+    );
+}
+
+#[test]
+fn a_remote_branch_delete_of_an_unknown_tip_has_no_undo() {
+    assert!(reason(plan_remote_branch_delete("origin", "topic", None)).contains("topic"));
+}
+
+fn upstream_of(repo: &Fixture, branch: &str) -> String {
+    repo.git(&[
+        "for-each-ref",
+        "--format=%(upstream:short)",
+        &format!("refs/heads/{branch}"),
+    ])
+}
+
+fn upstream_snapshot(repo: &Fixture, branch: &str) -> Option<String> {
+    branch_snapshot(&repo.path, branch)
+        .unwrap()
+        .unwrap()
+        .upstream
+}
+
+#[test]
+fn undoing_set_upstream_restores_the_previous_upstream_or_none() {
+    let repo = repo();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    repo.git(&["branch", "feature"]);
+    repo.git(&["push", "-q", "origin", "feature"]);
+
+    let none_before = upstream_snapshot(&repo, "feature");
+    set_upstream(&repo.path, "feature", Some("origin/feature")).unwrap();
+    let plan = action(plan_upstream(
+        "feature",
+        &none_before,
+        &upstream_snapshot(&repo, "feature"),
+    ));
+    undo(&repo.path, &plan).unwrap();
+    assert_eq!(upstream_of(&repo, "feature"), "");
+
+    set_upstream(&repo.path, "feature", Some("origin/main")).unwrap();
+    let before = upstream_snapshot(&repo, "feature");
+    set_upstream(&repo.path, "feature", None).unwrap();
+    let plan = action(plan_upstream(
+        "feature",
+        &before,
+        &upstream_snapshot(&repo, "feature"),
+    ));
+    undo(&repo.path, &plan).unwrap();
+    assert_eq!(upstream_of(&repo, "feature"), "origin/main");
+}
+
+#[test]
+fn undoing_set_upstream_is_refused_when_the_upstream_changed_since() {
+    let repo = repo();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    repo.git(&["branch", "feature"]);
+    repo.git(&["push", "-q", "origin", "feature"]);
+    set_upstream(&repo.path, "feature", Some("origin/feature")).unwrap();
+    let plan = action(plan_upstream(
+        "feature",
+        &None,
+        &upstream_snapshot(&repo, "feature"),
+    ));
+    set_upstream(&repo.path, "feature", Some("origin/main")).unwrap();
+
+    let error = undo(&repo.path, &plan).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert_eq!(upstream_of(&repo, "feature"), "origin/main");
+}
+
+#[test]
+fn a_set_upstream_that_changed_nothing_has_no_undo() {
+    let same = Some("origin/main".to_owned());
+    assert!(reason(plan_upstream("main", &same, &same)).contains("did not change"));
 }

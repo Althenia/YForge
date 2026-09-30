@@ -80,7 +80,7 @@ YForge is a standalone, local-first desktop Git client:
 | Keyboard | Partial palette | Full palette parity |
 | Safety | Two-step force push, single undo | Risk tiers, lease, previews, whole-operation undo |
 | Worktrees | Section, context menus, Agents view with third-party agent CLIs | Worktree lanes with one-step linear integration; no agent tooling in scope |
-| AI | Hosted AI credits or bring-your-own-key | Not in MVP. If ever added, opt-in, never required, never auto-applied |
+| AI | Hosted AI credits or bring-your-own-key | Optional (MVP item 22): the user's own ChatGPT subscription or Claude Code through their official CLIs, OpenRouter, or OpenAI-compatible endpoints; opt-in, never required, never auto-applied |
 
 ## Decisions
 

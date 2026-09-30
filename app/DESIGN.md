@@ -799,7 +799,8 @@ This surface is the YForge desktop application: a dense professional tool with o
 - tab bar, command bar, state strip;
 - sidebar, graph, inspector;
 - center views (diff, conflict resolver);
-- the Activity drawer.
+- the Activity drawer;
+- settings, including Privacy & diagnostics.
 
 The defaults are:
 
@@ -808,7 +809,7 @@ The defaults are:
 - **Motion:** functional, plus the ambient aurora drift (brand B7).
 - **Viewports:** 1440×900 is the primary design viewport; 1280×720 is the supported laptop viewport; 960×600 is the minimum window.
 
-This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and values were approved on 2026-09-29 (Phase 8), revised by the approved GitKraken graph parity (P-G1) and the approved lean Y Aurora direction with tinted Rail graph styling (2026-09-29). The UI is built with Vite + SolidJS and rendered in the system webview of a Rust desktop shell, so web-surface practices apply:
+This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and values were approved on 2026-09-29 (Phase 8), revised by the approved GitKraken graph parity (P-G1), the approved lean Y Aurora direction with tinted Rail graph styling (2026-09-29), and the approved diagnostics rule S16 with the Switch component (2026-09-30, owner delegation). The UI is built with Vite + SolidJS and rendered in the system webview of a Rust desktop shell, so web-surface practices apply:
 
 - `color-scheme` set per theme;
 - owned scrollbars;
@@ -849,6 +850,7 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 | S13 | approved | The commit graph MUST follow GitKraken 12.5.0: lane color by column index over 10 colors, leftmost-free column reuse, 22px lane pitch and author discs, 2px orthogonal edges with 11px rounded corners; row treatments MUST follow COMPONENT_SPECS § Graph row. | review-only: approved 2026-09-29 (P-G1, Rail); render checks after implementation |
 | S14 | approved | The aurora MUST render only in the dark theme, behind the panels at layer `aurora`, MUST pause while the window is hidden or unfocused, and MUST be static under reduced motion; panels and controls MUST stay flat. | review-only: approved 2026-09-29 (Y Aurora); render checks after implementation |
 | S15 | approved | Controls and labels MUST be icon-driven where an established glyph carries the meaning (row actions, tab and pane controls, toolbar actions, section headers, state chips, menu items); every icon-only control MUST have an accessible name and a tooltip naming the action and its shortcut; confirmation, dialog, operation-banner, and destructive buttons MUST keep a text label; an icon MUST NEVER be the only carrier of state (B4). | review-only: approved 2026-09-30 |
+| S16 | approved | Diagnostics data (usage events, crash reports, persisted activity history) MUST stay on this Mac and MUST be managed in Settings → Privacy & diagnostics: usage recording MUST be opt-in, off by default, and its setting MUST state exactly what is recorded and that nothing leaves the Mac; turning it off MUST state that stored events are deleted; every Delete or Clear MUST confirm in a dialog with a text-labelled danger button (S5, S15); an entry from an earlier session MUST say in text that it has no undo (B4). | review-only: approved 2026-09-30 (owner delegation) |
 
 ## Colors
 
@@ -1109,6 +1111,8 @@ A child radius never exceeds its parent's radius.
 | Command palette | Keyboard access | SCREEN_INVENTORY S21 | S21 |
 | Dialog, confirmation | Risky actions | SCREEN_INVENTORY S11, S13, S14 | S11–S19 |
 | Toast, tooltip, badge, progress | Feedback | Front matter tokens | S30 and all |
+| Switch | On/off setting (usage recording) | 32×18 pill with a 12px thumb, a 24px-tall hit area, `role="switch"` with an accessible name and `aria-checked`. Off: `material.control` fill, 1px `rule-strong` edge, `text-muted` thumb. On: `accent` fill, `on-accent` thumb. The thumb moves by transform only (S11). A visible "On" or "Off" label always sits beside it (S15, B4) | S16, S23, S24 |
+| Diagnostics list (usage event, crash report, activity history) | Local records in Settings → Privacy & diagnostics | Rows reuse the Activity entry (status glyph, operation, summary, time; expandable body for crash details and commands). Pages of 25 load with a "Show older" button; an empty list states why it is empty. Header actions are Export… (native save dialog) and a text-labelled Delete or Clear (S5, S16) | S16, S23, S24 |
 | Split pane, resizable divider | Layout | This file (`controls.divider-hit`) | S02, S07, S09 |
 | Empty state | Guidance | SCREEN_INVENTORY | S01, S03, S26, S29 |
 
@@ -1139,7 +1143,7 @@ The danger button is an outline: transparent fill, a 1px `danger` border, and `d
 
 - **Lint:** `python3 ~/.agents/skills/daedalus/scripts/design_md.py lint app/DESIGN.md --strict`, which checks component contrast in both themes (S10).
 - **Render matrix:** `python3 ~/.agents/skills/daedalus/scripts/design_md.py matrix app/DESIGN.md`. The specimens in [../docs/design/specimens/](../docs/design/specimens/) exercise it: `workspace.html` (screen 1) and one file per screen in `screens/`, built on the shared `specimen.css` and `specimen.js`. Each specimen's hash selects the theme and state (`dark`, `light`, `-still0` for a deterministic aurora phase; the workspace also takes `-rebase` and `-highlight`). Specimens are proposal evidence, not implementation.
-- **Review-only until implementation:** S1–S9, S11–S15. Implementation must add:
+- **Review-only until implementation:** S1–S9, S11–S16. Implementation must add:
   - a token source;
   - a repository drift test comparing this front matter with the token source in both directions;
   - render checks at `minimum`, `laptop`, `desktop`, and `wide` in both themes, with the aurora at its worst-case phase.

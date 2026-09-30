@@ -2,8 +2,8 @@ mod common;
 
 use common::Fixture;
 use yforge_core::{
-    amend_info, commit, commit_details, commit_file_diff, stage_all, DiffLineKind, ErrorKind,
-    FileStatus, RefKind,
+    amend_info, commit, commit_details, commit_file_diff, edit_head_message, stage_all,
+    DiffLineKind, ErrorKind, FileStatus, RefKind,
 };
 
 fn ready_repository() -> Fixture {
@@ -279,4 +279,76 @@ fn commit_details_rejects_ids_that_are_not_hexadecimal() {
             .kind(),
         ErrorKind::InvalidRequest
     );
+}
+
+#[test]
+fn editing_the_head_message_keeps_the_tree_the_index_and_the_work_tree() {
+    let repo = ready_repository();
+    repo.write("staged.txt", "s\n");
+    repo.git(&["add", "staged.txt"]);
+    repo.write("a.txt", "edited\n");
+    let before = repo.git(&["rev-parse", "HEAD"]);
+    let tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
+
+    let edit = edit_head_message(&repo.path, &before, "Better summary", "Why it changed.").unwrap();
+
+    assert_ne!(edit.sha, before);
+    assert!(!edit.pushed);
+    assert_eq!(edit.sha, repo.git(&["rev-parse", "HEAD"]));
+    assert_eq!(repo.git(&["rev-parse", "HEAD^{tree}"]), tree);
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Better summary");
+    assert_eq!(repo.git(&["log", "-1", "--format=%b"]), "Why it changed.");
+    assert_eq!(repo.git(&["diff", "--cached", "--name-only"]), "staged.txt");
+    assert_eq!(repo.read("a.txt"), "edited\n");
+}
+
+#[test]
+fn editing_a_message_that_is_not_head_is_refused_with_a_typed_reason() {
+    let repo = ready_repository();
+    let first = repo.git(&["rev-parse", "HEAD"]);
+    repo.commit("b.txt", "b\n", "Second");
+
+    let error = edit_head_message(&repo.path, &first, "Nope", "").unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotHead);
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Second");
+}
+
+#[test]
+fn editing_the_message_during_a_merge_is_refused_with_a_typed_reason() {
+    let repo = ready_repository();
+    repo.git(&["switch", "-q", "-c", "side"]);
+    repo.commit("side.txt", "s\n", "Side");
+    repo.git(&["switch", "-q", "main"]);
+    repo.commit("main.txt", "m\n", "Main");
+    repo.git(&["merge", "--no-commit", "--no-ff", "side"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+
+    let error = edit_head_message(&repo.path, &head, "Reword", "").unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::OperationInProgress);
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Main");
+}
+
+#[test]
+fn editing_the_message_needs_a_summary() {
+    let repo = ready_repository();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+
+    let error = edit_head_message(&repo.path, &head, "  ", "body").unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+}
+
+#[test]
+fn editing_a_pushed_head_message_warns_that_published_history_was_rewritten() {
+    let repo = ready_repository();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+
+    let edit = edit_head_message(&repo.path, &head, "Reworded", "").unwrap();
+
+    assert!(edit.pushed);
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Reworded");
 }

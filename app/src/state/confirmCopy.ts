@@ -215,3 +215,33 @@ export function removeRemoteCopy(name: string, url: string): ConfirmCopy {
     confirmLabel: "Remove remote",
   };
 }
+
+export function clearUsageCopy(): ConfirmCopy {
+  return {
+    title: "Delete all usage data?",
+    consequences: ["Every stored usage event is deleted from this Mac. This cannot be undone. Recording continues while the switch is on."],
+    names: [],
+    confirmLabel: "Delete usage data",
+  };
+}
+
+export function clearCrashesCopy(): ConfirmCopy {
+  return {
+    title: "Clear crash reports?",
+    consequences: ["Every stored crash report is deleted from this Mac. This cannot be undone. Export them first to keep a copy."],
+    names: [],
+    confirmLabel: "Clear crash reports",
+  };
+}
+
+export function clearHistoryCopy(repository: string): ConfirmCopy {
+  return {
+    title: `Clear activity history for ${repository}?`,
+    consequences: [
+      "The stored history of this repository is deleted, and so is this session's list of its operations, so Undo no longer reaches them.",
+      "Nothing changes in the repository itself.",
+    ],
+    names: [],
+    confirmLabel: "Clear history",
+  };
+}

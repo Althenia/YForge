@@ -8,8 +8,9 @@ use std::time::{Duration, Instant};
 
 use common::Fixture;
 use yforge_core::{
-    fetch, pull, push, push_force, push_plan, repo_snapshot, CancelToken, ErrorKind, Head,
-    Operation, Progress, PullMode, PullOutcome,
+    delete_remote_branch, fetch, pull, pull_autostash, push, push_force, push_plan, push_to,
+    remote_branch_sha, repo_snapshot, CancelToken, ErrorKind, Head, Operation, Progress, PullMode,
+    PullOutcome, PullStash, StashKeptReason,
 };
 
 struct Pair {
@@ -591,4 +592,244 @@ fn an_invalid_remote_path_is_a_plain_git_failure() {
     .unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::GitFailed);
+}
+
+fn remote_has(pair: &Pair, branch: &str) -> bool {
+    !pair
+        .repo
+        .run_in(
+            &pair.remote,
+            &["for-each-ref", &format!("refs/heads/{branch}")],
+        )
+        .is_empty()
+}
+
+#[test]
+fn deleting_a_remote_branch_removes_it_from_the_remote_and_its_tracking_ref() {
+    let pair = pair();
+    pair.repo.git(&["push", "-q", "origin", "main:topic"]);
+    assert!(remote_has(&pair, "topic"));
+    let recorded = remote_branch_sha(&pair.repo.path, "origin", "topic").unwrap();
+    assert_eq!(recorded, Some(pair.repo.git(&["rev-parse", "HEAD"])));
+
+    delete_remote_branch(
+        &pair.repo.path,
+        "origin",
+        "topic",
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap();
+
+    assert!(!remote_has(&pair, "topic"));
+    assert!(remote_has(&pair, "main"));
+    assert_eq!(
+        remote_branch_sha(&pair.repo.path, "origin", "topic").unwrap(),
+        None
+    );
+}
+
+#[test]
+fn deleting_a_remote_branch_needs_a_known_remote_and_a_valid_name() {
+    let pair = pair();
+    for (remote, name) in [("nowhere", "topic"), ("origin", ""), ("origin", "a..b")] {
+        let error = delete_remote_branch(
+            &pair.repo.path,
+            remote,
+            name,
+            &CancelToken::new(),
+            &mut no_progress(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidRequest, "{remote}/{name}");
+    }
+}
+
+#[test]
+fn push_to_publishes_the_current_branch_under_another_name_and_can_track_it() {
+    let pair = pair();
+    pair.repo.commit("b.txt", "b\n", "Second");
+
+    push_to(
+        &pair.repo.path,
+        "origin",
+        "review/main",
+        false,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        remote_head(&pair, "review/main"),
+        pair.repo.git(&["rev-parse", "HEAD"])
+    );
+    assert_eq!(
+        pair.repo.git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+        "origin/main"
+    );
+
+    push_to(
+        &pair.repo.path,
+        "origin",
+        "review/again",
+        true,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        pair.repo.git(&["rev-parse", "--abbrev-ref", "@{upstream}"]),
+        "origin/review/again"
+    );
+}
+
+#[test]
+fn push_to_reports_a_rejected_update_and_refuses_bad_targets() {
+    let pair = pair();
+    pair.repo
+        .commit_in(&pair.other, "o.txt", "o\n", "Other work");
+    pair.repo
+        .run_in(&pair.other, &["push", "-q", "origin", "main:shared"]);
+    pair.repo.commit("b.txt", "b\n", "Mine");
+
+    let rejected = push_to(
+        &pair.repo.path,
+        "origin",
+        "shared",
+        false,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap_err();
+    assert_eq!(rejected.kind(), ErrorKind::PushRejected);
+
+    for (remote, name) in [("nowhere", "x"), ("origin", ""), ("origin", "bad name")] {
+        let error = push_to(
+            &pair.repo.path,
+            remote,
+            name,
+            false,
+            &CancelToken::new(),
+            &mut no_progress(),
+        )
+        .unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidRequest, "{remote}/{name}");
+    }
+}
+
+fn autostash_pull(
+    pair: &Pair,
+    mode: PullMode,
+) -> Result<yforge_core::PullReport, yforge_core::CoreError> {
+    pull_autostash(
+        &pair.repo.path,
+        mode,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+}
+
+fn upstream_commit(pair: &Pair, name: &str, contents: &str, message: &str) {
+    pair.repo.commit_in(&pair.other, name, contents, message);
+    pair.repo.run_in(&pair.other, &["push", "-q"]);
+}
+
+#[test]
+fn pulling_a_clean_tree_with_auto_stash_stashes_nothing() {
+    let pair = pair();
+    upstream_commit(&pair, "b.txt", "b\n", "Upstream");
+
+    let report = autostash_pull(&pair, PullMode::FastForwardOrMerge).unwrap();
+
+    assert_eq!(report.outcome, PullOutcome::Updated);
+    assert_eq!(report.stash, PullStash::None);
+    assert!(repo_snapshot(&pair.repo.path).unwrap().stashes.is_empty());
+}
+
+#[test]
+fn a_dirty_tree_is_stashed_around_the_pull_and_always_restored() {
+    for mode in [
+        PullMode::FastForwardOnly,
+        PullMode::FastForwardOrMerge,
+        PullMode::Rebase,
+    ] {
+        let pair = pair();
+        upstream_commit(&pair, "b.txt", "b\n", "Upstream");
+        pair.repo.write("a.txt", "local edit\n");
+        pair.repo.write("scratch.txt", "untracked\n");
+
+        let report = autostash_pull(&pair, mode).unwrap();
+
+        assert_eq!(report.outcome, PullOutcome::Updated, "{mode:?}");
+        assert_eq!(report.stash, PullStash::Restored, "{mode:?}");
+        assert_eq!(pair.repo.read("b.txt"), "b\n");
+        assert_eq!(pair.repo.read("a.txt"), "local edit\n");
+        assert_eq!(pair.repo.read("scratch.txt"), "untracked\n");
+        assert!(repo_snapshot(&pair.repo.path).unwrap().stashes.is_empty());
+    }
+}
+
+#[test]
+fn a_restore_that_conflicts_keeps_the_changes_in_the_named_stash() {
+    let pair = pair();
+    upstream_commit(&pair, "a.txt", "upstream\n", "Upstream edit");
+    pair.repo.write("a.txt", "local\n");
+
+    let report = autostash_pull(&pair, PullMode::FastForwardOrMerge).unwrap();
+
+    assert_eq!(report.outcome, PullOutcome::Updated);
+    let stashes = repo_snapshot(&pair.repo.path).unwrap().stashes;
+    assert_eq!(stashes.len(), 1);
+    assert_eq!(
+        report.stash,
+        PullStash::Kept {
+            reference: "stash@{0}".to_owned(),
+            sha: stashes[0].sha.clone(),
+            reason: StashKeptReason::RestoreConflicts,
+        }
+    );
+    assert_eq!(repo_snapshot(&pair.repo.path).unwrap().counts.conflicted, 1);
+}
+
+#[test]
+fn a_pull_that_stops_on_conflicts_keeps_the_stash_for_later() {
+    let pair = pair();
+    pair.repo.commit("b.txt", "b\n", "Tracked b");
+    pair.repo.git(&["push", "-q"]);
+    pair.repo.run_in(&pair.other, &["pull", "-q"]);
+    upstream_commit(&pair, "a.txt", "upstream\n", "Upstream edit");
+    pair.repo.commit("a.txt", "mine\n", "Local edit");
+    pair.repo.write("b.txt", "dirty b\n");
+
+    let report = autostash_pull(&pair, PullMode::FastForwardOrMerge).unwrap();
+
+    assert_eq!(report.outcome, PullOutcome::Conflicts);
+    let snapshot = repo_snapshot(&pair.repo.path).unwrap();
+    assert_eq!(snapshot.operation, Some(Operation::Merge));
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert_eq!(
+        report.stash,
+        PullStash::Kept {
+            reference: "stash@{0}".to_owned(),
+            sha: snapshot.stashes[0].sha.clone(),
+            reason: StashKeptReason::PullConflicts,
+        }
+    );
+    assert_eq!(pair.repo.read("b.txt"), "b\n");
+}
+
+#[test]
+fn a_refused_pull_puts_the_stashed_changes_back() {
+    let pair = pair();
+    upstream_commit(&pair, "b.txt", "b\n", "Upstream");
+    pair.repo.commit("c.txt", "c\n", "Local");
+    pair.repo.write("a.txt", "local edit\n");
+
+    let error = autostash_pull(&pair, PullMode::FastForwardOnly).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::NotFastForward);
+    assert_eq!(pair.repo.read("a.txt"), "local edit\n");
+    assert!(repo_snapshot(&pair.repo.path).unwrap().stashes.is_empty());
 }

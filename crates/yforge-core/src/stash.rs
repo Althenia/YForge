@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::error::CoreError;
 use crate::git;
 use crate::model::StashRestore;
+use crate::refs;
 use crate::repo;
 
 fn stash_ref(index: u32) -> String {
@@ -94,4 +95,36 @@ pub fn stash_drop(path: &Path, index: u32, sha: &str) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     let reference = verified_ref(&root, index, sha)?;
     git::run(&root, &["stash", "drop", "--quiet", &reference]).map(drop)
+}
+
+fn renamed_message(current: &str, message: &str) -> String {
+    current
+        .strip_prefix("On ")
+        .or_else(|| current.strip_prefix("WIP on "))
+        .and_then(|rest| rest.split_once(": "))
+        .map_or_else(
+            || message.to_owned(),
+            |(branch, _)| format!("On {branch}: {message}"),
+        )
+}
+
+pub fn stash_rename(path: &Path, index: u32, sha: &str, message: &str) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    let message = message.trim();
+    if message.is_empty() {
+        return Err(CoreError::invalid_request("enter a name for the stash"));
+    }
+    let reference = verified_ref(&root, index, sha)?;
+    let current = refs::read_stashes(&root)?
+        .into_iter()
+        .find(|entry| entry.index == index)
+        .map(|entry| entry.message)
+        .unwrap_or_default();
+    git::run(&root, &["stash", "drop", "--quiet", &reference])?;
+    let renamed = renamed_message(&current, message);
+    git::run(&root, &["stash", "store", "-m", &renamed, sha])
+        .map(drop)
+        .inspect_err(|_| {
+            let _ = git::run(&root, &["stash", "store", "-m", &current, sha]);
+        })
 }

@@ -125,10 +125,28 @@ The decision for each candidate follows its workflow dependency.
 20. **Worktrees**
     - Worktree lanes (create, open, remove), plus "Integrate worktree" (rebase onto the target, then `merge --ff-only`, then optional removal).
     - "Open in terminal" for any repository or worktree.
+21. **History editing** (owner decision, 2026-09-30)
+    - Amend, including editing the HEAD message.
+    - Interactive rebase: reorder, reword, squash, fixup, drop, and stop to edit, with a preview of the resulting history.
+    - Squash a multi-selected range of commits into one.
+    - Recompose: regroup the changes of unpushed commits into a new set of commits, manually or from an AI proposal.
+    - Every rewrite is undoable to the recorded HEAD and warns before rewriting pushed commits.
+22. **AI assistance (optional)** (owner decision, 2026-09-30)
+    - Generate commit: draft a commit message from the staged changes into the composer.
+    - Recompose: propose a regrouping of unpushed commits into new commits, shown as a plan to review and edit before applying.
+    - Conflict fix: propose a resolution for each conflict region in the resolver, using both sides and the base; each proposal lands in the Result pane for the user to accept, edit, or reject, and marking the file resolved stays a manual step.
+    - Opt-in and never required: every Git workflow works without a provider. Output is a draft the user reviews; nothing is committed or rewritten automatically.
+    - Content leaves the machine only when the user runs an AI action, and only to the provider the user chose.
+    - Providers, added from a provider dialog of icon cards:
+      - ChatGPT subscription, through the installed Codex CLI and its own sign-in (`codex login` in a browser, or `codex login --device-auth` headless);
+      - Claude Code, through the installed `claude` CLI and its signed-in profile;
+      - OpenRouter, with an API key;
+      - OpenAI-compatible APIs, any number of custom endpoints, each with a base URL and an optional API key.
+    - YForge never reads, refreshes, or stores subscription tokens. API keys live in the macOS Keychain, never in YForge's database.
 
 ## Post-MVP
 
-- Interactive rebase: reorder, squash, reword, drop, plus multi-select squash and drop.
+- Multi-select drop outside interactive rebase.
 - Multi-commit cherry-pick.
 - GitHub:
   - OAuth device flow;
@@ -162,7 +180,7 @@ The decision for each candidate follows its workflow dependency.
   - Team View;
   - Conflict Prevention;
   - Insights.
-- AI features (commit-message drafting, explain, auto-resolve). If ever added, they are opt-in, never required, and never auto-applied.
+- AI features beyond item 22 (explain, unattended auto-resolve). Any addition follows item 22: opt-in, never required, and never auto-applied.
 - Coding-agent tooling (launching or monitoring agents).
 - Mobile or web clients.
 

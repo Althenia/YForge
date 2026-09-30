@@ -36,19 +36,6 @@ fn require_tag(root: &Path, name: &str) -> Result<String, CoreError> {
     }
 }
 
-fn require_remote(root: &Path, remote: &str) -> Result<(), CoreError> {
-    if refs::read_remotes(root)?
-        .iter()
-        .any(|known| known == remote)
-    {
-        Ok(())
-    } else {
-        Err(CoreError::invalid_request(format!(
-            "{remote} is not a remote of this repository"
-        )))
-    }
-}
-
 pub fn create_tag(
     path: &Path,
     name: &str,
@@ -94,7 +81,7 @@ pub fn push_tag(
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
     let root = repo::open(path)?;
-    require_remote(&root, remote)?;
+    refs::require_remote(&root, remote)?;
     let full = require_tag(&root, name)?;
     let refspec = format!("{full}:{full}");
     run_network(
@@ -114,7 +101,7 @@ pub fn delete_remote_tag(
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
     let root = repo::open(path)?;
-    require_remote(&root, remote)?;
+    refs::require_remote(&root, remote)?;
     validated_name(&root, name)?;
     let full = format!("refs/tags/{name}");
     run_network(

@@ -475,7 +475,7 @@ fn integration_commands_refuse_to_run_during_a_bisect() {
 fn a_conflicted_file_shows_its_working_tree_content_with_markers_as_a_diff() {
     let repo = merge_conflict();
 
-    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Conflicted).unwrap();
+    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Conflicted, false).unwrap();
 
     assert!(!diff.binary);
     let added: Vec<&str> = diff.hunks[0]

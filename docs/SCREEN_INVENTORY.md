@@ -479,6 +479,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
   - **Diff & merge:** whitespace default, external tools (Post-MVP).
   - **Keyboard:** reference; customization Post-MVP.
   - **Integrations:** GitHub (Post-MVP).
+  - **Privacy & diagnostics:** opt-in usage data (off by default) with its event list, crash reports, and persisted activity history; each list exports and clears (rule S16).
   - **Advanced:** logging.
 - **Entry points:** ⌘,; the gear; palette ":".
 - **Exit points:** Close or Esc (changes apply immediately).

@@ -78,6 +78,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", icon: "settings" },
   { id: "git", label: "Git", icon: "branch" },
   { id: "appearance", label: "Appearance", icon: "theme" },
+  { id: "privacy", label: "Privacy & diagnostics", icon: "lock" },
   { id: "repository", label: "This repository", icon: "folder" },
 ];
 

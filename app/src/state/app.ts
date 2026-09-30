@@ -14,7 +14,7 @@ import { viewOf } from "../routes";
 import { createStoreValue } from "./clientStore";
 import { createQueryClient } from "./queryClient";
 import { dataOf } from "./queryData";
-import { appKeys, repoKeys } from "./queryKeys";
+import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
 import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
 import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext } from "./palette";
@@ -288,6 +288,7 @@ export function createAppState(router: AppRouter) {
     clearActivity: async (repo: string | undefined) => {
       await client.activityClear(repo ?? null);
       setActivity(await client.activityList());
+      await queryClient.invalidateQueries({ queryKey: diagnosticsKeys.allHistory });
     },
     paletteOpen,
     setPaletteOpen,

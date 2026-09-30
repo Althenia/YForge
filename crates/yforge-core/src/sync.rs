@@ -5,9 +5,13 @@ use crate::branch;
 use crate::commit::{parse_briefs, validate_sha, BRIEF_FORMAT};
 use crate::error::CoreError;
 use crate::git::{self, CancelToken, Completed};
-use crate::model::{ForceLease, ForcePushPlan, Operation, PullMode, PullOutcome};
+use crate::model::{
+    ForceLease, ForcePushPlan, Operation, PullMode, PullOutcome, PullReport, PullStash,
+    StashKeptReason, StashRestore,
+};
 use crate::refs;
 use crate::repo;
+use crate::stash;
 
 const AUTH_MARKERS: [&str; 11] = [
     "host key verification failed",
@@ -155,18 +159,15 @@ fn head_sha(root: &Path) -> Result<String, CoreError> {
     Ok(git::run(root, &["rev-parse", "HEAD"])?.trim().to_owned())
 }
 
-pub fn pull(
-    path: &Path,
-    mode: PullMode,
+fn fetch_upstream(
+    root: &Path,
+    upstream: &Tracking,
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
-) -> Result<PullOutcome, CoreError> {
-    let root = repo::open(path)?;
-    let branch = checked_out_branch(&root, "pull")?;
-    let upstream = require_tracking(&root, &branch)?;
+) -> Result<(), CoreError> {
     if upstream.remote != "." {
         run_network(
-            &root,
+            root,
             &["fetch", "--progress", &upstream.remote],
             &upstream.remote,
             cancel,
@@ -176,21 +177,29 @@ pub fn pull(
     if cancel.is_cancelled() {
         return Err(CoreError::Cancelled);
     }
-    let before = head_sha(&root)?;
+    Ok(())
+}
+
+fn integrate_upstream(
+    root: &Path,
+    mode: PullMode,
+    upstream: &Tracking,
+) -> Result<PullOutcome, CoreError> {
+    let before = head_sha(root)?;
     let args: Vec<&str> = match mode {
         PullMode::FastForwardOnly => vec!["merge", "--ff-only", &upstream.short],
         PullMode::FastForwardOrMerge => vec!["merge", "--no-edit", &upstream.short],
         PullMode::Rebase => vec!["rebase", &upstream.short],
     };
-    let completed = git::run_unchecked(&root, &args, None)?;
+    let completed = git::run_unchecked(root, &args, None)?;
     if completed.succeeded() {
-        return Ok(if head_sha(&root)? == before {
+        return Ok(if head_sha(root)? == before {
             PullOutcome::UpToDate
         } else {
             PullOutcome::Updated
         });
     }
-    if repo::read_operation(&root)?
+    if repo::read_operation(root)?
         .0
         .is_some_and(|operation| operation != Operation::Bisect)
     {
@@ -210,6 +219,67 @@ pub fn pull(
             .trim()
             .to_owned(),
     }))
+}
+
+pub fn pull(
+    path: &Path,
+    mode: PullMode,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<PullOutcome, CoreError> {
+    let root = repo::open(path)?;
+    let branch = checked_out_branch(&root, "pull")?;
+    let upstream = require_tracking(&root, &branch)?;
+    fetch_upstream(&root, &upstream, cancel, on_progress)?;
+    integrate_upstream(&root, mode, &upstream)
+}
+
+const TOP_STASH: &str = "stash@{0}";
+
+pub fn pull_autostash(
+    path: &Path,
+    mode: PullMode,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<PullReport, CoreError> {
+    let root = repo::open(path)?;
+    let branch = checked_out_branch(&root, "pull")?;
+    let upstream = require_tracking(&root, &branch)?;
+    fetch_upstream(&root, &upstream, cancel, on_progress)?;
+    let dirty = repo::read_status(&root)?.counts.total() > 0;
+    let message = format!("YForge: auto-stash before pulling {}", upstream.short);
+    if !dirty || !stash::push_auto(&root, &message, true)? {
+        return Ok(PullReport {
+            outcome: integrate_upstream(&root, mode, &upstream)?,
+            stash: PullStash::None,
+        });
+    }
+    let sha = stash::top_stash(&root)?.unwrap_or_default();
+    let kept = |reason| PullStash::Kept {
+        reference: TOP_STASH.to_owned(),
+        sha: sha.clone(),
+        reason,
+    };
+    match integrate_upstream(&root, mode, &upstream) {
+        Err(failure) => Err(match stash::restore(&root, &["stash", "pop", "--quiet"]) {
+            Ok(StashRestore::Applied) => failure,
+            _ => CoreError::invalid_request(format!(
+                "{failure}; your stashed changes could not be restored and remain in {TOP_STASH}"
+            )),
+        }),
+        Ok(PullOutcome::Conflicts) => Ok(PullReport {
+            outcome: PullOutcome::Conflicts,
+            stash: kept(StashKeptReason::PullConflicts),
+        }),
+        Ok(outcome) => Ok(PullReport {
+            outcome,
+            stash: match stash::restore(&root, &["stash", "pop", "--quiet"]) {
+                Ok(StashRestore::Applied) => PullStash::Restored,
+                Ok(StashRestore::Conflicts) => kept(StashKeptReason::RestoreConflicts),
+                Err(_) => kept(StashKeptReason::RestoreFailed),
+            },
+        }),
+    }
 }
 
 pub fn push(
@@ -284,6 +354,60 @@ pub fn publish(
         ));
     }
     publish_branch(&root, &branch, remote, cancel, on_progress)
+}
+
+pub fn remote_branch_sha(
+    path: &Path,
+    remote: &str,
+    name: &str,
+) -> Result<Option<String>, CoreError> {
+    let root = repo::open(path)?;
+    let full = format!("refs/remotes/{remote}/{name}");
+    let completed = git::run_unchecked(&root, &["rev-parse", "--verify", "--quiet", &full], None)?;
+    Ok(completed
+        .succeeded()
+        .then(|| completed.stdout.trim().to_owned()))
+}
+
+pub fn delete_remote_branch(
+    path: &Path,
+    remote: &str,
+    name: &str,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    refs::require_remote(&root, remote)?;
+    branch::validated_name(&root, name)?;
+    let full = format!("refs/heads/{name}");
+    run_network(
+        &root,
+        &["push", "--progress", remote, "--delete", &full],
+        remote,
+        cancel,
+        on_progress,
+    )
+}
+
+pub fn push_to(
+    path: &Path,
+    remote: &str,
+    name: &str,
+    set_upstream: bool,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    let current = checked_out_branch(&root, "push")?;
+    refs::require_remote(&root, remote)?;
+    branch::validated_name(&root, name)?;
+    let refspec = format!("refs/heads/{current}:refs/heads/{name}");
+    let mut args = vec!["push", "--progress"];
+    if set_upstream {
+        args.push("--set-upstream");
+    }
+    args.extend([remote, &refspec]);
+    run_network(&root, &args, remote, cancel, on_progress)
 }
 
 pub fn push_plan(path: &Path) -> Result<ForcePushPlan, CoreError> {

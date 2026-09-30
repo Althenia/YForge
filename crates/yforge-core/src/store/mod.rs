@@ -1,5 +1,6 @@
 mod history;
 mod legacy;
+mod stashes;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,6 +19,8 @@ use crate::repo;
 use crate::sqlite::{failure, unix_now, Database};
 
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
+pub(crate) use stashes::record_switch_stash;
+pub use stashes::{dismiss_switch_stash, switch_stashes};
 
 const RECENT_LIMIT: i64 = 30;
 const THEME: &str = "appearance.theme";
@@ -28,6 +31,7 @@ const AUTO_FETCH: &str = "git.auto_fetch_minutes";
 const EDITOR: &str = "tools.editor_command";
 const TERMINAL: &str = "tools.terminal_command";
 const TELEMETRY: &str = "privacy.telemetry_opt_in";
+const SSH_KEY: &str = "git.ssh_key_path";
 
 const STATE: Database = Database {
     file: "yforge.db",
@@ -35,7 +39,10 @@ const STATE: Database = Database {
 };
 
 fn migrations() -> Migrations<'static> {
-    Migrations::new(vec![M::up(include_str!("schema.sql"))])
+    Migrations::new(vec![
+        M::up(include_str!("schema.sql")),
+        M::up(include_str!("switch_stashes.sql")),
+    ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];
 
@@ -65,6 +72,8 @@ pub struct AppSettings {
     pub editor_command: String,
     pub terminal_command: String,
     pub telemetry_opt_in: bool,
+    #[ts(optional = nullable)]
+    pub ssh_key_path: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -78,6 +87,7 @@ impl Default for AppSettings {
             editor_command: String::new(),
             terminal_command: String::new(),
             telemetry_opt_in: false,
+            ssh_key_path: None,
         }
     }
 }
@@ -85,6 +95,9 @@ impl Default for AppSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct RepoSettings {
     pub pull_mode: Option<PullMode>,
+    #[serde(default)]
+    #[ts(optional = nullable)]
+    pub ssh_key_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -182,6 +195,7 @@ pub(crate) fn read_settings(conn: &Connection, dir: &Path) -> Result<AppSettings
         editor_command: parse(dir, &stored, EDITOR, defaults.editor_command)?,
         terminal_command: parse(dir, &stored, TERMINAL, defaults.terminal_command)?,
         telemetry_opt_in: parse(dir, &stored, TELEMETRY, defaults.telemetry_opt_in)?,
+        ssh_key_path: parse(dir, &stored, SSH_KEY, defaults.ssh_key_path)?,
     })
 }
 
@@ -193,7 +207,8 @@ pub(crate) fn write_settings(conn: &Connection, settings: &AppSettings) -> rusql
     put_setting(conn, AUTO_FETCH, &settings.auto_fetch_minutes)?;
     put_setting(conn, EDITOR, &settings.editor_command)?;
     put_setting(conn, TERMINAL, &settings.terminal_command)?;
-    put_setting(conn, TELEMETRY, &settings.telemetry_opt_in)
+    put_setting(conn, TELEMETRY, &settings.telemetry_opt_in)?;
+    put_setting(conn, SSH_KEY, &settings.ssh_key_path)
 }
 
 pub fn load_settings(dir: &Path) -> Result<AppSettings, CoreError> {
@@ -209,6 +224,7 @@ pub fn save_settings(dir: &Path, settings: &AppSettings) -> Result<(), CoreError
     }
     let saved = AppSettings {
         default_branch,
+        ssh_key_path: valid_ssh_key(settings.ssh_key_path.as_deref())?,
         ..settings.clone()
     };
     let mut conn = open(dir)?;
@@ -218,6 +234,28 @@ pub fn save_settings(dir: &Path, settings: &AppSettings) -> Result<(), CoreError
     let tx = conn.transaction().map_err(sql(dir))?;
     write_settings(&tx, &saved).map_err(sql(dir))?;
     tx.commit().map_err(sql(dir))
+}
+
+fn valid_ssh_key(key: Option<&str>) -> Result<Option<String>, CoreError> {
+    let Some(key) = key.map(str::trim).filter(|key| !key.is_empty()) else {
+        return Ok(None);
+    };
+    let path = Path::new(key);
+    if !path.is_absolute() || !path.is_file() {
+        return Err(CoreError::invalid_request(format!(
+            "{key} is not an existing key file; choose the full path of a private key"
+        )));
+    }
+    Ok(Some(key.to_owned()))
+}
+
+pub fn ssh_key_for(dir: &Path, repository: &str) -> Result<Option<std::path::PathBuf>, CoreError> {
+    let own = load_repo_settings(dir, repository)?.ssh_key_path;
+    let key = match own {
+        Some(key) => Some(key),
+        None => load_settings(dir)?.ssh_key_path,
+    };
+    Ok(key.map(std::path::PathBuf::from))
 }
 
 pub(crate) fn write_repo_settings(
@@ -235,6 +273,12 @@ pub(crate) fn write_repo_settings(
             params![repository, PULL_MODE, encode(mode)?],
         )?;
     }
+    if let Some(key) = &settings.ssh_key_path {
+        conn.execute(
+            "INSERT INTO repo_settings (repository, key, value) VALUES (?1, ?2, ?3)",
+            params![repository, SSH_KEY, encode(key)?],
+        )?;
+    }
     Ok(())
 }
 
@@ -248,6 +292,7 @@ pub fn load_repo_settings(dir: &Path, repository: &str) -> Result<RepoSettings, 
     .map_err(sql(dir))?;
     Ok(RepoSettings {
         pull_mode: parse(dir, &stored, PULL_MODE, None)?,
+        ssh_key_path: parse(dir, &stored, SSH_KEY, None)?,
     })
 }
 
@@ -256,9 +301,13 @@ pub fn save_repo_settings(
     repository: &str,
     settings: &RepoSettings,
 ) -> Result<(), CoreError> {
+    let saved = RepoSettings {
+        ssh_key_path: valid_ssh_key(settings.ssh_key_path.as_deref())?,
+        ..settings.clone()
+    };
     let mut conn = open(dir)?;
     let tx = conn.transaction().map_err(sql(dir))?;
-    write_repo_settings(&tx, repository, settings).map_err(sql(dir))?;
+    write_repo_settings(&tx, repository, &saved).map_err(sql(dir))?;
     tx.commit().map_err(sql(dir))
 }
 

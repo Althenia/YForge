@@ -3,9 +3,9 @@ mod common;
 use common::Fixture;
 use rusqlite::Connection;
 use yforge_core::{
-    add_recent, load_recents, load_repo_settings, load_session, load_settings, recent_status,
-    remove_recent, save_repo_settings, save_session, save_settings, start_storage, AppSettings,
-    Density, ErrorKind, PullMode, RepoSettings, TabSession, Theme,
+    add_recent, list_ssh_keys, load_recents, load_repo_settings, load_session, load_settings,
+    recent_status, remove_recent, save_repo_settings, save_session, save_settings, ssh_key_for,
+    start_storage, AppSettings, Density, ErrorKind, PullMode, RepoSettings, TabSession, Theme,
 };
 
 fn database(dir: &std::path::Path) -> Connection {
@@ -26,6 +26,7 @@ fn settings_default_then_persist_across_reloads() {
         editor_command: "code".to_owned(),
         terminal_command: "open -a iTerm".to_owned(),
         telemetry_opt_in: true,
+        ssh_key_path: None,
     };
     save_settings(dir.path(), &changed).unwrap();
 
@@ -102,6 +103,7 @@ fn the_tab_session_and_repository_overrides_round_trip() {
         "/a",
         &RepoSettings {
             pull_mode: Some(PullMode::Rebase),
+            ssh_key_path: None,
         },
     )
     .unwrap();
@@ -212,7 +214,7 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
     let stored: i64 = database(dir.path())
         .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(stored, 8);
+    assert_eq!(stored, 9);
 }
 
 #[test]
@@ -275,7 +277,7 @@ fn reopening_keeps_the_schema_version_data_and_wal_journal() {
     let journal: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 1);
+    assert_eq!(version, 2);
     assert_eq!(journal, "wal");
 }
 
@@ -349,6 +351,136 @@ fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safet
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!((kept.as_str(), version), ("kept", 1));
+    assert_eq!((kept.as_str(), version), ("kept", 2));
     assert!(!dir.path().join("yforge.db.pre-migration").exists());
+}
+
+fn key_file(dir: &std::path::Path, name: &str) -> String {
+    let path = dir.join(name);
+    std::fs::write(&path, "private").unwrap();
+    path.display().to_string()
+}
+
+#[test]
+fn the_repository_ssh_key_wins_over_the_app_key_and_either_can_be_cleared() {
+    let dir = tempfile::tempdir().unwrap();
+    let app_key = key_file(dir.path(), "id_app");
+    let repo_key = key_file(dir.path(), "id_repo");
+    assert_eq!(ssh_key_for(dir.path(), "/repo").unwrap(), None);
+
+    save_settings(
+        dir.path(),
+        &AppSettings {
+            ssh_key_path: Some(app_key.clone()),
+            ..AppSettings::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        load_settings(dir.path()).unwrap().ssh_key_path,
+        Some(app_key.clone())
+    );
+    assert_eq!(
+        ssh_key_for(dir.path(), "/repo").unwrap(),
+        Some(app_key.clone().into())
+    );
+
+    save_repo_settings(
+        dir.path(),
+        "/repo",
+        &RepoSettings {
+            ssh_key_path: Some(repo_key.clone()),
+            ..RepoSettings::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        load_repo_settings(dir.path(), "/repo")
+            .unwrap()
+            .ssh_key_path,
+        Some(repo_key.clone())
+    );
+    assert_eq!(
+        ssh_key_for(dir.path(), "/repo").unwrap(),
+        Some(repo_key.into())
+    );
+    assert_eq!(
+        ssh_key_for(dir.path(), "/other").unwrap(),
+        Some(app_key.into())
+    );
+
+    save_repo_settings(dir.path(), "/repo", &RepoSettings::default()).unwrap();
+    save_settings(dir.path(), &AppSettings::default()).unwrap();
+    assert_eq!(ssh_key_for(dir.path(), "/repo").unwrap(), None);
+}
+
+#[test]
+fn an_ssh_key_setting_must_be_an_existing_absolute_file_and_blank_means_the_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    for bad in [
+        "relative/key",
+        "/no/such/key",
+        &dir.path().display().to_string(),
+    ] {
+        let app = save_settings(
+            dir.path(),
+            &AppSettings {
+                ssh_key_path: Some(bad.to_owned()),
+                ..AppSettings::default()
+            },
+        );
+        let repo = save_repo_settings(
+            dir.path(),
+            "/repo",
+            &RepoSettings {
+                ssh_key_path: Some(bad.to_owned()),
+                ..RepoSettings::default()
+            },
+        );
+        assert_eq!(app.unwrap_err().kind(), ErrorKind::InvalidRequest, "{bad}");
+        assert_eq!(repo.unwrap_err().kind(), ErrorKind::InvalidRequest, "{bad}");
+    }
+
+    save_settings(
+        dir.path(),
+        &AppSettings {
+            ssh_key_path: Some("  ".to_owned()),
+            ..AppSettings::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(load_settings(dir.path()).unwrap().ssh_key_path, None);
+}
+
+#[test]
+fn lists_only_private_keys_that_have_a_public_sibling() {
+    let ssh = tempfile::tempdir().unwrap();
+    for (name, content) in [
+        ("id_ed25519", "private"),
+        ("id_ed25519.pub", "ssh-ed25519 AAAA me@host"),
+        ("id_rsa", "private"),
+        ("orphan.pub", "ssh-rsa BBBB x"),
+        ("known_hosts", "host key"),
+        ("work", "private"),
+        ("work.pub", "ssh-rsa CCCC work"),
+    ] {
+        std::fs::write(ssh.path().join(name), content).unwrap();
+    }
+    std::fs::create_dir(ssh.path().join("dir")).unwrap();
+    std::fs::create_dir(ssh.path().join("dir.pub")).unwrap();
+
+    let keys = list_ssh_keys(ssh.path()).unwrap();
+
+    let listed: Vec<(&str, &str)> = keys
+        .iter()
+        .map(|key| (key.name.as_str(), key.algorithm.as_str()))
+        .collect();
+    assert_eq!(listed, [("id_ed25519", "ssh-ed25519"), ("work", "ssh-rsa")]);
+    assert_eq!(
+        keys[0].path,
+        ssh.path().join("id_ed25519").display().to_string()
+    );
+    assert!(list_ssh_keys(&ssh.path().join("missing"))
+        .unwrap()
+        .is_empty());
 }

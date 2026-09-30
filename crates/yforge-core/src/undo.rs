@@ -73,6 +73,16 @@ pub enum UndoAction {
         pushed: String,
         previous: String,
     },
+    RestoreRemoteBranch {
+        remote: String,
+        remote_ref: String,
+        sha: String,
+    },
+    RestoreUpstream {
+        branch: String,
+        from: Option<String>,
+        to: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -298,6 +308,49 @@ pub fn plan_force_push(lease: &ForceLease, pushed: &str) -> Planned {
             lease.remote,
             short(&lease.expected_sha),
             short(pushed)
+        ),
+    )
+}
+
+pub fn plan_remote_branch_delete(remote: &str, name: &str, sha: Option<String>) -> Planned {
+    let Some(sha) = sha else {
+        return unavailable(format!(
+            "The tip of {remote}/{name} was not known locally, so it cannot be restored"
+        ));
+    };
+    available(
+        UndoAction::RestoreRemoteBranch {
+            remote: remote.to_owned(),
+            remote_ref: format!("refs/heads/{name}"),
+            sha: sha.clone(),
+        },
+        format!(
+            "Undo delete remote branch: pushes {} back to {remote}/{name}, only if that name does not exist on the remote",
+            short(&sha)
+        ),
+    )
+}
+
+fn upstream_label(upstream: &Option<String>) -> String {
+    upstream
+        .as_ref()
+        .map_or_else(|| "no upstream".to_owned(), Clone::clone)
+}
+
+pub fn plan_upstream(branch: &str, before: &Option<String>, after: &Option<String>) -> Planned {
+    if before == after {
+        return unavailable("The upstream did not change");
+    }
+    available(
+        UndoAction::RestoreUpstream {
+            branch: branch.to_owned(),
+            from: after.clone(),
+            to: before.clone(),
+        },
+        format!(
+            "Undo set upstream: {branch} goes back to {} if its upstream is still {}",
+            upstream_label(before),
+            upstream_label(after)
         ),
     )
 }
@@ -595,6 +648,50 @@ pub fn undo_with(
                 }
                 Err(error) => Err(error),
             }
+        }
+        UndoAction::RestoreRemoteBranch {
+            remote,
+            remote_ref,
+            sha,
+        } => {
+            validate_sha(sha)?;
+            if !refs::read_remotes(&root)?.contains(remote) {
+                return Err(refuse(format!(
+                    "{remote} is no longer a remote of this repository"
+                )));
+            }
+            let with_lease = format!("--force-with-lease={remote_ref}:");
+            let refspec = format!("{sha}:{remote_ref}");
+            match run_network(
+                &root,
+                &["push", "--progress", &with_lease, remote, &refspec],
+                remote,
+                cancel,
+                on_progress,
+            ) {
+                Ok(()) => Ok(format!(
+                    "Restored {remote_ref} on {remote} at {}",
+                    short(sha)
+                )),
+                Err(CoreError::PushRejected { detail }) if detail.contains("stale info") => {
+                    Err(refuse(format!(
+                        "{remote_ref} exists again on {remote}, so it was left alone"
+                    )))
+                }
+                Err(error) => Err(error),
+            }
+        }
+        UndoAction::RestoreUpstream { branch, from, to } => {
+            let current = branch_snapshot(&root, branch)?
+                .ok_or_else(|| refuse(format!("{branch} no longer exists")))?;
+            if &current.upstream != from {
+                return Err(refuse(format!("the upstream of {branch} changed since")));
+            }
+            crate::branch::set_upstream(&root, branch, to.as_deref())?;
+            Ok(format!(
+                "Set the upstream of {branch} back to {}",
+                upstream_label(to)
+            ))
         }
         UndoAction::RestoreFiles { files } => {
             for file in files {

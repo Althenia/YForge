@@ -149,7 +149,7 @@ describe("icon-driven controls (S15)", () => {
     const settings = mountWithApp(() => <SettingsView section="general" />);
     dispose = settings.dispose;
     await flush(40);
-    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(3);
+    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(4);
     for (const button of iconOnly(settings.host)) expect(button.dataset.tip).toBeTruthy();
   });
 

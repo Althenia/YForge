@@ -2,8 +2,9 @@ mod common;
 
 use common::Fixture;
 use yforge_core::{
-    branch_delete_preview, check_branch_name, checkout, create_branch, delete_branch,
-    rename_branch, repo_snapshot, AutoStash, CheckoutTarget, ErrorKind, Head,
+    branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
+    delete_branch, dismiss_switch_stash, rename_branch, repo_snapshot, set_upstream, stash_drop,
+    switch_stashes, AutoStash, CheckoutTarget, ErrorKind, Head,
 };
 
 fn local(name: &str) -> CheckoutTarget {
@@ -393,4 +394,178 @@ fn refuses_to_delete_the_checked_out_branch_or_an_unknown_one() {
         let error = delete_branch(&repo.path, name, true).unwrap_err();
         assert_eq!(error.kind(), ErrorKind::InvalidRequest, "{name}");
     }
+}
+
+fn upstream_of(repo: &Fixture, branch: &str) -> String {
+    repo.git(&[
+        "for-each-ref",
+        "--format=%(upstream:short)",
+        &format!("refs/heads/{branch}"),
+    ])
+}
+
+#[test]
+fn sets_changes_and_unsets_the_upstream_of_a_local_branch() {
+    let repo = ready();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    repo.git(&["branch", "feature"]);
+    repo.git(&["push", "-q", "origin", "feature"]);
+    assert_eq!(upstream_of(&repo, "feature"), "");
+
+    set_upstream(&repo.path, "feature", Some("origin/feature")).unwrap();
+    assert_eq!(upstream_of(&repo, "feature"), "origin/feature");
+
+    set_upstream(&repo.path, "feature", Some("origin/main")).unwrap();
+    assert_eq!(upstream_of(&repo, "feature"), "origin/main");
+
+    set_upstream(&repo.path, "feature", None).unwrap();
+    assert_eq!(upstream_of(&repo, "feature"), "");
+}
+
+#[test]
+fn set_upstream_needs_an_existing_branch_and_an_existing_target() {
+    let repo = ready();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+
+    for (branch, upstream) in [
+        ("missing", Some("origin/main")),
+        ("main", Some("origin/missing")),
+        ("main", Some("--all")),
+        ("missing", None),
+    ] {
+        let error = set_upstream(&repo.path, branch, upstream).unwrap_err();
+        assert_eq!(
+            error.kind(),
+            ErrorKind::InvalidRequest,
+            "{branch} {upstream:?}"
+        );
+    }
+    assert_eq!(upstream_of(&repo, "main"), "origin/main");
+}
+
+fn data_dir() -> tempfile::TempDir {
+    tempfile::tempdir().unwrap()
+}
+
+#[test]
+fn leaving_changes_stashed_records_them_for_the_branch_that_was_left() {
+    let repo = ready();
+    repo.git(&["branch", "feature"]);
+    repo.write("a.txt", "local edit\n");
+    repo.write("scratch.txt", "untracked\n");
+    let dir = data_dir();
+
+    let outcome = checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+
+    assert_eq!(outcome.auto_stash, AutoStash::Stashed);
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+    assert!(matches!(&snapshot.head, Head::Branch { name, .. } if name == "feature"));
+    assert_eq!(snapshot.counts.total(), 0);
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert_eq!(repo.read("a.txt"), "one\n");
+    let left = switch_stashes(dir.path(), &repo.path, "main").unwrap();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].branch, "main");
+    assert_eq!(left[0].sha, snapshot.stashes[0].sha);
+    assert_eq!(left[0].index, 0);
+    assert!(
+        left[0].message.contains("switching to feature"),
+        "{}",
+        left[0].message
+    );
+    assert!(switch_stashes(dir.path(), &repo.path, "feature")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn leaving_a_clean_tree_stashes_and_records_nothing() {
+    let repo = ready();
+    repo.git(&["branch", "feature"]);
+    let dir = data_dir();
+
+    let outcome = checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+
+    assert_eq!(outcome.auto_stash, AutoStash::None);
+    assert!(switch_stashes(dir.path(), &repo.path, "main")
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn stashes_left_on_the_same_branch_are_listed_newest_first_with_their_live_index() {
+    let repo = ready();
+    repo.git(&["branch", "feature"]);
+    let dir = data_dir();
+    repo.write("a.txt", "first\n");
+    checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+    repo.git(&["switch", "-q", "main"]);
+    repo.write("a.txt", "second\n");
+    checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+
+    let left = switch_stashes(dir.path(), &repo.path, "main").unwrap();
+
+    assert_eq!(left.len(), 2);
+    assert_eq!((left[0].index, left[1].index), (0, 1));
+    assert!(left[0].created_at >= left[1].created_at);
+    let stashes = repo_snapshot(&repo.path).unwrap().stashes;
+    assert_eq!(left[0].sha, stashes[0].sha);
+    assert_eq!(left[1].sha, stashes[1].sha);
+}
+
+#[test]
+fn a_recorded_stash_that_no_longer_exists_is_not_offered_and_dismiss_keeps_the_stash() {
+    let repo = ready();
+    repo.git(&["branch", "feature"]);
+    let dir = data_dir();
+    repo.write("a.txt", "first\n");
+    checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+    repo.git(&["switch", "-q", "main"]);
+    repo.write("a.txt", "second\n");
+    checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap();
+    let left = switch_stashes(dir.path(), &repo.path, "main").unwrap();
+
+    stash_drop(&repo.path, left[1].index, &left[1].sha).unwrap();
+    let remaining = switch_stashes(dir.path(), &repo.path, "main").unwrap();
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].sha, left[0].sha);
+
+    dismiss_switch_stash(dir.path(), &repo.path, "main", &left[0].sha).unwrap();
+    assert!(switch_stashes(dir.path(), &repo.path, "main")
+        .unwrap()
+        .is_empty());
+    assert_eq!(repo_snapshot(&repo.path).unwrap().stashes.len(), 1);
+}
+
+#[test]
+fn leaving_a_stash_from_a_detached_head_or_with_a_failing_switch_keeps_the_changes_and_records_nothing(
+) {
+    let repo = ready();
+    repo.git(&["branch", "occupied"]);
+    let worktree = repo.sibling("occupied-tree");
+    repo.git(&[
+        "worktree",
+        "add",
+        "-q",
+        worktree.to_str().unwrap(),
+        "occupied",
+    ]);
+    repo.write("a.txt", "local\n");
+    let dir = data_dir();
+
+    let failed = checkout_leaving_stash(&repo.path, &local("occupied"), dir.path()).unwrap_err();
+    assert_eq!(failed.kind(), ErrorKind::GitFailed);
+    assert_eq!(repo.read("a.txt"), "local\n");
+    assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
+    assert!(switch_stashes(dir.path(), &repo.path, "main")
+        .unwrap()
+        .is_empty());
+
+    repo.git(&["switch", "-q", "--detach"]);
+    repo.git(&["branch", "feature"]);
+    let detached = checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap_err();
+    assert_eq!(detached.kind(), ErrorKind::InvalidRequest);
+    assert_eq!(repo.read("a.txt"), "local\n");
 }

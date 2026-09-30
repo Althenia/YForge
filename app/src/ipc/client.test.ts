@@ -354,4 +354,52 @@ describe("typed IPC client", () => {
     choice = null;
     expect(await client.pickFolder("Open a repository")).toBeUndefined();
   });
+
+  it("returns the path chosen in the native save dialog, or undefined when it is dismissed", async () => {
+    let choice: string | null = "/tmp/usage.json";
+    let received: unknown;
+    mockIPC((cmd, args) => {
+      if (cmd === "plugin:dialog|save") {
+        received = args;
+        return choice;
+      }
+      return null;
+    });
+
+    expect(await client.pickSavePath("Export usage data", "yforge-usage.json")).toBe("/tmp/usage.json");
+    expect(received).toMatchObject({ options: { title: "Export usage data", defaultPath: "yforge-usage.json" } });
+    choice = null;
+    expect(await client.pickSavePath("Export usage data", "yforge-usage.json")).toBeUndefined();
+  });
+
+  it("invokes the history, crash, and usage commands by name with their arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return cmd === "crash_export" || cmd === "usage_export" ? 3 : null;
+    });
+    const report = { kind: "error", message: "boom", stack: null, view: "/repo" };
+
+    await client.activityHistory("/r", null, 25);
+    await client.activityHistory("/r", 40, 25);
+    await client.crashReport(report);
+    await client.crashList(null, 25);
+    expect(await client.crashExport("/tmp/crashes.json")).toBe(3);
+    await client.crashClear();
+    await client.usageList(12, 25);
+    expect(await client.usageExport("/tmp/usage.json")).toBe(3);
+    await client.usageClear();
+
+    expect(calls).toEqual([
+      { cmd: "activity_history", args: { repo: "/r", before: null, limit: 25 } },
+      { cmd: "activity_history", args: { repo: "/r", before: 40, limit: 25 } },
+      { cmd: "crash_report", args: { report } },
+      { cmd: "crash_list", args: { before: null, limit: 25 } },
+      { cmd: "crash_export", args: { path: "/tmp/crashes.json" } },
+      { cmd: "crash_clear", args: {} },
+      { cmd: "usage_list", args: { before: 12, limit: 25 } },
+      { cmd: "usage_export", args: { path: "/tmp/usage.json" } },
+      { cmd: "usage_clear", args: {} },
+    ]);
+  });
 });

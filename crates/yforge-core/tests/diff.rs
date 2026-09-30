@@ -15,7 +15,7 @@ fn unstaged_diff_lists_hunks_with_line_kinds_and_numbers() {
     let repo = ready_repository();
     repo.write("a.txt", "one\n2\nthree\n");
 
-    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged).unwrap();
+    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, false).unwrap();
 
     assert_eq!(diff.path, "a.txt");
     assert_eq!(diff.original_path, None);
@@ -61,8 +61,8 @@ fn staged_diff_shows_only_the_index_side() {
     repo.git(&["add", "a.txt"]);
     repo.write("a.txt", "one\nstaged\nthree\nworktree\n");
 
-    let staged = diff_file(&repo.path, "a.txt", ChangeArea::Staged).unwrap();
-    let unstaged = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged).unwrap();
+    let staged = diff_file(&repo.path, "a.txt", ChangeArea::Staged, false).unwrap();
+    let unstaged = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, false).unwrap();
 
     let added = |diff: &yforge_core::FileDiff| -> Vec<String> {
         diff.hunks[0]
@@ -86,7 +86,7 @@ fn staged_rename_reports_its_original_path() {
     repo.numbered("renamed.txt", &[(3, "line three edited")]);
     repo.git(&["add", "renamed.txt"]);
 
-    let diff = diff_file(&repo.path, "renamed.txt", ChangeArea::Staged).unwrap();
+    let diff = diff_file(&repo.path, "renamed.txt", ChangeArea::Staged, false).unwrap();
 
     assert_eq!(diff.original_path.as_deref(), Some("big.txt"));
     assert_eq!(diff.hunks.len(), 1);
@@ -101,7 +101,7 @@ fn untracked_text_file_is_one_all_added_hunk() {
     let repo = ready_repository();
     repo.write("notes/todo.md", "first\nsecond\n");
 
-    let diff = diff_file(&repo.path, "notes/todo.md", ChangeArea::Untracked).unwrap();
+    let diff = diff_file(&repo.path, "notes/todo.md", ChangeArea::Untracked, false).unwrap();
 
     assert!(!diff.binary);
     assert_eq!(diff.hunks.len(), 1);
@@ -125,7 +125,7 @@ fn untracked_empty_file_has_no_hunks() {
     let repo = ready_repository();
     repo.write("empty.txt", "");
 
-    let diff = diff_file(&repo.path, "empty.txt", ChangeArea::Untracked).unwrap();
+    let diff = diff_file(&repo.path, "empty.txt", ChangeArea::Untracked, false).unwrap();
 
     assert!(!diff.binary);
     assert!(diff.hunks.is_empty());
@@ -135,14 +135,14 @@ fn untracked_empty_file_has_no_hunks() {
 fn binary_files_are_detected_untracked_and_tracked() {
     let repo = ready_repository();
     repo.write("logo.png", "PNG\0\u{1}\u{2}");
-    let untracked = diff_file(&repo.path, "logo.png", ChangeArea::Untracked).unwrap();
+    let untracked = diff_file(&repo.path, "logo.png", ChangeArea::Untracked, false).unwrap();
     assert!(untracked.binary);
     assert!(untracked.hunks.is_empty());
 
     repo.git(&["add", "logo.png"]);
     repo.git(&["commit", "-q", "-m", "Add logo"]);
     repo.write("logo.png", "PNG\0\u{3}\u{4}");
-    let tracked = diff_file(&repo.path, "logo.png", ChangeArea::Unstaged).unwrap();
+    let tracked = diff_file(&repo.path, "logo.png", ChangeArea::Unstaged, false).unwrap();
     assert!(tracked.binary);
     assert!(tracked.hunks.is_empty());
 }
@@ -152,7 +152,7 @@ fn marks_lines_without_a_trailing_newline() {
     let repo = ready_repository();
     repo.write("a.txt", "one\ntwo\nthree");
 
-    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged).unwrap();
+    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, false).unwrap();
 
     let flagged: Vec<&str> = diff.hunks[0]
         .lines
@@ -168,15 +168,39 @@ fn rejects_unconflicted_files_in_the_conflicted_area_and_paths_outside_the_repos
     let repo = ready_repository();
 
     assert_eq!(
-        diff_file(&repo.path, "a.txt", ChangeArea::Conflicted)
+        diff_file(&repo.path, "a.txt", ChangeArea::Conflicted, false)
             .unwrap_err()
             .kind(),
         ErrorKind::InvalidRequest
     );
     assert_eq!(
-        diff_file(&repo.path, "../a.txt", ChangeArea::Untracked)
+        diff_file(&repo.path, "../a.txt", ChangeArea::Untracked, false)
             .unwrap_err()
             .kind(),
         ErrorKind::InvalidRequest
+    );
+}
+
+#[test]
+fn ignore_whitespace_hides_whitespace_only_changes_and_keeps_real_ones() {
+    let repo = ready_repository();
+    repo.write("a.txt", "one\ntwo  \n   three\n");
+
+    let plain = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, false).unwrap();
+    let ignored = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, true).unwrap();
+    assert_eq!(plain.hunks.len(), 1);
+    assert!(ignored.hunks.is_empty());
+
+    repo.write("a.txt", "one\ntwo  \n   3\n");
+    let mixed = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, true).unwrap();
+    let changed: Vec<(DiffLineKind, &str)> = mixed.hunks[0]
+        .lines
+        .iter()
+        .filter(|line| line.kind != DiffLineKind::Context)
+        .map(|line| (line.kind, line.text.trim()))
+        .collect();
+    assert_eq!(
+        changed,
+        vec![(DiffLineKind::Removed, "three"), (DiffLineKind::Added, "3")]
     );
 }

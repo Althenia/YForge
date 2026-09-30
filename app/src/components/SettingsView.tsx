@@ -17,6 +17,8 @@ import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, so
 import { pullModes } from "../state/syncModel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
+import { SettingRow } from "./SettingRow";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -30,18 +32,6 @@ function Segmented<T extends string>(props: { label: string; value: T; options: 
           </button>
         )}
       </For>
-    </div>
-  );
-}
-
-function Row(props: { title: string; note: string; children: import("solid-js").JSX.Element }) {
-  return (
-    <div class="setting">
-      <div class="setting-text">
-        <span class="setting-title">{props.title}</span>
-        <span class="setting-note">{props.note}</span>
-      </div>
-      <div class="setting-control">{props.children}</div>
     </div>
   );
 }
@@ -88,7 +78,7 @@ function Identity(props: { path: string | null }) {
     }
   };
   const field = (label: string, key: IdentityField, pick: () => ConfigValue | undefined) => (
-    <Row title={label} note={props.path === null ? "Written on commits in every repository." : "Written on commits in this repository."}>
+    <SettingRow title={label} note={props.path === null ? "Written on commits in every repository." : "Written on commits in this repository."}>
       <TextSetting
         label={label}
         value={pick()?.value ?? ""}
@@ -101,7 +91,7 @@ function Identity(props: { path: string | null }) {
           Remove override
         </button>
       </Show>
-    </Row>
+    </SettingRow>
   );
   return (
     <>
@@ -304,7 +294,7 @@ export function SettingsView(props: { section: string }) {
                 <Identity path={path()} />
                 <Remotes path={path()} />
                 <h3>Pull mode override</h3>
-                <Row title="Pull mode" note="Strategy used when pulling into branches of this repository.">
+                <SettingRow title="Pull mode" note="Strategy used when pulling into branches of this repository.">
                   <select
                     aria-label="Pull mode override"
                     value={overrideMode()?.pull_mode ?? ""}
@@ -313,50 +303,53 @@ export function SettingsView(props: { section: string }) {
                     <option value="">Inherit · {pullModeLabel(effectivePullMode(settings(), undefined).mode)}</option>
                     <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
                   </select>
-                </Row>
+                </SettingRow>
               </>
             )}
           </Match>
           <Match when={section() === "general"}>
             <h2>General</h2>
             <p class="setting-note">Applies to every repository.</p>
-            <Row title="External editor" note="Command that opens a file or the repository. Leave empty to use the system default.">
+            <SettingRow title="External editor" note="Command that opens a file or the repository. Leave empty to use the system default.">
               <TextSetting label="External editor command" value={settings().editor_command} placeholder="code" onCommit={(value) => void change({ editor_command: value.trim() })} />
-            </Row>
-            <Row title="External terminal" note="Command that opens the repository folder. Leave empty for Terminal.">
+            </SettingRow>
+            <SettingRow title="External terminal" note="Command that opens the repository folder. Leave empty for Terminal.">
               <TextSetting label="External terminal command" value={settings().terminal_command} placeholder="open -a iTerm" onCommit={(value) => void change({ terminal_command: value.trim() })} />
-            </Row>
+            </SettingRow>
           </Match>
           <Match when={section() === "git"}>
             <h2>Git</h2>
             <Identity path={null} />
             <h3>Defaults</h3>
-            <Row title="Default branch" note="Name of the first branch in repositories you create.">
+            <SettingRow title="Default branch" note="Name of the first branch in repositories you create.">
               <TextSetting label="Default branch" value={settings().default_branch} onCommit={(value) => void change({ default_branch: value })} />
-            </Row>
-            <Row title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
+            </SettingRow>
+            <SettingRow title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
               <select aria-label="Pull mode" value={settings().pull_mode} onChange={(event) => void change({ pull_mode: event.currentTarget.value as PullMode })}>
                 <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
               </select>
-            </Row>
-            <Row title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
+            </SettingRow>
+            <SettingRow title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
               <Segmented
                 label="Auto-fetch interval"
                 value={String(settings().auto_fetch_minutes)}
                 options={AUTO_FETCH_OPTIONS.map((option) => ({ value: String(option.minutes), label: option.label }))}
                 onChange={(value) => void change({ auto_fetch_minutes: Number(value) })}
               />
-            </Row>
+            </SettingRow>
+          </Match>
+          <Match when={section() === "privacy"}>
+            <PrivacyDiagnostics />
           </Match>
           <Match when={section() === "appearance"}>
             <h2>Appearance</h2>
             <p class="setting-note">Applies to every repository.</p>
-            <Row title="Theme" note="Dark, light, or follow the system.">
+            <SettingRow title="Theme" note="Dark, light, or follow the system.">
               <Segmented label="Theme" value={settings().theme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} onChange={(value) => void change({ theme: value })} />
-            </Row>
-            <Row title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
+            </SettingRow>
+            <SettingRow title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
               <Segmented label="Density" value={settings().density} options={[{ value: "compact", label: "Compact" }, { value: "default", label: "Default" }]} onChange={(value) => void change({ density: value })} />
-            </Row>
+            </SettingRow>
           </Match>
         </Switch>
         <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>

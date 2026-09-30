@@ -185,8 +185,12 @@ pub(crate) fn read_file_diff(
     file: &str,
     area: ChangeArea,
     detect_renames: bool,
+    ignore_whitespace: bool,
 ) -> Result<(ParsedDiff, Option<String>), CoreError> {
     let mut args: Vec<&str> = DIFF_FLAGS.to_vec();
+    if ignore_whitespace {
+        args.push("-w");
+    }
     let mut original = None;
     match area {
         ChangeArea::Unstaged => args.extend(["--no-renames", "--", file]),
@@ -245,10 +249,15 @@ pub(crate) fn read_commit_diff(
     parse_diff(&git::run(root, &args)?)
 }
 
-pub fn diff_file(path: &Path, file: &str, area: ChangeArea) -> Result<FileDiff, CoreError> {
+pub fn diff_file(
+    path: &Path,
+    file: &str,
+    area: ChangeArea,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[file])?;
-    let (parsed, original_path) = read_file_diff(&root, file, area, true)?;
+    let (parsed, original_path) = read_file_diff(&root, file, area, true, ignore_whitespace)?;
     Ok(FileDiff {
         path: file.to_owned(),
         original_path,

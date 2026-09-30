@@ -3,6 +3,9 @@ import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { RevisionRange } from "../ipc/bindings/RevisionRange";
 import {
+  clearCrashesCopy,
+  clearHistoryCopy,
+  clearUsageCopy,
   deleteBranchCopy,
   deleteRemoteTagCopy,
   deleteTagCopy,
@@ -236,5 +239,22 @@ describe("undo force push confirmation copy", () => {
     expect(copy.consequences.join(" ")).toMatch(/removed from it for everyone who fetches/);
     expect(copy.consequences.join(" ")).toMatch(/local branch is not changed/);
     expect(copy.consequences.join(" ")).toMatch(/moved since your force push, git refuses the push and nothing changes/);
+  });
+});
+
+describe("diagnostics confirmation copy", () => {
+  it("states what each clear deletes and that it cannot be undone from the diagnostics lists", () => {
+    expect(clearUsageCopy()).toMatchObject({ title: "Delete all usage data?", confirmLabel: "Delete usage data" });
+    expect(clearUsageCopy().consequences.join(" ")).toContain("cannot be undone");
+    expect(clearCrashesCopy()).toMatchObject({ title: "Clear crash reports?", confirmLabel: "Clear crash reports" });
+    expect(clearCrashesCopy().consequences.join(" ")).toContain("Export them first");
+  });
+
+  it("names the repository and warns that Undo stops reaching this session's operations", () => {
+    const copy = clearHistoryCopy("sample");
+
+    expect(copy.title).toBe("Clear activity history for sample?");
+    expect(copy.consequences.join(" ")).toContain("Undo no longer reaches them");
+    expect(copy.confirmLabel).toBe("Clear history");
   });
 });

@@ -89,5 +89,5 @@ Each specimen is an HTML file in `docs/design/specimens/` built on the shared `s
 | 11 | `screens/11-clone.html` | — | Disabled Clone carries "Clone is unavailable while cloning" |
 | 12 | `screens/12-authentication.html` | — | Host-key Cancel is the only focused control |
 | 13 | `screens/13-repo-settings.html` | — | Built from the Stitch reference on the shared base; the Stitch "Core configuration" section and the extra status items are left out |
-| 14 | `screens/14-app-settings.html` | ✓ | Theme segment follows the render theme. Phase 3d: the General, Git, and Appearance nav items lead with glyphs; the other items keep an empty slot |
+| 14 | `screens/14-app-settings.html` | ✓ | Theme segment follows the render theme. Phase 3d: the General, Git, and Appearance nav items lead with glyphs; the other items keep an empty slot. Phase 4.3b: adds the Privacy & diagnostics section (usage switch, usage events, crash reports, activity history) |
 | 15 | `screens/15-empty-repository.html` | — | "Publish" disabled: no commits to publish |

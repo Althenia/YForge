@@ -1,12 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir } from "@tauri-apps/api/path";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ActivityEntry } from "./bindings/ActivityEntry";
 import type { AppSettings } from "./bindings/AppSettings";
 import type { AuthPromptEvent } from "./bindings/AuthPromptEvent";
 import type { AuthReply } from "./bindings/AuthReply";
+import type { CrashRecord } from "./bindings/CrashRecord";
+import type { CrashReport } from "./bindings/CrashReport";
 import type { Identity } from "./bindings/Identity";
 import type { IdentityField } from "./bindings/IdentityField";
 import type { RecentRepo } from "./bindings/RecentRepo";
@@ -15,6 +17,7 @@ import type { RemoteInfo } from "./bindings/RemoteInfo";
 import type { RepoSettings } from "./bindings/RepoSettings";
 import type { SearchResult } from "./bindings/SearchResult";
 import type { TabSession } from "./bindings/TabSession";
+import type { UsageRecord } from "./bindings/UsageRecord";
 import type { AmendInfo } from "./bindings/AmendInfo";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { ChangeArea } from "./bindings/ChangeArea";
@@ -166,12 +169,21 @@ export const client = {
   openPath: (path: string, with_: OpenWith) => call<null>("open_path", { path, with: with_ }),
   activityList: () => call<ActivityEntry[]>("activity_list"),
   activityClear: (repo: string | null) => call<null>("activity_clear", { repo }),
+  activityHistory: (repo: string, before: number | null, limit: number) => call<ActivityEntry[]>("activity_history", { repo, before, limit }),
+  crashReport: (report: CrashReport) => call<null>("crash_report", { report }),
+  crashList: (before: number | null, limit: number) => call<CrashRecord[]>("crash_list", { before, limit }),
+  crashExport: (path: string) => call<number>("crash_export", { path }),
+  crashClear: () => call<null>("crash_clear"),
+  usageList: (before: number | null, limit: number) => call<UsageRecord[]>("usage_list", { before, limit }),
+  usageExport: (path: string) => call<number>("usage_export", { path }),
+  usageClear: () => call<null>("usage_clear"),
   undoLast: (path: string, id: number) => call<string>("undo_last", { path, id }),
   repoWatch: (path: string) => call<null>("repo_watch", { path }),
   pickFolder: async (title: string): Promise<string | undefined> => {
     const picked = await open({ directory: true, multiple: false, title });
     return picked ?? undefined;
   },
+  pickSavePath: async (title: string, defaultPath: string): Promise<string | undefined> => (await save({ title, defaultPath })) ?? undefined,
   homeDirectory: () => homeDir(),
   onFolderDrop: (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
     getCurrentWebview().onDragDropEvent((event) => {

@@ -11,6 +11,9 @@ use yforge_core::{
     OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus, RemoteInfo, RepoChanged,
     RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
+use yforge_core::{
+    MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
+};
 
 fn committed_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/ipc/bindings")
@@ -57,6 +60,13 @@ fn export_all(dir: &Path) {
     CrashReport::export_all(&config).expect("export CrashReport");
     UsageRecord::export_all(&config).expect("export UsageRecord");
     OperationKind::export_all(&config).expect("export OperationKind");
+    MessageEdit::export_all(&config).expect("export MessageEdit");
+    PullReport::export_all(&config).expect("export PullReport");
+    PushTarget::export_all(&config).expect("export PushTarget");
+    SshKey::export_all(&config).expect("export SshKey");
+    SwitchStash::export_all(&config).expect("export SwitchStash");
+    WorktreeIntegration::export_all(&config).expect("export WorktreeIntegration");
+    WorktreeStatus::export_all(&config).expect("export WorktreeStatus");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

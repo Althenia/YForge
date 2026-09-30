@@ -3,7 +3,7 @@ use std::path::Path;
 use crate::diff;
 use crate::error::CoreError;
 use crate::git;
-use crate::model::{ChangeArea, DiffHunk};
+use crate::model::{ChangeArea, DiffHunk, DiffLineKind};
 use crate::repo;
 
 pub(crate) fn with_paths<'a>(prefix: &[&'a str], files: &'a [String]) -> Vec<&'a str> {
@@ -77,7 +77,7 @@ pub fn discard_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
     Ok(())
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum HunkAction {
     Stage,
     Unstage,
@@ -101,22 +101,79 @@ impl HunkAction {
     }
 }
 
-fn apply_hunk(
+fn select_lines(
+    hunk: &DiffHunk,
+    selected: &[u32],
+    action: HunkAction,
+) -> Result<DiffHunk, CoreError> {
+    if selected
+        .iter()
+        .any(|index| *index as usize >= hunk.lines.len())
+    {
+        return Err(CoreError::invalid_request(
+            "the selection reaches past the end of the hunk",
+        ));
+    }
+    let chosen = |index: usize| selected.iter().any(|picked| *picked as usize == index);
+    if !hunk
+        .lines
+        .iter()
+        .enumerate()
+        .any(|(index, line)| line.kind != DiffLineKind::Context && chosen(index))
+    {
+        return Err(CoreError::invalid_request(
+            "select at least one added or removed line",
+        ));
+    }
+    let forward = action == HunkAction::Stage;
+    let mut lines = Vec::new();
+    for (index, line) in hunk.lines.iter().enumerate() {
+        let mut line = line.clone();
+        match (line.kind, chosen(index)) {
+            (DiffLineKind::Context, _) | (DiffLineKind::Removed | DiffLineKind::Added, true) => {}
+            (DiffLineKind::Removed, false) if forward => line.kind = DiffLineKind::Context,
+            (DiffLineKind::Added, false) if !forward => line.kind = DiffLineKind::Context,
+            (DiffLineKind::Removed | DiffLineKind::Added, false) => continue,
+        }
+        lines.push(line);
+    }
+    let count =
+        |excluded: DiffLineKind| lines.iter().filter(|line| line.kind != excluded).count() as u32;
+    Ok(DiffHunk {
+        old_start: hunk.old_start,
+        old_lines: count(DiffLineKind::Added),
+        new_start: hunk.new_start,
+        new_lines: count(DiffLineKind::Removed),
+        heading: hunk.heading.clone(),
+        lines,
+    })
+}
+
+fn apply_selection(
     path: &Path,
     file: &str,
     hunk: &DiffHunk,
+    selected: Option<&[u32]>,
     action: HunkAction,
+    ignore_whitespace: bool,
 ) -> Result<(), CoreError> {
+    if ignore_whitespace {
+        return Err(CoreError::WhitespaceIgnored);
+    }
     let root = repo::open(path)?;
     repo::check_paths(&[file])?;
-    let (current, _) = diff::read_file_diff(&root, file, action.area(), false)?;
+    let (current, _) = diff::read_file_diff(&root, file, action.area(), false, false)?;
     if !current.hunks.contains(hunk) {
         return Err(CoreError::StaleHunk {
             file: file.to_owned(),
             detail: "the file changed after the diff was read".to_owned(),
         });
     }
-    let patch = format!("{}{}", current.header, diff::hunk_patch(hunk));
+    let body = match selected {
+        Some(selected) => diff::hunk_patch(&select_lines(hunk, selected, action)?),
+        None => diff::hunk_patch(hunk),
+    };
+    let patch = format!("{}{body}", current.header);
     let base = action.apply_args();
     let stale = |error: CoreError| match error {
         CoreError::GitFailed { stderr, .. } => CoreError::StaleHunk {
@@ -133,14 +190,94 @@ fn apply_hunk(
     git::run_with_input(&root, &apply, &patch).map(drop)
 }
 
-pub fn stage_hunk(path: &Path, file: &str, hunk: &DiffHunk) -> Result<(), CoreError> {
-    apply_hunk(path, file, hunk, HunkAction::Stage)
+pub fn stage_hunk(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(path, file, hunk, None, HunkAction::Stage, ignore_whitespace)
 }
 
-pub fn unstage_hunk(path: &Path, file: &str, hunk: &DiffHunk) -> Result<(), CoreError> {
-    apply_hunk(path, file, hunk, HunkAction::Unstage)
+pub fn unstage_hunk(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(
+        path,
+        file,
+        hunk,
+        None,
+        HunkAction::Unstage,
+        ignore_whitespace,
+    )
 }
 
-pub fn discard_hunk(path: &Path, file: &str, hunk: &DiffHunk) -> Result<(), CoreError> {
-    apply_hunk(path, file, hunk, HunkAction::Discard)
+pub fn discard_hunk(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(
+        path,
+        file,
+        hunk,
+        None,
+        HunkAction::Discard,
+        ignore_whitespace,
+    )
+}
+
+pub fn stage_lines(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    lines: &[u32],
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(
+        path,
+        file,
+        hunk,
+        Some(lines),
+        HunkAction::Stage,
+        ignore_whitespace,
+    )
+}
+
+pub fn unstage_lines(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    lines: &[u32],
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(
+        path,
+        file,
+        hunk,
+        Some(lines),
+        HunkAction::Unstage,
+        ignore_whitespace,
+    )
+}
+
+pub fn discard_lines(
+    path: &Path,
+    file: &str,
+    hunk: &DiffHunk,
+    lines: &[u32],
+    ignore_whitespace: bool,
+) -> Result<(), CoreError> {
+    apply_selection(
+        path,
+        file,
+        hunk,
+        Some(lines),
+        HunkAction::Discard,
+        ignore_whitespace,
+    )
 }

@@ -28,22 +28,22 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `launch_path` | none | `string`: `YFORGE_REPO`, else the first CLI argument, else the current directory (empty values are ignored) |
 | `repo_open` | `path: string` | `RepoSnapshot` |
 | `repo_graph` | `path: string`, `offset: number`, `limit: number` | `GraphPage` |
-| `diff_file` | `path`, `file: string`, `area: "unstaged" \| "staged" \| "untracked"` | `FileDiff` |
+| `diff_file` | `path`, `file: string`, `area: "unstaged" \| "staged" \| "untracked"`, `ignoreWhitespace?: boolean` (default `false`; `true` adds `-w`) | `FileDiff` |
 | `stage_files` | `path`, `files: string[]` | `null` |
 | `unstage_files` | `path`, `files: string[]` | `null` |
 | `stage_all` | `path` | `null` |
 | `unstage_all` | `path` | `null` |
 | `discard_files` | `path`, `files: string[]` | `null` |
-| `stage_hunk` | `path`, `file: string`, `hunk: DiffHunk` | `null` |
-| `unstage_hunk` | `path`, `file: string`, `hunk: DiffHunk` | `null` |
-| `discard_hunk` | `path`, `file: string`, `hunk: DiffHunk` | `null` |
+| `stage_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
+| `unstage_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
+| `discard_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
 | `commit` | `path`, `summary: string`, `description: string`, `amend: boolean` | `string`: the new HEAD sha |
 | `amend_info` | `path` | `AmendInfo` |
 | `commit_details` | `path`, `sha: string` | `CommitDetails` |
 | `commit_file_diff` | `path`, `sha: string`, `file: string` | `FileDiff` |
 | `repo_watch` | `path` | `null`; starts (or replaces) the repository watcher that emits `repo-changed` |
 | `check_branch_name` | `path`, `name: string` | `string`: the name, if `git check-ref-format --branch` accepts it unchanged; otherwise `invalid_request` |
-| `checkout` | `path`, `target: CheckoutTarget`, `stash: boolean` | `CheckoutOutcome { auto_stash }` |
+| `checkout` | `path`, `target: CheckoutTarget`, `stash: boolean`, `leaveStashed?: boolean` | `CheckoutOutcome { auto_stash }`; `auto_stash` is `stashed` when the stash was left and recorded |
 | `create_branch` | `path`, `name: string`, `at: string \| null`, `checkout: boolean` | `null` |
 | `rename_branch` | `path`, `from: string`, `to: string` | `null` |
 | `branch_delete_preview` | `path`, `name: string` | `CommitBrief[]`: the commits only this branch holds |
@@ -82,7 +82,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `auth_respond` | `id: string` (the prompt id), `reply: AuthReply` | `boolean`: true when a prompt with that id was waiting |
 | `settings_load` | none | `AppSettings` |
 | `settings_save` | `settings: AppSettings` | `AppSettings`: the stored value (default branch trimmed); `invalid_request` for a bad branch name or an interval other than 0, 5, 10, 30 |
-| `repo_settings_load`, `repo_settings_save` | `path`; `settings: RepoSettings` (save) | `RepoSettings { pull_mode }` / `null` |
+| `repo_settings_load`, `repo_settings_save` | `path`; `settings: RepoSettings` (save) | `RepoSettings { pull_mode, ssh_key_path }` / `null` |
 | `identity_read` | `path: string \| null` (`null` is the global scope) | `Identity { name, email }`, each `{ value, source }` with `source` one of `repository`, `global`, `system`, `other`, `unset` |
 | `identity_write` | `path: string \| null`, `field: "name" \| "email"`, `value: string \| null` (`null` unsets; an empty string is `invalid_request`) | `null` |
 | `remotes_list` | `path` | `RemoteInfo[] { name, fetch_url, push_url }` |
@@ -93,6 +93,22 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `open_path` | `path`, `with: "editor" \| "terminal" \| "finder"` | `null`; runs the configured editor or terminal command with the path as its last argument, else the macOS default (`open -t`, `open -a Terminal`, `open -R`) |
 | `activity_list`, `activity_clear` | none; `repo: string \| null` (`null` clears all) | `ActivityEntry[]` / `null` |
 | `undo_last` | `path`, `id: number` | `string`: what was restored. Only the newest local, successful, not-yet-undone entry of that repository can be undone |
+| `stage_lines`, `unstage_lines`, `discard_lines` | `path`, `file`, `hunk: DiffHunk`, `lines: number[]` (indexes into `hunk.lines`), `ignoreWhitespace?: boolean` | `null` |
+| `edit_head_message` | `path`, `sha`, `summary`, `description` | `MessageEdit { sha, pushed }` |
+| `delete_remote_branch` | `path`, `id`, `remote`, `name` | `null` |
+| `set_upstream` | `path`, `branch`, `upstream: string \| null` (`null` unsets) | `null` |
+| `push_to` | `path`, `id`, `target: PushTarget { remote, name, set_upstream }` | `null` |
+| `stash_rename` | `path`, `index`, `sha`, `message` | `null` |
+| `pull_with_autostash` | `path`, `id`, `mode: PullMode` | `PullReport { outcome: PullOutcome, stash: PullStash }` |
+| `switch_stashes` | `path`, `branch` | `SwitchStash[] { branch, sha, message, created_at, index }` |
+| `switch_stash_restore` | `path`, `branch`, `sha` | `StashRestore` |
+| `switch_stash_dismiss` | `path`, `branch`, `sha` | `null` |
+| `ssh_keys_list` | none | `SshKey[] { path, name, algorithm }` |
+| `worktree_list` | `path` | `WorktreeStatus[] { path, head, branch, bare, locked, prunable, current, dirty }` |
+| `worktree_suggest_path` | `path`, `branch` | `string` |
+| `worktree_create` | `path`, `branch`, `create`, `start: string \| null`, `destination` (absolute) | `string`: the location |
+| `worktree_remove` | `path`, `worktree`, `force` | `null` |
+| `worktree_integrate` | `path`, `worktree`, `target`, `cleanup` | `WorktreeIntegration` |
 
 `client` also exposes `pickFolder(title)` (the native folder picker, `tauri-plugin-dialog`), `homeDirectory()`, and `onFolderDrop(handler)`, and the phase 3b commands as `publish`, `authRespond`, `searchCommits`, `cloneRepo`, `initRepo`, `settingsLoad`, `settingsSave`, `repoSettingsLoad`, `repoSettingsSave`, `identityRead`, `identityWrite`, `remotesList`, `remoteAdd`, `remoteEdit`, `remoteRemove`, `recentsList`, `recentAdd`, `recentRemove`, `recentStatuses`, `sessionLoad`, `sessionSave`, `openPath`, `activityList`, `activityClear`, `undoLast`, plus `onAuthPrompt(handler)` and `onActivity(handler)`.
 
@@ -236,6 +252,42 @@ These run against the checked-out branch and fail with `invalid_request` while a
 - `conflict_take_side`: `git checkout --ours|--theirs -- <file>` and stage it; when that side deleted the file, `git rm` stages the deletion.
 - `conflict_reset`: `git checkout --merge -- <file>` recreates the conflict markers from the index stages.
 
+### Line commands
+
+- `stage_lines`, `unstage_lines` and `discard_lines` apply the checks of the hunk commands, then keep only the chosen added and removed lines. Context indexes are ignored; at least one added or removed line must be chosen (otherwise `invalid_request`).
+- Unchosen removed lines stay as context when staging; unchosen added lines stay as context when unstaging or discarding; the other side is dropped. The patch is validated with `git apply --check` first; a failed check is `stale_hunk`. Discard joins the `discard_files`/`discard_hunk` undo (blob snapshot).
+- Any hunk or line command with `ignoreWhitespace: true` fails with `whitespace_ignored` before git runs.
+
+### Edit message
+
+- `edit_head_message` runs `git commit --amend --only` with the new message; the index and work tree are untouched and hooks run. It is refused with `not_head` when `sha` (4–64 hex characters, prefix match) is not HEAD, with `operation_in_progress` during a merge, rebase, cherry-pick, revert, or bisect, and with `invalid_request` for an empty summary. `pushed` is true when HEAD was on its upstream before the edit. Undo: as amend (`git reset --soft <previous HEAD>`).
+
+### Remote branches and upstream
+
+- `delete_remote_branch` runs `git push --progress <remote> --delete refs/heads/<name>` on the network runner. Undo pushes the recorded sha (the remote-tracking value before the delete, so it can be stale) back with `--force-with-lease=<ref>:`, refused when the name exists again; unavailable without a tracking ref.
+- `set_upstream` uses `git branch --set-upstream-to=<ref>` or `--unset-upstream`. Undo restores the previous value, refused when the upstream changed since.
+- `push_to` runs `git push --progress [--set-upstream] <remote> refs/heads/<current>:refs/heads/<name>`. A rejected update is `push_rejected`; no undo.
+
+### Stash, auto-stash pull, and switch stashes
+
+- `stash_rename` drops `stash@{index}` after the index and sha check, then stores the same commit with the new message at index 0 (newer entries shift down by one). The `On <branch>: ` prefix is kept; an empty message is `invalid_request`; if the store fails the old message is stored back.
+- `pull_with_autostash` fetches, stashes (with untracked files) when the tree is dirty, integrates, then pops. `PullStash` is `none`, `restored`, or `kept { reference, sha, reason }` with `reason` `pull_conflicts`, `restore_conflicts`, or `restore_failed`. A refused integration pops the stash back before returning the error. No undo.
+- `checkout` with `stash: true` and `leaveStashed: true` stashes, records the stash under (repository root, branch left) in `switch_stashes` (`yforge.db`, migration 2), and switches without popping. A failed switch pops the stash back and removes the record; a detached HEAD with changes is `invalid_request`.
+- `switch_stashes` lists the live recorded stashes for a branch, newest first, with their current index, pruning records whose stash is gone. `switch_stash_restore` runs a tracked stash pop and clears the record; `switch_stash_dismiss` clears the record and keeps the stash.
+
+### SSH key
+
+- `ssh_key_path` (app and repository settings; the repository value wins) must be an absolute existing file; blank means ssh-agent; anything else is `invalid_request`.
+- With a key, every network command runs with `GIT_SSH_COMMAND=ssh -i '<key>' -o IdentitiesOnly=yes` (plus `-o BatchMode=yes` when no auth handler is set), overriding `core.sshCommand` and the user's `GIT_SSH_COMMAND`. Without one, behavior is unchanged.
+- `ssh_keys_list` lists files in `~/.ssh` with a `.pub` sibling, sorted by name; `algorithm` is the first token of the `.pub`. `invalid_request` when `HOME` is unset.
+
+### Worktrees
+
+- `worktree_suggest_path` returns `<parent of the main worktree>/<repo>-<branch with / replaced by ->`.
+- `worktree_create` runs `git worktree add`: `create: true` adds `-b <branch> [start]` (start points follow `create_branch`); `false` checks out an existing local branch not held by another worktree. The destination must be absolute and absent or an empty folder.
+- `worktree_remove` is refused with `worktree_dirty` when the worktree has changes or untracked files and `force` is false, and with `invalid_request` for the main, the current, a locked, or an unknown worktree. A worktree whose directory is gone is removed with `--force`.
+- `worktree_integrate` needs a settled (`operation_in_progress`) and clean (`worktree_dirty`) source and a target checked out in some worktree. It runs `git rebase refs/heads/<target>` in the source worktree, then `git merge --ff-only refs/heads/<branch>` in the target's worktree, then with `cleanup: true` `git worktree remove` and `git branch --delete --force`. The result is identical to running those commands in a terminal (fixture test compares the resulting graphs). Rebase conflicts return `{ kind: "conflicts", worktree }` and leave the rebase in place; success is `{ kind: "integrated", target_sha, cleaned_up }`. Create, remove, and integrate record activity with no undo.
+
 ### `GraphPage`
 
 `{ rows, carried, total }` for the window `[offset, offset + limit)` of the full layout. `total` counts all rows, including the Changes row and stash rows.
@@ -270,6 +322,10 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `unmerged_branch` | `delete_branch` without `force` would leave commits without a name |
 | `already_a_repository` | `init_repo` found a repository root at the path; the message carries the path |
 | `storage_failed` | A settings, recents, or session file could not be read, parsed, or written; the file is left untouched |
+| `whitespace_ignored` | A hunk or line command was sent from a whitespace-ignored diff |
+| `worktree_dirty` | Removing or integrating a worktree that has uncommitted changes |
+| `operation_in_progress` | Editing a message or integrating while a merge, rebase, cherry-pick, revert, or bisect is in progress |
+| `not_head` | `edit_head_message` was given a commit that is not HEAD |
 | `internal` | The blocking task failed (for example, a panic) |
 
 ## Threading and cancellation
@@ -314,7 +370,7 @@ Every other command records `unavailable { reason: "<operation> has no safe undo
 - App data directory: the platform app-data directory, or `YFORGE_DATA_DIR` when set (used for isolated runs and tests). App state lives in `yforge.db` and diagnostics in `diagnostics.db`, both SQLite with WAL and foreign keys on, each with embedded forward-only migrations (`rusqlite_migration`) run at startup. Before pending migrations run, a `VACUUM INTO <file>.pre-migration` copy is made and deleted after success.
 - Legacy `settings.json`, `repositories.json`, `recents.json` and `session.json` are imported once on first open in one transaction and deleted after it commits. A JSON file that fails to parse yields `storage_failed` naming that file; the import rolls back and every file stays in place. A corrupt or newer `yforge.db` aborts startup with `storage_failed` naming its path. A corrupt `diagnostics.db` is moved aside as `diagnostics.db.corrupt-<ts>` and recreated. Nothing is sent off the machine.
 - `yforge.db` tables: `settings(key, value)` (namespaced keys, JSON values, defaults for missing keys), `repo_settings(repository, key, value)`, `recents` (at most 30, ordered), `session` and `session_tabs`, `activity` and `activity_commands` (at most 1,000 entries per repository, pruned on insert).
-- `AppSettings`: `theme` (`light`, `dark`, `system`), `density` (`compact`, `default`), `default_branch`, `pull_mode`, `auto_fetch_minutes` (0, 5, 10, 30), `editor_command`, `terminal_command`, `telemetry_opt_in` (default `false`). `settings_load` and `settings_save` carry the full object. Saving `telemetry_opt_in: false` while it was `true` deletes every usage event. The UI applies theme and density as `data-theme` and `data-density` on the document root; compact density switches the graph geometry to the `-compact` controls.
+- `AppSettings`: `theme` (`light`, `dark`, `system`), `density` (`compact`, `default`), `default_branch`, `pull_mode`, `auto_fetch_minutes` (0, 5, 10, 30), `editor_command`, `terminal_command`, `telemetry_opt_in` (default `false`), `ssh_key_path` (optional; see SSH key). `settings_load` and `settings_save` carry the full object. Saving `telemetry_opt_in: false` while it was `true` deletes every usage event. The UI applies theme and density as `data-theme` and `data-density` on the document root; compact density switches the graph geometry to the `-compact` controls.
 - Git identity is never stored by YForge: `identity_read` and `identity_write` use `git config --show-scope --get` and `git config --global` or `--local` (`GIT_CONFIG_GLOBAL` is honored). Remotes use `git remote`.
 
 ### Activity history
@@ -350,6 +406,8 @@ The SolidJS frontend (`app/src`) uses the TanStack Solid adapters, one owner per
 | Debounce, coalescing | `@tanstack/solid-pacer` | ~0.23.0 | Commit-search input debounce, refresh coalescing (one running reload plus at most one queued follow-up), tooltip hover delay. No other handler was hand-debounced. |
 | App shortcuts | `@tanstack/solid-hotkeys` | ~0.12.1 | Registry shortcuts (`state/palette.ts` stays the single source; `hotkeyOf` converts a label) plus ⌘K, Escape to leave a diff, and ⌘G / ⇧⌘G. ⌘Z does not fire inside text inputs. Keys scoped to a focused element (graph J/K, file-row S/U, menus, dialogs) remain DOM handlers of that element. Chords use `Mod` (⌘ on macOS). |
 | Debug panels | `@tanstack/solid-devtools`, `@tanstack/solid-query-devtools`, `@tanstack/solid-router-devtools` | ~0.8.13, ^5.104.0, ^1.167.2 | Dev dependencies, loaded by a dynamic import under `import.meta.env.DEV` (`app/src/devtools.tsx`). The release bundle contains no panel or devtools UI; `@tanstack/form-core` and the other libraries still embed their small event-client emitter (strings `tanstack-devtools-global`). |
+
+Diagnostics lists: the usage, crash, and persisted-history lists (`["diagnostics", "usage"]`, `["diagnostics", "crashes"]`, `["activity-history", path]`) are infinite queries over the `before` cursor, 25 rows a page, extended by "Show older" (`state/diagnosticsModel.ts`, `state/pagedList.ts`); clearing invalidates the key, and turning usage recording off removes the usage key. The Activity drawer reads the same history key for its "Earlier" group and drops entries the session already lists. Frontend errors are reported to `crash_report` by `state/crashCapture.ts` (window `error`, `unhandledrejection`) and by the root `ErrorBoundary`; each distinct crash is reported once per run and a failing report is logged, never re-reported.
 
 Graph paging: Query owns each page (`["repo", path, "graph", page]`, fetched with `fetchQuery`); the graph store keeps the lane layout and requested-page set. An infinite query only extends sequentially, while the virtual scroller and reveal-by-search jump to arbitrary pages, so pages are independent keys.
 

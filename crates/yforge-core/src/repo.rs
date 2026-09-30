@@ -121,7 +121,7 @@ fn read_last_fetch(git_dir: &Path) -> Option<i64> {
     i64::try_from(elapsed.as_secs()).ok()
 }
 
-fn same_path(left: &Path, right: &Path) -> bool {
+pub(crate) fn same_path(left: &Path, right: &Path) -> bool {
     match (left.canonicalize(), right.canonicalize()) {
         (Ok(left), Ok(right)) => left == right,
         _ => left == right,
@@ -132,7 +132,7 @@ pub(crate) fn count_worktrees(root: &Path) -> Result<u32, CoreError> {
     Ok(crate::layout::index_u32(read_worktrees(root)?.len()))
 }
 
-fn read_worktrees(root: &Path) -> Result<Vec<Worktree>, CoreError> {
+pub(crate) fn read_worktrees(root: &Path) -> Result<Vec<Worktree>, CoreError> {
     let output = git::run(root, &["worktree", "list", "--porcelain", "-z"])?;
     parse_worktrees(&output, root)
 }

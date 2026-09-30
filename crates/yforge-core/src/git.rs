@@ -1,5 +1,5 @@
 use std::io::{ErrorKind, Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -170,6 +170,7 @@ pub(crate) fn run_with_input(dir: &Path, args: &[&str], input: &str) -> Result<S
 pub struct CancelToken {
     flag: Arc<AtomicBool>,
     auth: Option<AuthHandler>,
+    ssh_key: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for CancelToken {
@@ -190,7 +191,13 @@ impl CancelToken {
         Self {
             flag: Arc::default(),
             auth: Some(auth),
+            ssh_key: None,
         }
+    }
+
+    pub fn with_ssh_key(mut self, key: Option<PathBuf>) -> Self {
+        self.ssh_key = key;
+        self
     }
 
     pub fn cancel(&self) {
@@ -209,6 +216,14 @@ fn non_interactive_ssh(dir: &Path) -> bool {
         && std::env::var_os("GIT_SSH").is_none()
         && run_unchecked(dir, &["config", "--get", "core.sshCommand"], None)
             .is_ok_and(|completed| completed.status == Some(1))
+}
+
+fn ssh_command(key: &Path, batch: bool) -> String {
+    let quoted = key.to_string_lossy().replace('\'', "'\\''");
+    format!(
+        "ssh -i '{quoted}' -o IdentitiesOnly=yes{}",
+        if batch { " -o BatchMode=yes" } else { "" }
+    )
 }
 
 fn forward_lines(mut source: impl Read, lines: mpsc::Sender<String>) {
@@ -265,9 +280,14 @@ pub(crate) fn run_streaming(
     let started = Instant::now();
     let mut command = in_directory(dir, args);
     let askpass = cancel.auth.clone().map(Askpass::start).transpose()?;
-    match &askpass {
-        Some(askpass) => askpass.apply(&mut command),
-        None if non_interactive_ssh(dir) => {
+    if let Some(askpass) = &askpass {
+        askpass.apply(&mut command);
+    }
+    match &cancel.ssh_key {
+        Some(key) => {
+            command.env("GIT_SSH_COMMAND", ssh_command(key, askpass.is_none()));
+        }
+        None if askpass.is_none() && non_interactive_ssh(dir) => {
             command.env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes");
         }
         None => {}

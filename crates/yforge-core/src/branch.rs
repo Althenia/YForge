@@ -7,6 +7,7 @@ use crate::model::{AutoStash, CheckoutOutcome, CheckoutTarget, CommitBrief, Stas
 use crate::refs;
 use crate::repo;
 use crate::stash;
+use crate::store;
 
 const LOCAL_CHANGES_MARKERS: [&str; 4] = [
     "would be overwritten",
@@ -35,7 +36,7 @@ pub(crate) fn ref_exists(root: &Path, full_name: &str) -> Result<bool, CoreError
     )
 }
 
-fn validated_name(root: &Path, name: &str) -> Result<String, CoreError> {
+pub(crate) fn validated_name(root: &Path, name: &str) -> Result<String, CoreError> {
     let invalid = || CoreError::invalid_request(format!("{name:?} is not a valid branch name"));
     if name.is_empty() {
         return Err(CoreError::invalid_request("enter a branch name"));
@@ -58,7 +59,7 @@ pub(crate) fn require_local_branch(root: &Path, name: &str) -> Result<(), CoreEr
     }
 }
 
-fn require_new_branch(root: &Path, name: &str) -> Result<(), CoreError> {
+pub(crate) fn require_new_branch(root: &Path, name: &str) -> Result<(), CoreError> {
     if ref_exists(root, &format!("refs/heads/{name}"))? {
         Err(CoreError::invalid_request(format!(
             "a branch named {name} already exists"
@@ -171,15 +172,31 @@ fn run_switch(root: &Path, switch: &Switch) -> Result<(), CoreError> {
         .map_err(classify_local_changes)
 }
 
-pub fn checkout(
+#[derive(Clone, Copy)]
+enum Stashing<'a> {
+    Off,
+    Carry,
+    Leave(&'a Path),
+}
+
+fn restore_after_failed_switch(root: &Path, failure: CoreError) -> CoreError {
+    match stash::restore(root, &["stash", "pop", "--quiet"]) {
+        Ok(StashRestore::Applied) => failure,
+        _ => CoreError::invalid_request(format!(
+            "{failure}; your stashed changes could not be restored and remain in stash@{{0}}"
+        )),
+    }
+}
+
+fn switch_branch(
     path: &Path,
     target: &CheckoutTarget,
-    stash_changes: bool,
+    stashing: Stashing<'_>,
 ) -> Result<CheckoutOutcome, CoreError> {
     let root = repo::open(path)?;
     let switch = plan_switch(&root, target)?;
     let dirty = repo::read_status(&root)?.counts.total() > 0;
-    if !stash_changes {
+    if matches!(stashing, Stashing::Off) {
         if switch.detached && dirty {
             return Err(CoreError::LocalChanges {
                 detail: "The working tree has uncommitted changes.".to_owned(),
@@ -190,6 +207,12 @@ pub fn checkout(
             auto_stash: AutoStash::None,
         });
     }
+    let left = current_branch(&root)?;
+    if dirty && matches!(stashing, Stashing::Leave(_)) && left.is_none() {
+        return Err(CoreError::invalid_request(
+            "leaving changes stashed needs a checked-out branch to return to; carry the changes instead",
+        ));
+    }
     let message = format!("YForge: auto-stash before switching to {}", switch.label);
     if !dirty || !stash::push_auto(&root, &message, true)? {
         run_switch(&root, &switch)?;
@@ -197,13 +220,28 @@ pub fn checkout(
             auto_stash: AutoStash::None,
         });
     }
-    if let Err(failure) = run_switch(&root, &switch) {
-        return Err(match stash::restore(&root, &["stash", "pop", "--quiet"]) {
-            Ok(StashRestore::Applied) => failure,
-            _ => CoreError::invalid_request(format!(
-                "{failure}; your stashed changes could not be restored and remain in stash@{{0}}"
-            )),
+    if let (Stashing::Leave(dir), Some(left)) = (stashing, &left) {
+        let entry = refs::read_stashes(&root)?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                CoreError::invalid_request("the stash that was just saved is missing")
+            })?;
+        if let Err(failure) =
+            store::record_switch_stash(dir, &root, left, &entry.sha, &entry.message)
+        {
+            return Err(restore_after_failed_switch(&root, failure));
+        }
+        if let Err(failure) = run_switch(&root, &switch) {
+            store::dismiss_switch_stash(dir, &root, left, &entry.sha)?;
+            return Err(restore_after_failed_switch(&root, failure));
+        }
+        return Ok(CheckoutOutcome {
+            auto_stash: AutoStash::Stashed,
         });
+    }
+    if let Err(failure) = run_switch(&root, &switch) {
+        return Err(restore_after_failed_switch(&root, failure));
     }
     let auto_stash = match stash::restore(&root, &["stash", "pop", "--quiet"]) {
         Ok(StashRestore::Applied) => AutoStash::Restored,
@@ -211,6 +249,27 @@ pub fn checkout(
         Err(_) => AutoStash::Kept,
     };
     Ok(CheckoutOutcome { auto_stash })
+}
+
+pub fn checkout(
+    path: &Path,
+    target: &CheckoutTarget,
+    stash_changes: bool,
+) -> Result<CheckoutOutcome, CoreError> {
+    let stashing = if stash_changes {
+        Stashing::Carry
+    } else {
+        Stashing::Off
+    };
+    switch_branch(path, target, stashing)
+}
+
+pub fn checkout_leaving_stash(
+    path: &Path,
+    target: &CheckoutTarget,
+    data_dir: &Path,
+) -> Result<CheckoutOutcome, CoreError> {
+    switch_branch(path, target, Stashing::Leave(data_dir))
 }
 
 pub fn create_branch(
@@ -288,4 +347,23 @@ pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreErr
         }
     }
     git::run(&root, &["branch", "--delete", "--force", name]).map(drop)
+}
+
+pub fn set_upstream(path: &Path, branch: &str, upstream: Option<&str>) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    require_local_branch(&root, branch)?;
+    match upstream {
+        None => git::run(&root, &["branch", "--unset-upstream", branch]).map(drop),
+        Some(name) => {
+            let exists = ref_exists(&root, &format!("refs/remotes/{name}"))?
+                || ref_exists(&root, &format!("refs/heads/{name}"))?;
+            if !exists {
+                return Err(CoreError::invalid_request(format!(
+                    "there is no branch {name} to track"
+                )));
+            }
+            let target = format!("--set-upstream-to={name}");
+            git::run(&root, &["branch", &target, branch]).map(drop)
+        }
+    }
 }

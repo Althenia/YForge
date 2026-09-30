@@ -34,6 +34,21 @@
 .select svg { color: var(--muted); }
 .preview { display: flex; align-items: baseline; gap: 8px; font: 400 12px/16px var(--sans); color: var(--muted); }
 .preview .mono { color: var(--text); }
+.setting.tight { grid-template-columns: minmax(0, 1fr) auto; padding: 8px 0; border-bottom: 0; }
+.diag { display: grid; gap: 6px; margin-top: 10px; }
+.diag h2 { margin: 0; font: 600 14px/20px var(--sans); }
+.dhead { display: flex; align-items: center; gap: 8px; }
+.dhead .note { flex: 1; font: 400 12px/16px var(--sans); color: var(--muted); }
+.dhead .btn { height: 24px; padding: 0 10px; font-size: 12px; }
+.rows { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.arow { display: flex; align-items: center; gap: 12px; min-height: 28px; padding: 0 12px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); font: 400 13px/20px var(--sans); }
+.arow .st { display: inline-flex; color: var(--green-strong); }
+.arow .st.bad { color: var(--danger-ink); }
+.arow .op { font-weight: 600; }
+.arow .sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.arow .time { font: 400 12px/16px var(--sans); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.arow .chip { height: 20px; padding: 0 8px; font-size: 11px; }
+.state { font: 500 13px/20px var(--sans); }
 </style>
 </head>
 <body>
@@ -42,21 +57,61 @@
 const I = YF.icon;
 const tabs = YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"');
 const navIcons = { General: "settings", Git: "branch", Appearance: "theme" };
-const nav = (name, cls = "", extra = "") => `<div class="nrow${cls}"><span class="icon-slot">${navIcons[name] ? YF.glyph(navIcons[name]) : ""}</span>${name}${extra}</div>`;
+const privacy = !YF.flags.has("appearance");
+const navGlyph = (name) => name === "Privacy &amp; diagnostics" ? YF.icon.lock : navIcons[name] ? YF.glyph(navIcons[name]) : "";
+const nav = (name, cls = "", extra = "") => `<div class="nrow${cls}"><span class="icon-slot">${navGlyph(name)}</span>${name}${extra}</div>`;
+const ok = `<span class="st">${YF.glyph("check", 14)}</span>`;
+const bad = `<span class="st bad">${YF.glyph("warning", 14)}</span>`;
+const usageRow = (stamp, op, outcome, meta, mark = ok) => `<li class="arow">${mark}<span class="time">${stamp}</span><span class="op">${op}</span><span class="sum">${outcome}</span><span class="time">${meta}</span></li>`;
+const crashRow = (stamp, origin, kind, message) => `<li class="arow"><span class="time">${stamp}</span><span class="chip">${origin}</span><span class="op">${kind}</span><span class="sum">${message}</span></li>`;
+const historyRow = (stamp, op, summary, earlier) => `<li class="arow">${ok}<span class="op">${op}</span><span class="sum">${summary}</span>${earlier ? '<span class="chip">Earlier session — no undo</span>' : '<span class="chip ok">Undo available</span>'}<span class="time">${stamp}</span></li>`;
+const privacySection = `
+      <section class="section" aria-labelledby="privacy">
+        <h1 id="privacy">Privacy &amp; diagnostics</h1>
+        <p>Everything on this page is stored on this Mac. Nothing is sent anywhere.</p>
+        <div class="diag" aria-label="Usage data">
+          <h2>Usage data</h2>
+          <div class="setting tight"><div><div class="name">Record usage data</div><div class="desc">When on, YForge records for each Git operation its type, whether it succeeded (and the error kind if not), how long it took, and how many Git commands it ran, with the time and app version. Paths, branch names, and messages are never recorded, and nothing leaves this Mac. Turning it off deletes the stored events.</div></div>
+            <div class="control"><span class="switch on" role="switch" aria-checked="true" aria-label="Record usage data"></span><span class="state">On</span></div></div>
+          <div class="dhead"><span class="note">Stored on this Mac, newest first.</span><span class="btn sm">Export…</span><span class="btn sm">${YF.glyph("trash", 14)}Delete all</span></div>
+          <ul class="rows" aria-label="Usage events">
+            ${usageRow("30 Sep 2026 15:02", "Stage all", "succeeded", "12 ms · 2 commands")}
+            ${usageRow("30 Sep 2026 14:58", "Push", "failed (push rejected)", "1.5 s · 1 command", bad)}
+            ${usageRow("30 Sep 2026 14:41", "Commit", "succeeded", "84 ms · 3 commands")}
+          </ul>
+        </div>
+        <div class="diag" aria-label="Crash reports">
+          <h2>Crash reports</h2>
+          <div class="dhead"><span class="note">Errors and panics, stored on this Mac and never sent. Newest first.</span><span class="btn sm">Export…</span><span class="btn sm">${YF.glyph("trash", 14)}Clear</span></div>
+          <ul class="rows" aria-label="Crash reports">
+            ${crashRow("29 Sep 2026 22:14", "frontend", "render", "Cannot read properties of undefined (reading 'sha')")}
+            ${crashRow("27 Sep 2026 09:30", "rust", "panic", "index out of bounds: the len is 3 but the index is 7")}
+          </ul>
+        </div>
+        <div class="diag" aria-label="Activity history">
+          <h2>Activity history</h2>
+          <div class="dhead"><span class="note">Operations run in sample, newest first. Undo only reaches the current session.</span><span class="btn sm">${YF.glyph("trash", 14)}Clear history</span></div>
+          <ul class="rows" aria-label="Activity history">
+            ${historyRow("15:02", "stage_all", "Staged all changes", false)}
+            ${historyRow("29 Sep 2026 18:20", "commit", "Committed “Fix greeting”", true)}
+          </ul>
+        </div>
+      </section>`;
 const html = `
 <div class="app">
   ${tabs}
   <div class="settings">
     <nav class="panel nav" aria-label="Settings sections">
       <h2>Settings</h2>
-      ${nav("General")}${nav("Git")}${nav("Accounts &amp; authentication")}${nav("Appearance", " sel")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations", "", '<span class="chip">GitHub — coming later</span>')}${nav("Advanced")}
+      ${nav("General")}${nav("Git")}${nav("Accounts &amp; authentication")}${nav("Appearance", privacy ? "" : " sel")}${nav("Privacy &amp; diagnostics", privacy ? " sel" : "")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations", "", '<span class="chip">GitHub — coming later</span>')}${nav("Advanced")}
     </nav>
     <main class="panel content">
       <div class="topline">
         <span class="seg" role="tablist" aria-label="Scope"><span class="on" role="tab" aria-selected="true">All repositories</span><span role="tab">This repository: sample</span></span>
         <div class="input search">${I.search}<span class="ph">Search settings</span><span class="kbd">⌘F</span></div>
       </div>
-      <section class="section" aria-labelledby="appearance">
+      ${privacy ? privacySection : ""}
+      ${privacy ? "" : `<section class="section" aria-labelledby="appearance">
         <h1 id="appearance">Appearance</h1>
         <p>Applies to every repository.</p>
         <div class="setting"><div><div class="name">Theme</div><div class="desc">Dark, light, or follow the system.</div></div>
@@ -71,7 +126,7 @@ const html = `
           <div class="control"><div class="input select"><span>D MMM YYYY HH:mm</span>${I.chevron}</div><span class="preview">Preview <span class="mono">29 Sep 2026 16:29</span></span></div></div>
         <div class="setting"><div><div class="name">Reduce motion follows system</div><div class="desc">Stops the aurora drift and makes transitions instant.</div></div>
           <div class="control"><span class="switch on" role="switch" aria-checked="true" aria-label="Reduce motion follows system"></span></div></div>
-      </section>
+      </section>`}
     </main>
   </div>
 </div>`;

@@ -24,6 +24,10 @@ pub enum ErrorKind {
     NotFastForward,
     ConflictMarkers,
     UnmergedBranch,
+    WhitespaceIgnored,
+    WorktreeDirty,
+    OperationInProgress,
+    NotHead,
     Internal,
 }
 
@@ -105,6 +109,16 @@ pub enum CoreError {
         branch: String,
         commits: u32,
     },
+    WhitespaceIgnored,
+    WorktreeDirty {
+        path: String,
+    },
+    OperationInProgress {
+        operation: String,
+    },
+    NotHead {
+        sha: String,
+    },
 }
 
 impl CoreError {
@@ -128,6 +142,10 @@ impl CoreError {
             Self::NotFastForward { .. } => ErrorKind::NotFastForward,
             Self::ConflictMarkers { .. } => ErrorKind::ConflictMarkers,
             Self::UnmergedBranch { .. } => ErrorKind::UnmergedBranch,
+            Self::WhitespaceIgnored => ErrorKind::WhitespaceIgnored,
+            Self::WorktreeDirty { .. } => ErrorKind::WorktreeDirty,
+            Self::OperationInProgress { .. } => ErrorKind::OperationInProgress,
+            Self::NotHead { .. } => ErrorKind::NotHead,
         }
     }
 
@@ -204,6 +222,19 @@ impl fmt::Display for CoreError {
                 "{branch} has {commits} {} that no other branch or tag contains",
                 if *commits == 1 { "commit" } else { "commits" }
             ),
+            Self::WhitespaceIgnored => write!(
+                f,
+                "The diff ignores whitespace, so its hunks and lines cannot be staged or discarded. Show whitespace changes first"
+            ),
+            Self::WorktreeDirty { path } => write!(
+                f,
+                "{path} has uncommitted changes. Commit, stash, or discard them first"
+            ),
+            Self::OperationInProgress { operation } => write!(
+                f,
+                "A {operation} is in progress. Finish or abort it first"
+            ),
+            Self::NotHead { sha } => write!(f, "{sha} is not the current commit (HEAD)"),
         }
     }
 }

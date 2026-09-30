@@ -97,6 +97,30 @@ pub struct Worktree {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct WorktreeStatus {
+    pub path: String,
+    pub head: Option<String>,
+    pub branch: Option<String>,
+    pub bare: bool,
+    pub locked: bool,
+    pub prunable: bool,
+    pub current: bool,
+    pub dirty: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorktreeIntegration {
+    Integrated {
+        target_sha: String,
+        cleaned_up: bool,
+    },
+    Conflicts {
+        worktree: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct StashEntry {
     pub index: u32,
     pub sha: String,
@@ -254,6 +278,12 @@ pub struct AmendInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct MessageEdit {
+    pub sha: String,
+    pub pushed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct Signature {
     pub name: String,
     pub email: String,
@@ -315,6 +345,7 @@ pub enum AutoStash {
     Restored,
     Conflicts,
     Kept,
+    Stashed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -340,6 +371,41 @@ pub enum PullOutcome {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
+pub enum StashKeptReason {
+    PullConflicts,
+    RestoreConflicts,
+    RestoreFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PullStash {
+    None,
+    Restored,
+    Kept {
+        reference: String,
+        sha: String,
+        reason: StashKeptReason,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct PullReport {
+    pub outcome: PullOutcome,
+    pub stash: PullStash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct SwitchStash {
+    pub branch: String,
+    pub sha: String,
+    pub message: String,
+    pub created_at: i64,
+    pub index: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
 pub enum OperationOutcome {
     Completed,
     Conflicts,
@@ -351,6 +417,13 @@ pub struct ForceLease {
     pub branch: String,
     pub remote_ref: String,
     pub expected_sha: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PushTarget {
+    pub remote: String,
+    pub name: String,
+    pub set_upstream: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

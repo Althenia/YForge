@@ -167,6 +167,15 @@ pub(crate) fn require_no_operation(root: &Path) -> Result<(), CoreError> {
     }
 }
 
+pub(crate) fn require_settled(root: &Path) -> Result<(), CoreError> {
+    match repo::read_operation(root)?.0 {
+        None => Ok(()),
+        Some(operation) => Err(CoreError::OperationInProgress {
+            operation: operation_noun(operation).to_owned(),
+        }),
+    }
+}
+
 fn operation_noun(operation: Operation) -> &'static str {
     match operation {
         Operation::Merge => "merge",
