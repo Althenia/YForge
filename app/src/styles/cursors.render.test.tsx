@@ -8,15 +8,17 @@ import { parse } from "yaml";
 import { ActivityEntryView } from "../components/ActivityEntryView";
 import { Composer } from "../components/Composer";
 import { ContextMenu } from "../components/ContextMenu";
+import { DiffView } from "../components/DiffView";
 import { FileRow } from "../components/FileRow";
 import { GraphPanel } from "../components/GraphPanel";
 import { Switch } from "../components/Switch";
 import { TabBar } from "../components/TabBar";
-import { flush, mountWithApp } from "../components/testkit";
+import { flush, mountWithApp, stubLayout, testSession } from "../components/testkit";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createComposer } from "../state/composer";
+import { createDiffPrefs } from "../state/diffPrefs";
 import { defaultSettings } from "../state/settingsModel";
 import type { RepoActions } from "../state/repoActions";
 
@@ -68,7 +70,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     const snapshot = { head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot;
     const host = mount(() => (
       <>
-        <Composer snapshot={snapshot} state={state} action={action} summaryRef={() => undefined} />
+        <Composer snapshot={snapshot} state={state} action={action} pushReason={undefined} summaryRef={() => undefined} />
         <Switch label="Usage" checked={false} onChange={() => undefined} />
         <Switch label="Locked" checked disabled onChange={() => undefined} />
       </>
@@ -88,7 +90,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
   it("shows the text cursor on inputs, textareas, and the labels that wrap them", () => {
     const state = createRoot(() => createComposer());
     const action = { button: () => ({ label: "Commit", disabledReason: undefined }), submit: async () => undefined, toggleAmend: async () => undefined } as unknown as ComponentProps<typeof Composer>["action"];
-    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} summaryRef={() => undefined} />);
+    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} pushReason={undefined} summaryRef={() => undefined} />);
 
     expectCursor(host.querySelector('input[type="text"]'), "text");
     expectCursor(host.querySelector("textarea"), "text");
@@ -275,5 +277,36 @@ describe("cursors on the graph", () => {
     expectCursor(mounted.host.querySelector(".label[data-ref-label]:not(.tag)"), "drag");
     expectCursor(mounted.host.querySelector(".label.tag[data-ref-label]"), "action");
     expectCursor(mounted.host.querySelector('[role="listbox"]'), "static");
+  });
+
+  it("shows the text cursor on diff code in every mode, the action cursor on the line pick button, and the disabled cursor once whitespace is ignored", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe = () => undefined; unobserve = () => undefined; disconnect = () => undefined; });
+    const restoreLayout = stubLayout();
+    const lines = [
+      { kind: "removed", old_number: 1, new_number: null, text: "a", no_newline: false },
+      { kind: "added", old_number: null, new_number: 1, text: "b", no_newline: false },
+    ];
+    const diff = { path: "a.txt", original_path: null, binary: false, hunks: [{ old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, heading: "", lines }] };
+    mockIPC((cmd) => (cmd === "diff_file" ? diff : null));
+    const prefs = createDiffPrefs();
+    const mounted = mountWithApp(() => (
+      <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={{ source: "working", area: "unstaged", file: "a.txt" }} prefs={prefs} onClose={() => undefined} />
+    ));
+    dispose = () => {
+      mounted.dispose();
+      restoreLayout();
+      vi.unstubAllGlobals();
+    };
+    await flush(60);
+
+    expectCursor(mounted.host.querySelector(".dline"), "text");
+    expectCursor(mounted.host.querySelector('button[role="checkbox"]'), "action");
+    prefs.setMode("split");
+    await flush(60);
+    expectCursor(mounted.host.querySelector(".dsplit"), "text");
+    prefs.setIgnoreWhitespace(true);
+    await flush(60);
+    expectCursor(mounted.host.querySelector('button[role="checkbox"]'), "disabled");
+    expectCursor(mounted.host.querySelector('.hacts [aria-disabled="true"]'), "disabled");
   });
 });

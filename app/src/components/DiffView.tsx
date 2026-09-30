@@ -1,56 +1,58 @@
-import { keepPreviousData, useQuery } from "@tanstack/solid-query";
-import { createSignal, For, Show } from "solid-js";
-import type { DiffHunk } from "../ipc/bindings/DiffHunk";
-import type { FileDiff } from "../ipc/bindings/FileDiff";
-import { client, IpcError } from "../ipc/client";
-import { discardHunkCopy, type ConfirmCopy } from "../state/confirmCopy";
-import { diffNotice, hunkActions, hunkHeader, hunkLabel, hunkRows, lineMarker, targetMode, targetSource, type DiffTarget, type HunkAction } from "../state/diffModel";
-import { dataOf } from "../state/queryData";
-import { repoKeys } from "../state/queryKeys";
+import { For, Show } from "solid-js";
+import { client } from "../ipc/client";
+import { createDiffController, type DiffController } from "../state/diffController";
+import { diffModes, diffNotice, hunkLabel, targetMode, targetSource, type DiffTarget } from "../state/diffModel";
+import type { DiffPrefs } from "../state/diffPrefs";
+import type { DiffRow } from "../state/diffRows";
+import { selectionLabel } from "../state/lineSelection";
 import type { RepoSession } from "../state/repoSession";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { GapRow, HunkHead, NoteRow, SplitRow, UnifiedLine } from "./DiffLines";
 import { Icon } from "./Icon";
+import { Switch } from "./Switch";
 import { tip } from "./Tooltip";
-import { VirtualRows } from "./VirtualRows";
+import { VirtualRows, type VirtualRow } from "./VirtualRows";
 
 const LINE_ESTIMATE = 20;
 
-const actionLabel: Record<HunkAction, string> = { stage: "Stage hunk", unstage: "Unstage hunk", discard: "Discard hunk" };
-const actionShortcut = { stage: "S", unstage: "U" } as const;
-
-function load(path: string, target: DiffTarget): Promise<FileDiff> {
-  return target.source === "working" ? client.diffFile(path, target.file, target.area) : client.commitFileDiff(path, target.sha, target.file);
+function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; virtual: VirtualRow }) {
+  const row = () => props.row;
+  return (
+    <>
+      <Show when={row().kind === "head" && row()}>
+        {(head) => {
+          const hunk = () => props.diff.hunks()[(head() as Extract<DiffRow, { kind: "head" }>).hunk];
+          return (
+            <Show when={hunk()}>
+              {(current) => (
+                <div class="dhunk hunk-head" ref={props.virtual.measure} data-index={props.virtual.index} style={props.virtual.style}>
+                  <HunkHead diff={props.diff} hunk={current()} />
+                </div>
+              )}
+            </Show>
+          );
+        }}
+      </Show>
+      <Show when={row().kind === "gap" && (row() as Extract<DiffRow, { kind: "gap" }>)}>
+        {(gap) => <GapRow hidden={gap().hidden} virtual={props.virtual} />}
+      </Show>
+      <Show when={row().kind === "line" && (row() as Extract<DiffRow, { kind: "line" }>)}>
+        {(line) => <UnifiedLine diff={props.diff} cell={line().cell} virtual={props.virtual} />}
+      </Show>
+      <Show when={row().kind === "pair" && (row() as Extract<DiffRow, { kind: "pair" }>)}>
+        {(pair) => <SplitRow diff={props.diff} left={pair().left} right={pair().right} virtual={props.virtual} />}
+      </Show>
+      <Show when={row().kind === "note" && (row() as Extract<DiffRow, { kind: "note" }>)}>
+        {(note) => <NoteRow side={note().side} split={props.split} virtual={props.virtual} />}
+      </Show>
+    </>
+  );
 }
 
-export function DiffView(props: { session: RepoSession; target: DiffTarget; onClose: () => void }) {
-  const path = props.session.path;
-  const diff = useQuery(() => ({
-    queryKey: repoKeys.diff(path, props.target),
-    queryFn: () => load(path, props.target),
-    placeholderData: keepPreviousData,
-  }));
-  const [pendingDiscard, setPendingDiscard] = createSignal<{ hunk: DiffHunk; copy: ConfirmCopy } | undefined>();
-  const actions = () => hunkActions(props.target);
-  const shown = () => (diff.error == null ? dataOf(diff) : undefined);
-  const failure = () => (diff.error instanceof IpcError ? diff.error.message : diff.error == null ? undefined : String(diff.error));
-
-  const run = (action: HunkAction, hunk: DiffHunk) => {
-    const target = props.target;
-    if (target.source !== "working") return;
-    if (action === "discard") {
-      setPendingDiscard({ hunk, copy: discardHunkCopy(target.file, hunk) });
-      return;
-    }
-    void props.session.mutate(() => (action === "stage" ? client.stageHunk(path, target.file, hunk) : client.unstageHunk(path, target.file, hunk)));
-  };
-
-  const confirmDiscard = () => {
-    const pending = pendingDiscard();
-    const target = props.target;
-    setPendingDiscard(undefined);
-    if (pending === undefined || target.source !== "working") return;
-    void props.session.mutate(() => client.discardHunk(path, target.file, pending.hunk));
-  };
+export function DiffView(props: { session: RepoSession; target: DiffTarget; prefs: DiffPrefs; onClose: () => void }) {
+  const diff = createDiffController({ session: props.session, target: () => props.target, prefs: props.prefs });
+  const working = () => props.target.source === "working";
+  const mode = () => props.prefs.mode();
 
   let panel: HTMLElement | undefined;
   let body: HTMLDivElement | undefined;
@@ -61,14 +63,18 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
     hunks[at === -1 ? (delta === 1 ? 0 : hunks.length - 1) : at + delta]?.focus();
   };
 
-  const onHunkKey = (event: KeyboardEvent, hunk: DiffHunk) => {
+  const step = (delta: 1 | -1) => (mode() === "hunk" ? stepHunk(delta) : diff.stepChange(delta));
+  const unit = () => (mode() === "hunk" ? "hunk" : "change");
+
+  const onHunkKey = (event: KeyboardEvent, index: number) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.target !== event.currentTarget) return;
     const section = event.currentTarget as HTMLElement;
-    const shortcuts: Record<string, HunkAction> = { s: "stage", u: "unstage", Backspace: "discard", Delete: "discard" };
-    const wanted = shortcuts[event.key];
-    if (wanted !== undefined && actions().includes(wanted)) {
+    const hunk = diff.hunks()[index];
+    const shortcuts = { s: "stage", u: "unstage", Backspace: "discard", Delete: "discard" } as const;
+    const wanted = shortcuts[event.key as keyof typeof shortcuts];
+    if (wanted !== undefined && hunk !== undefined && diff.actions().includes(wanted)) {
       event.preventDefault();
-      run(wanted, hunk);
+      diff.runHunk(wanted, hunk);
     } else if (event.key === "n" || event.key === "p") {
       const sibling = event.key === "n" ? section.nextElementSibling : section.previousElementSibling;
       if (sibling instanceof HTMLElement) {
@@ -78,8 +84,11 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
     }
   };
 
+  const openInEditor = () =>
+    void client.openPath(`${props.session.snapshot().root}/${props.target.file}`, "editor").catch(props.session.report);
+
   return (
-    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.isFetching} ref={panel}>
+    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.diff.isFetching} ref={panel}>
       <div class="dhead">
         <nav class="crumbs" aria-label="Breadcrumb">
           <button type="button" class="link" onClick={props.onClose}>
@@ -88,7 +97,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
           <span aria-hidden="true">›</span>
           <span>{targetSource(props.target)}</span>
           <span aria-hidden="true">›</span>
-          <Show when={shown()?.original_path}>
+          <Show when={diff.shown()?.original_path}>
             {(original) => (
               <>
                 <span class="path">{original()}</span>
@@ -105,103 +114,128 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
       </div>
       <div class="dtool" role="toolbar" aria-label="Diff options">
         <span class="seg" role="group" aria-label="Diff mode">
-          <button type="button" class="on" aria-pressed="true">
-            Hunk
-          </button>
-          <button type="button" disabled title="Not available yet">
-            Inline
-          </button>
-          <button type="button" disabled title="Not available yet">
-            Split
-          </button>
+          <For each={diffModes}>
+            {(entry) => (
+              <button type="button" classList={{ on: mode() === entry.mode }} aria-pressed={mode() === entry.mode} onClick={() => props.prefs.setMode(entry.mode)}>
+                {entry.label}
+              </button>
+            )}
+          </For>
         </span>
-        <span class="dnav" role="group" aria-label="Hunk navigation">
-          <button type="button" class="icon-btn dense" {...tip("Previous hunk", "P")} onClick={() => stepHunk(-1)}>
+        <Show when={working()}>
+          <span class="dws">
+            <Switch label="Ignore whitespace" checked={props.prefs.ignoreWhitespace()} onChange={props.prefs.setIgnoreWhitespace} />
+            <span>Ignore whitespace</span>
+          </span>
+        </Show>
+        <Show when={diff.blocked()}>
+          {(reason) => (
+            <span class="reason" role="status">
+              {reason()}
+            </span>
+          )}
+        </Show>
+        <Show when={diff.selection()}>
+          {(chosen) => (
+            <span class="dsel" role="group" aria-label="Selected lines">
+              <span class="count">{selectionLabel(chosen().lines.length)}</span>
+              <For each={diff.actions()}>
+                {(action) => (
+                  <Show
+                    when={action === "discard"}
+                    fallback={
+                      <button
+                        type="button"
+                        class="icon-btn dense"
+                        {...tip(action === "stage" ? "Stage lines" : "Unstage lines", action === "stage" ? "S" : "U")}
+                        onClick={() => diff.runSelection(action)}
+                      >
+                        <Icon name={action === "stage" ? "plus" : "minus"} />
+                      </button>
+                    }
+                  >
+                    <button type="button" class="btn sm text-danger" onClick={() => diff.runSelection(action)}>
+                      <Icon name="trash" size={14} />
+                      Discard lines
+                    </button>
+                  </Show>
+                )}
+              </For>
+              <button type="button" class="icon-btn dense" {...tip("Clear selection", "Esc")} onClick={diff.clearSelection}>
+                <Icon name="close" />
+              </button>
+            </span>
+          )}
+        </Show>
+        <span class="dnav" role="group" aria-label="Change navigation">
+          <button type="button" class="icon-btn dense" {...tip(`Previous ${unit()}`, "P")} onClick={() => step(-1)}>
             <Icon name="previous" />
           </button>
-          <button type="button" class="icon-btn dense" {...tip("Next hunk", "N")} onClick={() => stepHunk(1)}>
+          <button type="button" class="icon-btn dense" {...tip(`Next ${unit()}`, "N")} onClick={() => step(1)}>
             <Icon name="next" />
+          </button>
+          <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={openInEditor}>
+            <Icon name="edit" />
           </button>
         </span>
       </div>
       <div class="dbody" ref={body}>
-        <Show when={failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
-        <Show when={shown()}>
+        <Show when={diff.failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
+        <Show when={diff.shown()}>
           {(current) => (
             <Show when={diffNotice(current(), props.target)} fallback={
-              <For each={current().hunks}>
-                {(hunk, index) => (
-                  <section
-                    class="hunk diff"
-                    tabindex="0"
-                    aria-label={hunkLabel(index(), current().hunks.length, hunk)}
-                    onKeyDown={(event) => onHunkKey(event, hunk)}
+              <Show
+                when={mode() === "hunk"}
+                fallback={
+                  <VirtualRows
+                    as="div"
+                    class="dflat"
+                    measured={mode() === "split"}
+                    items={diff.flatRows()}
+                    scroller={() => body}
+                    estimate={LINE_ESTIMATE}
+                    keepIndex={diff.keepIndex(undefined)}
+                    reveal={diff.reveal()}
                   >
-                    <div class="hunk-head">
-                      <span class="range">{hunkHeader(hunk)}</span>
-                      <span class="spacer" />
-                      <span class="hacts">
-                        <For each={actions()}>
-                          {(action) => (
-                            <Show
-                              when={action === "discard"}
-                              fallback={
-                                <button
-                                  type="button"
-                                  class="icon-btn dense"
-                                  {...tip(actionLabel[action], actionShortcut[action as "stage" | "unstage"])}
-                                  onClick={() => run(action, hunk)}
-                                >
-                                  <Icon name={action === "stage" ? "plus" : "minus"} />
-                                </button>
-                              }
-                            >
-                              <button type="button" class="btn sm text-danger" onClick={() => run(action, hunk)}>
-                                <Icon name="trash" size={14} />
-                                {actionLabel[action]}
-                              </button>
-                            </Show>
-                          )}
-                        </For>
-                      </span>
-                    </div>
-                    <VirtualRows as="div" items={hunkRows(hunk)} scroller={() => body} estimate={LINE_ESTIMATE}>
-                      {(row, virtual) => (
-                        <div class="dline" classList={{ add: row.kind === "line" && row.line.kind === "added", del: row.kind === "line" && row.line.kind === "removed", note: row.kind === "note" }} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
-                          <Show
-                            when={row.kind === "line" && row.line}
-                            fallback={
-                              <>
-                                <span class="ln" />
-                                <span class="ln" />
-                                <span class="mk" />
-                                <span class="code">No newline at end of file</span>
-                              </>
-                            }
-                          >
-                            {(line) => (
-                              <>
-                                <span class="ln" aria-hidden="true">{line().old_number}</span>
-                                <span class="ln" aria-hidden="true">{line().new_number}</span>
-                                <span class="mk" aria-hidden="true">{lineMarker[line().kind]}</span>
-                                <span class="code">{line().text}</span>
-                              </>
-                            )}
-                          </Show>
-                        </div>
-                      )}
-                    </VirtualRows>
-                  </section>
-                )}
-              </For>
+                    {(row, virtual) => <FlatRow diff={diff} row={row} split={mode() === "split"} virtual={virtual} />}
+                  </VirtualRows>
+                }
+              >
+                <For each={current().hunks}>
+                  {(hunk, index) => (
+                    <section
+                      class="hunk diff"
+                      tabindex="0"
+                      aria-label={hunkLabel(index(), current().hunks.length, hunk)}
+                      onKeyDown={(event) => onHunkKey(event, index())}
+                    >
+                      <div class="hunk-head">
+                        <HunkHead diff={diff} hunk={hunk} />
+                      </div>
+                      <VirtualRows
+                        as="div"
+                        items={diff.hunkRowLists()[index()] ?? []}
+                        scroller={() => body}
+                        estimate={LINE_ESTIMATE}
+                        keepIndex={diff.keepIndex(index())}
+                        reveal={diff.reveal()?.hunk === index() ? diff.reveal() : undefined}
+                      >
+                        {(row, virtual) => (
+                          <FlatRow diff={diff} row={row} split={false} virtual={virtual} />
+                        )}
+                      </VirtualRows>
+                    </section>
+                  )}
+                </For>
+              </Show>
             }>
               {(notice) => <div class="empty">{notice()}</div>}
             </Show>
           )}
         </Show>
       </div>
-      <Show when={pendingDiscard()}>
-        {(pending) => <ConfirmDialog copy={pending().copy} onConfirm={confirmDiscard} onCancel={() => setPendingDiscard(undefined)} />}
+      <Show when={diff.pendingDiscard()}>
+        {(pending) => <ConfirmDialog copy={pending().copy} onConfirm={diff.confirmDiscard} onCancel={diff.cancelDiscard} />}
       </Show>
     </section>
   );

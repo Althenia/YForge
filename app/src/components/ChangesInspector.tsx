@@ -3,9 +3,10 @@ import { client } from "../ipc/client";
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import { canDiscard, changeTotal, filesIn, isPartiallyStaged, neighborKey, pathsToMove, rowKey, stagedFileCount, areaOrder } from "../state/changes";
-import { createCommitAction, type Composer as ComposerState } from "../state/composer";
+import { commitPushReason, createCommitAction, type Composer as ComposerState } from "../state/composer";
 import { discardFilesCopy } from "../state/confirmCopy";
 import { sameTarget, type DiffTarget, type WorkingArea } from "../state/diffModel";
+import { pushRemote } from "../state/refMenu";
 import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import { ActionMenu } from "./ActionMenu";
@@ -41,7 +42,21 @@ export function ChangesInspector(props: {
     composer: props.composer,
     staged: () => stagedFileCount(snapshot().files),
     onCommitted: props.onCommitted,
+    push: async () => {
+      const remote = pushRemote(snapshot().remotes);
+      if (snapshot().upstream === null && remote !== undefined) await props.actions.publish(remote);
+      else await props.actions.push();
+    },
   });
+
+  const pushReason = () =>
+    commitPushReason({
+      button: action.button(),
+      snapshot: snapshot(),
+      amend: props.composer.amend(),
+      amendPushed: props.composer.pushed(),
+      syncing: props.actions.sync().kind === "running",
+    });
 
   const head = () => {
     const value = snapshot().head;
@@ -231,7 +246,8 @@ export function ChangesInspector(props: {
       onKeyDown={(event) => {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
           event.preventDefault();
-          void action.submit();
+          if (!event.shiftKey) void action.submit();
+          else if (pushReason() === undefined) void action.submit({ push: true });
         }
       }}
     >
@@ -256,7 +272,7 @@ export function ChangesInspector(props: {
           <For each={areaOrder}>{(section) => <Section {...section} />}</For>
         </Show>
       </div>
-      <Composer snapshot={snapshot()} state={props.composer} action={action} summaryRef={(element) => (summary = element)} />
+      <Composer snapshot={snapshot()} state={props.composer} action={action} pushReason={pushReason()} summaryRef={(element) => (summary = element)} />
       <Show when={pendingDiscard()}>
         {(files) => <ConfirmDialog copy={discardFilesCopy(files())} onConfirm={() => void confirmDiscard()} onCancel={() => setPendingDiscard(undefined)} />}
       </Show>

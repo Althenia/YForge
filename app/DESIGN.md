@@ -80,6 +80,17 @@ colors:
   graph-text-active: "#FFFFFF"
   graph-row-hover: "#1A2125"
   graph-pill: "#21282C"
+  diff-added-word: "#1B4B3B"
+  diff-removed-word: "#4A2B33"
+  diff-added-selected: "#173F33"
+  diff-removed-selected: "#3A2830"
+  syntax-keyword: "#F5A8D8"
+  syntax-string: "#EBCB85"
+  syntax-number: "#8CC4FF"
+  syntax-comment: "#A9B3BE"
+  syntax-function: "#C6B8FF"
+  syntax-type: "#63D9E3"
+  syntax-property: "#F7B192"
 typography:
   ui-body:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
@@ -724,6 +735,17 @@ themes:
       graph-text-active: "#191919"
       graph-row-hover: "#F3F6F5"
       graph-pill: "#F3F6F5"
+      diff-added-word: "#C6EFDB"
+      diff-removed-word: "#F7CFCF"
+      diff-added-selected: "#D6F3E6"
+      diff-removed-selected: "#F6DDDD"
+      syntax-keyword: "#8F0F63"
+      syntax-string: "#6E4400"
+      syntax-number: "#0A50A0"
+      syntax-comment: "#4B5561"
+      syntax-function: "#4F28B0"
+      syntax-type: "#00595F"
+      syntax-property: "#8F3609"
     elevation:
       panel: "0 8px 24px rgba(11, 15, 20, 0.08)"
       raised: "0 1px 2px rgba(16, 24, 40, 0.06), 0 0 0 1px rgba(16, 24, 40, 0.08)"
@@ -862,6 +884,9 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 | S15 | approved | Controls and labels MUST be icon-driven where an established glyph carries the meaning (row actions, tab and pane controls, toolbar actions, section headers, state chips, menu items); every icon-only control MUST have an accessible name and a tooltip naming the action and its shortcut; confirmation, dialog, operation-banner, and destructive buttons MUST keep a text label; an icon MUST NEVER be the only carrier of state (B4). | review-only: approved 2026-09-30 |
 | S16 | approved | Diagnostics data (usage events, crash reports, persisted activity history) MUST stay on this Mac and MUST be managed in Settings → Privacy & diagnostics: usage recording MUST be opt-in, off by default, and its setting MUST state exactly what is recorded and that nothing leaves the Mac; turning it off MUST state that stored events are deleted; every Delete or Clear MUST confirm in a dialog with a text-labelled danger button (S5, S15); an entry from an earlier session MUST say in text that it has no undo (B4). | review-only: approved 2026-09-30 (owner delegation) |
 | S17 | approved | Every cursor MUST come from the `cursors` tokens as `var(--cursors-*)`, and the browser default MUST NEVER decide one: a raw cursor keyword, an inline cursor style, or a `--cursors-*` value outside `tokens.css` MUST NEVER appear. Buttons, links, tabs, menu items, palette and option rows, selectable graph, file, sidebar, and list rows, actionable chips, switches, checkboxes and radios with their labels, segmented controls, selects, and cards that act MUST use `action`; text inputs, textareas, contenteditable regions, and selectable text regions (diff content, commit message body, command output) MUST use `text`; disabled controls (`[disabled]`, `aria-disabled="true"`) MUST use `disabled` and MUST keep their reason tooltip; draggable ref labels MUST use `drag`, and the whole window MUST use `dragging` while one is dragged; panel and column dividers MUST use `resize-column` or `resize-row` by orientation; a control whose operation is running (`aria-busy="true"`) MUST use `busy`; every non-interactive surface MUST use `static`. An element that acts on click MUST be a native button or link, or carry the matching role, so the global mapping applies. | `app/src/styles/cursors.test.ts` (token-only scan of `app/src` and the specimen stylesheet, drift-checked mirror) and `app/src/styles/cursors.render.test.tsx` (rendered components) · approved 2026-09-30 (owner delegation) |
+| S18 | approved | Every added or removed diff line MUST be selectable in Hunk, Inline, and Split modes through a per-line checkbox in its gutter (`role="checkbox"`, named "Select <added or removed> line <n>"; click toggles, ⇧-click extends the range within the hunk, ↑/↓ move between changed lines, ⇧↑/⇧↓ extend); a selected line MUST show the `diff-added-selected` or `diff-removed-selected` fill, the 2px `accent` inline-start bar, and a check glyph in place of the ± marker (never color alone, B4); selected lines act through Stage lines, Unstage lines, and Discard lines in the diff toolbar, and Discard lines MUST confirm with a text-labelled danger button (S5, S15); while Ignore whitespace is on, every hunk and line staging control MUST be `aria-disabled` with the tooltip and visible toolbar text "Turn off Ignore whitespace to stage changes". | `app/src/components/DiffView.test.tsx`, `app/src/state/lineSelection.test.ts`, `app/src/styles/cursors.render.test.tsx` · approved 2026-09-30 (owner delegation) |
+| S19 | approved | Code in a diff MUST use the `syntax-*` tokens for keyword, string, number, comment, function, type, and property, and the changed words of a paired removed and added line MUST sit on `diff-removed-word` and `diff-added-word`; every syntax color, `text`, and `text-muted` MUST reach 4.5:1 on `canvas`, `accent-tint`, `danger-tint`, both word fills, and both selected fills in both themes; a raw color MUST NEVER style code; syntax MUST never be the only carrier of added or removed (the ± marker stays); files with no grammar MUST render plain. | `app/src/styles/contrast.test.ts` (syntax and diff pairs), `app/src/styles/tokens.test.ts`, `app/src/state/syntax.test.ts`, `app/src/state/diffHighlight.test.ts` · approved 2026-09-30 (owner delegation) |
+| S20 | approved | The composer's primary action MUST be a split button: the main segment commits, and the attached chevron segment (`aria-haspopup="menu"`, named "More commit actions") opens Commit (⌘↵) and Commit & Push (⌘⇧↵); Commit & Push MUST be `aria-disabled` with its reason shown in the menu whenever it cannot push (no remote, detached HEAD, operation or sync running, or an amend of a pushed commit); a failed push after a successful commit MUST leave the commit and report the push error. | `app/src/components/ChangesInspector.test.tsx`, `app/src/state/composer.test.ts` · approved 2026-09-30 (owner delegation) |
 
 ## Colors
 
@@ -907,6 +932,24 @@ Tints are opaque so their contrast does not depend on the aurora:
 - attention-tint `#302F27` / `#F6F0E0`;
 - danger-tint `#2E2226` / `#F9EBEB`;
 - info-tint `#2A3746` / `#E3EEFB`.
+
+**Diff and syntax colors (S18, S19).** Opaque fills and inks for code on the canvas and the two line tints, measured by `contrast.test.ts` (every syntax ink, `text`, and `text-muted` ≥4.5:1 on each fill it can sit on):
+
+| Token | Dark | Light | Use |
+|---|---|---|---|
+| diff-added-word | `#1B4B3B` | `#C6EFDB` | Changed words of an added line |
+| diff-removed-word | `#4A2B33` | `#F7CFCF` | Changed words of a removed line |
+| diff-added-selected | `#173F33` | `#D6F3E6` | Selected added line |
+| diff-removed-selected | `#3A2830` | `#F6DDDD` | Selected removed line |
+| syntax-keyword | `#F5A8D8` | `#8F0F63` | Keywords, tags, meta |
+| syntax-string | `#EBCB85` | `#6E4400` | Strings, regular expressions |
+| syntax-number | `#8CC4FF` | `#0A50A0` | Numbers, literals |
+| syntax-comment | `#A9B3BE` | `#4B5561` | Comments (italic) |
+| syntax-function | `#C6B8FF` | `#4F28B0` | Function and section names |
+| syntax-type | `#63D9E3` | `#00595F` | Types and built-ins |
+| syntax-property | `#F7B192` | `#8F3609` | Attributes, properties, variables |
+
+The removed-line marker uses `danger-ink`, because `status-deleted` measures 4.48:1 on the light `danger-tint`.
 
 All tint and ink pairs are ≥4.60:1. Danger text on the attention tint (the Abort button in the operation banner) is 4.59:1 dark and 4.57:1 light.
 
@@ -1087,7 +1130,7 @@ A child radius never exceeds its parent's radius.
 | Token | Value | Elements |
 |---|---|---|
 | `action` | `pointer` | Buttons, links, `summary`, selects, checkbox and radio inputs and their labels, `role` button, link, tab, menuitem, option, switch, checkbox, radio, openable file rows, selectable conflict lines |
-| `text` | `text` | Text inputs, textareas, labels that wrap them, contenteditable and textbox roles, diff lines, commit message body, command output |
+| `text` | `text` | Text inputs, textareas, labels that wrap them, contenteditable and textbox roles, diff lines (unified and split), commit message body, command output |
 | `disabled` | `not-allowed` | `:disabled` and `aria-disabled="true"` controls, and labels that wrap a disabled control; the reason tooltip stays |
 | `drag` | `grab` | `draggable="true"` and branch ref labels (tag labels are not draggable and keep the row cursor) |
 | `dragging` | `grabbing` | The whole window while `body.dragging-ref` is set |
@@ -1132,12 +1175,13 @@ A child radius never exceeds its parent's radius.
 | Graph row (ref label, lane art, node, lane strip, message) | History navigation | COMPONENT_SPECS § Graph row | S02, S05, S22 |
 | Ref label (tinted rail, checked-out, tag) | Branch, tag, and remote identity | COMPONENT_SPECS § Ref label | S02, S04, S06, S12 |
 | File row with status badge | Changes and commit file lists | COMPONENT_SPECS § File row | S03, S04, S06, S15 |
-| Diff line and hunk header | Diff and staging | COMPONENT_SPECS § Diff hunk | S07, S09 |
+| Diff line, hunk header, and toolbar | Diff, line staging, modes, and highlighting | COMPONENT_SPECS § Diff hunk | S07, S09 |
 | Conflict block | Resolve Current / Incoming / Both | COMPONENT_SPECS § Conflict block | S09 |
 | Sidebar section and row | Ref navigation | This file | S02, S29 |
 | Buttons (primary, secondary, danger, icon, split) | Actions | Front matter tokens | All |
 | Tabs, chips, command field, breadcrumb | Bar controls | Front matter tokens | S01–S31 |
-| Composer | Commit message entry | Front matter tokens | S03, S04 |
+| Composer (split Commit button) | Commit message entry; Commit and Commit & Push | COMPONENT_SPECS § Composer | S03, S04 |
+| Message edit form | Edit the HEAD commit message in the commit inspector | COMPONENT_SPECS § Message edit form | S03 |
 | Menu, context menu, drop menu | Direct manipulation | UX_PATTERNS §6–7 | S12 |
 | Command palette | Keyboard access | SCREEN_INVENTORY S21 | S21 |
 | Dialog, confirmation | Risky actions | SCREEN_INVENTORY S11, S13, S14 | S11–S19 |

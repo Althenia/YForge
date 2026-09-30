@@ -36,6 +36,7 @@ import type { ForcePushPlan } from "./bindings/ForcePushPlan";
 import type { GraphPage } from "./bindings/GraphPage";
 import type { IntegrationPreview } from "./bindings/IntegrationPreview";
 import type { MergeMode } from "./bindings/MergeMode";
+import type { MessageEdit } from "./bindings/MessageEdit";
 import type { OperationOutcome } from "./bindings/OperationOutcome";
 import type { OperationProgress } from "./bindings/OperationProgress";
 import type { PullMode } from "./bindings/PullMode";
@@ -89,7 +90,8 @@ export const client = {
   launchPath: () => call<string>("launch_path"),
   repoOpen: (path: string) => call<RepoSnapshot>("repo_open", { path }),
   repoGraph: (path: string, offset: number, limit: number) => call<GraphPage>("repo_graph", { path, offset, limit }),
-  diffFile: (path: string, file: string, area: ChangeArea) => call<FileDiff>("diff_file", { path, file, area }),
+  diffFile: (path: string, file: string, area: ChangeArea, ignoreWhitespace = false) =>
+    call<FileDiff>("diff_file", ignoreWhitespace ? { path, file, area, ignoreWhitespace } : { path, file, area }),
   stageFiles: (path: string, files: string[]) => call<null>("stage_files", { path, files }),
   unstageFiles: (path: string, files: string[]) => call<null>("unstage_files", { path, files }),
   stageAll: (path: string) => call<null>("stage_all", { path }),
@@ -98,6 +100,11 @@ export const client = {
   stageHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("stage_hunk", { path, file, hunk }),
   unstageHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("unstage_hunk", { path, file, hunk }),
   discardHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("discard_hunk", { path, file, hunk }),
+  stageLines: (path: string, file: string, hunk: DiffHunk, lines: readonly number[]) => call<null>("stage_lines", { path, file, hunk, lines }),
+  unstageLines: (path: string, file: string, hunk: DiffHunk, lines: readonly number[]) => call<null>("unstage_lines", { path, file, hunk, lines }),
+  discardLines: (path: string, file: string, hunk: DiffHunk, lines: readonly number[]) => call<null>("discard_lines", { path, file, hunk, lines }),
+  editHeadMessage: (path: string, sha: string, summary: string, description: string) =>
+    call<MessageEdit>("edit_head_message", { path, sha, summary, description }),
   commit: (path: string, summary: string, description: string, amend: boolean) =>
     call<string>("commit", { path, summary, description, amend }),
   amendInfo: (path: string) => call<AmendInfo>("amend_info", { path }),

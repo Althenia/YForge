@@ -60,6 +60,17 @@ export function discardHunkCopy(file: string, hunk: DiffHunk): ConfirmCopy {
   };
 }
 
+export function discardLinesCopy(file: string, hunk: DiffHunk, count: number): ConfirmCopy {
+  return {
+    title: `Discard ${count} selected ${count === 1 ? "line" : "lines"}?`,
+    consequences: [
+      "The selected lines return to their content in the index. Undo can restore the edit from a snapshot taken before discarding, while the file is unchanged since; without a snapshot it is lost.",
+    ],
+    names: [`${file} · ${hunkLineRange(hunk)}`],
+    confirmLabel: "Discard lines",
+  };
+}
+
 export function detachCopy(label: string, dirty: boolean): ConfirmCopy {
   const consequences = [
     "HEAD will point at this commit instead of a branch. Commits you make here belong to no branch and can be lost when you switch away.",

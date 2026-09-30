@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
 import type { FileChange } from "../ipc/bindings/FileChange";
-import { diffNotice, followTarget, isConflictTarget, hunkActions, hunkHeader, hunkLabel, hunkRows, lineMarker, sameTarget, targetMode, targetSource, type DiffTarget } from "./diffModel";
+import { diffNotice, followTarget, isConflictTarget, hunkActions, hunkHeader, hunkLabel, lineMarker, sameTarget, targetMode, targetSource, type DiffTarget } from "./diffModel";
 
 const hunk: DiffHunk = { old_start: 3, old_lines: 7, new_start: 3, new_lines: 7, heading: "export function clamp", lines: [] };
 const working = (area: "unstaged" | "staged" | "untracked" | "conflicted"): DiffTarget => ({ source: "working", area, file: "src/util.js" });
@@ -79,14 +79,5 @@ describe("diff view model", () => {
     expect(followTarget([change("a.txt", "staged"), change("b.txt", "conflicted")], target)).toEqual({ source: "working", area: "conflicted", file: "b.txt" });
     expect(followTarget([change("a.txt", "staged")], target)).toBeUndefined();
     expect(followTarget([], target)).toBeUndefined();
-  });
-});
-
-describe("hunkRows", () => {
-  it("adds a note row after a line that lacks a final newline", () => {
-    const line = (text: string, no_newline: boolean) => ({ kind: "added" as const, old_number: null, new_number: 1, text, no_newline });
-    const hunk = { old_start: 1, old_lines: 0, new_start: 1, new_lines: 2, heading: "", lines: [line("a", false), line("b", true)] };
-
-    expect(hunkRows(hunk).map((row) => row.kind)).toEqual(["line", "line", "note"]);
   });
 });

@@ -1,5 +1,5 @@
 import { createVirtualizer, defaultRangeExtractor } from "@tanstack/solid-virtual";
-import { createEffect, createSignal, For, onMount, type JSX } from "solid-js";
+import { createEffect, createSignal, For, on, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
 export type VirtualRow = {
@@ -17,6 +17,8 @@ export function VirtualRows<T>(props: {
   scroller: () => HTMLElement | undefined;
   estimate: number;
   keepIndex?: number | undefined;
+  reveal?: { nonce: number; index: number } | undefined;
+  measured?: boolean;
   as?: "ul" | "div";
   class?: string;
   children: (item: T, row: VirtualRow) => JSX.Element;
@@ -50,6 +52,16 @@ export function VirtualRows<T>(props: {
     onChange: updateMargin,
   });
 
+  createEffect(
+    on(
+      () => props.reveal,
+      (target) => {
+        if (target !== undefined) virtualizer.scrollToIndex(target.index, { align: "auto" });
+      },
+      { defer: true },
+    ),
+  );
+
   createEffect(() => {
     props.items.length;
     queueMicrotask(updateMargin);
@@ -62,7 +74,7 @@ export function VirtualRows<T>(props: {
       class={props.class}
       style={{ position: "relative", height: `${virtualizer.getTotalSize()}px` }}
     >
-      <For each={virtualizer.getVirtualItems()}>
+      <For each={virtualizer.getVirtualItems().filter((item) => item !== undefined)}>
         {(item) => {
           const value = () => props.items[item.index];
           return (
@@ -72,7 +84,10 @@ export function VirtualRows<T>(props: {
                 : props.children(value() as T, {
                     index: item.index,
                     style: { position: "absolute", top: `${item.start - margin()}px`, left: "0", right: "0" },
-                    measure: (element) => virtualizer.measureElement(element),
+                    measure: (element) => {
+                      if (props.measured === true) element?.setAttribute("data-index", String(item.index));
+                      virtualizer.measureElement(element);
+                    },
                   })}
             </>
           );

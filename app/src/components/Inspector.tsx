@@ -40,7 +40,7 @@ export function Inspector(props: {
     >
       {(sha) => (
         <CommitInspector
-          path={props.session.path}
+          session={props.session}
           sha={sha()}
           activeTarget={props.activeTarget}
           onSelectCommit={props.onSelectCommit}

@@ -60,7 +60,15 @@ function measure(theme: Map<string, string>, pair: Pair, background: string): nu
 
 const readingSurfaces = ["canvas", "surface-1", "surface-2", "surface-3", "surface-raised", "selection"];
 
+const syntaxKinds = ["keyword", "string", "number", "comment", "function", "type", "property"].map((kind) => `syntax-${kind}`);
+const codeSurfaces = ["canvas", "accent-tint", "danger-tint", "diff-added-word", "diff-removed-word", "diff-added-selected", "diff-removed-selected"];
+
 const pairs: Pair[] = [
+  { foreground: "text", backgrounds: codeSurfaces, minimum: TEXT },
+  ...syntaxKinds.map((foreground): Pair => ({ foreground, backgrounds: codeSurfaces, minimum: TEXT })),
+  { foreground: "text-muted", backgrounds: ["accent-tint", "danger-tint", "diff-added-selected", "diff-removed-selected"], minimum: TEXT },
+  { foreground: "status-added", backgrounds: ["accent-tint", "diff-added-selected"], minimum: TEXT },
+  { foreground: "danger-ink", backgrounds: ["diff-removed-selected"], minimum: TEXT },
   { foreground: "text", backgrounds: readingSurfaces, minimum: TEXT },
   { foreground: "text-muted", backgrounds: readingSurfaces, minimum: TEXT },
   { foreground: "text-subtle", backgrounds: ["canvas"], minimum: TEXT },

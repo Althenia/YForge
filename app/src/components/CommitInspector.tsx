@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/solid-query";
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
@@ -8,8 +8,11 @@ import { client, IpcError } from "../ipc/client";
 import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
+import type { RepoSession } from "../state/repoSession";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { MessageForm } from "./MessageForm";
+import { tip } from "./Tooltip";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 const refIcon = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
@@ -44,20 +47,30 @@ function RefChip(props: { entry: GraphRef }) {
   );
 }
 
+const OPERATION_REASON = "Finish the operation in progress first";
+
 export function CommitInspector(props: {
-  path: string;
+  session: RepoSession;
   sha: string;
   activeTarget: DiffTarget | undefined;
   onSelectCommit: (sha: string) => void;
   onOpenDiff: (target: DiffTarget) => void;
 }) {
+  const path = props.session.path;
   const details = useQuery(() => ({
-    queryKey: repoKeys.commit(props.path, props.sha),
-    queryFn: () => client.commitDetails(props.path, props.sha),
+    queryKey: repoKeys.commit(path, props.sha),
+    queryFn: () => client.commitDetails(path, props.sha),
     placeholderData: keepPreviousData,
   }));
   let scroller: HTMLDivElement | undefined;
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
+  const [editing, setEditing] = createSignal(false);
+  createEffect(on(() => props.sha, () => setEditing(false), { defer: true }));
+  const isHead = () => {
+    const head = props.session.snapshot().head;
+    return head.kind !== "unborn" && head.sha === shown()?.sha;
+  };
+  const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
   const now = Math.floor(Date.now() / 1000);
   const shown = () => (details.error == null ? dataOf(details) : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
@@ -84,9 +97,23 @@ export function CommitInspector(props: {
             <div class="ihead">
               <h2>{commit().summary || "(no message)"}</h2>
               <p>{commit().parents.length > 1 ? "Merge commit" : "Commit"} · {commit().parents.length} {commit().parents.length === 1 ? "parent" : "parents"}</p>
+              <Show when={isHead() && !editing()}>
+                <button
+                  type="button"
+                  class="icon-btn dense ihead-action"
+                  {...tip(editReason() ?? "Edit message", undefined, "Edit message")}
+                  aria-disabled={editReason() === undefined ? undefined : "true"}
+                  onClick={() => editReason() === undefined && setEditing(true)}
+                >
+                  <Icon name="edit" />
+                </button>
+              </Show>
             </div>
             <div class="ilist commit-body" ref={scroller}>
-              <Show when={commit().body}>{(body) => <p class="cbody">{body()}</p>}</Show>
+              <Show when={editing()}>
+                <MessageForm session={props.session} onClose={() => setEditing(false)} onSaved={props.onSelectCommit} />
+              </Show>
+              <Show when={commit().body && !editing()}>{(body) => <p class="cbody">{body()}</p>}</Show>
               <div class="cmeta">
                 <div class="mrow">
                   <span class="k">Commit</span>

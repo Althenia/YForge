@@ -19,12 +19,15 @@ beforeEach(() => {
       disconnect = () => undefined;
     },
   );
-  for (const [name, value] of Object.entries({ offsetHeight: VIEWPORT, clientHeight: VIEWPORT, offsetWidth: 800, clientWidth: 800 })) {
+  for (const [name, value] of Object.entries({ offsetHeight: VIEWPORT, clientHeight: VIEWPORT, offsetWidth: 800, clientWidth: 800, scrollHeight: items.length * ROW })) {
     Object.defineProperty(HTMLElement.prototype, name, { configurable: true, get: () => value });
   }
   HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
     const top = this.tagName === "UL" ? -(this.parentElement?.scrollTop ?? 0) : 0;
     return { x: 0, y: top, top, left: 0, right: 800, bottom: top + ROW, width: 800, height: ROW, toJSON: () => ({}) };
+  };
+  HTMLElement.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+    this.scrollTop = typeof options === "object" ? (options.top ?? 0) : 0;
   };
   const offsets = new WeakMap<Element, number>();
   Object.defineProperty(HTMLElement.prototype, "scrollTop", {
@@ -45,7 +48,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
   await flush();
   document.body.innerHTML = "";
-  for (const name of ["offsetHeight", "clientHeight", "offsetWidth", "clientWidth", "scrollTop", "getBoundingClientRect"]) {
+  for (const name of ["offsetHeight", "clientHeight", "offsetWidth", "clientWidth", "scrollHeight", "scrollTop", "scrollTo", "getBoundingClientRect"]) {
     delete (HTMLElement.prototype as unknown as Record<string, unknown>)[name];
   }
 });
@@ -54,11 +57,12 @@ async function mountRows() {
   const host = document.createElement("div");
   document.body.append(host);
   const [keep, setKeep] = createSignal<number | undefined>();
+  const [reveal, setReveal] = createSignal<{ nonce: number; index: number } | undefined>();
   let scroller: HTMLDivElement | undefined;
   dispose = render(
     () => (
       <div class="scroller" ref={scroller}>
-        <VirtualRows items={items} scroller={() => scroller} estimate={ROW} keepIndex={keep()}>
+        <VirtualRows items={items} scroller={() => scroller} estimate={ROW} keepIndex={keep()} reveal={reveal()}>
           {(item, row) => (
             <li ref={row.measure} data-index={row.index} style={row.style} tabindex="0">
               {item}
@@ -75,7 +79,7 @@ async function mountRows() {
     (scroller as HTMLDivElement).scrollTop = top;
     await flush(60);
   };
-  return { host, rendered, scrollTo, setKeep };
+  return { host, rendered, scrollTo, setKeep, setReveal };
 }
 
 describe("virtual rows", () => {
@@ -104,5 +108,15 @@ describe("virtual rows", () => {
 
     expect(rendered()).toContain("row 3");
     expect(rendered()).toContain("row 1500");
+  });
+
+  it("scrolls a revealed row into the rendered window", async () => {
+    const { rendered, setReveal } = await mountRows();
+
+    setReveal({ nonce: 1, index: 1500 });
+    await flush(60);
+
+    expect(rendered()).toContain("row 1500");
+    expect(rendered()).not.toContain("row 0");
   });
 });

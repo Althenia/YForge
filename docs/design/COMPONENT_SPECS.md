@@ -130,16 +130,47 @@
 
 ## Diff hunk
 
-- **Purpose:** Show one hunk with staging controls.
-- **Anatomy:**
-  - Header: `@@` range in `code`, `text-muted`, with Stage hunk and Unstage hunk as icon-only buttons (`plus`, `minus`; tooltips with S and U) and Discard hunk as a text button with a leading `trash` glyph (S5, S15). The diff toolbar carries Previous hunk and Next hunk icon-only buttons (`previous`, `next`; P and N).
-  - Lines: gutter with old and new numbers (`text-muted`), a ± marker, then code.
-  - Added lines use an `accent-tint` background; removed lines use `danger-tint`.
-  - Word-level highlights sit at stronger opacity inside the tinted line.
-- **States:** hover or focus shows the header actions, and line selection shows the xs-radius range marks with "Stage 3 lines" and "Discard 3 lines".
-- **Content:** Very long lines wrap only when wrap is on; otherwise the hunk scrolls horizontally. There is a "No newline at end of file" marker.
-- **Accessibility:** Hunks are regions named "Hunk k of n, lines a–b". N and P jump between hunks. Line selection works with ⇧↑/⇧↓.
+- **Purpose:** Show a file diff in Hunk, Inline, or Split mode with hunk and line staging controls (S18) and highlighted code (S19).
+- **Toolbar** (`role="toolbar"`, named "Diff options"), left to right:
+  - mode segments Hunk, Inline, Split (`aria-pressed`; the choice lasts for the session);
+  - the labelled **Ignore whitespace** switch (working-tree diffs only; the commit diff command has no such option). While on, hunk and line staging are `aria-disabled` and the toolbar states "Turn off Ignore whitespace to stage changes";
+  - when lines are selected, the group "N lines selected" with Stage lines or Unstage lines (icon-only `plus`, `minus`; S and U), Discard lines (text button with a `trash` glyph; confirms), and Clear selection (`close`; Esc);
+  - at the end, Previous and Next (`previous`, `next`; P and N; "hunk" in Hunk mode, "change" in Inline and Split) and Open in editor (`edit`).
+- **Modes:**
+  - **Hunk:** one framed section per hunk with a header and its own virtualized lines.
+  - **Inline:** one continuous virtualized list; each hunk starts with a header row, and a "N unchanged lines" gap row separates hunks (the file's unchanged lines are not available until the file view has a backend command).
+  - **Split:** the same list as two aligned halves (old left, new right). A removed run pairs line by line with the added run after it; the shorter side pads with an empty half (`surface-2`). Long lines wrap in a half so the rows stay aligned.
+- **Header:** `@@` range in `code`, `text-muted`, with Stage hunk and Unstage hunk as icon-only buttons (`plus`, `minus`; tooltips with S and U) and Discard hunk as a text button with a leading `trash` glyph (S5, S15).
+- **Lines:**
+  - gutter with old and new numbers (one number per half in Split), a ± marker, then code;
+  - added lines use `accent-tint`, removed lines `danger-tint`; the marker uses `status-added` and `danger-ink`;
+  - the gutter of an added or removed line is a checkbox named "Select added line 12" or "Select removed line 9" (S18); unchanged lines and commit diffs have a plain gutter;
+  - a selected line uses `diff-added-selected` or `diff-removed-selected`, the 2px `accent` inline-start bar, and a check glyph replacing the marker;
+  - code takes the `syntax-*` inks (keyword, string, number, comment in italic, function, type, property) from the file extension; files with no grammar stay plain, and a hunk above 200 000 characters is not highlighted;
+  - the changed words of a removed line and the added line it pairs with sit on `diff-removed-word` and `diff-added-word`.
+- **States:** hover or focus shows the header actions; blocked (Ignore whitespace on) dims staging controls to 50% with the reason as tooltip and toolbar text; binary files show "Binary file — no text diff" in place of hunks.
+- **Content:** Hunk and Inline scroll horizontally for long lines; Split wraps them. There is a "No newline at end of file" marker on the side that lacks it.
+- **Accessibility:** Hunks are regions named "Hunk k of n, lines a–b"; N and P jump between hunks while a hunk has focus. On a line checkbox: Space or Enter toggles, ↑ and ↓ move to the previous or next changed line (across hunks), ⇧↑ and ⇧↓ extend the selection, ⇧-click extends within the hunk, S, U, and Backspace act on the selection (or the focused line), N and P jump to the next and previous change, Esc clears the selection. Only the focused line is a tab stop.
 - **Consumers:** S07, S09.
+
+## Composer
+
+- **Purpose:** Write a commit message and commit, optionally pushing.
+- **Anatomy:** Summary with the 72-character counter, Description, the Amend last commit checkbox with its pushed warning, then the **split button**:
+  - the main segment is the primary Commit button (`commit` glyph, "Commit N files", hint ⌘↵);
+  - the attached chevron segment (`chevron`, named "More commit actions", `aria-haspopup="menu"`) opens a menu upward with **Commit** (⌘↵) and **Commit & Push** (⌘⇧↵).
+- **Commit & Push:** commits, selects the new commit, then pushes the current branch to its upstream; a branch without one publishes to `origin` (or the first remote). The push uses the ordinary Push flow, so a diverged branch opens the force-push confirmation and a rejection reads as usual.
+- **States:** the reason for a disabled Commit sits beside the button. Commit & Push is `aria-disabled` with its reason inside the menu item when there is no remote, HEAD is detached, an operation or sync is running, or the amend rewrites a pushed commit. If the push fails after the commit, the commit stays and the push error is reported.
+- **Accessibility:** ⌘↵ commits and ⌘⇧↵ commits and pushes from anywhere in the Changes inspector; the menu is a `role="menu"` with arrow-key navigation and Esc to close.
+- **Consumers:** S03, S04.
+
+## Message edit form
+
+- **Purpose:** Rewrite the message of the HEAD commit from the commit inspector.
+- **Anatomy:** an icon-only Edit message button (`edit`) sits in the inspector header of the HEAD commit only. It opens a form above the details with Summary (and counter), Description, the pushed warning when HEAD is already on its upstream ("… the next push needs a force push"), and text buttons Save message and Cancel.
+- **States:** Save is disabled with "Enter a summary" for a blank summary; while an operation is in progress the button is `aria-disabled` with "Finish the operation in progress first". Saving selects the rewritten commit and, when it was pushed, reports the force-push consequence. Undo is the activity toast's Undo.
+- **Accessibility:** the form is named "Edit message"; Esc cancels.
+- **Consumers:** S03.
 
 ## Conflict block
 

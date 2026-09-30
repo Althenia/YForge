@@ -13,6 +13,7 @@ import {
   removeRemoteCopy,
   discardFilesCopy,
   discardHunkCopy,
+  discardLinesCopy,
   dropStashCopy,
   forcePushCopy,
   rebaseCopy,
@@ -63,6 +64,22 @@ describe("discard confirmation copy", () => {
     expect(copy.consequences).toEqual([
       "Its lines return to their content in the index. Undo can restore the edit from a snapshot taken before discarding, while the file is unchanged since; without a snapshot it is lost.",
     ]);
+  });
+});
+
+describe("line discard confirmation copy", () => {
+  const hunk: DiffHunk = { old_start: 3, old_lines: 7, new_start: 3, new_lines: 7, heading: "", lines: [] };
+
+  it("counts the selected lines and names the hunk range", () => {
+    const copy = discardLinesCopy("src/util.js", hunk, 2);
+    expect(copy.title).toBe("Discard 2 selected lines?");
+    expect(copy.names).toEqual(["src/util.js · lines 3–9"]);
+    expect(copy.confirmLabel).toBe("Discard lines");
+    expect(copy.consequences[0]).toContain("Undo can restore");
+  });
+
+  it("uses the singular for one line", () => {
+    expect(discardLinesCopy("a.txt", hunk, 1).title).toBe("Discard 1 selected line?");
   });
 });
 

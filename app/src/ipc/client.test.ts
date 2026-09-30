@@ -49,6 +49,7 @@ describe("typed IPC client", () => {
     const hunk = { old_start: 1, old_lines: 1, new_start: 1, new_lines: 1, heading: "", lines: [] };
 
     await client.diffFile("/r", "a.txt", "staged");
+    await client.diffFile("/r", "a.txt", "unstaged", true);
     await client.stageFiles("/r", ["a.txt"]);
     await client.unstageFiles("/r", ["a.txt"]);
     await client.stageAll("/r");
@@ -57,6 +58,10 @@ describe("typed IPC client", () => {
     await client.stageHunk("/r", "a.txt", hunk);
     await client.unstageHunk("/r", "a.txt", hunk);
     await client.discardHunk("/r", "a.txt", hunk);
+    await client.stageLines("/r", "a.txt", hunk, [1, 2]);
+    await client.unstageLines("/r", "a.txt", hunk, [1]);
+    await client.discardLines("/r", "a.txt", hunk, [3]);
+    await client.editHeadMessage("/r", "abc1234", "New subject", "New body");
     await client.commit("/r", "Summary", "Body", true);
     await client.amendInfo("/r");
     await client.commitDetails("/r", "abc1234");
@@ -65,6 +70,7 @@ describe("typed IPC client", () => {
 
     expect(calls).toEqual([
       { cmd: "diff_file", args: { path: "/r", file: "a.txt", area: "staged" } },
+      { cmd: "diff_file", args: { path: "/r", file: "a.txt", area: "unstaged", ignoreWhitespace: true } },
       { cmd: "stage_files", args: { path: "/r", files: ["a.txt"] } },
       { cmd: "unstage_files", args: { path: "/r", files: ["a.txt"] } },
       { cmd: "stage_all", args: { path: "/r" } },
@@ -73,6 +79,10 @@ describe("typed IPC client", () => {
       { cmd: "stage_hunk", args: { path: "/r", file: "a.txt", hunk } },
       { cmd: "unstage_hunk", args: { path: "/r", file: "a.txt", hunk } },
       { cmd: "discard_hunk", args: { path: "/r", file: "a.txt", hunk } },
+      { cmd: "stage_lines", args: { path: "/r", file: "a.txt", hunk, lines: [1, 2] } },
+      { cmd: "unstage_lines", args: { path: "/r", file: "a.txt", hunk, lines: [1] } },
+      { cmd: "discard_lines", args: { path: "/r", file: "a.txt", hunk, lines: [3] } },
+      { cmd: "edit_head_message", args: { path: "/r", sha: "abc1234", summary: "New subject", description: "New body" } },
       { cmd: "commit", args: { path: "/r", summary: "Summary", description: "Body", amend: true } },
       { cmd: "amend_info", args: { path: "/r" } },
       { cmd: "commit_details", args: { path: "/r", sha: "abc1234" } },

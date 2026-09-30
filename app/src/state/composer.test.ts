@@ -1,8 +1,9 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { amendDraft, amendWarning, commitButton, createCommitAction, createComposer, summaryRemaining } from "./composer";
+import { amendDraft, amendWarning, commitButton, commitPushReason, createCommitAction, createComposer, summaryRemaining } from "./composer";
 import { testSession } from "../components/testkit";
+import { IpcError } from "../ipc/client";
 
 afterEach(() => clearMocks());
 
@@ -63,13 +64,54 @@ describe("amend", () => {
   });
 });
 
-function commitFixture(staged: number) {
+function commitFixture(staged: number, push: () => Promise<void> = () => Promise.resolve()) {
   const composer = createComposer();
   const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const committed: string[] = [];
-  const action = createCommitAction({ session, composer, staged: () => staged, onCommitted: (sha) => committed.push(sha) });
-  return { composer, session, committed, action };
+  const pushes: string[] = [];
+  const action = createCommitAction({
+    session,
+    composer,
+    staged: () => staged,
+    onCommitted: (sha) => committed.push(sha),
+    push: () => {
+      pushes.push("push");
+      return push();
+    },
+  });
+  return { composer, session, committed, pushes, action };
 }
+
+const pushable = { head: { kind: "branch", name: "main", sha: "a" }, remotes: ["origin"], operation: null } as Pick<RepoSnapshot, "head" | "remotes" | "operation">;
+const pushInput = { button: { label: "Commit", disabledReason: undefined }, snapshot: pushable, amend: false, amendPushed: false, syncing: false };
+
+describe("commit and push reason", () => {
+  it("is enabled when the commit is enabled and a branch with a remote can push", () => {
+    expect(commitPushReason(pushInput)).toBeUndefined();
+  });
+
+  it("repeats the commit reason first", () => {
+    expect(commitPushReason({ ...pushInput, button: { label: "Commit", disabledReason: "Enter a summary" } })).toBe("Enter a summary");
+  });
+
+  it.each([
+    [{ snapshot: { ...pushable, head: { kind: "detached", sha: "a" } } }, "Check out a branch to push"],
+    [{ snapshot: { ...pushable, remotes: [] } }, "This repository has no remotes"],
+    [{ snapshot: { ...pushable, operation: "rebase" } }, "Finish the operation in progress first"],
+    [{ syncing: true }, "Another sync is running"],
+    [{ amend: true, amendPushed: true }, "This amend rewrites a pushed commit. Amend first, then use Force push"],
+  ])("explains why it is disabled: %#", (override, reason) => {
+    expect(commitPushReason({ ...pushInput, ...override } as typeof pushInput)).toBe(reason);
+  });
+
+  it("allows pushing an amend of a commit that was not pushed", () => {
+    expect(commitPushReason({ ...pushInput, amend: true, amendPushed: false })).toBeUndefined();
+  });
+
+  it("allows the first commit of an unborn branch", () => {
+    expect(commitPushReason({ ...pushInput, snapshot: { ...pushable, head: { kind: "unborn", branch: "main" } } })).toBeUndefined();
+  });
+});
 
 describe("commit action", () => {
   it("commits the draft, clears it, refreshes, and reports the new sha", async () => {
@@ -143,5 +185,62 @@ describe("commit action", () => {
 
     expect(composer.amend()).toBe(false);
     expect(composer.failure()?.kind).toBe("invalid_request");
+  });
+
+  it("pushes after the commit when asked, once the draft is cleared and the commit reported", async () => {
+    const order: string[] = [];
+    mockIPC((cmd) => {
+      order.push(cmd);
+      return cmd === "commit" ? "c0ffee" : { root: "/after" };
+    });
+    const { composer, committed, pushes, action } = commitFixture(1, async () => {
+      order.push("push");
+    });
+    composer.setSummary("Ship it");
+
+    await action.submit({ push: true });
+
+    expect(order).toEqual(["commit", "repo_open", "push"]);
+    expect(committed).toEqual(["c0ffee"]);
+    expect(pushes).toEqual(["push"]);
+    expect(composer.summary()).toBe("");
+  });
+
+  it("does not push for a plain commit", async () => {
+    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after" }));
+    const { composer, pushes, action } = commitFixture(1);
+    composer.setSummary("Local only");
+
+    await action.submit();
+
+    expect(pushes).toEqual([]);
+  });
+
+  it("keeps the commit and reports the error when the push then fails", async () => {
+    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after" }));
+    const { composer, session, committed, action } = commitFixture(1, () =>
+      Promise.reject(new IpcError({ kind: "push_rejected", message: "The remote rejected the push", output: null })),
+    );
+    composer.setSummary("Ship it");
+
+    await action.submit({ push: true });
+
+    expect(committed).toEqual(["c0ffee"]);
+    expect(composer.summary()).toBe("");
+    expect(composer.busy()).toBe(false);
+    expect(session.notice()).toBe("The remote rejected the push");
+  });
+
+  it("does not push when the commit fails", async () => {
+    mockIPC(() => {
+      throw { kind: "commit_failed", message: "hook failed", output: "lint" };
+    });
+    const { composer, pushes, action } = commitFixture(1);
+    composer.setSummary("Blocked");
+
+    await action.submit({ push: true });
+
+    expect(pushes).toEqual([]);
+    expect(composer.failure()?.kind).toBe("commit_failed");
   });
 });

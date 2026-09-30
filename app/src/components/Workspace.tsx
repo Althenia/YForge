@@ -6,6 +6,7 @@ import { useApp } from "../state/app";
 import { undoState } from "../state/activityModel";
 import { createStoreValue } from "../state/clientStore";
 import { createComposer } from "../state/composer";
+import { createDiffPrefs } from "../state/diffPrefs";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
 import { createRepoActions, type PopoverState } from "../state/repoActions";
 import { createRepoSession } from "../state/repoSession";
@@ -38,6 +39,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   const app = useApp();
   const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient);
   const composer = createComposer();
+  const diffPrefs = createDiffPrefs();
   const [selection, setSelection] = createStoreValue<Selection | undefined>(undefined);
   const [diffTarget, setDiffTarget] = createStoreValue<DiffTarget | undefined>(undefined);
   const [graphFocus, setGraphFocus] = createSignal<{ nonce: number; index?: number; ref?: string } | undefined>();
@@ -217,7 +219,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           </Show>
           <Show when={diffTarget()}>
             {(target) => (
-              <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} onClose={closeDiff} />}>
+              <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} prefs={diffPrefs} onClose={closeDiff} />}>
                 <ConflictResolver session={session} file={target().file} onClose={closeDiff} />
               </Show>
             )}

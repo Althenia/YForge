@@ -1,4 +1,5 @@
 import type { AmendInfo } from "../ipc/bindings/AmendInfo";
+import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
 import { createStoreFields } from "./clientStore";
 import type { RepoSession } from "./repoSession";
@@ -15,6 +16,22 @@ export function commitButton(input: { staged: number; summary: string; amend: bo
   if (!input.amend && input.staged === 0) return { label, disabledReason: "Stage files to commit" };
   if (input.summary.trim() === "") return { label, disabledReason: "Enter a summary" };
   return { label, disabledReason: undefined };
+}
+
+export function commitPushReason(input: {
+  button: CommitButton;
+  snapshot: Pick<RepoSnapshot, "head" | "remotes" | "operation">;
+  amend: boolean;
+  amendPushed: boolean;
+  syncing: boolean;
+}): string | undefined {
+  if (input.button.disabledReason !== undefined) return input.button.disabledReason;
+  if (input.snapshot.head.kind === "detached") return "Check out a branch to push";
+  if (input.snapshot.remotes.length === 0) return "This repository has no remotes";
+  if (input.snapshot.operation !== null) return "Finish the operation in progress first";
+  if (input.syncing) return "Another sync is running";
+  if (input.amend && input.amendPushed) return "This amend rewrites a pushed commit. Amend first, then use Force push";
+  return undefined;
 }
 
 export function amendWarning(pushed: boolean, upstream: string | undefined): string | undefined {
@@ -57,12 +74,13 @@ export function createCommitAction(deps: {
   composer: Composer;
   staged: () => number;
   onCommitted: (sha: string) => void;
+  push: () => Promise<void>;
 }) {
   const { session, composer } = deps;
   const button = () =>
     commitButton({ staged: deps.staged(), summary: composer.summary(), amend: composer.amend(), busy: composer.busy() });
 
-  async function submit(): Promise<void> {
+  async function submit(options: { push: boolean } = { push: false }): Promise<void> {
     if (button().disabledReason !== undefined) return;
     composer.setBusy(true);
     composer.setFailure(undefined);
@@ -81,6 +99,12 @@ export function createCommitAction(deps: {
     composer.setPushed(false);
     await session.refresh();
     deps.onCommitted(sha);
+    if (!options.push) return;
+    try {
+      await deps.push();
+    } catch (failure) {
+      session.report(failure);
+    }
   }
 
   async function toggleAmend(on: boolean): Promise<void> {

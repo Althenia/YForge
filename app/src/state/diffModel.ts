@@ -1,6 +1,5 @@
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
-import type { DiffLine } from "../ipc/bindings/DiffLine";
 import type { DiffLineKind } from "../ipc/bindings/DiffLineKind";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
@@ -14,6 +13,16 @@ export type DiffTarget =
 export const isConflictTarget = (target: DiffTarget): boolean => target.source === "working" && target.area === "conflicted";
 
 export type HunkAction = "stage" | "unstage" | "discard";
+
+export type DiffMode = "hunk" | "inline" | "split";
+
+export const diffModes: ReadonlyArray<{ mode: DiffMode; label: string }> = [
+  { mode: "hunk", label: "Hunk" },
+  { mode: "inline", label: "Inline" },
+  { mode: "split", label: "Split" },
+];
+
+export const WHITESPACE_REASON = "Turn off Ignore whitespace to stage changes";
 
 export const sameTarget = (left: DiffTarget | undefined, right: DiffTarget | undefined): boolean => {
   if (left === undefined || right === undefined) return left === right;
@@ -48,7 +57,7 @@ export const hunkLabel = (index: number, total: number, hunk: DiffHunk): string 
 export const lineMarker: Record<DiffLineKind, string> = { context: " ", added: "+", removed: "−" };
 
 export function diffNotice(diff: FileDiff, target: DiffTarget): string | undefined {
-  if (diff.binary) return "Binary file. Its contents cannot be shown as text.";
+  if (diff.binary) return "Binary file — no text diff";
   if (diff.hunks.length > 0) return undefined;
   if (target.source === "commit") return "No textual change in this file.";
   if (target.area === "untracked" || target.area === "conflicted") return "This file is empty.";
@@ -69,8 +78,3 @@ export function followTarget(files: readonly FileChange[], target: DiffTarget): 
   const moved = followOrder.find((area) => areas.has(area));
   return moved === undefined ? undefined : { source: "working", area: moved, file: target.file };
 }
-
-export type DiffRow = { kind: "line"; line: DiffLine } | { kind: "note" };
-
-export const hunkRows = (hunk: DiffHunk): DiffRow[] =>
-  hunk.lines.flatMap((line): DiffRow[] => (line.no_newline ? [{ kind: "line", line }, { kind: "note" }] : [{ kind: "line", line }]));
