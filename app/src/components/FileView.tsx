@@ -1,8 +1,7 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
 import { client } from "../ipc/client";
 import { fileLines, fileViewError, formatBytes, type FileViewTarget } from "../state/fileView";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import { displayText } from "../state/diffHighlight";
@@ -19,7 +18,7 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
     queryKey: repoKeys.fileAt(path, props.target.rev, props.target.file),
     queryFn: () => client.fileAtRevision(path, props.target.file, props.target.rev),
   }));
-  const shown = () => (file.error == null ? dataOf(file) : undefined);
+  const shown = () => (file.error == null ? file.data : undefined);
   const text = () => {
     const current = shown();
     return current?.kind === "text" ? current : undefined;

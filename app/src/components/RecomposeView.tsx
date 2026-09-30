@@ -1,11 +1,11 @@
-import { useMutation, useQuery } from "@tanstack/solid-query";
+import { useMutation } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import type { RecomposeGroup } from "../ipc/bindings/RecomposeGroup";
 import { client, IpcError } from "../ipc/client";
 import { createAiRun } from "../state/aiRun";
 import { statusLetter, statusWord } from "../state/changes";
 import { beginPointerDrag } from "../state/pointerDrag";
-import { dataOf } from "../state/queryData";
 import { historyKeys } from "../state/queryKeys";
 import { dirtyReason } from "../state/rebaseModel";
 import {
@@ -56,7 +56,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
     () => props.session.queryClient,
   );
   const chain = createMemo(() => {
-    const rows = new Map((dataOf(choices)?.rows ?? []).flatMap((row) => (row.sha === null ? [] : [[row.sha, row] as const])));
+    const rows = new Map((choices.data?.rows ?? []).flatMap((row) => (row.sha === null ? [] : [[row.sha, row] as const])));
     const found: Array<{ sha: string; summary: string }> = [];
     const head = snapshot().head;
     let next: string | undefined = head.kind === "unborn" ? undefined : head.sha;
@@ -73,7 +73,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
     () => ({ queryKey: historyKeys.recompose(path, baseRef() ?? ""), queryFn: () => client.recomposePreview(path, baseRef() as string), enabled: baseRef() !== undefined, staleTime: Infinity, gcTime: 0, retry: false }),
     () => props.session.queryClient,
   );
-  const loaded = () => (preview.error == null ? dataOf(preview) : undefined);
+  const loaded = () => (preview.error == null ? preview.data : undefined);
   const catalog = createMemo(() => (loaded() === undefined ? [] : catalogOf(loaded() as NonNullable<ReturnType<typeof loaded>>)));
   const [draft, setDraft] = createSignal<Draft>(newDraft());
   const [previous, setPrevious] = createSignal<Draft | undefined>();

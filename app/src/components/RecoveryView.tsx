@@ -1,5 +1,5 @@
 import { createForm } from "@tanstack/solid-form";
-import { useInfiniteQuery, useQuery } from "@tanstack/solid-query";
+import { useInfiniteQuery, useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import type { IconName } from "../iconNames";
@@ -10,7 +10,6 @@ import { client, IpcError } from "../ipc/client";
 import { branchNameProblem } from "../state/branchName";
 import { statusLetter } from "../state/changes";
 import type { ConfirmCopy } from "../state/confirmCopy";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { createRestoreActions, type RestoreActions } from "../state/recoveryActions";
 import { headMoved, nextReflogCursor, RECOVERY_LIMITS, REFLOG_PAGE, referenceLabel, restoreAllCopy, snapshotActionLabel, suggestBranchName } from "../state/recoveryModel";
@@ -134,7 +133,7 @@ function ReflogTab(props: { session: RepoSession; restore: RestoreActions }) {
   }));
   const entries = createMemo((): ReflogEntry[] => log.data?.pages.flat() ?? []);
   const choices = () => {
-    const listed = dataOf(refs) ?? [];
+    const listed = refs.data ?? [];
     return listed.includes("HEAD") ? listed : ["HEAD", ...listed];
   };
   return (
@@ -270,7 +269,7 @@ function SnapshotDetail(props: { session: RepoSession; info: SnapshotInfo; onNot
   const path = props.session.path;
   const files = useQuery(() => ({ queryKey: repoKeys.snapshotFiles(path, props.info.ref), queryFn: () => client.snapshotFiles(path, props.info.ref) }));
   const [checked, setChecked] = createSignal<ReadonlySet<string>>(new Set());
-  const listed = () => dataOf(files) ?? [];
+  const listed = () => files.data ?? [];
   const toggle = (file: string) => setChecked((current) => (current.has(file) ? new Set([...current].filter((entry) => entry !== file)) : new Set([...current, file])));
 
   async function run(action: () => Promise<string>, done: (safety: string) => string): Promise<void> {
@@ -357,8 +356,8 @@ function SnapshotDetail(props: { session: RepoSession; info: SnapshotInfo; onNot
 function SnapshotsTab(props: { session: RepoSession; onNotice: (text: string) => void; onConfirm: (copy: ConfirmCopy, run: () => Promise<void>) => void }) {
   const listing = useQuery(() => ({ queryKey: repoKeys.snapshots(props.session.path), queryFn: () => client.snapshotsList(props.session.path) }));
   const [selected, setSelected] = createSignal<string | undefined>();
-  createEffect(on(() => dataOf(listing), (current) => current !== undefined && !current.some((info) => info.ref === selected()) && setSelected(undefined)));
-  const snapshots = () => dataOf(listing) ?? [];
+  createEffect(on(() => listing.data, (current) => current !== undefined && !current.some((info) => info.ref === selected()) && setSelected(undefined)));
+  const snapshots = () => listing.data ?? [];
   return (
     <>
       <Show when={listing.error}>

@@ -1,5 +1,6 @@
 import { createForm } from "@tanstack/solid-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { CliInstall } from "../ipc/bindings/CliInstall";
@@ -11,7 +12,6 @@ import { client } from "../ipc/client";
 import { basename } from "../format";
 import { useApp } from "../state/app";
 import { removeRemoteCopy, type ConfirmCopy } from "../state/confirmCopy";
-import { dataOf } from "../state/queryData";
 import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
 import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel } from "../state/settingsModel";
@@ -110,7 +110,7 @@ const useSshKeys = () => useQuery(() => ({ queryKey: appKeys.sshKeys, queryFn: (
 
 function SshKeyPicker(props: { label: string; value: string | null | undefined; blankLabel: string; onChange: (path: string | null) => void }) {
   const keys = useSshKeys();
-  const listed = () => dataOf(keys) ?? [];
+  const listed = () => keys.data ?? [];
   const chosen = () => props.value ?? "";
   const custom = () => (chosen() !== "" && !listed().some((key) => key.path === chosen()) ? chosen() : undefined);
   const failure = () => (keys.error === null || keys.error === undefined ? undefined : message(keys.error));
@@ -172,8 +172,8 @@ function Identity(props: { path: string | null }) {
   return (
     <>
       <h3>Identity</h3>
-      {field("Name", "name", () => dataOf(identity)?.name)}
-      {field("Email", "email", () => dataOf(identity)?.email)}
+      {field("Name", "name", () => identity.data?.name)}
+      {field("Email", "email", () => identity.data?.email)}
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={props.path === null}>
         <p class="field-note">Saved with <code>git config --global</code>.</p>
@@ -277,7 +277,7 @@ function Remotes(props: { path: string }) {
       <h3>Remotes</h3>
       <p class="setting-note">Where this repository fetches from and pushes to.</p>
       <ul class="remotes">
-        <For each={dataOf(remotes) ?? []} fallback={<li class="setting-note">No remotes configured.</li>}>
+        <For each={remotes.data ?? []} fallback={<li class="setting-note">No remotes configured.</li>}>
           {(remote) => (
             <li>
               <span class="ref">{remote.name}</span>
@@ -390,7 +390,7 @@ export function SettingsView(props: { section: string }) {
                   <SshKeyPicker
                     label="SSH key override"
                     value={overrideMode()?.ssh_key_path}
-                    blankLabel={`Inherit · ${settings().ssh_key_path === null || settings().ssh_key_path === undefined ? SSH_AGENT_LABEL : sshKeyLabel(settings().ssh_key_path, dataOf(sshKeys) ?? [])}`}
+                    blankLabel={`Inherit · ${settings().ssh_key_path === null || settings().ssh_key_path === undefined ? SSH_AGENT_LABEL : sshKeyLabel(settings().ssh_key_path, sshKeys.data ?? [])}`}
                     onChange={(key) => void setRepoKey(key)}
                   />
                 </SettingRow>

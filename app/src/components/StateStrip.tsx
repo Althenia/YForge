@@ -1,11 +1,10 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { For, Show } from "solid-js";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import { conflictLabel, firstConflict, operationButtons, operationSummary, operationTitle, stepLabel } from "../state/operationModel";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import { SHORTCUTS } from "../state/shortcuts";
@@ -192,7 +191,7 @@ function Notices(props: { actions: RepoActions; plain: boolean }) {
 
 function WorktreesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
   const worktrees = useQuery(() => ({ queryKey: repoKeys.worktrees(props.snapshot.root), queryFn: () => client.worktreeList(props.snapshot.root) }));
-  const dirty = () => (dataOf(worktrees) ?? []).filter((worktree) => worktree.dirty).length;
+  const dirty = () => (worktrees.data ?? []).filter((worktree) => worktree.dirty).length;
   const count = () => props.snapshot.worktrees.length;
   return (
     <button type="button" class="chip" onClick={props.onOpen}>

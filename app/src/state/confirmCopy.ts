@@ -135,7 +135,7 @@ export function deleteBranchAndRemoteCopy(name: string, remote: string, lost: re
 export function pullStashKeptCopy(reason: "pull_conflicts" | "restore_conflicts" | "restore_failed"): string {
   switch (reason) {
     case "pull_conflicts":
-      return "The pull stopped on conflicts, so your changes were not restored.";
+      return "The pull stopped on conflicts. Your changes come back when you complete or abort it.";
     case "restore_conflicts":
       return "Restoring them conflicted with the pulled changes.";
     case "restore_failed":
@@ -146,7 +146,7 @@ export function pullStashKeptCopy(reason: "pull_conflicts" | "restore_conflicts"
 export function dropStashCopy(stash: Pick<StashEntry, "index" | "message">): ConfirmCopy {
   return {
     title: `Drop stash@{${stash.index}}?`,
-    consequences: ["The stash is removed from the list. Its changes are not applied anywhere and cannot be restored from YForge."],
+    consequences: ["The stash is removed from the list and its changes are not applied anywhere. A snapshot of it is saved first; bring it back from Recovery, Lost commits or Safety snapshots."],
     names: [stash.message],
     confirmLabel: "Drop stash",
   };
@@ -214,8 +214,9 @@ export function resetCopy(mode: ResetMode, current: string, target: string, leav
   else if (mode === "mixed") consequences.push("Your files are untouched: changes from the commits that leave the branch stay in the working tree, unstaged.");
   else consequences.push("The index and every tracked file match the target commit. Untracked files are kept.");
   if (leaving.count === 0) consequences.push(`No commits leave ${current}; only the index and files can change.`);
-  else if (mode === "hard") consequences.push("Commits that leave the branch can only be recovered through the reflog.");
+  else if (mode === "hard") consequences.push("Commits that leave the branch can be brought back from Recovery, Reflog.");
   const lost = uncommittedTracked(files);
+  if (mode === "hard" && lost.length > 0) consequences.push("A snapshot of your uncommitted changes is saved first; restore it from Recovery, Safety snapshots.");
   const copy: ConfirmCopy = {
     title: `${modeName[mode]} reset ${current} to ${target}?`,
     lead: `${current} moves to ${target}.`,

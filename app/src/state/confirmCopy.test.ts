@@ -129,7 +129,7 @@ describe("branch and stash confirmations", () => {
 
   it("explains why a pull left the changes in the stash", () => {
     const copy = pullStashKeptCopy("pull_conflicts");
-    expect(copy).toBe("The pull stopped on conflicts, so your changes were not restored.");
+    expect(copy).toBe("The pull stopped on conflicts. Your changes come back when you complete or abort it.");
     expect(pullStashKeptCopy("restore_conflicts")).toBe("Restoring them conflicted with the pulled changes.");
     expect(pullStashKeptCopy("restore_failed")).toBe("Git could not restore them.");
   });
@@ -155,6 +155,8 @@ describe("branch and stash confirmations", () => {
     expect(copy.title).toBe("Drop stash@{1}?");
     expect(copy.names).toEqual(["On main: wip"]);
     expect(copy.confirmLabel).toBe("Drop stash");
+    expect(copy.consequences.join(" ")).toMatch(/Recovery/);
+    expect(copy.consequences.join(" ")).not.toMatch(/cannot be restored/);
   });
 });
 
@@ -240,6 +242,8 @@ describe("reset confirmation", () => {
     expect(copy.also).toEqual({ heading: "2 uncommitted changes will be lost", names: ["a.txt", "b.txt"] });
     expect(copy.namesHeading).toBe("2 commits leave main");
     expect(copy.consequences.join(" ")).toMatch(/Untracked files are kept/);
+    expect(copy.consequences.join(" ")).toMatch(/Recovery, Reflog/);
+    expect(copy.consequences.join(" ")).toMatch(/Recovery, Safety snapshots/);
   });
 
   it("says a clean hard reset loses no uncommitted changes and that nothing leaves when the target is ahead", () => {

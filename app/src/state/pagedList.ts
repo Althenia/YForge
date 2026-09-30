@@ -1,4 +1,4 @@
-import { useInfiniteQuery } from "@tanstack/solid-query";
+import { useInfiniteQuery } from "./query";
 import { createMemo } from "solid-js";
 import { pageOptions } from "./diagnosticsModel";
 

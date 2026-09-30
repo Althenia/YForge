@@ -365,9 +365,10 @@ fn history_undo_is_refused_on_a_dirty_tree_or_a_moved_head_and_unavailable_when_
         clean: false,
         ..before.clone()
     };
-    assert!(
-        reason(plan_reset(&dirty_before, &after, ResetMode::Hard)).contains("uncommitted changes")
-    );
+    let hard = reason(plan_reset(&dirty_before, &after, ResetMode::Hard));
+    assert!(hard.contains("uncommitted changes"));
+    assert!(hard.contains("Recovery"));
+    assert!(hard.contains("Safety snapshots"));
     let dirty_after = yforge_core::RepoState {
         clean: false,
         ..after.clone()

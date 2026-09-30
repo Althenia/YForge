@@ -1,11 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createSignal, For, Show } from "solid-js";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { client } from "../ipc/client";
 import { cardOf, PRIVACY_LINES } from "../state/aiModel";
 import { providersOptions } from "../state/aiProviders";
 import { removeProviderCopy } from "../state/confirmCopy";
-import { dataOf } from "../state/queryData";
 import { aiKeys } from "../state/queryKeys";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -33,7 +33,7 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
   const refresh = () => queryClient.invalidateQueries({ queryKey: aiKeys.providers });
   const activate = useMutation(() => ({ mutationFn: (summary: ProviderSummary) => client.aiSetActive(summary.config.id, summary.config.model ?? null), onSuccess: refresh }));
   const remove = useMutation(() => ({ mutationFn: (summary: ProviderSummary) => client.aiProviderRemove(summary.config.id), onSuccess: refresh }));
-  const list = () => dataOf(providers) ?? [];
+  const list = () => providers.data ?? [];
 
   const confirmRemoval = async () => {
     const summary = removal();

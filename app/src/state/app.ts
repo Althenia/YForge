@@ -1,5 +1,5 @@
 import { createHotkeys } from "@tanstack/solid-hotkeys";
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "./query";
 import { useRouterState } from "@tanstack/solid-router";
 import { createContext, createEffect, createMemo, createSignal, onCleanup, useContext } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
@@ -15,7 +15,6 @@ import { createStoreValue } from "./clientStore";
 import { createAppUiPrefs } from "./appUiPrefs";
 import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
-import { dataOf } from "./queryData";
 import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
 import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
@@ -95,7 +94,7 @@ export function createAppState(router: AppRouter) {
     }),
     () => queryClient,
   );
-  const repoSettings = (path: string): RepoSettings | undefined => (path === activePath() ? dataOf(activeRepoSettings) : undefined);
+  const repoSettings = (path: string): RepoSettings | undefined => (path === activePath() ? activeRepoSettings.data : undefined);
   createEffect(() => {
     if (activeRepoSettings.error != null) setNotice(asMessage(activeRepoSettings.error));
   });

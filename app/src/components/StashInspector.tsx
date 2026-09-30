@@ -1,11 +1,11 @@
-import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { keepPreviousData } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createSignal, Show } from "solid-js";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashFile } from "../ipc/bindings/StashFile";
 import { client, IpcError } from "../ipc/client";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import { stashFileViewTarget, type FileViewTarget } from "../state/fileView";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
@@ -32,7 +32,7 @@ export function StashInspector(props: {
   }));
   let scroller: HTMLDivElement | undefined;
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
-  const shown = () => (details.error == null ? dataOf(details) : undefined);
+  const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const files = (): StashFile[] => shown()?.files ?? [];
   const untrackedCount = () => files().filter((file) => file.untracked).length;

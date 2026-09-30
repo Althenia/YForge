@@ -1,11 +1,11 @@
-import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { keepPreviousData } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import type { ConflictSide } from "../ipc/bindings/ConflictSide";
 import type { ConflictRegionProposal } from "../ipc/bindings/ConflictRegionProposal";
 import { client, IpcError } from "../ipc/client";
 import { createAiRun } from "../state/aiRun";
 import { conflictDescription, conflictSides } from "../state/operationModel";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import {
@@ -60,7 +60,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   let root: HTMLElement | undefined;
 
   const sides = () => conflictSides(props.session.snapshot());
-  const loaded = () => (conflict.error == null ? dataOf(conflict) : undefined);
+  const loaded = () => (conflict.error == null ? conflict.data : undefined);
   const failure = () => (conflict.error instanceof IpcError ? conflict.error.message : conflict.error == null ? undefined : String(conflict.error));
   const regions = () => {
     const file = loaded();

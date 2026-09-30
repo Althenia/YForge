@@ -138,6 +138,21 @@ describe("routes", () => {
     expect(app.activePath()).toBe("/b");
   });
 
+  it("keeps the focused control focused while the repository refreshes", async () => {
+    const { app, host } = await mountApp({ tabs: ["/a"], active: 0 });
+    const summary = host.querySelector<HTMLInputElement>('input[aria-label="Summary"]');
+    summary?.focus();
+    expect(document.activeElement).toBe(summary);
+    const detached: Node[] = [];
+    new MutationObserver((records) => records.forEach((record) => detached.push(...record.removedNodes))).observe(host, { childList: true, subtree: true });
+
+    await app.queryClient.invalidateQueries({ queryKey: ["repo", "/a"] });
+    await flush(60);
+
+    expect(detached.filter((node) => node instanceof HTMLElement && node.classList.contains("app"))).toEqual([]);
+    expect(document.activeElement).toBe(summary);
+  });
+
   it("opens settings over the active tab through the router and closes back to that tab", async () => {
     const { app, host, router, workspaces } = await mountApp({ tabs: ["/a", "/b"], active: 1 });
 

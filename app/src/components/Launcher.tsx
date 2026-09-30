@@ -1,9 +1,9 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { keepPreviousData, useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { basename } from "../format";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
-import { dataOf } from "../state/queryData";
 import { appKeys } from "../state/queryKeys";
 import { displayPath, filterRecents, openedAgo, statusChips, type RecentRow } from "../state/launcher";
 import { Icon } from "./Icon";
@@ -15,11 +15,11 @@ export function Launcher() {
   const queryClient = useQueryClient();
   const recents = useQuery(() => ({ queryKey: appKeys.recents, queryFn: () => client.recentsList() }));
   const home = useQuery(() => ({ queryKey: appKeys.home, queryFn: () => client.homeDirectory(), staleTime: Infinity }));
-  const paths = () => (dataOf(recents) ?? []).map((recent) => recent.path);
+  const paths = () => (recents.data ?? []).map((recent) => recent.path);
   const statuses = useQuery(() => ({
     queryKey: [...appKeys.recents, "statuses", paths()],
     queryFn: () => client.recentStatuses(paths()),
-    enabled: dataOf(recents) !== undefined,
+    enabled: recents.data !== undefined,
     placeholderData: keepPreviousData,
   }));
   createEffect(() => {
@@ -35,8 +35,8 @@ export function Launcher() {
   let filter: HTMLInputElement | undefined;
 
   const rows = createMemo(() => {
-    const found = new Map((dataOf(statuses) ?? []).map((status) => [status.path, status]));
-    return (dataOf(recents) ?? []).map((recent): RecentRow => ({ recent, status: found.get(recent.path) }));
+    const found = new Map((statuses.data ?? []).map((status) => [status.path, status]));
+    return (recents.data ?? []).map((recent): RecentRow => ({ recent, status: found.get(recent.path) }));
   });
   const visible = createMemo(() => filterRecents(rows(), query()));
   const now = Math.floor(Date.now() / 1000);
@@ -164,7 +164,7 @@ export function Launcher() {
                         </Show>
                       </span>
                       <span class="recent-path path-line" title={row.recent.path}>
-                        <bdi dir="ltr">{displayPath(row.recent.path, dataOf(home))}</bdi>
+                        <bdi dir="ltr">{displayPath(row.recent.path, home.data)}</bdi>
                       </span>
                     </button>
                     <span class="recent-age" title={new Date(row.recent.opened_at * 1000).toLocaleString()}>

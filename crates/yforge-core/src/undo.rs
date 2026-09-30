@@ -211,7 +211,9 @@ pub fn plan_integration(
 
 pub fn plan_reset(before: &RepoState, after: &RepoState, mode: ResetMode) -> Planned {
     if mode == ResetMode::Hard && !before.clean {
-        return unavailable("The reset discarded uncommitted changes, which cannot be restored");
+        return unavailable(
+            "The reset discarded uncommitted changes; restore them from Recovery, Safety snapshots",
+        );
     }
     if mode != ResetMode::Hard && !after.clean {
         return unavailable(

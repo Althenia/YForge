@@ -1,11 +1,10 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "./state/query";
 import { createMemo, onCleanup, Show } from "solid-js";
 import { EmptyState } from "./components/EmptyState";
 import { TabBar } from "./components/TabBar";
 import { Workspace } from "./components/Workspace";
 import { readGeometry } from "./graph/geometry";
 import { useApp } from "./state/app";
-import { dataOf } from "./state/queryData";
 import { repoKeys } from "./state/queryKeys";
 import { appInfoOptions, snapshotOptions, workspaceView, type WorkspaceView } from "./state/workspace";
 
@@ -18,7 +17,7 @@ export function RepositoryTab(props: { path: string }) {
   const app = useApp();
   const info = useQuery(appInfoOptions);
   const snapshot = useQuery(() => snapshotOptions(props.path));
-  const workspace = createMemo(() => workspaceView(props.path, { data: dataOf(info), error: info.error }, { data: dataOf(snapshot), error: snapshot.error }));
+  const workspace = createMemo(() => workspaceView(props.path, { data: info.data, error: info.error }, { data: snapshot.data, error: snapshot.error }));
   onCleanup(() => {
     app.queryClient.removeQueries({ queryKey: repoKeys.snapshot(props.path) });
     app.queryClient.removeQueries({ queryKey: repoKeys.graphPages(props.path) });

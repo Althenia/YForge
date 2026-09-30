@@ -1,10 +1,10 @@
-import { useQuery, type QueryClient } from "@tanstack/solid-query";
+import { type QueryClient } from "@tanstack/solid-query";
+import { useQuery } from "./query";
 import { OPTIONAL_COLUMNS, type OptionalColumn, type ResizableColumn } from "../graph/columns";
 import type { GraphColumn } from "../ipc/bindings/GraphColumn";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
 import { client } from "../ipc/client";
-import { dataOf } from "./queryData";
 import { repoKeys } from "./queryKeys";
 
 export const defaultUiPrefs: RepoUiPrefs = { columns: [], collapsed_folders: [], branch_visibility: { kind: "all" } };
@@ -38,7 +38,7 @@ export function createRepoUiPrefs(path: string, queryClient: QueryClient, report
   const key = repoKeys.uiPrefs(path);
   const query = useQuery(() => ({ queryKey: key, queryFn: () => client.repoUiPrefsLoad(path), staleTime: Infinity }), () => queryClient);
   let saving: Promise<unknown> = Promise.resolve();
-  const prefs = (): RepoUiPrefs => dataOf(query) ?? defaultUiPrefs;
+  const prefs = (): RepoUiPrefs => query.data ?? defaultUiPrefs;
   return {
     prefs,
     update: (change: (current: RepoUiPrefs) => RepoUiPrefs): void => {

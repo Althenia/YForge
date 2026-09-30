@@ -1,10 +1,10 @@
 import { createAsyncQueuer } from "@tanstack/solid-pacer";
-import { useMutation, useQuery, type QueryClient } from "@tanstack/solid-query";
+import { useMutation, type QueryClient } from "@tanstack/solid-query";
+import { useQuery } from "./query";
 import { createSignal, onCleanup } from "solid-js";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
-import { dataOf } from "./queryData";
 import { repoKeys } from "./queryKeys";
 import { visibilityKey } from "./repoUiPrefs";
 import { snapshotOptions } from "./workspace";
@@ -64,7 +64,7 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
   return {
     path,
     queryClient,
-    snapshot: () => dataOf(snapshot) as RepoSnapshot,
+    snapshot: () => snapshot.data as RepoSnapshot,
     revision,
     notice,
     dismissNotice: () => setNotice(undefined),

@@ -166,7 +166,11 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const confirm = (copy: ConfirmCopy, run: () => void | Promise<void>) => setDialog({ copy, run });
   const busy = () => sync().kind === "running";
   const addNotice = (notice: StripNotice) => setNotices((list) => [...list.filter((entry) => entry.id !== notice.id), notice]);
-  const dismissNotice = (id: string) => setNotices((list) => list.filter((entry) => entry.id !== id));
+  let pendingPullStash: string | undefined;
+  const dismissNotice = (id: string) => {
+    if (id === PULL_STASH_NOTICE) pendingPullStash = undefined;
+    setNotices((list) => list.filter((entry) => entry.id !== id));
+  };
 
   async function authFixFor(remote: string | undefined): Promise<AuthFix> {
     try {
@@ -222,6 +226,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       addNotice({ id: PULL_STASH_NOTICE, text: "Your changes were stashed and restored", actions: [] });
     } else if (stash.kind === "kept") {
       const index = Number(/\{(\d+)\}/.exec(stash.reference)?.[1] ?? 0);
+      if (stash.reason === "pull_conflicts") pendingPullStash = stash.sha;
       const restore = (kind: "apply" | "pop") => async () => {
         dismissNotice(PULL_STASH_NOTICE);
         await restoreStash(kind, { index, sha: stash.sha });
@@ -710,15 +715,25 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const stashChanges = (message: string, untracked: boolean) => session.mutate(() => client.stashPush(path, message, untracked));
 
-  async function restoreStash(kind: "apply" | "pop", stash: Pick<StashEntry, "index" | "sha">): Promise<void> {
+  async function restoreStash(kind: "apply" | "pop", stash: Pick<StashEntry, "index" | "sha">): Promise<StashRestore | undefined> {
+    let restore: StashRestore | undefined;
     try {
-      const restore = await (kind === "apply" ? client.stashApply : client.stashPop)(path, stash.index, stash.sha);
+      restore = await (kind === "apply" ? client.stashApply : client.stashPop)(path, stash.index, stash.sha);
       const message = restoreMessage(kind, restore);
       if (message !== undefined) session.inform(message);
     } catch (failure) {
       fail(failure);
     }
     await session.refresh();
+    return restore;
+  }
+
+  async function restorePullStash(): Promise<void> {
+    const sha = pendingPullStash;
+    if (sha === undefined) return;
+    dismissNotice(PULL_STASH_NOTICE);
+    const stash = snapshot().stashes.find((entry) => entry.sha === sha);
+    if (stash !== undefined && (await restoreStash("pop", stash)) === "applied") session.inform("Restored your stashed changes.");
   }
 
   function openStashMenu(stash: StashEntry, anchor: Anchor): void {
@@ -759,14 +774,17 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   async function finishOperation(step: () => Promise<"completed" | "conflicts">): Promise<void> {
     setOperationBusy(true);
+    let outcome: "completed" | "conflicts" | undefined;
     try {
-      if ((await step()) === "conflicts") session.inform("The next step stopped on conflicts.");
+      outcome = await step();
+      if (outcome === "conflicts") session.inform("The next step stopped on conflicts.");
     } catch (failure) {
       fail(failure);
     } finally {
       setOperationBusy(false);
     }
     await session.refresh();
+    if (outcome === "completed") await restorePullStash();
   }
 
   const continueOperation = (message: string | null) => finishOperation(() => client.operationContinue(path, message));
@@ -775,7 +793,11 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   function abortOperation(): void {
     const copy = abortCopy(snapshot());
-    if (copy !== undefined) confirm(copy, () => void session.mutate(() => client.operationAbort(path)));
+    if (copy !== undefined) confirm(copy, () => void abortAndRestore());
+  }
+
+  async function abortAndRestore(): Promise<void> {
+    if (await session.mutate(() => client.operationAbort(path))) await restorePullStash();
   }
 
   const stageAll = () => session.mutate(() => client.stageAll(path));

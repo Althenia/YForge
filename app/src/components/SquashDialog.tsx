@@ -1,7 +1,7 @@
-import { useMutation, useQuery } from "@tanstack/solid-query";
+import { useMutation } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createMemo, createSignal, createUniqueId, onMount, Show } from "solid-js";
 import { client, IpcError } from "../ipc/client";
-import { dataOf } from "../state/queryData";
 import { historyKeys } from "../state/queryKeys";
 import { dirtyReason, outcomeNotice, pushedRewriteWarning, rowsOf, squashMessage, squashOrder, squashProblem } from "../state/rebaseModel";
 import type { RepoSession } from "../state/repoSession";
@@ -16,7 +16,7 @@ export function SquashDialog(props: { session: RepoSession; shas: readonly strin
     () => ({ queryKey: historyKeys.squash(path, props.shas), queryFn: () => Promise.all(props.shas.map((sha) => client.commitDetails(path, sha))), staleTime: Infinity, gcTime: 0, retry: false }),
     () => props.session.queryClient,
   );
-  const commits = () => (details.error == null ? dataOf(details) : undefined);
+  const commits = () => (details.error == null ? details.data : undefined);
   const order = createMemo(() => {
     const found = commits();
     return found === undefined ? undefined : squashOrder(found.map((commit) => ({ sha: commit.sha, parents: commit.parents })));
@@ -40,7 +40,7 @@ export function SquashDialog(props: { session: RepoSession; shas: readonly strin
     }),
     () => props.session.queryClient,
   );
-  const planned = () => (plan.error == null ? dataOf(plan) : undefined);
+  const planned = () => (plan.error == null ? plan.data : undefined);
   const [typed, setTyped] = createSignal<string | undefined>();
   const [failure, setFailure] = createSignal<IpcError | undefined>();
   const fullMessage = (sha: string) => {

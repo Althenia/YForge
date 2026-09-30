@@ -1,9 +1,8 @@
 import { createForm } from "@tanstack/solid-form";
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, Show } from "solid-js";
 import { client } from "../ipc/client";
 import { branchNameProblem } from "../state/branchName";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { changeTotal } from "../state/changes";
 import { startPointText } from "../state/refMenu";
@@ -23,7 +22,7 @@ export function BranchNameForm(props: { state: BranchPopover; session: RepoSessi
     queryFn: () => client.commitDetails(props.session.path, startSha() as string),
     enabled: startSha() !== null,
   }));
-  const startText = () => (props.state.kind === "create_branch" ? startPointText(props.state.at, dataOf(summary)?.summary) : undefined);
+  const startText = () => (props.state.kind === "create_branch" ? startPointText(props.state.at, summary.data?.summary) : undefined);
   const title = () => (props.state.kind === "rename_branch" ? `Rename ${props.state.name}` : "Create branch");
 
   const form = createForm(() => ({

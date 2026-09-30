@@ -1,11 +1,11 @@
-import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { keepPreviousData } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
@@ -74,7 +74,7 @@ export function CommitInspector(props: {
   };
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
   const now = Math.floor(Date.now() / 1000);
-  const shown = () => (details.error == null ? dataOf(details) : undefined);
+  const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const commitTarget = (file: CommitFile): DiffTarget => ({ source: "commit", sha: shown()?.sha ?? props.sha, file: file.path });
   const tabStop = (index: number, key: string) => {

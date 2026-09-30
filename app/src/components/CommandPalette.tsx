@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, onMount, Show } from "solid-js";
 import type { IconName } from "../iconNames";
 import {
@@ -14,7 +14,6 @@ import {
 } from "../state/palette";
 import { useApp } from "../state/app";
 import { rememberCommand } from "../state/appUiPrefs";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
 
@@ -93,7 +92,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   const items = createMemo<Item[]>(() => {
     const current = pending();
     if (current !== undefined) {
-      return rank(dataOf(options) ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({
+      return rank(options.data ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({
         key: item.value,
         label: item.label,
         ...(item.note === undefined ? {} : { note: item.note }),
@@ -103,7 +102,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
       }));
     }
     const { mode, text } = parsed();
-    const targets = navigationTargets(props.context, dataOf(choices) ?? []);
+    const targets = navigationTargets(props.context, choices.data ?? []);
     const asItem = (command: PaletteCommand, positions: number[]): Item => {
       const icon = commandIcon(command.id);
       return {

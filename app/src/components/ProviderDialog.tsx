@@ -1,5 +1,6 @@
 import { createForm } from "@tanstack/solid-form";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { useMutation, useQueryClient } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 import type { ApiKeyChange } from "../ipc/bindings/ApiKeyChange";
 import type { ProviderKind } from "../ipc/bindings/ProviderKind";
@@ -7,7 +8,6 @@ import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { client } from "../ipc/client";
 import { cardOf, PROVIDER_CARDS, providerProblems, statusView, type ProviderCard, type ProviderDraft } from "../state/aiModel";
 import { modelsOptions, providersOptions } from "../state/aiProviders";
-import { dataOf } from "../state/queryData";
 import { aiKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
 import { ProviderLogo } from "./ProviderLogo";
@@ -187,7 +187,7 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
 function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary) => void; onDone: () => void }) {
   const queryClient = useQueryClient();
   const providers = useQuery(providersOptions);
-  const summary = () => (dataOf(providers) ?? []).find((entry) => entry.config.id === props.id);
+  const summary = () => (providers.data ?? []).find((entry) => entry.config.id === props.id);
   const [failure, setFailure] = createSignal<string | undefined>();
   const [model, setModel] = createSignal<string | undefined>();
   const models = useQuery(() => modelsOptions(props.id));
@@ -283,13 +283,13 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
                   {card().cli ? "Leave empty or type default to let the CLI choose its model." : "Type a model id, or load the list from the endpoint."}
                 </span>
               </label>
-              <Show when={(dataOf(models) ?? []).length > 0}>
+              <Show when={(models.data ?? []).length > 0}>
                 <label class="field">
                   <span class="field-label">Available models</span>
                   <span class="input">
                     <select aria-label="Available models" value={chosenModel()} onChange={(event) => setModel(event.currentTarget.value)}>
                       <option value="">Choose…</option>
-                      <For each={dataOf(models) ?? []}>{(entry) => <option value={entry.id}>{entry.name ?? entry.id}</option>}</For>
+                      <For each={models.data ?? []}>{(entry) => <option value={entry.id}>{entry.name ?? entry.id}</option>}</For>
                     </select>
                   </span>
                 </label>

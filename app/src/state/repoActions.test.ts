@@ -838,11 +838,71 @@ describe("pull with a dirty working tree", () => {
 
     const notice = actions.notices()[0];
     expect(notice?.text).toBe("Your changes are kept in stash@{2}");
-    expect(notice?.detail).toBe("The pull stopped on conflicts, so your changes were not restored.");
+    expect(notice?.detail).toBe("The pull stopped on conflicts. Your changes come back when you complete or abort it.");
     expect(notice?.actions.map((action) => action.label)).toEqual(["Apply", "Pop"]);
     await notice?.actions[1]?.run();
     expect(calls.find((call) => call.cmd === "stash_pop")?.args).toEqual({ path: "/r", index: 2, sha: "abc123" });
     expect(actions.notices()).toEqual([]);
+  });
+
+  describe("a pull that stopped on conflicts with the changes kept in the stash", () => {
+    const stashes = [{ index: 2, sha: "abc123", base_sha: "b", author_name: "Ada", message: "On main: YForge: auto-stash before pulling origin/main", time: 1 }];
+    const resting = () => snapshot({ counts: { ...counts, modified: 2 }, operation: "merge", operation_detail: { current: "main", incoming: "origin/main", message: "Merge", step: null, resolved: [] }, stashes });
+    const kept = { outcome: "conflicts", stash: { kind: "kept", reference: "stash@{2}", sha: "abc123", reason: "pull_conflicts" } };
+
+    async function pulled(outcomeOf: (cmd: string) => unknown) {
+      const made = setup((call) => (call.cmd === "pull_with_autostash" ? kept : (outcomeOf(call.cmd) ?? null)), resting());
+      await made.actions.pull("fast_forward_or_merge");
+      return made;
+    }
+
+    it("pops that stash when the operation completes and dismisses the notice", async () => {
+      const { actions, calls, session } = await pulled((cmd) => (cmd === "operation_continue" ? "completed" : cmd === "stash_pop" ? "applied" : undefined));
+
+      await actions.continueOperation(null);
+
+      expect(calls.find((call) => call.cmd === "stash_pop")?.args).toEqual({ path: "/r", index: 2, sha: "abc123" });
+      expect(actions.notices()).toEqual([]);
+      expect(session.notice()).toBe("Restored your stashed changes.");
+    });
+
+    it("pops that stash after the operation is aborted", async () => {
+      const { actions, calls } = await pulled((cmd) => (cmd === "stash_pop" ? "applied" : undefined));
+
+      actions.abortOperation();
+      await actions.dialog()?.run();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(calls.some((call) => call.cmd === "operation_abort")).toBe(true);
+      expect(calls.find((call) => call.cmd === "stash_pop")?.args).toEqual({ path: "/r", index: 2, sha: "abc123" });
+      expect(actions.notices()).toEqual([]);
+    });
+
+    it("keeps the stash while the next step is still in conflict", async () => {
+      const { actions, calls } = await pulled((cmd) => (cmd === "operation_continue" ? "conflicts" : undefined));
+
+      await actions.continueOperation(null);
+
+      expect(calls.some((call) => call.cmd === "stash_pop")).toBe(false);
+      expect(actions.notices()[0]?.text).toBe("Your changes are kept in stash@{2}");
+    });
+
+    it("leaves the stash alone once the user dismissed the notice", async () => {
+      const { actions, calls } = await pulled((cmd) => (cmd === "operation_continue" ? "completed" : undefined));
+
+      actions.dismissNotice(actions.notices()[0]?.id ?? "");
+      await actions.continueOperation(null);
+
+      expect(calls.some((call) => call.cmd === "stash_pop")).toBe(false);
+    });
+
+    it("reports a restore that conflicts and keeps the stash", async () => {
+      const { actions, session } = await pulled((cmd) => (cmd === "operation_continue" ? "completed" : cmd === "stash_pop" ? "conflicts" : undefined));
+
+      await actions.continueOperation(null);
+
+      expect(session.notice()).toBe("The stash applied with conflicts and was kept. Resolve them in the Changes list.");
+    });
   });
 
   it("still reports a conflicting or up-to-date pull", async () => {

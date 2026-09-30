@@ -1,7 +1,6 @@
-import { useQuery } from "@tanstack/solid-query";
+import { useQuery } from "../state/query";
 import { For, Show } from "solid-js";
 import { client } from "../ipc/client";
-import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import type { WorktreeActions } from "../state/worktreeActions";
@@ -12,7 +11,7 @@ import { tip } from "./Tooltip";
 export function WorktreePanel(props: { session: RepoSession; actions: WorktreeActions; onClose: () => void }) {
   const root = () => props.session.snapshot().root;
   const listing = useQuery(() => ({ queryKey: repoKeys.worktrees(root()), queryFn: () => client.worktreeList(root()) }));
-  const lanes = () => dataOf(listing) ?? [];
+  const lanes = () => listing.data ?? [];
   const linked = () => lanes().length > 1;
 
   return (

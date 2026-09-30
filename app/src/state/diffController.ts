@@ -1,4 +1,5 @@
-import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { keepPreviousData } from "@tanstack/solid-query";
+import { useQuery } from "./query";
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
@@ -9,7 +10,6 @@ import { hunkActions, WHITESPACE_REASON, type DiffTarget, type HunkAction } from
 import type { DiffPrefs } from "./diffPrefs";
 import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, wordMarks, type LineRef } from "./diffRows";
 import { extendSelection, isSelected, nextSelectable, toggleLine, type LineSelection } from "./lineSelection";
-import { dataOf } from "./queryData";
 import { repoKeys } from "./queryKeys";
 import type { RepoSession } from "./repoSession";
 import { languageOf, loadLanguage, type LanguageId } from "./syntax";
@@ -35,7 +35,7 @@ export function createDiffController(deps: { session: RepoSession; target: () =>
     queryFn: () => load(path, deps.target(), ignoreWhitespace()),
     placeholderData: keepPreviousData,
   }));
-  const shown = () => (diff.error == null ? dataOf(diff) : undefined);
+  const shown = () => (diff.error == null ? diff.data : undefined);
   const failure = () => (diff.error instanceof IpcError ? diff.error.message : diff.error == null ? undefined : String(diff.error));
   const hunks = (): DiffHunk[] => shown()?.hunks ?? [];
 

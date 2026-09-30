@@ -1,7 +1,7 @@
-import { useQuery, type QueryClient } from "@tanstack/solid-query";
+import { type QueryClient } from "@tanstack/solid-query";
+import { useQuery } from "./query";
 import type { AppUiPrefs } from "../ipc/bindings/AppUiPrefs";
 import { client } from "../ipc/client";
-import { dataOf } from "./queryData";
 import { appKeys } from "./queryKeys";
 
 const RECENT_COMMAND_LIMIT = 8;
@@ -22,7 +22,7 @@ export function createAppUiPrefs(queryClient: QueryClient, report: (failure: unk
   const load = (): Promise<AppUiPrefs> => fetch(Infinity);
   let saving: Promise<unknown> = Promise.resolve();
   return {
-    prefs: (): AppUiPrefs => dataOf(query) ?? defaultAppUiPrefs,
+    prefs: (): AppUiPrefs => query.data ?? defaultAppUiPrefs,
     load,
     ensure: (): void => void load().catch(report),
     update: (change: (current: AppUiPrefs) => AppUiPrefs): void => {
