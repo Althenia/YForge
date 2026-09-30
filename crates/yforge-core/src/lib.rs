@@ -10,6 +10,7 @@ mod diff;
 mod error;
 mod git;
 mod graph;
+mod history;
 mod integrate;
 mod layout;
 mod model;
@@ -52,6 +53,9 @@ pub use diff::diff_file;
 pub use error::{CoreError, ErrorKind, ErrorPayload};
 pub use git::{ensure_supported, git_version, CancelToken, GitVersion};
 pub use graph::{graph_page, search_commits};
+pub use history::{
+    rebase_interactive, rebase_plan, recompose_apply, recompose_preview, squash_commits,
+};
 pub use integrate::{cherry_pick, fast_forward, integration_preview, merge, rebase, reset, revert};
 pub use model::{
     AheadBehind, AmendInfo, AppInfo, AuthPromptEvent, Author, AutoStash, CarriedEdge, ChangeArea,
@@ -60,9 +64,11 @@ pub use model::{
     FileChange, FileDiff, FileStatus, ForceLease, ForcePushPlan, GraphEdge, GraphPage, GraphRef,
     GraphRow, Head, IntegrationPreview, MergeMode, MessageEdit, NodeKind, Operation,
     OperationDetail, OperationOutcome, OperationProgress, OperationStep, PullMode, PullOutcome,
-    PullReport, PullStash, PushTarget, RefKind, RepoChanged, RepoSnapshot, ResetMode,
-    RevisionRange, SearchResult, Signature, StashEntry, StashKeptReason, StashRestore, SwitchStash,
-    Upstream, Worktree, WorktreeIntegration, WorktreeStatus,
+    PullReport, PullStash, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep,
+    RebaseTodo, RecomposeChange, RecomposeFile, RecomposeGroup, RecomposeHunk, RecomposePreview,
+    RecomposeResult, RefKind, RepoChanged, RepoSnapshot, ResetMode, RevisionRange, SearchResult,
+    Signature, StashEntry, StashKeptReason, StashRestore, SwitchStash, Upstream, Worktree,
+    WorktreeIntegration, WorktreeStatus,
 };
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
 pub use repo::repo_snapshot;

@@ -124,7 +124,9 @@ fn status_of(letter: char) -> Result<FileStatus, CoreError> {
     })
 }
 
-fn parse_raw(output: &str) -> Result<Vec<(FileStatus, String, Option<String>)>, CoreError> {
+pub(crate) fn parse_raw(
+    output: &str,
+) -> Result<Vec<(FileStatus, String, Option<String>)>, CoreError> {
     let mut fields = output.split('\0').filter(|field| !field.is_empty());
     let mut entries = Vec::new();
     let missing = |field: &str| {
@@ -277,13 +279,17 @@ pub fn amend_info(path: &Path) -> Result<AmendInfo, CoreError> {
     })
 }
 
-fn head_is_on_upstream(root: &Path) -> Result<bool, CoreError> {
-    let upstream = git::run_unchecked(
+pub(crate) fn has_upstream(root: &Path) -> Result<bool, CoreError> {
+    Ok(git::run_unchecked(
         root,
         &["rev-parse", "--verify", "--quiet", "@{upstream}"],
         None,
-    )?;
-    if !upstream.succeeded() {
+    )?
+    .succeeded())
+}
+
+fn head_is_on_upstream(root: &Path) -> Result<bool, CoreError> {
+    if !has_upstream(root)? {
         return Ok(false);
     }
     let ancestry = git::run_unchecked(

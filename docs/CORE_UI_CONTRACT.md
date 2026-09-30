@@ -109,6 +109,11 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `worktree_create` | `path`, `branch`, `create`, `start: string \| null`, `destination` (absolute) | `string`: the location |
 | `worktree_remove` | `path`, `worktree`, `force` | `null` |
 | `worktree_integrate` | `path`, `worktree`, `target`, `cleanup` | `WorktreeIntegration` |
+| `rebase_plan` | `path`, `base: string` | `RebasePlan { base, commits: RebaseTodo[], pushed }`: `commits` run oldest first from `base` (exclusive, a commit id or full ref) to HEAD; `RebaseTodo { sha, summary, author, is_merge, pushed }`; `pushed` is true when the commit is reachable from `@{upstream}`, and on the plan when any commit is. `invalid_request` when `base` is not an ancestor of HEAD or the range is empty |
+| `rebase_interactive` | `path`, `base`, `steps: RebaseStep[]` | `RebaseResult { outcome, pushed, dropped_all }` |
+| `squash_commits` | `path`, `shas: string[]`, `message: string` | `RebaseResult` |
+| `recompose_preview` | `path`, `base` | `RecomposePreview { base, head, pushed, files: RecomposeFile[] }` |
+| `recompose_apply` | `path`, `base`, `groups: RecomposeGroup[]` | `RecomposeResult { head, pushed }` |
 
 `client` also exposes `pickFolder(title)` (the native folder picker, `tauri-plugin-dialog`), `homeDirectory()`, and `onFolderDrop(handler)`, and the phase 3b commands as `publish`, `authRespond`, `searchCommits`, `cloneRepo`, `initRepo`, `settingsLoad`, `settingsSave`, `repoSettingsLoad`, `repoSettingsSave`, `identityRead`, `identityWrite`, `remotesList`, `remoteAdd`, `remoteEdit`, `remoteRemove`, `recentsList`, `recentAdd`, `recentRemove`, `recentStatuses`, `sessionLoad`, `sessionSave`, `openPath`, `activityList`, `activityClear`, `undoLast`, plus `onAuthPrompt(handler)` and `onActivity(handler)`.
 
@@ -288,6 +293,20 @@ These run against the checked-out branch and fail with `invalid_request` while a
 - `worktree_remove` is refused with `worktree_dirty` when the worktree has changes or untracked files and `force` is false, and with `invalid_request` for the main, the current, a locked, or an unknown worktree. A worktree whose directory is gone is removed with `--force`.
 - `worktree_integrate` needs a settled (`operation_in_progress`) and clean (`worktree_dirty`) source and a target checked out in some worktree. It runs `git rebase refs/heads/<target>` in the source worktree, then `git merge --ff-only refs/heads/<branch>` in the target's worktree, then with `cleanup: true` `git worktree remove` and `git branch --delete --force`. The result is identical to running those commands in a terminal (fixture test compares the resulting graphs). Rebase conflicts return `{ kind: "conflicts", worktree }` and leave the rebase in place; success is `{ kind: "integrated", target_sha, cleaned_up }`. Create, remove, and integrate record activity with no undo.
 
+### History editing
+
+- `RebaseStep` is `{ kind: "pick" | "fixup" | "drop" | "edit", sha }` or `{ kind: "reword" | "squash", sha, message }`; `sha` is 4–64 hex characters matching one commit of the range.
+- `rebase_interactive` runs `git rebase --interactive --no-autostash <base>` with `GIT_SEQUENCE_EDITOR` pointing at a script in a private temporary directory that writes a generated todo (removed afterwards), so git never opens an editor. Steps run in the given order; a commit of the range with no step is dropped, so an empty list drops every commit (`dropped_all: true`, HEAD moves to `base`).
+- `reword` and `squash` messages are applied by an `exec git commit --amend -m <message>` line in the todo, so they survive conflict and edit stops. `squash` and `fixup` join the previous kept commit; a run's message is the `message` of its last `squash`, else the reword message of its first commit, else the first commit's message. A message must be non-blank and free of NUL.
+- Refusals (nothing changes): `invalid_request` for a first kept step of `squash` or `fixup`, an unknown, ambiguous or repeated sha, a blank message, a base that is not an ancestor of HEAD, or an empty range; `operation_in_progress` during a merge, rebase, cherry-pick, revert, or bisect; `merge_commit_in_range` when any commit of `base..HEAD` is a merge commit (`--rebase-merges` is not supported). Dirty tracked files are refused by git as `local_changes`.
+- `RebaseResult.outcome` is `completed`, `conflicts` (stopped in the normal rebase state; continue, skip, abort and the resolver apply), or `stopped_to_edit` (an `edit` step stopped; amend or change files, then `operation_continue`). `pushed` is true when any commit of `base..HEAD` is reachable from `@{upstream}`; the UI warns. A failing `exec` (for example a rejecting commit-msg hook) leaves the rebase in progress and fails with `git_failed`.
+- `RepoSnapshot.operation_detail.stopped_edit` is the sha of the commit being edited while a rebase is stopped for an `edit` step, else `null` or absent.
+- `squash_commits` needs at least two distinct shas forming one contiguous run on the current branch whose oldest commit has a parent (`invalid_request` otherwise); it runs `rebase_interactive` with `pick` for the other commits of `<parent of oldest>..HEAD`, `pick` for the oldest selected commit, and `squash` with `message` for the rest.
+- `recompose_preview` returns the combined diff `base..HEAD` (`--no-renames`, so a rename is a delete plus an add) as `RecomposeFile { path, status, binary, whole_file_only, hunks: RecomposeHunk[] }` with `RecomposeHunk { id, hunk }`; a hunk `id` is `<path>@<old_start>,<old_lines>+<new_start>,<new_lines>`, stable for a given `base` and HEAD. `whole_file_only` is true for binary files, files without hunks, and mode or type changes.
+- `RecomposeGroup { message, changes: RecomposeChange[] }`; a change is `{ kind: "file", path }`, `{ kind: "hunk", id }`, or `{ kind: "lines", id, lines }` (indexes into the hunk's lines; at least one added or removed line). Hunk and line changes on a `whole_file_only` file are `invalid_request`.
+- `recompose_apply` refuses with `operation_in_progress`, `merge_commit_in_range`, `local_changes` (dirty working tree or index; untracked files are ignored), and `invalid_request` for no groups, a blank message, an empty group, an unknown path, hunk or line, an empty range or diff, and any change of `base..HEAD` not assigned to exactly one group (the message lists the paths). It records HEAD, runs `git reset --mixed <base>`, stages each group's changes cumulatively from base, and commits with its message (hooks run). The final commit's tree must equal the original HEAD tree; any failure, including a rejected commit or a tree mismatch, runs `git reset --hard <recorded HEAD>` and returns the error.
+- Undo (activity `Interactive rebase`, `Squash commits`, `Recompose`): `git reset --hard <recorded HEAD>`, refused when HEAD moved or the tracked working tree is not clean; unavailable when the rewrite stopped on conflicts or for an edit.
+
 ### `GraphPage`
 
 `{ rows, carried, total }` for the window `[offset, offset + limit)` of the full layout. `total` counts all rows, including the Changes row and stash rows.
@@ -326,6 +345,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `worktree_dirty` | Removing or integrating a worktree that has uncommitted changes |
 | `operation_in_progress` | Editing a message or integrating while a merge, rebase, cherry-pick, revert, or bisect is in progress |
 | `not_head` | `edit_head_message` was given a commit that is not HEAD |
+| `merge_commit_in_range` | A history rewrite (`rebase_interactive`, `squash_commits`, `recompose_preview`, `recompose_apply`) found a merge commit in `base..HEAD`; the message names it |
 | `internal` | The blocking task failed (for example, a panic) |
 
 ## Threading and cancellation
@@ -335,7 +355,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 - Mutating commands take git's own locks; a concurrent git process in the terminal surfaces as `git_failed` with git's message.
 - `repo_graph` and `search_commits` reuse one computed history and layout per repository root. The cache key is every ref and its target (`git for-each-ref`), the HEAD commit, the stash commits, and whether the working tree has changes; any difference recomputes the full layout, and the working-tree summary text is always read fresh. Pages are consistent only while the key does not change between calls. The ignored test `crates/yforge-core/tests/graph_perf.rs` gates the first page at under 1 s for 10k commits and under 3 s for 100k commits (`cargo test --release -p yforge-core -- --ignored`).
 - `fetch`, `pull`, `push`, `push_force`, `push_tag`, `delete_remote_tag`, `publish`, and `clone_repo` register their `id` in a registry held by the shell (`OperationRegistry`); `operation_cancel` sets the cancel flag of the registered operation, and the id is removed when the call ends.
-- Deferred: cancelling any call other than the network commands, incremental layout, line-level staging, cherry-pick and revert of merge commits (parent choice), and interactive rebase.
+- Deferred: cancelling any call other than the network commands, incremental layout, cherry-pick and revert of merge commits (parent choice).
 
 ## Authentication prompts
 
@@ -361,6 +381,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `stash_pop`, `stash_apply` | discard the applied changes (and store the entry again after a pop) | the tree differs from the recorded post-apply tree; unavailable when the tree was dirty before, the stash has untracked files, or it applied with conflicts |
 | `merge`, `rebase`, `cherry_pick`, `revert`, `fast_forward`, `reset` | `git reset --hard <recorded HEAD>` | HEAD moved, or the tracked working tree is not clean; unavailable when the operation stopped on conflicts, HEAD did not move, a hard reset started dirty, or a soft or mixed reset left changes |
 | `push_force` | `git push --force-with-lease=<remote ref>:<pushed sha> <remote> <previous sha>:<remote ref>`, where the previous sha is the lease's `expected_sha` and the pushed sha is the local branch tip recorded before the push. The entry is `local`, so it joins the undo chain; the UI asks for confirmation that states the consequence first. The push runs with authentication prompts like any network command (operation id `undo-<entry id>`) | the remote branch moved after the force push (the lease fails, `invalid_request`, nothing changes), or the remote is gone; unavailable when the push did not move the remote branch |
+| `rebase_interactive`, `squash_commits`, `recompose_apply` | `git reset --hard <recorded HEAD>` | HEAD moved, or the tracked working tree is not clean; unavailable when the rewrite stopped on conflicts or for an edit |
 | `discard_files`, `discard_hunk` | write back the blobs stored by `git hash-object -w` before discarding | a file changed after the discard; unavailable when a path is a directory or symlink |
 
 Every other command records `unavailable { reason: "<operation> has no safe undo" }`.

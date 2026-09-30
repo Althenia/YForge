@@ -15,9 +15,10 @@ use yforge_core::{
     CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
     ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode, MessageEdit,
     OperationKind, OperationOutcome, OperationProgress, Planned, Progress, PullMode, PullOutcome,
-    PullReport, PushTarget, RecentRepo, RecentStatus, RemoteInfo, RepoChanged, RepoSettings,
-    RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore, SwitchStash,
-    TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
+    PullReport, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
+    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeResult, RemoteInfo, RepoChanged,
+    RepoSettings, RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore,
+    SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -328,6 +329,10 @@ fn state_of(
 
 fn conflicted(outcome: &OperationOutcome) -> bool {
     *outcome == OperationOutcome::Conflicts
+}
+
+fn stopped(result: &RebaseResult) -> bool {
+    result.outcome != RebaseOutcome::Completed
 }
 fn recorder<'a, R: Runtime>(
     app: &AppHandle<R>,
@@ -1329,6 +1334,128 @@ async fn rebase<R: Runtime>(
         )
         .await;
     log_outcome("rebase", &result, |outcome| format!("{outcome:?}"));
+    result
+}
+
+#[tauri::command]
+async fn rebase_plan(path: String, base: String) -> Result<RebasePlan, ErrorPayload> {
+    log::debug!("rebase_plan path={path} base={base}");
+    let result = blocking(move || yforge_core::rebase_plan(Path::new(&path), &base)).await;
+    log_outcome("rebase_plan", &result, |plan| {
+        format!("commits={} pushed={}", plan.commits.len(), plan.pushed)
+    });
+    result
+}
+
+#[tauri::command]
+async fn rebase_interactive<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    base: String,
+    steps: Vec<RebaseStep>,
+) -> Result<RebaseResult, ErrorPayload> {
+    log::debug!(
+        "rebase_interactive path={path} base={base} steps={}",
+        steps.len()
+    );
+    let target = path.clone();
+    let count = steps.len();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::InteractiveRebase, true, true),
+            move |result: &RebaseResult| {
+                format!(
+                    "Rewrote history with {}: {:?}",
+                    counted(count, "step"),
+                    result.outcome
+                )
+            },
+            state_of(&path),
+            move || yforge_core::rebase_interactive(Path::new(&target), &base, &steps),
+            integration_plan("interactive rebase", path.clone(), stopped),
+        )
+        .await;
+    log_outcome("rebase_interactive", &result, |result| {
+        format!("{:?} pushed={}", result.outcome, result.pushed)
+    });
+    result
+}
+
+#[tauri::command]
+async fn squash_commits<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    shas: Vec<String>,
+    message: String,
+) -> Result<RebaseResult, ErrorPayload> {
+    log::debug!("squash_commits path={path} shas={shas:?}");
+    let target = path.clone();
+    let count = shas.len();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::SquashCommits, true, true),
+            move |result: &RebaseResult| {
+                format!(
+                    "Squashed {}: {:?}",
+                    counted(count, "commit"),
+                    result.outcome
+                )
+            },
+            state_of(&path),
+            move || yforge_core::squash_commits(Path::new(&target), &shas, &message),
+            integration_plan("squash", path.clone(), stopped),
+        )
+        .await;
+    log_outcome("squash_commits", &result, |result| {
+        format!("{:?} pushed={}", result.outcome, result.pushed)
+    });
+    result
+}
+
+#[tauri::command]
+async fn recompose_preview(path: String, base: String) -> Result<RecomposePreview, ErrorPayload> {
+    log::debug!("recompose_preview path={path} base={base}");
+    let result = blocking(move || yforge_core::recompose_preview(Path::new(&path), &base)).await;
+    log_outcome("recompose_preview", &result, |preview| {
+        format!("files={} pushed={}", preview.files.len(), preview.pushed)
+    });
+    result
+}
+
+#[tauri::command]
+async fn recompose_apply<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    base: String,
+    groups: Vec<RecomposeGroup>,
+) -> Result<RecomposeResult, ErrorPayload> {
+    log::debug!(
+        "recompose_apply path={path} base={base} groups={}",
+        groups.len()
+    );
+    let target = path.clone();
+    let count = groups.len();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::Recompose, true, true),
+            move |result: &RecomposeResult| {
+                format!(
+                    "Recomposed into {} ending at {}",
+                    counted(count, "commit"),
+                    short(&result.head)
+                )
+            },
+            state_of(&path),
+            move || yforge_core::recompose_apply(Path::new(&target), &base, &groups),
+            integration_plan("recompose", path.clone(), |_: &RecomposeResult| false),
+        )
+        .await;
+    log_outcome("recompose_apply", &result, |result| {
+        format!("head={} pushed={}", result.head, result.pushed)
+    });
     result
 }
 
@@ -2656,6 +2783,11 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             integration_preview,
             merge,
             rebase,
+            rebase_plan,
+            rebase_interactive,
+            squash_commits,
+            recompose_preview,
+            recompose_apply,
             fast_forward,
             cherry_pick,
             revert,

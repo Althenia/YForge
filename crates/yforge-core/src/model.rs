@@ -143,6 +143,8 @@ pub struct OperationDetail {
     pub message: String,
     pub step: Option<OperationStep>,
     pub resolved: Vec<String>,
+    #[ts(optional = nullable)]
+    pub stopped_edit: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -509,4 +511,89 @@ pub struct ConflictFile {
     pub binary: bool,
     pub sides: ConflictSides,
     pub segments: Vec<ConflictSegment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RebaseTodo {
+    pub sha: String,
+    pub summary: String,
+    pub author: Author,
+    pub is_merge: bool,
+    pub pushed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RebasePlan {
+    pub base: String,
+    pub commits: Vec<RebaseTodo>,
+    pub pushed: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RebaseStep {
+    Pick { sha: String },
+    Reword { sha: String, message: String },
+    Squash { sha: String, message: String },
+    Fixup { sha: String },
+    Drop { sha: String },
+    Edit { sha: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RebaseOutcome {
+    Completed,
+    Conflicts,
+    StoppedToEdit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RebaseResult {
+    pub outcome: RebaseOutcome,
+    pub pushed: bool,
+    pub dropped_all: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RecomposeHunk {
+    pub id: String,
+    pub hunk: DiffHunk,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RecomposeFile {
+    pub path: String,
+    pub status: FileStatus,
+    pub binary: bool,
+    pub whole_file_only: bool,
+    pub hunks: Vec<RecomposeHunk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RecomposePreview {
+    pub base: String,
+    pub head: String,
+    pub pushed: bool,
+    pub files: Vec<RecomposeFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RecomposeChange {
+    File { path: String },
+    Hunk { id: String },
+    Lines { id: String, lines: Vec<u32> },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RecomposeGroup {
+    pub message: String,
+    pub changes: Vec<RecomposeChange>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct RecomposeResult {
+    pub head: String,
+    pub pushed: bool,
 }

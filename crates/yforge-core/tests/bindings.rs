@@ -14,6 +14,10 @@ use yforge_core::{
 use yforge_core::{
     MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
 };
+use yforge_core::{
+    RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecomposeChange, RecomposeGroup,
+    RecomposePreview, RecomposeResult,
+};
 
 fn committed_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../app/src/ipc/bindings")
@@ -67,6 +71,14 @@ fn export_all(dir: &Path) {
     SwitchStash::export_all(&config).expect("export SwitchStash");
     WorktreeIntegration::export_all(&config).expect("export WorktreeIntegration");
     WorktreeStatus::export_all(&config).expect("export WorktreeStatus");
+    RebasePlan::export_all(&config).expect("export RebasePlan");
+    RebaseStep::export_all(&config).expect("export RebaseStep");
+    RebaseOutcome::export_all(&config).expect("export RebaseOutcome");
+    RebaseResult::export_all(&config).expect("export RebaseResult");
+    RecomposePreview::export_all(&config).expect("export RecomposePreview");
+    RecomposeChange::export_all(&config).expect("export RecomposeChange");
+    RecomposeGroup::export_all(&config).expect("export RecomposeGroup");
+    RecomposeResult::export_all(&config).expect("export RecomposeResult");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

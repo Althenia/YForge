@@ -97,6 +97,7 @@ pub(crate) fn detail(
         .filter(|change| change.area == ChangeArea::Conflicted)
         .cloned()
         .collect();
+    let mut stopped_edit = None;
     let (current, incoming, message, step) = match operation {
         Operation::Merge => {
             let incoming = match read_line(git_dir, "MERGE_HEAD") {
@@ -131,6 +132,7 @@ pub(crate) fn detail(
                 Some(sha) => ref_at(root, &sha)?.unwrap_or_else(|| short_sha(&sha)),
                 None => head_name(root)?,
             };
+            stopped_edit = read_line(git_dir, &format!("{directory}/amend"));
             (onto, branch, String::new(), rebase_step(git_dir))
         }
         Operation::Bisect => {
@@ -147,6 +149,7 @@ pub(crate) fn detail(
         message,
         step,
         resolved: resolved_paths(root, &conflicted)?,
+        stopped_edit,
     })
 }
 

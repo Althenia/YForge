@@ -149,6 +149,13 @@ fn select_lines(
     })
 }
 
+pub(crate) fn select_staged_lines(
+    hunk: &DiffHunk,
+    selected: &[u32],
+) -> Result<DiffHunk, CoreError> {
+    select_lines(hunk, selected, HunkAction::Stage)
+}
+
 fn apply_selection(
     path: &Path,
     file: &str,

@@ -34,7 +34,7 @@ fn initials(name: &str) -> String {
     letters.to_uppercase()
 }
 
-fn author(name: &str) -> Author {
+pub(crate) fn author(name: &str) -> Author {
     Author {
         name: name.to_owned(),
         initials: initials(name),

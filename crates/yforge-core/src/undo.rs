@@ -116,7 +116,7 @@ fn head_sha(root: &Path) -> Result<Option<String>, CoreError> {
         .then(|| completed.stdout.trim().to_owned()))
 }
 
-fn tracked_changes(root: &Path) -> Result<bool, CoreError> {
+pub(crate) fn tracked_changes(root: &Path) -> Result<bool, CoreError> {
     Ok(
         !git::run(root, &["status", "--porcelain", "--untracked-files=no"])?
             .trim()

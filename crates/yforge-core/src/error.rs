@@ -28,6 +28,7 @@ pub enum ErrorKind {
     WorktreeDirty,
     OperationInProgress,
     NotHead,
+    MergeCommitInRange,
     Internal,
 }
 
@@ -119,6 +120,9 @@ pub enum CoreError {
     NotHead {
         sha: String,
     },
+    MergeCommitInRange {
+        sha: String,
+    },
 }
 
 impl CoreError {
@@ -146,6 +150,7 @@ impl CoreError {
             Self::WorktreeDirty { .. } => ErrorKind::WorktreeDirty,
             Self::OperationInProgress { .. } => ErrorKind::OperationInProgress,
             Self::NotHead { .. } => ErrorKind::NotHead,
+            Self::MergeCommitInRange { .. } => ErrorKind::MergeCommitInRange,
         }
     }
 
@@ -235,6 +240,11 @@ impl fmt::Display for CoreError {
                 "A {operation} is in progress. Finish or abort it first"
             ),
             Self::NotHead { sha } => write!(f, "{sha} is not the current commit (HEAD)"),
+            Self::MergeCommitInRange { sha } => write!(
+                f,
+                "{} is a merge commit; rewriting history that contains merge commits is not supported",
+                sha.chars().take(7).collect::<String>()
+            ),
         }
     }
 }

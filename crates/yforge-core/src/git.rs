@@ -131,6 +131,16 @@ pub(crate) fn run_unchecked(
     capture(in_directory(dir, args), input, &describe(args))
 }
 
+pub(crate) fn run_with_env(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<Completed, CoreError> {
+    let mut command = in_directory(dir, args);
+    command.envs(env.iter().copied());
+    capture(command, None, &describe(args))
+}
+
 pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<String, CoreError> {
     checked(run_unchecked(dir, args, None)?, describe(args))
 }
