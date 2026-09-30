@@ -11,6 +11,9 @@ import { RebaseEditor } from "../components/RebaseEditor";
 import { ContextMenu } from "../components/ContextMenu";
 import { DiffView } from "../components/DiffView";
 import { FileRow } from "../components/FileRow";
+import { FileView } from "../components/FileView";
+import { RecoveryView } from "../components/RecoveryView";
+import { WorktreePanel } from "../components/WorktreePanel";
 import { GraphPanel } from "../components/GraphPanel";
 import { Switch } from "../components/Switch";
 import { TabBar } from "../components/TabBar";
@@ -298,7 +301,7 @@ describe("cursors on the graph", () => {
     mockIPC((cmd) => (cmd === "diff_file" ? diff : null));
     const prefs = createDiffPrefs();
     const mounted = mountWithApp(() => (
-      <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={{ source: "working", area: "unstaged", file: "a.txt" }} prefs={prefs} onClose={() => undefined} />
+      <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={{ source: "working", area: "unstaged", file: "a.txt" }} prefs={prefs} onClose={() => undefined} onViewFile={() => undefined} />
     ));
     dispose = () => {
       mounted.dispose();
@@ -341,5 +344,41 @@ describe("cursors on the graph", () => {
     expectCursor(first?.querySelector('button[aria-label="Move Second up"]'), "disabled");
     expectCursor(first?.querySelector("textarea"), "text");
     expectCursor(first, "static");
+  });
+
+  it("shows the text cursor on file view lines and the action cursor on the recovery and worktree controls, with the disabled cursor and static rows", async () => {
+    vi.stubGlobal("ResizeObserver", class { observe = () => undefined; unobserve = () => undefined; disconnect = () => undefined; });
+    const restoreLayout = stubLayout();
+    const lane = (path: string, current: boolean) => ({ path, head: "a", branch: "main", bare: false, locked: false, prunable: false, current, dirty: false });
+    mockIPC((cmd) => {
+      if (cmd === "file_at_revision") return { kind: "text", text: "a\n", size: 2, eol: "\n" };
+      if (cmd === "reflog_refs") return ["HEAD"];
+      if (cmd === "reflog_list") return [{ index: 0, selector: "HEAD@{0}", sha: "1".repeat(40), previous_sha: null, action: "commit", message: "commit: x", time: 1, summary: "x", exists: false }];
+      if (cmd === "worktree_list") return [lane("/w/r", true), lane("/w/r-b", false)];
+      return null;
+    });
+    const session = testSession("/r", { root: "/r", head: { kind: "branch", name: "main", sha: "a" }, branches: ["main"], worktrees: [] } as unknown as RepoSnapshot);
+    const actions = { openCreate: () => undefined, open: () => undefined, openTerminal: () => undefined, integrate: () => undefined, remove: () => undefined } as never;
+    const mounted = mountWithApp(() => (
+      <>
+        <FileView session={session} target={{ file: "a.txt", rev: ":worktree", source: "Working tree" }} onClose={() => undefined} />
+        <RecoveryView session={session} tab="reflog" onClose={() => undefined} />
+        <WorktreePanel session={session} actions={actions} onClose={() => undefined} />
+      </>
+    ));
+    dispose = () => {
+      mounted.dispose();
+      restoreLayout();
+      vi.unstubAllGlobals();
+    };
+    await flush(80);
+
+    expectCursor(mounted.host.querySelector(".fline"), "text");
+    expectCursor(mounted.host.querySelector('[aria-label="Recovery sources"] [role="tab"]'), "action");
+    expectCursor(mounted.host.querySelector('button[aria-label="Restore 1111111 as a branch"]'), "disabled");
+    expectCursor(mounted.host.querySelector(".recrow"), "static");
+    expectCursor(mounted.host.querySelector('button[aria-label="Open /w/r-b in terminal"]'), "action");
+    expectCursor(mounted.host.querySelector('button[aria-label="Open /w/r as a tab"]'), "disabled");
+    expectCursor(mounted.host.querySelector(".wrow"), "static");
   });
 });

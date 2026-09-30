@@ -8,9 +8,14 @@ import type { Anchor, RepoActions } from "../state/repoActions";
 import type { Selection } from "../state/selection";
 import { toggleFolder, type RepoUiPrefsStore } from "../state/repoUiPrefs";
 import type { IconName } from "../iconNames";
+import type { PanelRequest } from "../state/palette";
+import type { WorktreeActions } from "../state/worktreeActions";
+import type { MenuState } from "../state/repoActions";
+import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { tip } from "./Tooltip";
 
-function Section(props: { icon: IconName; title: string; count: number; children?: JSX.Element }) {
+function Section(props: { icon: IconName; title: string; count?: number; open?: { label: string; run: () => void }; add?: { label: string; run: () => void }; children?: JSX.Element }) {
   return (
     <section aria-label={props.title}>
       <div class="sec">
@@ -18,12 +23,34 @@ function Section(props: { icon: IconName; title: string; count: number; children
           <Icon name={props.icon} />
           {props.title}
         </span>
-        <span class="count">{props.count}</span>
+        <Show when={props.count !== undefined}>
+          <span class="count">{props.count}</span>
+        </Show>
+        <Show when={props.open}>
+          {(open) => (
+            <button type="button" class="icon-btn dense" {...tip(open().label)} onClick={open().run}>
+              <Icon name="open" size={14} />
+            </button>
+          )}
+        </Show>
+        <Show when={props.add}>
+          {(add) => (
+            <button type="button" class="icon-btn dense" {...tip(add().label)} onClick={add().run}>
+              <Icon name="plus" size={14} />
+            </button>
+          )}
+        </Show>
       </div>
       {props.children}
     </section>
   );
 }
+
+const RECOVERY_ROWS: ReadonlyArray<{ panel: PanelRequest; title: string; label: string; note: string }> = [
+  { panel: "reflog", title: "Reflog", label: "Reflog", note: "HEAD and branch history, restorable" },
+  { panel: "lost", title: "Lost commits", label: "Lost commits", note: "Commits no ref reaches, found with git fsck" },
+  { panel: "snapshots", title: "Snapshots", label: "Safety snapshots", note: "Saved before destructive actions, kept 30 days" },
+];
 
 const anchorOf = (element: HTMLElement): Anchor => {
   const rect = element.getBoundingClientRect();
@@ -34,10 +61,19 @@ const indent = (depth: number, base = 14): string => `${base + depth * 14}px`;
 
 const branchCount = (count: number): string => `${count} ${count === 1 ? "branch" : "branches"}`;
 
-export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions; uiPrefs: RepoUiPrefsStore; selection: Selection | undefined; onSelectStash: (sha: string) => void }) {
+export function Sidebar(props: {
+  snapshot: RepoSnapshot;
+  actions: RepoActions;
+  worktrees: WorktreeActions;
+  uiPrefs: RepoUiPrefsStore;
+  selection: Selection | undefined;
+  onSelectStash: (sha: string) => void;
+  onOpenPanel: (panel: PanelRequest) => void;
+}) {
   const snapshot = () => props.snapshot;
   const collapsedFolders = createMemo((): ReadonlySet<string> => new Set(props.uiPrefs.prefs().collapsed_folders));
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
+  const [worktreeMenu, setWorktreeMenu] = createSignal<MenuState | undefined>();
   const currentBranch = () => {
     const head = snapshot().head;
     return head.kind === "branch" ? head.name : undefined;
@@ -150,6 +186,25 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions; u
         <span class="meta">{branchCount(row.count)}</span>
       </div>
     );
+  }
+
+  function openWorktreeMenu(path: string, current: boolean, anchor: Anchor): void {
+    setWorktreeMenu({
+      anchor,
+      entries: [
+        { kind: "item", id: "open", label: ["Open as tab"], icon: "open", ...(current ? { disabledReason: "This worktree is open here" } : {}) },
+        { kind: "item", id: "terminal", label: ["Open in terminal"], icon: "terminal" },
+        { kind: "separator" },
+        { kind: "item", id: "integrate", label: ["Integrate into another worktree…"], icon: "merge" },
+        { kind: "item", id: "remove", label: ["Remove worktree…"], icon: "trash", danger: true },
+      ],
+      run: (id) => {
+        if (id === "open") void props.worktrees.open(path);
+        else if (id === "terminal") void props.worktrees.openTerminal(path);
+        else if (id === "integrate") void props.worktrees.integrate(path);
+        else if (id === "remove") void props.worktrees.remove(path);
+      },
+    });
   }
 
   const branchTarget = (name: string): RefTarget => localTarget(snapshot(), name);
@@ -270,16 +325,43 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions; u
           )}
         </For>
       </Section>
-      <Section icon="worktree" title="Worktrees" count={snapshot().worktrees.length}>
+      <Section
+        icon="worktree"
+        title="Worktrees"
+        count={snapshot().worktrees.length}
+        open={{ label: "Show worktrees", run: () => props.onOpenPanel("worktrees") }}
+        add={{ label: "Create worktree", run: props.worktrees.openCreate }}
+      >
         <For each={snapshot().worktrees}>
           {(worktree) => (
-            <div class="srow" classList={{ current: worktree.current }} title={worktree.path}>
+            <NavRow
+              id={`worktree:${worktree.path}`}
+              title={worktree.path}
+              label={`Worktree ${basename(worktree.path)}, branch ${worktree.branch ?? (worktree.bare ? "bare" : "detached")}`}
+              current={worktree.current}
+              onOpen={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
+              onMenu={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
+              onClick={() => !worktree.current && void props.worktrees.open(worktree.path)}
+              onActivate={() => !worktree.current && void props.worktrees.open(worktree.path)}
+            >
               <span class="name">{basename(worktree.path)}</span>
               <span class="meta">{worktree.branch ?? (worktree.bare ? "bare" : "detached")}</span>
+            </NavRow>
+          )}
+        </For>
+      </Section>
+      <Section icon="history" title="Recovery">
+        <For each={RECOVERY_ROWS}>
+          {(entry) => (
+            <div class="srow" role="button" tabindex="0" aria-label={entry.label} title={entry.note} onClick={() => props.onOpenPanel(entry.panel)} onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}>
+              <span class="name">{entry.title}</span>
             </div>
           )}
         </For>
       </Section>
+      <Show when={worktreeMenu()} keyed>
+        {(menu) => <ContextMenu menu={menu} onClose={() => setWorktreeMenu(undefined)} />}
+      </Show>
     </aside>
   );
 }

@@ -124,6 +124,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `stash_details` | `path`, `index: number`, `sha: string` | `StashDetails { index, sha, message, base_sha, untracked_sha, files: StashFile[] }` |
 | `stash_file_diff` | `path`, `index`, `sha`, `file: string`, `ignoreWhitespace?: boolean` | `FileDiff` |
 | `repo_ui_prefs_load`, `repo_ui_prefs_save` | `path`; `path`, `prefs: RepoUiPrefs` (save) | `RepoUiPrefs` / `null` |
+| `app_ui_prefs_load`, `app_ui_prefs_save` | none; `prefs: AppUiPrefs` (save) | `AppUiPrefs { palette_recents: string[], last_parent_folder?: string \| null }` / `null` |
 | `cli_install` | none | `CliInstall { path, replaced }` |
 | `rebase_plan` | `path`, `base: string` | `RebasePlan { base, commits: RebaseTodo[], pushed }`: `commits` run oldest first from `base` (exclusive, a commit id or full ref) to HEAD; `RebaseTodo { sha, summary, author, is_merge, pushed }`; `pushed` is true when the commit is reachable from `@{upstream}`, and on the plan when any commit is. `invalid_request` when `base` is not an ancestor of HEAD or the range is empty |
 | `rebase_interactive` | `path`, `base`, `steps: RebaseStep[]` | `RebaseResult { outcome, pushed, dropped_all }` |
@@ -141,6 +142,8 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `ai_generate_commit_message` | `path`, `id` | `CommitDraft { summary, description, summary_trimmed, excluded, truncated }` |
 | `ai_propose_recompose` | `path`, `id`, `base` | `RecomposeProposal { groups: RecomposeGroup[], excluded }` |
 | `ai_propose_conflict` | `path`, `id`, `file` | `ConflictProposal { regions: { index, text, rationale }[] }` |
+
+`client` also exposes the worktree, recovery, and snapshot commands as `worktreeSuggestPath`, `worktreeCreate`, `worktreeRemove`, `worktreeIntegrate`, `reflogRefs`, `reflogList`, `lostCommits`, `restoreAsBranch`, `restoreCheckout`, `restoreReset`, `snapshotsList`, `snapshotFiles`, `snapshotRestoreFiles`, `snapshotRestoreAll`, and `snapshotDelete`, plus `fileAtRevision`, `cliInstall`, `appUiPrefsLoad`, `appUiPrefsSave`, and `onOpenPathRequested(handler)`.
 
 `client` also exposes `pickFolder(title)` (the native folder picker, `tauri-plugin-dialog`), `homeDirectory()`, and `onFolderDrop(handler)`, and the phase 3b commands as `publish`, `authRespond`, `searchCommits`, `cloneRepo`, `initRepo`, `settingsLoad`, `settingsSave`, `repoSettingsLoad`, `repoSettingsSave`, `identityRead`, `identityWrite`, `remotesList`, `remoteAdd`, `remoteEdit`, `remoteRemove`, `recentsList`, `recentAdd`, `recentRemove`, `recentStatuses`, `sessionLoad`, `sessionSave`, `openPath`, `activityList`, `activityClear`, `undoLast`, plus `onAuthPrompt(handler)` and `onActivity(handler)`.
 
@@ -392,6 +395,11 @@ These run against the checked-out branch and fail with `invalid_request` while a
 
 - `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or more than 500 refs. A stored blob that does not match is `storage_failed`.
 
+### Application interface preferences
+
+- `app_ui_prefs_load` / `app_ui_prefs_save` keep the two application-wide interface values in the `settings` table (keys `ui.palette_recents` and `ui.last_parent_folder`, JSON values; no migration). `AppUiPrefs { palette_recents, last_parent_folder }`: `palette_recents` are the ids of the most recently run palette commands, newest first; `last_parent_folder` is the parent folder last used by the clone and create dialogs. Missing keys take their defaults (an empty list, `null`). Save replaces both values in one transaction and refuses with `invalid_request` (leaving the stored values untouched) for more than 8 commands, a blank, repeated, or over 1,024-character command id, or a blank or over 4,096-character folder. A stored value of the wrong shape is `storage_failed`.
+- The frontend keeps no state in browser storage: nothing is read from or written to `localStorage`, and nothing was imported from it.
+
 ### Command line and single instance
 
 - The app uses `tauri-plugin-single-instance`. Launching the binary again does not start a second instance: the running window is focused and, when the first argument is non-empty, `open-path-requested { path }` is emitted; the UI opens it as a tab. The first launch still uses `launch_path`.
@@ -535,6 +543,14 @@ AI assistance: the provider list and each provider's models are Query keys (`["a
 
 History editing: the rebase editor, squash dialog, and recompose view build their plans in `state/rebaseModel.ts` and `state/recomposeModel.ts`, which apply the same validation as the core before calling `rebase_interactive`, `squash_commits`, or `recompose_apply` through a mutation on the session's `QueryClient`, then call `session.refresh`; Undo comes from the recorded activity. Branch-label drag and rebase-row reordering share `state/pointerDrag.ts` (5 px threshold; the body class `dragging` selects the drag cursor).
 
+Tabs and worktrees: `state/tabs.ts` groups repository tabs by `RepoSnapshot.main_root` (`groupTabs`, `tabGroups`); the app reads the main root of every restored tab at boot and of every tab it opens, keeps the list grouped, and closes the tabs of a removed worktree (`closeTabsAt`). The Worktrees panel, its create, integrate, and remove flows (`state/worktreeActions.ts`, rules in `state/worktreeModel.ts`), the sidebar rows, and the state strip chip all call the core's worktree commands through that one owner; a rebase that stops on conflicts opens the worktree's tab. Panels (worktrees, recovery, file view) cover the graph the way the diff does, and the palette opens them through the workspace bridge (`openPanel`).
+
+Recovery: `RecoveryView` reads `reflog_refs`, `reflog_list` (an infinite query over the `before` cursor, pages of 50), `snapshots_list`, and `snapshot_files` through repository-scoped keys (`repoKeys.reflog*`, `repoKeys.snapshots`), so a restore refreshes them. The lost-commit scan runs as a call with a fresh operation id that Cancel passes to `operation_cancel`. Restores go through the session (`restore_as_branch`, `restore_checkout`, `restore_reset`) and end in the activity toast with the core's Undo; `snapshot_restore_*` and `snapshot_delete` are called directly so the safety snapshot's ref can be shown (`state/recoveryModel.ts`, `state/recoveryActions.ts`).
+
+File view: `file_at_revision` is read by `FileView` (key `repoKeys.fileAt`) for the revision the user came from (`:worktree`, `:index`, a commit, a stash, or a stash's untracked commit); `file_too_large` shows the size from its `output`.
+
+Command line: Settings → General calls `cli_install` and shows its `path` and `replaced`; `open-path-requested` opens or activates the tab of the path, and an unopenable path is reported through the app notice, which every screen shows.
+
 Graph paging: Query owns each page (`["repo", path, "graph", page]`, fetched with `fetchQuery`); the graph store keeps the lane layout and requested-page set. An infinite query only extends sequentially, while the virtual scroller and reveal-by-search jump to arbitrary pages, so pages are independent keys.
 
 ## Build and run
@@ -564,6 +580,7 @@ In debug builds, every command logs its arguments and its outcome at `debug` lev
 - `app/src-tauri/tests/ipc.rs`: invokes the registered commands through Tauri's mock runtime IPC path (`tauri::test`) and asserts the serialized responses and error payloads for a fixture repository, including the `repo-changed` and `operation-progress` events, sync against a local bare remote, and cancelling a running fetch.
 - `crates/yforge-core/tests/askpass.rs` (a loopback HTTP server that demands Basic credentials and a `credential.helper` script that logs `store` and `erase`; fake ssh commands that call `SSH_ASKPASS`), `lifecycle.rs` (clone with progress and cancel, init, publish), `config.rs` (identity sources with `GIT_CONFIG_GLOBAL` pointed at a temporary file, remotes CRUD), `store.rs`, `search.rs`, and `undo.rs` (every undo path with the restored state asserted, plus each refusal).
 - `app/src-tauri/tests/phase3b.rs`: the phase 3b commands over the mock runtime, including a clone from a local bare remote, activity records with hook output and redaction, and undo through `undo_last`; `src/auth.rs` unit tests cover the prompt round trip, timeout, and cancel.
+- `crates/yforge-core/tests/app_ui_prefs.rs` and `app/src-tauri/tests/phase5.rs` (`app_ui_prefs_*`): the application interface preferences, their validation, and the untouched application settings.
 - `app/src/components/*.test.tsx`, `app/src/state/app.test.tsx`, `palette.test.ts`, `search.test.ts`, and the other model tests: launcher, dialogs, settings forms, palette flows and the menu-to-palette parity check, auth dialogs, toasts with undo, tabs, and shortcuts.
 - `app/src/ipc/client.test.ts`: client argument passing, event delivery, and error mapping over `mockIPC`.
 - `app/src/state/*.test.ts`, `app/src/graph/*.test.ts`: selection, composer validation and commit flow, diff and confirmation models, refresh coalescing, graph refresh, the branch and stash menus, branch-name validation, the sync menu, freshness, and progress state, the operation banner model, and the checkout, sync, stash, and operation flows over `mockIPC`.

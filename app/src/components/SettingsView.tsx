@@ -2,6 +2,7 @@ import { createForm } from "@tanstack/solid-form";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
 import { createSignal, For, Match, Show, Switch } from "solid-js";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
+import type { CliInstall } from "../ipc/bindings/CliInstall";
 import type { ConfigValue } from "../ipc/bindings/ConfigValue";
 import type { IdentityField } from "../ipc/bindings/IdentityField";
 import type { PullMode } from "../ipc/bindings/PullMode";
@@ -34,6 +35,50 @@ function Segmented<T extends string>(props: { label: string; value: T; options: 
         )}
       </For>
     </div>
+  );
+}
+
+function CommandLineInstall() {
+  const [busy, setBusy] = createSignal(false);
+  const [installed, setInstalled] = createSignal<CliInstall | undefined>();
+  const [failure, setFailure] = createSignal<string | undefined>();
+
+  async function install(): Promise<void> {
+    setBusy(true);
+    setFailure(undefined);
+    try {
+      setInstalled(await client.cliInstall());
+    } catch (error) {
+      setInstalled(undefined);
+      setFailure(message(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <SettingRow title="Command line" note="Adds a yforge command to ~/.local/bin, so yforge <path> opens a repository in YForge, or in the running window. It needs no administrator rights, and it never overwrites a file that YForge did not install.">
+      <div class="cli-install">
+        <button type="button" class="btn sm" disabled={busy()} aria-busy={busy()} onClick={() => void install()}>
+          <Icon name="terminal" />
+          {installed() === undefined ? "Install yforge command" : "Reinstall yforge command"}
+        </button>
+        <Show when={installed()}>
+          {(result) => (
+            <p class="field-note" role="status" aria-label="Command line install">
+              {result().replaced ? `Replaced the earlier YForge command at ${result().path}.` : `Installed ${result().path}.`} Add ~/.local/bin to your PATH if your shell does not find yforge.
+            </p>
+          )}
+        </Show>
+        <Show when={failure()}>
+          {(text) => (
+            <p class="field-note error" role="alert">
+              {text()}
+            </p>
+          )}
+        </Show>
+      </div>
+    </SettingRow>
   );
 }
 
@@ -358,9 +403,10 @@ export function SettingsView(props: { section: string }) {
             <SettingRow title="External editor" note="Command that opens a file or the repository. Leave empty to use the system default.">
               <TextSetting label="External editor command" value={settings().editor_command} placeholder="code" onCommit={(value) => void change({ editor_command: value.trim() })} />
             </SettingRow>
-            <SettingRow title="External terminal" note="Command that opens the repository folder. Leave empty for Terminal.">
+            <SettingRow title="External terminal" note="Command that opens a repository or worktree folder. Leave empty for Terminal.">
               <TextSetting label="External terminal command" value={settings().terminal_command} placeholder="open -a iTerm" onCommit={(value) => void change({ terminal_command: value.trim() })} />
             </SettingRow>
+            <CommandLineInstall />
           </Match>
           <Match when={section() === "git"}>
             <h2>Git</h2>

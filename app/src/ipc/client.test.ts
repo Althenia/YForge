@@ -552,4 +552,54 @@ describe("typed IPC client", () => {
     ]);
     expect(stages).toEqual(["op-1:device_code"]);
   });
+
+  it("invokes the worktree, recovery, and snapshot commands by name with their arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+
+    await client.appUiPrefsLoad();
+    await client.appUiPrefsSave({ palette_recents: ["a"], last_parent_folder: null });
+    await client.worktreeSuggestPath("/r", "feature/x");
+    await client.worktreeCreate("/r", "feature/x", true, "refs/heads/main", "/w/r-feature-x");
+    await client.worktreeCreate("/r", "spare", false, null, "/w/r-spare");
+    await client.worktreeRemove("/r", "/w/r-spare", true);
+    await client.worktreeIntegrate("/r", "/w/r-feature-x", "main", true);
+    await client.reflogRefs("/r");
+    await client.reflogList("/r", "HEAD", null, 50);
+    await client.reflogList("/r", "refs/heads/main", 49, 50);
+    await client.lostCommits("/r", "scan-1");
+    await client.restoreAsBranch("/r", "abc1234", "rescued");
+    await client.restoreCheckout("/r", "abc1234");
+    await client.restoreReset("/r", "abc1234", "hard");
+    await client.snapshotsList("/r");
+    await client.snapshotFiles("/r", "refs/yforge/snapshots/1-discard");
+    await client.snapshotRestoreFiles("/r", "refs/yforge/snapshots/1-discard", ["a.txt"]);
+    await client.snapshotRestoreAll("/r", "refs/yforge/snapshots/1-discard", false);
+    await client.snapshotDelete("/r", "refs/yforge/snapshots/1-discard");
+
+    expect(calls).toEqual([
+      { cmd: "app_ui_prefs_load", args: {} },
+      { cmd: "app_ui_prefs_save", args: { prefs: { palette_recents: ["a"], last_parent_folder: null } } },
+      { cmd: "worktree_suggest_path", args: { path: "/r", branch: "feature/x" } },
+      { cmd: "worktree_create", args: { path: "/r", branch: "feature/x", create: true, start: "refs/heads/main", destination: "/w/r-feature-x" } },
+      { cmd: "worktree_create", args: { path: "/r", branch: "spare", create: false, start: null, destination: "/w/r-spare" } },
+      { cmd: "worktree_remove", args: { path: "/r", worktree: "/w/r-spare", force: true } },
+      { cmd: "worktree_integrate", args: { path: "/r", worktree: "/w/r-feature-x", target: "main", cleanup: true } },
+      { cmd: "reflog_refs", args: { path: "/r" } },
+      { cmd: "reflog_list", args: { path: "/r", reference: "HEAD", before: null, limit: 50 } },
+      { cmd: "reflog_list", args: { path: "/r", reference: "refs/heads/main", before: 49, limit: 50 } },
+      { cmd: "lost_commits", args: { path: "/r", id: "scan-1" } },
+      { cmd: "restore_as_branch", args: { path: "/r", sha: "abc1234", name: "rescued" } },
+      { cmd: "restore_checkout", args: { path: "/r", sha: "abc1234" } },
+      { cmd: "restore_reset", args: { path: "/r", sha: "abc1234", mode: "hard" } },
+      { cmd: "snapshots_list", args: { path: "/r" } },
+      { cmd: "snapshot_files", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard" } },
+      { cmd: "snapshot_restore_files", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard", files: ["a.txt"] } },
+      { cmd: "snapshot_restore_all", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard", force: false } },
+      { cmd: "snapshot_delete", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard" } },
+    ]);
+  });
 });

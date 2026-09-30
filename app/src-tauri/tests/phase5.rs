@@ -351,6 +351,33 @@ fn repo_ui_prefs_round_trip_through_the_database_and_reject_invalid_values() {
 }
 
 #[test]
+fn app_ui_prefs_round_trip_through_the_database_and_reject_invalid_values() {
+    let h = harness();
+    let prefs = json!({
+        "palette_recents": ["tab.new", "repo.fetch"],
+        "last_parent_folder": "/Users/dev/code"
+    });
+
+    let initial = call(&h, "app_ui_prefs_load", json!({})).unwrap();
+    call(&h, "app_ui_prefs_save", json!({ "prefs": prefs })).unwrap();
+    let loaded = call(&h, "app_ui_prefs_load", json!({})).unwrap();
+    let invalid = call(
+        &h,
+        "app_ui_prefs_save",
+        json!({ "prefs": { "palette_recents": ["a", "a"] } }),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        initial,
+        json!({ "palette_recents": [], "last_parent_folder": null })
+    );
+    assert_eq!(loaded, prefs);
+    assert_eq!(invalid["kind"], "invalid_request");
+    assert_eq!(call(&h, "app_ui_prefs_load", json!({})).unwrap(), loaded);
+}
+
+#[test]
 fn repo_open_names_the_main_root_and_the_sibling_worktrees_of_a_linked_worktree() {
     let h = harness();
     let repo = repository();

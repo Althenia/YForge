@@ -4,6 +4,7 @@ import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashFile } from "../ipc/bindings/StashFile";
 import { client, IpcError } from "../ipc/client";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
+import { stashFileViewTarget, type FileViewTarget } from "../state/fileView";
 import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoActions } from "../state/repoActions";
@@ -12,6 +13,7 @@ import { bareStashMessage } from "../state/stashName";
 import { Delta } from "./CommitInspector";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { tip } from "./Tooltip";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 export function StashInspector(props: {
@@ -20,6 +22,7 @@ export function StashInspector(props: {
   actions: RepoActions;
   activeTarget: DiffTarget | undefined;
   onOpenDiff: (target: DiffTarget) => void;
+  onViewFile: (target: FileViewTarget) => void;
 }) {
   const path = props.session.path;
   const details = useQuery(() => ({
@@ -93,6 +96,23 @@ export function StashInspector(props: {
                     virtual={virtual}
                   >
                     <Delta file={file} />
+                    <Show when={file.status !== "deleted"}>
+                      <span class="acts">
+                        <button
+                          type="button"
+                          class="icon-btn dense"
+                          tabindex="-1"
+                          {...tip("View file", undefined, `View ${file.path}`)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            const current = shown();
+                            if (current !== undefined) props.onViewFile(stashFileViewTarget(current, file));
+                          }}
+                        >
+                          <Icon name="file" />
+                        </button>
+                      </span>
+                    </Show>
                   </FileRow>
                 )}
               </VirtualRows>

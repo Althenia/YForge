@@ -5,6 +5,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ActivityEntry } from "./bindings/ActivityEntry";
 import type { AppSettings } from "./bindings/AppSettings";
+import type { AppUiPrefs } from "./bindings/AppUiPrefs";
 import type { AuthPromptEvent } from "./bindings/AuthPromptEvent";
 import type { AuthReply } from "./bindings/AuthReply";
 import type { CrashRecord } from "./bindings/CrashRecord";
@@ -56,6 +57,11 @@ import type { SshKey } from "./bindings/SshKey";
 import type { StashRestore } from "./bindings/StashRestore";
 import type { SwitchStash } from "./bindings/SwitchStash";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
+import type { WorktreeIntegration } from "./bindings/WorktreeIntegration";
+import type { SnapshotInfo } from "./bindings/SnapshotInfo";
+import type { SnapshotChange } from "./bindings/SnapshotChange";
+import type { ReflogEntry } from "./bindings/ReflogEntry";
+import type { LostCommit } from "./bindings/LostCommit";
 import type { AiModel } from "./bindings/AiModel";
 import type { AiSignInEvent } from "./bindings/AiSignInEvent";
 import type { AiSignInMethod } from "./bindings/AiSignInMethod";
@@ -166,6 +172,24 @@ export const client = {
   switchStashDismiss: (path: string, branch: string, sha: string) => call<null>("switch_stash_dismiss", { path, branch, sha }),
   sshKeysList: () => call<SshKey[]>("ssh_keys_list"),
   worktreeList: (path: string) => call<WorktreeStatus[]>("worktree_list", { path }),
+  worktreeSuggestPath: (path: string, branch: string) => call<string>("worktree_suggest_path", { path, branch }),
+  worktreeCreate: (path: string, branch: string, create: boolean, start: string | null, destination: string) =>
+    call<string>("worktree_create", { path, branch, create, start, destination }),
+  worktreeRemove: (path: string, worktree: string, force: boolean) => call<null>("worktree_remove", { path, worktree, force }),
+  worktreeIntegrate: (path: string, worktree: string, target: string, cleanup: boolean) =>
+    call<WorktreeIntegration>("worktree_integrate", { path, worktree, target, cleanup }),
+  reflogRefs: (path: string) => call<string[]>("reflog_refs", { path }),
+  reflogList: (path: string, reference: string, before: number | null, limit: number) =>
+    call<ReflogEntry[]>("reflog_list", { path, reference, before, limit }),
+  lostCommits: (path: string, id?: string) => call<LostCommit[]>("lost_commits", id === undefined ? { path } : { path, id }),
+  restoreAsBranch: (path: string, sha: string, name: string) => call<null>("restore_as_branch", { path, sha, name }),
+  restoreCheckout: (path: string, sha: string) => call<null>("restore_checkout", { path, sha }),
+  restoreReset: (path: string, sha: string, mode: ResetMode) => call<null>("restore_reset", { path, sha, mode }),
+  snapshotsList: (path: string) => call<SnapshotInfo[]>("snapshots_list", { path }),
+  snapshotFiles: (path: string, reference: string) => call<SnapshotChange[]>("snapshot_files", { path, reference }),
+  snapshotRestoreFiles: (path: string, reference: string, files: readonly string[]) => call<string>("snapshot_restore_files", { path, reference, files }),
+  snapshotRestoreAll: (path: string, reference: string, force: boolean) => call<string>("snapshot_restore_all", { path, reference, force }),
+  snapshotDelete: (path: string, reference: string) => call<null>("snapshot_delete", { path, reference }),
   pushPlan: (path: string) => call<ForcePushPlan>("push_plan", { path }),
   pushForce: (path: string, id: string, lease: ForceLease) => call<null>("push_force", { path, id, lease }),
   publish: (path: string, id: string, remote: string) => call<null>("publish", { path, id, remote }),
@@ -218,6 +242,8 @@ export const client = {
     call<FileDiff>("stash_file_diff", ignoreWhitespace ? { path, index, sha, file, ignoreWhitespace } : { path, index, sha, file }),
   repoUiPrefsLoad: (path: string) => call<RepoUiPrefs>("repo_ui_prefs_load", { path }),
   repoUiPrefsSave: (path: string, prefs: RepoUiPrefs) => call<null>("repo_ui_prefs_save", { path, prefs }),
+  appUiPrefsLoad: () => call<AppUiPrefs>("app_ui_prefs_load"),
+  appUiPrefsSave: (prefs: AppUiPrefs) => call<null>("app_ui_prefs_save", { prefs }),
   cloneRepo: (id: string, url: string, destination: string) => call<string>("clone_repo", { id, url, destination }),
   initRepo: (path: string) => call<string>("init_repo", { path }),
   settingsLoad: () => call<AppSettings>("settings_load"),

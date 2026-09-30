@@ -1,44 +1,20 @@
 import { createForm } from "@tanstack/solid-form";
-import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { client, IpcError } from "../ipc/client";
-import { useApp } from "../state/app";
+import { useApp, type AppState } from "../state/app";
+import { withParentFolder } from "../state/appUiPrefs";
 import { cloneDestination, cloneUrlProblem, createDestination, createNameProblem } from "../state/launcher";
 import { announceOperation } from "../state/operationLabels";
+import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
-
-const PARENT_KEY = "yforge.entry.parent";
 
 const parentProblem = (parent: string): string | undefined => (parent.trim() === "" ? "Choose a destination" : undefined);
 
 let sequence = 0;
 const nextId = (): string => `clone-${Date.now()}-${(sequence += 1)}`;
 
-async function defaultParent(): Promise<string> {
-  return window.localStorage.getItem(PARENT_KEY) ?? (await client.homeDirectory());
-}
-
-function Frame(props: { title: string; children: import("solid-js").JSX.Element; onEscape: () => void }) {
-  const titleId = createUniqueId();
-  return (
-    <div class="scrim" onPointerDown={(event) => event.target === event.currentTarget && props.onEscape()}>
-      <div
-        class="dialog entry-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            event.stopPropagation();
-            props.onEscape();
-          }
-        }}
-      >
-        <h3 id={titleId}>{props.title}</h3>
-        {props.children}
-      </div>
-    </div>
-  );
+async function defaultParent(app: AppState): Promise<string> {
+  return (await app.uiPrefs.load()).last_parent_folder ?? (await client.homeDirectory());
 }
 
 function ParentField(props: { label: string; value: string; onChange: (value: string) => void; browse: string }) {
@@ -79,7 +55,7 @@ export function CloneDialog(props: { onClose: () => void }) {
 
   onMount(() => {
     urlInput?.focus();
-    void defaultParent().then(setParent);
+    void defaultParent(app).then(setParent);
     const unlisten = client.onOperationProgress((progress) => {
       const current = running();
       if (current !== undefined && current.id === progress.id) setRunning({ id: current.id, phase: progress.phase, percent: progress.percent });
@@ -97,7 +73,7 @@ export function CloneDialog(props: { onClose: () => void }) {
     announceOperation(id, "clone");
     setFailure(undefined);
     setRunning({ id, phase: "Starting clone", percent: null });
-    window.localStorage.setItem(PARENT_KEY, values.parent);
+    app.uiPrefs.update((prefs) => withParentFolder(prefs, values.parent));
     try {
       const root = await client.cloneRepo(id, values.url.trim(), cloneDestination(values.parent, values.url));
       setRunning(undefined);
@@ -111,7 +87,7 @@ export function CloneDialog(props: { onClose: () => void }) {
   }
 
   return (
-    <Frame title="Clone repository" onEscape={() => (running() === undefined ? props.onClose() : undefined)}>
+    <DialogFrame title="Clone repository" onEscape={() => (running() === undefined ? props.onClose() : undefined)}>
       <form
         class="entry-form"
         onSubmit={(event) => {
@@ -187,7 +163,7 @@ export function CloneDialog(props: { onClose: () => void }) {
           </button>
         </div>
       </form>
-    </Frame>
+    </DialogFrame>
   );
 }
 
@@ -206,7 +182,7 @@ export function CreateDialog(props: { onClose: () => void }) {
 
   onMount(() => {
     nameInput?.focus();
-    void defaultParent().then(setParent);
+    void defaultParent(app).then(setParent);
   });
 
   const problem = () => createNameProblem(name());
@@ -217,7 +193,7 @@ export function CreateDialog(props: { onClose: () => void }) {
   async function create(values: { name: string; parent: string }): Promise<void> {
     setBusy(true);
     setFailure(undefined);
-    window.localStorage.setItem(PARENT_KEY, values.parent);
+    app.uiPrefs.update((prefs) => withParentFolder(prefs, values.parent));
     try {
       const root = await client.initRepo(createDestination(values.parent, values.name));
       props.onClose();
@@ -231,7 +207,7 @@ export function CreateDialog(props: { onClose: () => void }) {
   }
 
   return (
-    <Frame title="Create repository" onEscape={props.onClose}>
+    <DialogFrame title="Create repository" onEscape={props.onClose}>
       <form
         class="entry-form"
         onSubmit={(event) => {
@@ -293,6 +269,6 @@ export function CreateDialog(props: { onClose: () => void }) {
           </button>
         </div>
       </form>
-    </Frame>
+    </DialogFrame>
   );
 }

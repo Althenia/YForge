@@ -5,7 +5,7 @@ use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-use super::{open, sql, state_path};
+use super::{open, parse, put_setting, sql, state_path, stored_values};
 use crate::error::CoreError;
 use crate::model::GraphVisibility;
 use crate::sqlite::{failure, unix_now};
@@ -14,6 +14,10 @@ const WIDTH_RANGE: std::ops::RangeInclusive<u32> = 24..=2000;
 const MAX_FOLDERS: usize = 5000;
 const MAX_REFS: usize = 500;
 const MAX_NAME_CHARS: usize = 1024;
+const MAX_PALETTE_RECENTS: usize = 8;
+const MAX_PATH_CHARS: usize = 4096;
+const PALETTE_RECENTS: &str = "ui.palette_recents";
+const LAST_PARENT_FOLDER: &str = "ui.last_parent_folder";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +44,14 @@ pub struct RepoUiPrefs {
     pub columns: Vec<ColumnPref>,
     pub collapsed_folders: Vec<String>,
     pub branch_visibility: GraphVisibility,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(default, deny_unknown_fields)]
+pub struct AppUiPrefs {
+    pub palette_recents: Vec<String>,
+    #[ts(optional = nullable)]
+    pub last_parent_folder: Option<String>,
 }
 
 fn invalid(detail: impl Into<String>) -> CoreError {
@@ -138,4 +150,50 @@ pub fn repo_ui_prefs_save(
         )
         .map(drop)
         .map_err(sql(dir))
+}
+
+fn validate_app(prefs: &AppUiPrefs) -> Result<(), CoreError> {
+    if prefs.palette_recents.len() > MAX_PALETTE_RECENTS {
+        return Err(invalid(format!(
+            "at most {MAX_PALETTE_RECENTS} recent commands can be remembered"
+        )));
+    }
+    let mut seen = HashSet::new();
+    for command in &prefs.palette_recents {
+        require_name("command id", command)?;
+        if !seen.insert(command.as_str()) {
+            return Err(invalid(format!("command {command} is listed twice")));
+        }
+    }
+    if let Some(folder) = &prefs.last_parent_folder {
+        if folder.trim().is_empty() || folder.chars().count() > MAX_PATH_CHARS {
+            return Err(invalid(format!(
+                "a parent folder must be 1 to {MAX_PATH_CHARS} characters"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub fn app_ui_prefs_load(dir: &Path) -> Result<AppUiPrefs, CoreError> {
+    let conn = open(dir)?;
+    let stored = stored_values(
+        &conn,
+        "SELECT key, value FROM settings WHERE key IN (?1, ?2)",
+        [PALETTE_RECENTS, LAST_PARENT_FOLDER],
+    )
+    .map_err(sql(dir))?;
+    Ok(AppUiPrefs {
+        palette_recents: parse(dir, &stored, PALETTE_RECENTS, Vec::new())?,
+        last_parent_folder: parse(dir, &stored, LAST_PARENT_FOLDER, None)?,
+    })
+}
+
+pub fn app_ui_prefs_save(dir: &Path, prefs: &AppUiPrefs) -> Result<(), CoreError> {
+    validate_app(prefs)?;
+    let mut conn = open(dir)?;
+    let tx = conn.transaction().map_err(sql(dir))?;
+    put_setting(&tx, PALETTE_RECENTS, &prefs.palette_recents).map_err(sql(dir))?;
+    put_setting(&tx, LAST_PARENT_FOLDER, &prefs.last_parent_folder).map_err(sql(dir))?;
+    tx.commit().map_err(sql(dir))
 }

@@ -68,11 +68,12 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
   } as unknown as RepoActions;
   const openChanges = vi.fn();
   const revealHead = vi.fn();
-  const mounted = mountWithApp(() => <StateStrip snapshot={shape} actions={actions} online={online} onOpenChanges={openChanges} onRevealHead={revealHead} onResolve={() => undefined} />);
+  const openWorktrees = vi.fn();
+  const mounted = mountWithApp(() => <StateStrip snapshot={shape} actions={actions} online={online} onOpenChanges={openChanges} onRevealHead={revealHead} onResolve={() => undefined} onOpenWorktrees={openWorktrees} />);
   dispose = mounted.dispose;
   const openSettings = vi.fn();
   mounted.app.openSettings = openSettings;
-  return { ...mounted, calls, openChanges, revealHead, openSettings };
+  return { ...mounted, calls, openChanges, revealHead, openSettings, openWorktrees };
 }
 
 const button = (host: ParentNode, name: RegExp) => [...host.querySelectorAll("button")].find((entry) => name.test(entry.getAttribute("aria-label") ?? entry.textContent ?? "")) as HTMLButtonElement;
@@ -153,7 +154,7 @@ describe("state strip chips", () => {
 });
 
 describe("worktree chip", () => {
-  it("counts the worktrees, and lists them with their branch and which have changes", async () => {
+  it("counts the worktrees and those with changes, and opens the Worktrees panel", async () => {
     mockIPC((cmd) =>
       cmd === "worktree_list"
         ? [
@@ -162,17 +163,15 @@ describe("worktree chip", () => {
           ]
         : null,
     );
-    const { host } = mount();
+    const { host, openWorktrees } = mount();
     await flush(60);
 
     const chip = button(host, /worktrees/);
     expect(chip.textContent).toContain("2 worktrees · 1 with changes");
     chip.click();
-    await flush();
 
-    const dialog = document.querySelector('[role="dialog"][aria-label="Worktrees"]') as HTMLElement;
-    const rows = [...dialog.querySelectorAll("li")].map((row) => [...row.children].map((child) => child.textContent).filter((text) => text !== "").join(" "));
-    expect(rows).toEqual(["feature /r current", "topic /r-wt changes locked"]);
+    expect(openWorktrees).toHaveBeenCalledOnce();
+    expect(document.querySelector('[role="dialog"][aria-label="Worktrees"]')).toBeNull();
   });
 });
 

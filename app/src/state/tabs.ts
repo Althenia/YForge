@@ -55,3 +55,29 @@ export function restoreTabs(session: TabSession, launchPath: string | undefined)
   else state = { ...state, active: Math.min(session.active, state.tabs.length - 1) };
   return launchPath === undefined ? state : openRepoTab(state, launchPath);
 }
+
+export type MainRoots = Readonly<Record<string, string>>;
+
+export type TabGroup = { main: string; tabs: Array<{ tab: Tab; index: number; linked: boolean }> };
+
+const mainOf = (path: string, mains: MainRoots): string => mains[path] ?? path;
+
+const groupKey = (tab: Tab, mains: MainRoots): string => (tab.kind === "repo" ? mainOf(tab.path, mains) : LAUNCHER_TAB_ID);
+
+export function groupTabs(state: TabsState, mains: MainRoots): TabsState {
+  const keys = [...new Set(state.tabs.map((tab) => groupKey(tab, mains)))];
+  const ordered = keys.flatMap((key) => state.tabs.filter((tab) => groupKey(tab, mains) === key));
+  const current = state.tabs[state.active];
+  return { tabs: ordered, active: Math.max(ordered.indexOf(current as Tab), 0) };
+}
+
+export function tabGroups(state: TabsState, mains: MainRoots): TabGroup[] {
+  const groups = new Map<string, TabGroup>();
+  state.tabs.forEach((tab, index) => {
+    const key = groupKey(tab, mains);
+    const group = groups.get(key) ?? { main: key, tabs: [] };
+    group.tabs.push({ tab, index, linked: tab.kind === "repo" && mainOf(tab.path, mains) !== tab.path });
+    groups.set(key, group);
+  });
+  return [...groups.values()];
+}

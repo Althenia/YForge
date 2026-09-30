@@ -34,7 +34,6 @@ export function Shell() {
     onCleanup(bindWindowEnvironment());
     void app.boot();
   });
-  const settingsOpen = () => app.screen().kind === "settings";
   const paletteContext = () => app.paletteContext();
   return (
     <>
@@ -63,9 +62,7 @@ export function Shell() {
         <Show when={app.prompts()[0]} keyed>
           {(pending) => <AuthDialog pending={pending} />}
         </Show>
-        <Show when={settingsOpen() || app.activeTab()?.kind === "launcher"}>
-          <Notice message={app.notice()} onDismiss={() => app.setNotice(undefined)} />
-        </Show>
+        <Notice message={app.notice()} onDismiss={() => app.setNotice(undefined)} />
       </Show>
     </>
   );

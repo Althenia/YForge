@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YForge specimen · 22 integrate worktree</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="../specimen.css">
+<style>
+.rpanel { background: var(--glass-graph); --canvas: var(--graph-bg); display: grid; grid-template-rows: 44px 1fr; }
+.rhead { display: flex; align-items: center; gap: 8px; padding: 0 14px; border-bottom: 1px solid var(--line); font: 600 13px/20px var(--sans); white-space: nowrap; overflow: hidden; }
+.rhead .dim { color: var(--muted); font-weight: 400; }
+.rbody { padding: 12px; display: grid; gap: 10px; align-content: start; overflow: hidden; min-height: 0; }
+.note { padding: 8px 10px; border-radius: var(--r-md); font: 400 12px/16px var(--sans); }
+.note.attn { background: var(--attention-tint); color: var(--yellow-strong); }
+.note ul { margin: 4px 0 0; padding-left: 16px; }
+.hint { margin: 0; font: 400 12px/16px var(--sans); color: var(--muted); }
+.rlist { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.wrow, .recrow { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 2px 8px; border-radius: var(--r-sm); background: var(--sunken); box-shadow: inset 0 0 0 1px var(--line); }
+.wrow.current { background: var(--selection); box-shadow: inset 2px 0 0 var(--green-strong), inset 0 0 0 1px var(--line); }
+.ref { font: 500 12px/16px var(--mono); }
+.wpath { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font: 500 12px/16px var(--mono); color: var(--muted); }
+.wactions { display: flex; gap: 4px; margin-left: auto; flex: none; }
+.chip.attn { color: var(--yellow-strong); }
+.sum { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dim2 { flex: none; font: 400 12px/16px var(--sans); color: var(--muted); }
+.badge { width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; background: var(--fill); font: 500 12px/1 var(--mono); }
+.tab-group { display: inline-flex; align-items: center; gap: 4px; padding: 4px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line-strong); }
+.segmented { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--control); box-shadow: inset 0 0 0 1px var(--line); justify-self: start; }
+.segmented span { height: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 0 12px; border-radius: 999px; color: var(--muted); font: 500 13px/20px var(--sans); }
+.segmented span.on { background: var(--control-hover); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }
+.field { display: grid; gap: 6px; }
+.field .input { align-items: center; gap: 8px; }
+.snap { display: grid; padding: 0; }
+.snap.sel { background: var(--selection); box-shadow: inset 2px 0 0 var(--green-strong), inset 0 0 0 1px var(--line); }
+.snaphead { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 28px; padding: 2px 8px; }
+.snaptitle { font: 600 13px/20px var(--sans); flex: none; }
+.snapdetail { display: grid; gap: 8px; padding: 8px 12px 12px; border-top: 1px solid var(--line); }
+.snapfile { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.snapfile .wpath { flex: 1; }
+.cbox { width: 16px; height: 16px; border-radius: 4px; box-shadow: inset 0 0 0 1px var(--border-strong); display: inline-grid; place-items: center; }
+.cbox.on { background: var(--green-strong); color: var(--primary-fg); box-shadow: none; }
+.hrow { display: flex; align-items: center; gap: 8px; }
+.dim-layer { opacity: 0.6; }
+.dialog { width: 520px; }
+.dialog .choice { display: flex; align-items: center; gap: 8px; font: 400 13px/20px var(--sans); }
+.dialog .note2 { color: var(--muted); font: 400 12px/18px var(--sans); }
+.dialog .note2 .ref { color: var(--text); }
+</style>
+</head>
+<body>
+<script src="../specimen.js"></script>
+<script>
+const G = YF.glyph;
+const mark = `<img class="mark" src="${YF.brand("yforge-app-icon-small.svg")}" alt="">`;
+const close = (name) => `<span class="tab-close" aria-label="Close ${name}">${G("close", 14)}</span>`;
+const tabsBar = (active) => `<div class="bar"><div class="dots"><i></i><i></i><i></i></div><span class="tab-group" role="group" aria-label="sample and its worktrees"><span class="tab${active === "main" ? " active" : ""}">${mark}sample${active === "main" ? ' <span class="n">2 worktrees</span>' : ""}${close("sample")}</span><span class="tab${active === "linked" ? " active" : ""}">${G("worktree")}sample-greeting${close("sample-greeting")}</span></span><span class="tab">other-repo${close("other-repo")}</span><span class="icon-btn" aria-label="New tab">${G("plus")}</span><span class="spacer"></span><span class="icon-btn" aria-label="Activity">${G("activity")}</span><span class="icon-btn" aria-label="Toggle theme">${G("theme")}</span><span class="icon-btn" aria-label="Settings">${G("settings")}</span></div>`;
+
+const remove = YF.flags.has("remove");
+const dialog = remove
+  ? `<div class="scrim"></div><div class="dialog" role="alertdialog" aria-label="Remove the worktree"><h3>${G("warning")}Remove the worktree at /tmp/yforge-gk-lab/sample-search and discard its changes?</h3>
+  <p>It has uncommitted changes and untracked files that are deleted with the folder.</p><p>A safety snapshot of them is saved first; restore it from Recovery while it is kept (30 days).</p><p>feature/search stays as a branch.</p>
+  <div class="foot"><span class="btn">Cancel</span><span class="btn danger">Remove and discard changes</span></div></div>`
+  : `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="Integrate feature/greeting into main"><h3>Integrate hotfix/wt-demo into main?</h3>
+  <div class="field"><label>Integrate into</label><div class="input"><span>main</span>${YF.icon.chevron}</div><span class="note2">The target must be checked out in a worktree: <span class="ref">/tmp/yforge-gk-lab/sample</span></span></div>
+  <div class="choice"><span class="cbox on">${G("check", 14)}</span><span>Remove the worktree and delete hotfix/wt-demo afterwards</span></div>
+  <p class="note2">Rebases hotfix/wt-demo onto main in /tmp/yforge-gk-lab/sample-hotfix, then fast-forwards main to it, so the history stays linear.</p>
+  <p class="note2">Then removes the worktree at /tmp/yforge-gk-lab/sample-hotfix and deletes the branch hotfix/wt-demo.</p>
+  <div class="foot"><span class="btn">Cancel</span><span class="btn primary">${G("merge")}Integrate</span></div></div>`;
+const row = (branch, path, extra = "") => `<li class="wrow">${G("worktree")}<span class="ref">${branch}</span>${extra}<span class="wpath"><bdi dir="ltr">${path}</bdi></span></li>`;
+const panel = `<section class="panel rpanel" aria-label="Worktrees"><div class="rhead">${G("worktree")}<span>Worktrees</span><span class="dim">3</span></div><div class="rbody"><ul class="rlist">${row("feature/greeting", "/tmp/yforge-gk-lab/sample", '<span class="chip">Main worktree</span><span class="chip">current</span>')}${row("hotfix/wt-demo", "/tmp/yforge-gk-lab/sample-hotfix")}${row("feature/search", "/tmp/yforge-gk-lab/sample-search", '<span class="chip attn">changes</span>')}</ul></div></section>`;
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${tabsBar("main")}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ recovery: true })}${panel}<aside class="panel inspector" aria-label="Changes"><div class="ihead"><h2>${G("changes")}Changes on feature/greeting</h2><p>2 files</p></div></aside></div>${YF.activity({ command: "git rebase refs/heads/main", duration: "0.4 s", action: "" })}</div>` + dialog);
+YF.boot("screen 22 · integrate worktree");
+</script>
+</body>
+</html>

@@ -63,8 +63,10 @@ These environment variables are read by the app:
 | Variable | Effect |
 |---|---|
 | `YFORGE_REPO` | Repository opened at launch (otherwise the first CLI argument, otherwise the current directory, when it is a repository). |
-| `YFORGE_DATA_DIR` | Directory for settings, recents, and tabs; use it to keep test runs out of the real app-data directory. |
+| `YFORGE_DATA_DIR` | Directory for the app database (settings, recents, tabs, interface preferences); use it to keep test runs out of the real app-data directory. |
 | `RUST_LOG` | Log filter. The default is `warn` in release builds and `warn,yforge_lib=debug` in debug builds. |
+
+`yforge <path>` opens a repository in the running window (a second launch hands the path to it). Install the command from Settings → General → Install yforge command; it writes `~/.local/bin/yforge`, and `~/.local/bin` must be on your `PATH`.
 
 The app version has one source: `version` in `app/package.json`, which `app/src-tauri/tauri.conf.json` points at (`"version": "../package.json"`).
 

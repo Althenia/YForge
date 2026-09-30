@@ -11,7 +11,6 @@ let dispose: (() => void) | undefined;
 
 beforeEach(() => {
   mockWindows("main");
-  window.localStorage.clear();
 });
 
 afterEach(async () => {
@@ -46,6 +45,8 @@ function install(handler: (call: Call) => unknown = () => undefined, list: Recen
           return list;
         case "plugin:path|resolve_directory":
           return "/Users/yui";
+        case "app_ui_prefs_load":
+          return { palette_recents: [], last_parent_folder: null };
         case "recent_statuses":
           return list.map((recent) =>
             recent.path.endsWith("gone")
@@ -193,6 +194,18 @@ describe("clone dialog", () => {
     expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
   });
 
+  it("starts from the parent folder the database remembers and stores the one used", async () => {
+    const { host, calls } = await mountClone((call) => (call.cmd === "app_ui_prefs_load" ? { palette_recents: ["tab.new"], last_parent_folder: "/Users/yui/code" } : undefined));
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    expect(host.textContent).toContain("Clones into /Users/yui/code/lab-app");
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "app_ui_prefs_save")?.args).toEqual({ prefs: { palette_recents: ["tab.new"], last_parent_folder: "/Users/yui/code" } });
+  });
+
   it("streams progress with Cancel, keeps the dialog open, and opens the repository when the clone finishes", async () => {
     let finish: (root: string) => void = () => undefined;
     const { host, calls, app } = await mountClone((call) => (call.cmd === "clone_repo" ? new Promise((resolve) => (finish = resolve)) : undefined));
@@ -263,6 +276,17 @@ describe("create dialog", () => {
 
     expect(calls.find((call) => call.cmd === "init_repo")?.args).toEqual({ path: "/Users/yui/brand-new" });
     expect(app.activePath()).toBe("/Users/yui/brand-new");
+  });
+
+  it("stores the parent folder used to create a repository", async () => {
+    const { host, calls } = await mountCreate((call) => (call.cmd === "init_repo" ? "/Users/yui/brand-new" : undefined));
+    type(host.querySelector('input[aria-label="Name"]'), "brand-new");
+    await flush();
+
+    buttonNamed(host, "Create")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "app_ui_prefs_save")?.args).toEqual({ prefs: { palette_recents: [], last_parent_folder: "/Users/yui" } });
   });
 
   it("offers to open the existing repository instead when the folder already is one", async () => {

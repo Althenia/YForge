@@ -5,6 +5,7 @@ export const appKeys = {
   home: ["home"] as const,
   info: ["app-info"] as const,
   identity: ["identity"] as const,
+  uiPrefs: ["app-ui-prefs"] as const,
   sshKeys: ["ssh-keys"] as const,
 };
 
@@ -26,6 +27,7 @@ export const repoKeys = {
   graph: (path: string, page: number, visibility: string) => ["repo", path, "graph", visibility, page] as const,
   graphPages: (path: string) => ["repo", path, "graph"] as const,
   diff: (path: string, target: DiffTarget, ignoreWhitespace: boolean) => ["repo", path, "diff", target, { ignoreWhitespace }] as const,
+  fileAt: (path: string, rev: string, file: string) => ["repo", path, "file", rev, file] as const,
   commit: (path: string, sha: string) => ["repo", path, "commit", sha] as const,
   stash: (path: string, sha: string) => ["repo", path, "stash", sha] as const,
   commitChoices: (path: string) => ["repo", path, "commit-choices"] as const,
@@ -37,6 +39,10 @@ export const repoKeys = {
   uiPrefs: (path: string) => ["repo-ui-prefs", path] as const,
   remotes: (path: string) => ["repo", path, "remotes"] as const,
   worktrees: (path: string) => ["repo", path, "worktrees"] as const,
+  reflogRefs: (path: string) => ["repo", path, "reflog-refs"] as const,
+  reflog: (path: string, reference: string) => ["repo", path, "reflog", reference] as const,
+  snapshots: (path: string) => ["repo", path, "snapshots"] as const,
+  snapshotFiles: (path: string, reference: string) => ["repo", path, "snapshot-files", reference] as const,
   identity: (path: string) => ["repo", path, "identity"] as const,
 };
 

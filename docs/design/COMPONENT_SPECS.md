@@ -265,3 +265,37 @@ Specimen 18, rules S24 and S25. A center panel with a toolbar (Base select defau
 - **Keys:** on a focused row 1–9 assign to that commit and 0 unassigns.
 - **Footer:** "Recompose N commits" (primary) disabled until every change is assigned exactly once and every message is filled, with the first blocking reason in text.
 
+## Tab group
+
+Specimen 21, rule S28. The tabs of one repository and its linked worktrees sit next to each other in a `role="group"` named "<repository> and its worktrees", a pill with a 1px `rule-panel` inset and 4px padding. The repository's tab keeps the YForge logo and, when active, the worktree count; a linked worktree's tab leads with the 16px `worktree` glyph. A single tab has no group border. Grouping follows `RepoSnapshot.main_root`, known for every open tab at boot and when a tab opens; a tab whose main repository is not open still groups with the other worktrees of that repository.
+
+## Worktrees panel
+
+Specimens 21 and 22, rule S28. A center panel over the graph column (header, body, like the rebase editor).
+
+- **Header:** the `worktree` glyph, "Worktrees", the count, a primary "Create worktree…" (plus glyph), and "Back to graph".
+- **Row:** `canvas` with a 1px `rule` inset: the `worktree` glyph, the branch in mono (`bare` or `detached` without one), chips for "Main worktree" and the flags current, changes (attention), locked, and missing, the path truncated from the left, and four 24px icon buttons: Open as tab, Open in terminal, Integrate, Remove. The worktree open here uses the selection fill with the 2px accent bar.
+- **Unavailable:** Open is disabled for the worktree open here and a missing one; Integrate and Remove are `aria-disabled` with the reason as tooltip (S15, S17).
+- **Empty:** a repository with only its main worktree shows "No linked worktrees. Create one to work on another branch in parallel."
+- **Dialogs:** Create worktree (New branch or Existing branch radio, branch name or select, start point select, Folder input with the suggested path, the note that the folder must not exist or be empty); Integrate (target select, the cleanup checkbox, and the exact sequence as two sentences); Remove (a confirmation that names the discarded changes and the safety snapshot when the worktree has changes).
+- **Entry points:** the state strip worktree chip, the sidebar Worktrees header (open, and a plus for Create), the palette ("Show worktrees", "Create worktree…"). Each sidebar worktree row opens its tab and has a menu with the same actions.
+
+## Recovery view
+
+Specimens 23 and 24, rule S27. A center panel with the header "Recovery" and "Back to graph", a limits note, the tabs, and the active tab.
+
+- **Limits note:** an `attention-tint` note with the warning glyph, "What recovery cannot do", and three sentences (never committed outside YForge, pruned objects, snapshot retention and visibility). It stays visible on every tab.
+- **Tabs:** the `segmented` control with `role="tablist"`: Reflog, Lost commits, Snapshots, each with its glyph (`history`, `search`, `stash`).
+- **Reflog:** a Reference select (HEAD, then each branch), and rows of the action chip, mono short SHA, summary, mono selector, relative age (absolute time as tooltip), and three icon buttons (Restore as branch, Check out detached, Reset the current branch). A pruned commit reads "Commit no longer exists" in muted ink with the buttons disabled and the reason as tooltip. Pages of 50 load with "Show older".
+- **Lost commits:** a primary "Scan for lost commits"; while it runs, the status "Scanning with git fsck…" and "Cancel scan". Rows match the reflog rows; a stash-shaped commit carries a "Dropped stash" chip. Empty and cancelled scans say so in text.
+- **Snapshots:** rows are buttons (`aria-expanded`) with the action in `ui-strong`, the description, a file-count chip, the branch, and the age. The open row takes the selection fill and the accent bar and lists its files (checkbox, status letter, left-truncated path) with "Restore selected files", "Restore everything…", and a danger "Delete snapshot…". A restore shows the ref of the safety snapshot in a status note.
+- **Restore controls:** Restore as branch opens a popover with a free suggested name; Reset opens the Soft, Mixed, Hard menu; a hard reset, a detached checkout, Restore everything, and Delete snapshot confirm with text-labelled buttons.
+
+## File view
+
+Specimen 25, rule S29. The diff panel frame without the toolbar row: a breadcrumb ("Graph › <source> › <path>"), a chip with the line count and size, a mono chip with LF or CRLF, Open in editor, and Close. Lines are a 56px right-aligned muted number and the `code` text with the `syntax-*` tokens (S19); the body is virtualized and keeps the diff's text cursor. A binary file shows "Binary file, <size>. There is no text view."; a file over 2 MiB shows an alert with its size and the limit. Entry points: the diff toolbar, the commit inspector file rows, and the stash inspector file rows, each a "View file" icon button (a deleted file has none).
+
+## Command line install
+
+Rule S30. A Settings → General row "Command line": a secondary button with the `terminal` glyph, "Install yforge command" (then "Reinstall yforge command"), and below it a status note with the written path, whether an earlier copy was replaced, and that `~/.local/bin` must be on PATH. A refusal appears as an alert with the core's cause.
+

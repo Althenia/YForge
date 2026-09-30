@@ -105,12 +105,12 @@ pub use stash::{
 };
 pub use store::{
     activity_history, add_recent, ai_active_provider, ai_choose, ai_provider, ai_provider_add,
-    ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers, append_activity,
-    clear_activity, dismiss_switch_stash, load_recents, load_repo_settings, load_session,
-    load_settings, mark_activity_undone, recent_status, remove_recent, repo_ui_prefs_load,
-    repo_ui_prefs_save, save_repo_settings, save_session, save_settings, ssh_key_for,
-    switch_stashes, AppSettings, ColumnPref, Density, GraphColumn, RecentRepo, RecentStatus,
-    RepoSettings, RepoUiPrefs, TabSession, Theme,
+    ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers, app_ui_prefs_load,
+    app_ui_prefs_save, append_activity, clear_activity, dismiss_switch_stash, load_recents,
+    load_repo_settings, load_session, load_settings, mark_activity_undone, recent_status,
+    remove_recent, repo_ui_prefs_load, repo_ui_prefs_save, save_repo_settings, save_session,
+    save_settings, ssh_key_for, switch_stashes, AppSettings, AppUiPrefs, ColumnPref, Density,
+    GraphColumn, RecentRepo, RecentStatus, RepoSettings, RepoUiPrefs, TabSession, Theme,
 };
 pub use sync::{
     delete_remote_branch, fetch, publish, pull, pull_autostash, push, push_force, push_plan,

@@ -1,6 +1,7 @@
 import { Match, Switch } from "solid-js";
 import type { Composer } from "../state/composer";
 import type { DiffTarget } from "../state/diffModel";
+import type { FileViewTarget } from "../state/fileView";
 import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import type { Selection } from "../state/selection";
@@ -16,6 +17,7 @@ export function Inspector(props: {
   selection: Selection | undefined;
   activeTarget: DiffTarget | undefined;
   onOpenDiff: (target: DiffTarget) => void;
+  onViewFile: (target: FileViewTarget) => void;
   onSelectCommit: (sha: string) => void;
   onCommitted: (sha: string) => void;
 }) {
@@ -46,11 +48,11 @@ export function Inspector(props: {
       }
     >
       <Match when={stash()}>
-        {(entry) => <StashInspector session={props.session} stash={entry()} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} />}
+        {(entry) => <StashInspector session={props.session} stash={entry()} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />}
       </Match>
       <Match when={commitSha()}>
         {(sha) => (
-          <CommitInspector session={props.session} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} />
+          <CommitInspector session={props.session} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
         )}
       </Match>
     </Switch>

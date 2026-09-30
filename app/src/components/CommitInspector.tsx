@@ -7,6 +7,7 @@ import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
 import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
+import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
 import { FileRow } from "./FileRow";
@@ -55,6 +56,7 @@ export function CommitInspector(props: {
   activeTarget: DiffTarget | undefined;
   onSelectCommit: (sha: string) => void;
   onOpenDiff: (target: DiffTarget) => void;
+  onViewFile: (target: FileViewTarget) => void;
 }) {
   const path = props.session.path;
   const details = useQuery(() => ({
@@ -172,6 +174,22 @@ export function CommitInspector(props: {
                         virtual={virtual}
                       >
                         <Delta file={file} />
+                        <Show when={file.status !== "deleted"}>
+                          <span class="acts">
+                            <button
+                              type="button"
+                              class="icon-btn dense"
+                              tabindex="-1"
+                              {...tip("View file", undefined, `View ${file.path}`)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                props.onViewFile(fileViewTargetOf(commitTarget(file)));
+                              }}
+                            >
+                              <Icon name="file" />
+                            </button>
+                          </span>
+                        </Show>
                       </FileRow>
                     )}
                   </VirtualRows>

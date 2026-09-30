@@ -331,4 +331,51 @@ describe("settings view", () => {
     expect([...host.querySelectorAll('[aria-label="Theme"] button')].map((button) => button.textContent)).toEqual(["Light", "Dark", "System"]);
     expect([...host.querySelectorAll('[aria-label="Density"] button')].map((button) => button.textContent)).toEqual(["Compact", "Default"]);
   });
+
+  describe("command line", () => {
+    it("installs the yforge command, reporting where it went and that ~/.local/bin must be on PATH", async () => {
+      const calls = install((call) => (call.cmd === "cli_install" ? { path: "/Users/yui/.local/bin/yforge", replaced: false } : undefined));
+      const mounted = mountWithApp(() => <SettingsView section="general" />);
+      dispose = mounted.dispose;
+      await flush();
+
+      expect(mounted.host.textContent).toContain("yforge <path>");
+      expect(calls.some((call) => call.cmd === "cli_install")).toBe(false);
+      buttonNamed(mounted.host, "Install yforge command")?.click();
+      await flush(40);
+
+      expect(calls.filter((call) => call.cmd === "cli_install")).toHaveLength(1);
+      const result = mounted.host.querySelector('[role="status"][aria-label="Command line install"]');
+      expect(result?.textContent).toContain("Installed /Users/yui/.local/bin/yforge.");
+      expect(result?.textContent).toContain("Add ~/.local/bin to your PATH if your shell does not find yforge.");
+    });
+
+    it("says when it replaced an earlier copy and offers Reinstall", async () => {
+      install((call) => (call.cmd === "cli_install" ? { path: "/Users/yui/.local/bin/yforge", replaced: true } : undefined));
+      const mounted = mountWithApp(() => <SettingsView section="general" />);
+      dispose = mounted.dispose;
+      await flush();
+
+      buttonNamed(mounted.host, "Install yforge command")?.click();
+      await flush(40);
+
+      expect(mounted.host.querySelector('[aria-label="Command line install"]')?.textContent).toContain("Replaced the earlier YForge command at /Users/yui/.local/bin/yforge.");
+    });
+
+    it("shows the refusal when another file already sits at that path, and changes nothing else", async () => {
+      install((call) => {
+        if (call.cmd !== "cli_install") return undefined;
+        throw { kind: "invalid_request", message: "/Users/yui/.local/bin/yforge exists and was not installed by YForge", output: null };
+      });
+      const mounted = mountWithApp(() => <SettingsView section="general" />);
+      dispose = mounted.dispose;
+      await flush();
+
+      buttonNamed(mounted.host, "Install yforge command")?.click();
+      await flush(40);
+
+      expect(mounted.host.querySelector('[role="alert"]')?.textContent).toContain("exists and was not installed by YForge");
+      expect(mounted.host.querySelector('[aria-label="Command line install"]')).toBeNull();
+    });
+  });
 });

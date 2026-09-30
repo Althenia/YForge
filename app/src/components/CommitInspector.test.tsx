@@ -1,5 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { CommitInspector } from "./CommitInspector";
@@ -40,21 +41,22 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"] } = {}) {
   const selected: string[] = [];
+  const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "commit_details") return details(sha);
+    if (cmd === "commit_details") return { ...details(sha), files: options.files ?? [] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "edit_head_message") return { sha: "c".repeat(40), pushed: options.pushed ?? false };
     return null;
   });
   const current = options.operation === true ? ({ ...snapshot, operation: "rebase" } as unknown as RepoSnapshot) : snapshot;
   const mounted = mountWithApp(() => (
-    <CommitInspector session={testSession("/r", current)} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} />
+    <CommitInspector session={testSession("/r", current)} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} onViewFile={(view) => viewed.push(view)} />
   ));
   dispose = mounted.dispose;
-  return { ...mounted, selected };
+  return { ...mounted, selected, viewed };
 }
 
 const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-label="Edit message"]');
@@ -129,5 +131,22 @@ describe("edit the HEAD message", () => {
 
     expect(field(host, "Summary")).toBeNull();
     expect(calls.some((call) => call.cmd === "edit_head_message")).toBe(false);
+  });
+});
+
+describe("file view entry", () => {
+  const files: CommitDetails["files"] = [
+    { path: "src/a.ts", original_path: null, status: "modified", additions: 1, deletions: 1 },
+    { path: "src/gone.ts", original_path: null, status: "deleted", additions: 0, deletions: 4 },
+  ];
+
+  it("opens a file of the commit in the file view at that commit, and offers nothing for a file the commit deleted", async () => {
+    const { host, viewed } = mount(HEAD, { files });
+    await flush(80);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="View src/a.ts"]')?.click();
+
+    expect(viewed).toEqual([{ file: "src/a.ts", rev: HEAD, source: HEAD.slice(0, 7) }]);
+    expect(host.querySelector('button[aria-label="View src/gone.ts"]')).toBeNull();
   });
 });

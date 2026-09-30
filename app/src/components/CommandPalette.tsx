@@ -4,16 +4,16 @@ import type { IconName } from "../iconNames";
 import {
   buildCommands,
   commandIcon,
-  loadRecentCommands,
   NAVIGATION_HINTS,
   navigationTargets,
   parseQuery,
   rank,
-  rememberCommand,
   type PaletteCommand,
   type PaletteContext,
   type PickerOption,
 } from "../state/palette";
+import { useApp } from "../state/app";
+import { rememberCommand } from "../state/appUiPrefs";
 import { dataOf } from "../state/queryData";
 import { repoKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
@@ -40,7 +40,9 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   const [query, setQuery] = createSignal("");
   const [pending, setPending] = createSignal<{ command: PaletteCommand; values: string[] } | undefined>();
   const [highlight, setHighlight] = createSignal(0);
-  const [recent, setRecent] = createSignal(loadRecentCommands());
+  const app = useApp();
+  const recent = () => app.uiPrefs.prefs().palette_recents;
+  app.uiPrefs.ensure();
   const opener = document.activeElement;
   let input: HTMLInputElement | undefined;
 
@@ -63,7 +65,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   }));
 
   const finish = (command: PaletteCommand, values: string[]) => {
-    setRecent(rememberCommand(command.id));
+    app.uiPrefs.update((prefs) => rememberCommand(prefs, command.id));
     props.onClose();
     queueMicrotask(() => command.run(values));
   };

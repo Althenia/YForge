@@ -25,7 +25,7 @@ afterEach(async () => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-function install(options: { tabs: string[]; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings> }) {
+function install(options: { tabs: string[]; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string> }) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -40,7 +40,7 @@ function install(options: { tabs: string[]; launch: string; repositories: string
         case "repo_open": {
           const path = (args as { path: string }).path;
           if (!options.repositories.includes(path)) throw { kind: "not_a_repository", message: `${path} is not inside a Git repository`, output: null };
-          return { root: path };
+          return { root: path, main_root: options.mains?.[path] ?? path };
         }
         case "activity_list":
         case "recents_list":
@@ -182,6 +182,7 @@ describe("app state", () => {
       openSearch: () => undefined,
       focusComposer: () => undefined,
       loadCommits: async () => [],
+      openPanel: () => undefined,
     });
     const entry: ActivityEntry = { id: 7, repo: "/a", operation: "stage", summary: "Staged", started_at: 0, duration_ms: 1, ok: true, local: true, toast: false, error: null, commands: [], undo: { kind: "available", scope: "stage" } };
     await emit("activity-recorded", entry);
@@ -230,6 +231,7 @@ describe("app state", () => {
       openSearch: () => calls.push("search"),
       focusComposer: () => calls.push("composer"),
       loadCommits: async () => [],
+      openPanel: () => undefined,
     });
 
     key("f");
@@ -237,5 +239,54 @@ describe("app state", () => {
     key("Enter");
 
     expect(calls).toEqual(["search", "reveal-head", "composer"]);
+  });
+
+  it("groups a worktree's tab next to its main repository, at boot and when it is opened", async () => {
+    const mains = { "/w/repo-feature": "/w/repo" };
+    const { app } = await boot({ tabs: ["/w/repo", "/w/other", "/w/repo-feature"], launch: "/", repositories: ["/w/repo", "/w/other", "/w/repo-feature", "/w/repo-fix"], mains: { ...mains, "/w/repo-fix": "/w/repo" } });
+
+    expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo", "/w/repo-feature", "/w/other"]);
+    expect(app.tabGroups().map((group) => [group.main, group.tabs.map((entry) => entry.linked)])).toEqual([
+      ["/w/repo", [false, true]],
+      ["/w/other", [false]],
+    ]);
+
+    await app.openRepository("/w/repo-fix");
+
+    expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo", "/w/repo-feature", "/w/repo-fix", "/w/other"]);
+    expect(app.activePath()).toBe("/w/repo-fix");
+  });
+
+  it("opens and activates the tab of a path a second yforge launch hands over", async () => {
+    const { app, calls } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a", "/b"] });
+
+    await emit("open-path-requested", { path: "/b" });
+    await flush();
+    expect(app.activePath()).toBe("/b");
+    await emit("open-path-requested", { path: "/a" });
+    await flush();
+
+    expect(app.activePath()).toBe("/a");
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }, { kind: "repo", path: "/b" }]);
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/a", "/b"], active: 0 } });
+  });
+
+  it("tells the user when a path handed over by a second launch is not a repository", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+
+    await emit("open-path-requested", { path: "/nope" });
+    await flush();
+
+    expect(app.activePath()).toBe("/a");
+    expect(app.notice()).toBe("/nope is not a Git repository");
+  });
+
+  it("closes the tabs of a worktree that was removed", async () => {
+    const { app } = await boot({ tabs: ["/w/repo", "/w/repo-feature"], launch: "/", repositories: ["/w/repo", "/w/repo-feature"], mains: { "/w/repo-feature": "/w/repo" } });
+
+    app.closeTabsAt("/w/repo-feature");
+
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/w/repo" }]);
+    expect(app.activePath()).toBe("/w/repo");
   });
 });

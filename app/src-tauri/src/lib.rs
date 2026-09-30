@@ -15,18 +15,18 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use yforge_ai::{Ai, AiError, KeychainStore, Selection};
 use yforge_core::{
     ActivityEntry, AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, AmendInfo, AppInfo,
-    AppSettings, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CliInstall,
-    CommitBrief, CommitDetails, CommitDraft, ConflictFile, ConflictProposal, ConflictSide,
-    CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileAtRevision,
-    FileDiff, ForceLease, ForcePushPlan, GraphPage, GraphVisibility, Identity, IdentityField,
-    IntegrationPreview, LostCommit, MergeMode, MessageEdit, OperationKind, OperationOutcome,
-    OperationProgress, Planned, Progress, ProviderInput, ProviderStatus, ProviderSummary,
-    ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget, RebaseOutcome, RebasePlan,
-    RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview,
-    RecomposeProposal, RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged, RepoSettings,
-    RepoSnapshot, RepoUiPrefs, RepoWatcher, ResetMode, SearchResult, SnapshotChange, SnapshotInfo,
-    SshKey, StashDetails, StashRestore, SwitchStash, TabSession, UsageRecord, WorktreeIntegration,
-    WorktreeStatus,
+    AppSettings, AppUiPrefs, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget,
+    CliInstall, CommitBrief, CommitDetails, CommitDraft, ConflictFile, ConflictProposal,
+    ConflictSide, CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload,
+    FileAtRevision, FileDiff, ForceLease, ForcePushPlan, GraphPage, GraphVisibility, Identity,
+    IdentityField, IntegrationPreview, LostCommit, MergeMode, MessageEdit, OperationKind,
+    OperationOutcome, OperationProgress, Planned, Progress, ProviderInput, ProviderStatus,
+    ProviderSummary, ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget, RebaseOutcome,
+    RebasePlan, RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup,
+    RecomposePreview, RecomposeProposal, RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged,
+    RepoSettings, RepoSnapshot, RepoUiPrefs, RepoWatcher, ResetMode, SearchResult, SnapshotChange,
+    SnapshotInfo, SshKey, StashDetails, StashRestore, SwitchStash, TabSession, UsageRecord,
+    WorktreeIntegration, WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -1999,6 +1999,28 @@ async fn repo_ui_prefs_save(
 }
 
 #[tauri::command]
+async fn app_ui_prefs_load(data: State<'_, DataDir>) -> Result<AppUiPrefs, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::app_ui_prefs_load(&dir)).await;
+    log_outcome("app_ui_prefs_load", &result, |prefs| {
+        format!("recents={}", prefs.palette_recents.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn app_ui_prefs_save(
+    data: State<'_, DataDir>,
+    prefs: AppUiPrefs,
+) -> Result<(), ErrorPayload> {
+    log::debug!("app_ui_prefs_save recents={}", prefs.palette_recents.len());
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::app_ui_prefs_save(&dir, &prefs)).await;
+    log_outcome("app_ui_prefs_save", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
 async fn cli_install() -> Result<CliInstall, ErrorPayload> {
     log::debug!("cli_install");
     let result = blocking(|| {
@@ -3460,6 +3482,8 @@ pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::B
             stash_file_diff,
             repo_ui_prefs_load,
             repo_ui_prefs_save,
+            app_ui_prefs_load,
+            app_ui_prefs_save,
             cli_install,
             checkout,
             check_branch_name,

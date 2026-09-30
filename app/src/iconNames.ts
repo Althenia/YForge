@@ -39,4 +39,7 @@ export type IconName =
   | "squash"
   | "recompose"
   | "grip"
-  | "plug";
+  | "plug"
+  | "open"
+  | "file"
+  | "history";

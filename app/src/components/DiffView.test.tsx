@@ -7,6 +7,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { DiffTarget } from "../state/diffModel";
 import { createDiffPrefs } from "../state/diffPrefs";
 import { buttonNamed, flush, mountWithApp, stubLayout, testSession } from "./testkit";
+import type { FileViewTarget } from "../state/fileView";
 import { DiffView } from "./DiffView";
 
 let dispose: (() => void) | undefined;
@@ -72,13 +73,13 @@ const diff: FileDiff = { path: "src/app.ts", original_path: null, binary: false,
 
 const working = (area: "unstaged" | "staged" = "unstaged"): DiffTarget => ({ source: "working", area, file: "src/app.ts" });
 
-function mount(target: DiffTarget, result: FileDiff = diff, prefs = createDiffPrefs()) {
+function mount(target: DiffTarget, result: FileDiff = diff, prefs = createDiffPrefs(), viewed: FileViewTarget[] = []) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? result : null;
   });
   const mounted = mountWithApp(() => (
-    <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={target} prefs={prefs} onClose={() => undefined} />
+    <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={target} prefs={prefs} onClose={() => undefined} onViewFile={(view) => viewed.push(view)} />
   ));
   dispose = mounted.dispose;
   return { ...mounted, prefs };
@@ -448,5 +449,26 @@ describe("stash diff", () => {
     await flush(60);
 
     expect(called("stash_file_diff").at(-1)?.args).toMatchObject({ ignoreWhitespace: true });
+  });
+});
+
+describe("file view entry", () => {
+  it("opens the full file at the revision the diff compares, for a working, staged, commit, or stash diff", async () => {
+    const cases: Array<[DiffTarget, FileViewTarget]> = [
+      [working("unstaged"), { file: "src/app.ts", rev: ":worktree", source: "Working tree" }],
+      [working("staged"), { file: "src/app.ts", rev: ":index", source: "Staged" }],
+      [{ source: "commit", sha: "abc1234", file: "src/app.ts" }, { file: "src/app.ts", rev: "abc1234", source: "abc1234" }],
+      [{ source: "stash", index: 0, sha: "f".repeat(40), file: "src/app.ts" }, { file: "src/app.ts", rev: "f".repeat(40), source: "stash@{0}" }],
+    ];
+    for (const [target, expected] of cases) {
+      const viewed: FileViewTarget[] = [];
+      const { host, dispose: stop } = mount(target, diff, createDiffPrefs(), viewed);
+      await flush(60);
+
+      click(named(host, "View file"));
+
+      expect(viewed).toEqual([expected]);
+      stop();
+    }
   });
 });

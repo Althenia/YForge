@@ -49,11 +49,12 @@ function mount(files: StashDetails["files"], fail = false) {
     dropStash: (...args: unknown[]) => actionCalls.push(["drop", ...args]),
   } as unknown as RepoActions;
   const opened: unknown[] = [];
+  const viewed: unknown[] = [];
   const mounted = mountWithApp(() => (
-    <StashInspector session={testSession("/r", { root: "/r" } as RepoSnapshot)} stash={entry} actions={actions} activeTarget={undefined} onOpenDiff={(target) => opened.push(target)} />
+    <StashInspector session={testSession("/r", { root: "/r" } as RepoSnapshot)} stash={entry} actions={actions} activeTarget={undefined} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
   ));
   dispose = mounted.dispose;
-  return { ...mounted, actionCalls, opened };
+  return { ...mounted, actionCalls, opened, viewed };
 }
 
 describe("stash inspector", () => {
@@ -101,5 +102,20 @@ describe("stash inspector", () => {
 
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("is not the stash it was");
     expect(buttonNamed(host, "Drop…")).toBeDefined();
+  });
+});
+
+describe("file view entry", () => {
+  it("opens a tracked file at the stash and an untracked file at the stash's untracked commit", async () => {
+    const { host, viewed } = mount([tracked, untracked]);
+    await flush(80);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="View src/a.ts"]')?.click();
+    host.querySelector<HTMLButtonElement>('button[aria-label="View notes.txt"]')?.click();
+
+    expect(viewed).toEqual([
+      { file: "src/a.ts", rev: SHA, source: "stash@{1}" },
+      { file: "notes.txt", rev: "7".repeat(40), source: "stash@{1} (untracked)" },
+    ]);
   });
 });

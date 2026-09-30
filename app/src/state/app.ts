@@ -12,17 +12,18 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { AppRouter } from "../routes";
 import { viewOf } from "../routes";
 import { createStoreValue } from "./clientStore";
+import { createAppUiPrefs } from "./appUiPrefs";
 import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
 import { dataOf } from "./queryData";
 import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
 import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
-import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext } from "./palette";
+import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext, type PanelRequest } from "./palette";
 import type { RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
-import { activateTab, closeTab, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabId, type Tab, type TabsState } from "./tabs";
+import { activateTab, closeTab, groupTabs, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabGroups, tabId, type MainRoots, type Tab, type TabsState } from "./tabs";
 
 export type Screen = { kind: "workspace" } | { kind: "settings"; section: string };
 
@@ -40,6 +41,7 @@ export type RepoBridge = {
   openSearch: () => void;
   focusComposer: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
+  openPanel: (panel: PanelRequest) => void;
 };
 
 const PALETTE_SHORTCUT = SHORTCUTS.palette;
@@ -50,6 +52,7 @@ const asMessage = (failure: unknown): string => (failure instanceof Error ? fail
 export function createAppState(router: AppRouter) {
   const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
   const [tabList, setTabList] = createStoreValue<Tab[]>([{ kind: "launcher" }]);
+  const [mainRoots, setMainRoots] = createStoreValue<MainRoots>({});
   const [ready, setReady] = createSignal(false);
   const [fatal, setFatal] = createSignal<string | undefined>();
   const [activity, setActivity] = createSignal<ActivityEntry[]>([]);
@@ -62,6 +65,7 @@ export function createAppState(router: AppRouter) {
   const [bridge, setBridge] = createSignal<RepoBridge | undefined>();
   const queryClient = createQueryClient();
   const online = createOnline();
+  const uiPrefs = createAppUiPrefs(queryClient, (failure) => setNotice(asMessage(failure)));
   const recentPaths = (): string[] => (queryClient.getQueryData<RecentRepo[]>(appKeys.recents) ?? []).map((recent) => recent.path);
   const location = useRouterState({ router, select: (state) => state.location });
   const view = createMemo(() => viewOf(router.matchRoutes(location())));
@@ -105,15 +109,23 @@ export function createAppState(router: AppRouter) {
     void router.navigate({ to: "/settings/$section", params: { section }, search: { tab: activeTabId() }, replace: true });
   }
 
-  function applyTabs(next: TabsState): void {
+  const tabGroupList = createMemo(() => tabGroups(tabs(), mainRoots()));
+
+  function applyTabs(requested: TabsState): void {
+    const next = groupTabs(requested, mainRoots());
     setTabList(next.tabs);
     showTab(next.tabs[next.active]);
     client.sessionSave(sessionOf(next)).catch((failure) => setNotice(asMessage(failure)));
   }
 
+  const rememberMainRoot = (snapshot: RepoSnapshot): void => {
+    if (typeof snapshot.main_root === "string") setMainRoots({ ...mainRoots(), [snapshot.root]: snapshot.main_root });
+  };
+
   async function openRepository(path: string): Promise<boolean> {
     try {
       const snapshot = await client.repoOpen(path);
+      rememberMainRoot(snapshot);
       applyTabs(openRepoTab(tabs(), snapshot.root));
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
@@ -129,11 +141,9 @@ export function createAppState(router: AppRouter) {
       setSettings(loaded);
       setActivity(entries);
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
-      const launchRoot = await client.repoOpen(launch).then(
-        (snapshot) => snapshot.root,
-        () => undefined,
-      );
-      const restored = restoreTabs(session, launchRoot);
+      const opened = await Promise.all([launch, ...session.tabs].map((path) => client.repoOpen(path).then((snapshot) => snapshot, () => undefined)));
+      opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
+      const restored = groupTabs(restoreTabs(session, opened[0]?.root), mainRoots());
       setTabList(restored.tabs);
       showTab(restored.tabs[restored.active]);
       setReady(true);
@@ -231,6 +241,7 @@ export function createAppState(router: AppRouter) {
       revealHead: () => current?.revealHead(),
       focusComposer: () => current?.focusComposer(),
       loadCommits: () => current?.loadCommits() ?? Promise.resolve([]),
+      openPanel: (panel) => current?.openPanel(panel),
     };
   }
 
@@ -270,6 +281,7 @@ export function createAppState(router: AppRouter) {
     colorScheme.addEventListener("change", appearance);
     onCleanup(() => colorScheme.removeEventListener("change", appearance));
     const listeners = [
+      client.onOpenPathRequested((request) => void openRepository(request.path)),
       client.onActivity(record),
       client.onAuthPrompt((event) => setPrompts((queue) => enqueuePrompt(queue, event))),
     ];
@@ -283,8 +295,10 @@ export function createAppState(router: AppRouter) {
   return {
     queryClient,
     online,
+    uiPrefs,
     settings,
     tabs,
+    tabGroups: tabGroupList,
     ready,
     fatal,
     screen,
@@ -317,6 +331,10 @@ export function createAppState(router: AppRouter) {
     openLauncher: () => applyTabs(openLauncherTab(tabs())),
     closeActiveTab: () => applyTabs(closeTab(tabs(), tabs().active)),
     closeTabAt: (index: number) => applyTabs(closeTab(tabs(), index)),
+    closeTabsAt: (path: string) => {
+      const index = tabs().tabs.findIndex((tab) => tab.kind === "repo" && tab.path === path);
+      if (index >= 0) applyTabs(closeTab(tabs(), index));
+    },
     activate: (index: number) => applyTabs(activateTab(tabs(), index)),
     openSettings,
     respondAuth,

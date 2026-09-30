@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/solid-query";
-import { createSignal, For, Show } from "solid-js";
+import { For, Show } from "solid-js";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client } from "../ipc/client";
@@ -13,7 +13,6 @@ import { freshness, OFFLINE_REASON, runningText, type SyncState } from "../state
 import { MenuLabel } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
-import { WorktreePopover } from "./WorktreePopover";
 
 const countLetters = [
   ["modified", "M"],
@@ -191,27 +190,16 @@ function Notices(props: { actions: RepoActions; plain: boolean }) {
   );
 }
 
-function WorktreesChip(props: { snapshot: RepoSnapshot }) {
-  const [anchor, setAnchor] = createSignal<Anchor | undefined>();
+function WorktreesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
   const worktrees = useQuery(() => ({ queryKey: repoKeys.worktrees(props.snapshot.root), queryFn: () => client.worktreeList(props.snapshot.root) }));
-  const listed = () => dataOf(worktrees) ?? [];
-  const dirty = () => listed().filter((worktree) => worktree.dirty).length;
+  const dirty = () => (dataOf(worktrees) ?? []).filter((worktree) => worktree.dirty).length;
   const count = () => props.snapshot.worktrees.length;
   return (
-    <>
-      <button
-        type="button"
-        class="chip"
-        aria-haspopup="dialog"
-        aria-expanded={anchor() !== undefined}
-        onClick={(event) => setAnchor(anchor() === undefined ? anchorBelow(event.currentTarget) : undefined)}
-      >
-        <Icon name="worktree" />
-        {count()} {count() === 1 ? "worktree" : "worktrees"}
-        <Show when={dirty() > 0}> · {dirty()} with changes</Show>
-      </button>
-      <Show when={anchor()}>{(at) => <WorktreePopover anchor={at()} worktrees={listed()} onClose={() => setAnchor(undefined)} />}</Show>
-    </>
+    <button type="button" class="chip" onClick={props.onOpen}>
+      <Icon name="worktree" />
+      {count()} {count() === 1 ? "worktree" : "worktrees"}
+      <Show when={dirty() > 0}> · {dirty()} with changes</Show>
+    </button>
   );
 }
 
@@ -333,6 +321,7 @@ export function StateStrip(props: {
   onOpenChanges: () => void;
   onRevealHead: () => void;
   onResolve: (file: string) => void;
+  onOpenWorktrees: () => void;
 }) {
   return (
     <div class="bar chips" role="status">
@@ -349,7 +338,7 @@ export function StateStrip(props: {
             <SyncChip state={props.actions.sync()} actions={props.actions} />
             <Notices actions={props.actions} plain={false} />
             <span class="spacer" />
-            <WorktreesChip snapshot={props.snapshot} />
+            <WorktreesChip snapshot={props.snapshot} onOpen={props.onOpenWorktrees} />
           </>
         }
       >

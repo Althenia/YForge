@@ -10,10 +10,13 @@ import { createDiffPrefs } from "../state/diffPrefs";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
 import { createRepoActions, type HistoryView, type PopoverState } from "../state/repoActions";
 import { createRepoUiPrefs } from "../state/repoUiPrefs";
+import type { PanelRequest } from "../state/palette";
+import { createWorktreeActions } from "../state/worktreeActions";
 import { createRepoSession } from "../state/repoSession";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
 import { selectedShas, type Selection } from "../state/selection";
+import type { FileViewTarget } from "../state/fileView";
 import { effectivePullMode } from "../state/settingsModel";
 import type { WorkspaceView } from "../state/workspace";
 import { ActivityBar } from "./ActivityBar";
@@ -23,6 +26,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ConflictResolver } from "./ConflictResolver";
 import { ContextMenu } from "./ContextMenu";
 import { DiffView } from "./DiffView";
+import { FileView } from "./FileView";
 import { EmptyRepository } from "./EmptyRepository";
 import { GraphPanel } from "./GraphPanel";
 import { Inspector } from "./Inspector";
@@ -32,10 +36,15 @@ import { Notice } from "./Notice";
 import { RebaseEditor } from "./RebaseEditor";
 import { RecomposeView } from "./RecomposeView";
 import { SquashDialog } from "./SquashDialog";
+import { CreateWorktreeDialog, IntegrateWorktreeDialog } from "./WorktreeDialogs";
+import { RecoveryView, type RecoveryTab } from "./RecoveryView";
+import { WorktreePanel } from "./WorktreePanel";
 import { SearchBar } from "./SearchBar";
 import { Sidebar } from "./Sidebar";
 import { StateStrip } from "./StateStrip";
 import { TabBar } from "./TabBar";
+
+type Panel = { kind: "worktrees" } | { kind: "recovery"; tab: RecoveryTab };
 
 const root = document.documentElement;
 const MINUTE_MS = 60_000;
@@ -44,6 +53,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   const app = useApp();
   const uiPrefs = createRepoUiPrefs(props.view.path, app.queryClient, (failure) => session.report(failure));
   const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient, () => uiPrefs.prefs().branch_visibility);
+  const worktrees = createWorktreeActions(session, { openRepository: app.openRepository, closeTabsAt: app.closeTabsAt, notify: app.setNotice });
+  const [panel, setPanel] = createSignal<Panel | undefined>();
+  const [fileTarget, setFileTarget] = createSignal<FileViewTarget | undefined>();
   const composer = createComposer();
   const diffPrefs = createDiffPrefs();
   const [selection, setSelection] = createStoreValue<Selection | undefined>(undefined);
@@ -78,6 +90,38 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     const state = undo();
     const target = id ?? (state.kind === "available" ? state.entry.id : undefined);
     if (target !== undefined) void actions.undo(target);
+  };
+
+  const closeFile = () => {
+    setFileTarget(undefined);
+    queueMicrotask(focusGraph);
+  };
+  const viewFile = (target: FileViewTarget) => {
+    setPanel(undefined);
+    setFileTarget(target);
+  };
+  const closePanel = () => {
+    setPanel(undefined);
+    queueMicrotask(focusGraph);
+  };
+  const openPanel = (next: Panel) => {
+    setDiffTarget(undefined);
+    setFileTarget(undefined);
+    setPanel(next);
+  };
+  const requestPanel = (request: PanelRequest) => {
+    if (request === "reflog" || request === "lost" || request === "snapshots") openPanel({ kind: "recovery", tab: request });
+    else {
+      openPanel({ kind: "worktrees" });
+      if (request === "create_worktree") worktrees.openCreate();
+    }
+  };
+  const showDiff = (target: DiffTarget | undefined) => {
+    if (target !== undefined) {
+      setPanel(undefined);
+      setFileTarget(undefined);
+    }
+    setDiffTarget(target);
   };
 
   const focusGraph = () => document.querySelector<HTMLElement>(".gscroll")?.focus();
@@ -184,7 +228,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       {
         hotkey: "Escape",
         callback: (event: KeyboardEvent) => {
-          if (!event.defaultPrevented && diffTarget() !== undefined) closeDiff();
+          if (event.defaultPrevented) return;
+          if (fileTarget() !== undefined) closeFile();
+          else if (diffTarget() !== undefined) closeDiff();
         },
       },
       ...(["Mod+G", "Mod+Shift+G"] as const).map((hotkey) => ({
@@ -222,6 +268,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         queueMicrotask(() => document.querySelector<HTMLInputElement>('input[aria-label="Summary"]')?.focus());
       },
       loadCommits,
+      openPanel: requestPanel,
     });
     onCleanup(() => app.setBridge(undefined));
     const unlisten = client.onRepoChanged((change) => {
@@ -250,10 +297,11 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         online={app.online()}
         onOpenChanges={() => select({ kind: "changes" })}
         onRevealHead={() => revealHead(true)}
-        onResolve={(file) => setDiffTarget({ source: "working", area: "conflicted", file })}
+        onResolve={(file) => showDiff({ source: "working", area: "conflicted", file })}
+        onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
       />
       <div class="main">
-        <Sidebar snapshot={session.snapshot()} actions={actions} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} />
+        <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} />
         <div class="center">
           <Show
             when={!unborn()}
@@ -265,7 +313,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               geometry={props.geometry}
               selection={selection()}
               revision={session.revision()}
-              covered={diffTarget() !== undefined || historyOf("rebase") !== undefined || historyOf("recompose") !== undefined}
+              covered={diffTarget() !== undefined || panel() !== undefined || fileTarget() !== undefined || historyOf("rebase") !== undefined || historyOf("recompose") !== undefined}
               actions={actions}
               dimmed={(index) => isDimmed(search.state(), matches(), index)}
               searching={search.open()}
@@ -284,9 +332,20 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           <Show when={historyOf("recompose")} keyed>
             {(view) => <RecomposeView session={session} base={view.base} onClose={() => void closeHistory()} onOpenAiSettings={() => app.openSettings("ai")} />}
           </Show>
-          <Show when={actions.history() === undefined || historyOf("squash") !== undefined ? diffTarget() : undefined}>
+          <Show when={panel()?.kind === "worktrees"}>
+            <WorktreePanel session={session} actions={worktrees} onClose={closePanel} />
+          </Show>
+          <Show when={panel()} keyed>
+            {(current) => (
+              <Show when={current.kind === "recovery" && current}>{(recovery) => <RecoveryView session={session} tab={recovery().tab} onClose={closePanel} />}</Show>
+            )}
+          </Show>
+          <Show when={fileTarget()} keyed>
+            {(target) => <FileView session={session} target={target} onClose={closeFile} />}
+          </Show>
+          <Show when={fileTarget() === undefined && (actions.history() === undefined || historyOf("squash") !== undefined) ? diffTarget() : undefined}>
             {(target) => (
-              <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} prefs={diffPrefs} onClose={closeDiff} />}>
+              <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} prefs={diffPrefs} onClose={closeDiff} onViewFile={viewFile} />}>
                 <ConflictResolver session={session} file={target().file} onClose={closeDiff} onOpenAiSettings={() => app.openSettings("ai")} />
               </Show>
             )}
@@ -298,7 +357,8 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           composer={composer}
           selection={selection()}
           activeTarget={diffTarget()}
-          onOpenDiff={setDiffTarget}
+          onOpenDiff={showDiff}
+          onViewFile={viewFile}
           onSelectCommit={(sha) => select({ kind: "commit", sha })}
           onCommitted={committed}
         />
@@ -330,6 +390,28 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       </Show>
       <Show when={historyOf("squash")} keyed>
         {(view) => <SquashDialog session={session} shas={view.shas} onClose={() => void closeHistory()} />}
+      </Show>
+      <Show when={worktrees.dialog()} keyed>
+        {(dialog) => (
+          <Show
+            when={dialog.kind === "integrate" && dialog}
+            fallback={<CreateWorktreeDialog snapshot={session.snapshot()} actions={worktrees} />}
+          >
+            {(integrate) => <IntegrateWorktreeDialog worktree={integrate().worktree} all={integrate().all} actions={worktrees} />}
+          </Show>
+        )}
+      </Show>
+      <Show when={worktrees.confirm()} keyed>
+        {(pending) => (
+          <ConfirmDialog
+            copy={pending.copy}
+            onConfirm={() => {
+              worktrees.closeConfirm();
+              void pending.run();
+            }}
+            onCancel={worktrees.closeConfirm}
+          />
+        )}
       </Show>
       <Show when={actions.dialog()} keyed>
         {(dialog) => (

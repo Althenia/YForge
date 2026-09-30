@@ -25,7 +25,6 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   restoreLayout = stubLayout();
   mockWindows("main");
-  window.localStorage.clear();
   Element.prototype.scrollIntoView = () => undefined;
 });
 
@@ -88,6 +87,9 @@ function install() {
       if (cmd === "recent_statuses") return [recentStatus];
       if (cmd === "activity_list") return [];
       if (cmd === "remotes_list" || cmd === "switch_stashes") return [];
+      if (cmd === "worktree_list") return snapshot.worktrees.map((entry) => ({ ...entry, dirty: false }));
+      if (cmd === "reflog_refs") return ["HEAD"];
+      if (cmd === "reflog_list") return [];
       if (cmd === "recompose_preview") return { base: "b", head: "h", pushed: false, files: [] };
       if (cmd === "identity_read") return { name: { value: null, source: "unset" }, email: { value: null, source: "unset" } };
       return null;
@@ -188,6 +190,7 @@ describe("icon-driven controls (S15)", () => {
       ["Tags", "svg"],
       ["Stashes", "svg"],
       ["Worktrees", "svg"],
+      ["Recovery", "svg"],
     ]);
     const inspector = [...host.querySelectorAll(".inspector .lhead-title")].map((header) => header.firstElementChild?.tagName);
     expect(inspector.length).toBeGreaterThan(0);
@@ -307,5 +310,28 @@ describe("icon-driven controls (S15)", () => {
     await flush(40);
     expect(host.querySelector('[aria-label="Recompose"]')).toBeNull();
     expect(host.querySelector(".graph")?.classList.contains("covered")).toBe(false);
+  });
+
+  it("covers the graph with the Worktrees panel from the state strip and Recovery from the palette, and shows the graph again when each closes", async () => {
+    const { host, app } = await mountWorkspace();
+    const graph = () => host.querySelector(".graph");
+
+    [...host.querySelectorAll<HTMLButtonElement>(".chips button.chip")].find((chip) => chip.textContent?.includes("worktree"))?.click();
+    await flush(40);
+    expect(host.querySelector('[aria-label="Worktrees"].rpanel')).not.toBeNull();
+    expect(graph()?.classList.contains("covered")).toBe(true);
+    [...host.querySelectorAll<HTMLButtonElement>(".rpanel button")].find((button) => textOf(button) === "Back to graph")?.click();
+    await flush(40);
+    expect(host.querySelector('[aria-label="Worktrees"].rpanel')).toBeNull();
+    expect(graph()?.classList.contains("covered")).toBe(false);
+
+    app.paletteContext().openPanel("lost");
+    await flush(40);
+    expect(host.querySelector('.rpanel[aria-label="Recovery"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Recovery sources"] [aria-selected="true"]')?.textContent).toContain("Lost commits");
+    expect(graph()?.classList.contains("covered")).toBe(true);
+    host.querySelector('.rpanel[aria-label="Recovery"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush(40);
+    expect(host.querySelector('.rpanel[aria-label="Recovery"]')).toBeNull();
   });
 });

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "../state/repoActions";
 import type { Selection } from "../state/selection";
+import type { WorktreeActions } from "../state/worktreeActions";
 import { Sidebar } from "./Sidebar";
 import { flush, mountWithApp, testUiPrefs } from "./testkit";
 
@@ -31,7 +32,7 @@ const snapshot = {
   worktrees: [],
 } as unknown as RepoSnapshot;
 
-function mount(selection: Selection | undefined = undefined) {
+function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot = snapshot) {
   const calls: Array<[string, ...unknown[]]> = [];
   const actions = {
     openRefMenu: (...args: unknown[]) => calls.push(["ref-menu", ...args]),
@@ -40,7 +41,16 @@ function mount(selection: Selection | undefined = undefined) {
   } as unknown as RepoActions;
   const selected = vi.fn();
   const uiPrefs = testUiPrefs();
-  const mounted = mountWithApp(() => <Sidebar snapshot={snapshot} actions={actions} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} />);
+  const worktrees = {
+    open: (...args: unknown[]) => calls.push(["open-worktree", ...args]),
+    openTerminal: (...args: unknown[]) => calls.push(["terminal", ...args]),
+    integrate: (...args: unknown[]) => calls.push(["integrate", ...args]),
+    remove: (...args: unknown[]) => calls.push(["remove", ...args]),
+    openCreate: () => calls.push(["create"]),
+  } as unknown as WorktreeActions;
+  const mounted = mountWithApp(() => (
+    <Sidebar snapshot={shape} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} onOpenPanel={(panel) => calls.push(["panel", panel])} />
+  ));
   dispose = mounted.dispose;
   return { ...mounted, calls, selected };
 }
@@ -111,5 +121,75 @@ describe("sidebar stashes", () => {
 
     expect(selected).toHaveBeenCalledWith("s0");
     expect(row.getAttribute("aria-current")).toBe("true");
+  });
+});
+
+describe("sidebar worktrees and recovery", () => {
+  const linked = {
+    ...snapshot,
+    worktrees: [
+      { path: "/w/repo", head: "a", branch: "main", bare: false, locked: false, prunable: false, current: true },
+      { path: "/w/repo-feature", head: "b", branch: "feature/a", bare: false, locked: false, prunable: false, current: false },
+    ],
+  } as unknown as RepoSnapshot;
+  const row = (host: ParentNode, path: string) => host.querySelector<HTMLElement>(`[data-nav="worktree:${path}"]`) as HTMLElement;
+
+  it("opens a worktree as a tab on click and Enter, except the one already open", () => {
+    const { host, calls } = mount(undefined, linked);
+
+    row(host, "/w/repo-feature").click();
+    row(host, "/w/repo-feature").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    row(host, "/w/repo").click();
+
+    expect(calls).toEqual([["open-worktree", "/w/repo-feature"], ["open-worktree", "/w/repo-feature"]]);
+    expect(row(host, "/w/repo").getAttribute("aria-current")).toBe("true");
+    expect(row(host, "/w/repo-feature").getAttribute("aria-label")).toBe("Worktree repo-feature, branch feature/a");
+  });
+
+  it("offers open, open in terminal, integrate, and remove from the worktree's menu", async () => {
+    const { host, calls } = mount(undefined, linked);
+
+    row(host, "/w/repo-feature").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 6 }));
+    await flush();
+    const items = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+    expect(items.map((item) => item.querySelector(".label-text")?.textContent)).toEqual(["Open as tab", "Open in terminal", "Integrate into another worktree…", "Remove worktree…"]);
+    items[1]?.click();
+    expect(calls).toEqual([["terminal", "/w/repo-feature"]]);
+
+    row(host, "/w/repo-feature").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 6 }));
+    await flush();
+    (document.querySelectorAll<HTMLElement>('[role="menuitem"]')[2] as HTMLElement).click();
+    expect(calls.at(-1)).toEqual(["integrate", "/w/repo-feature"]);
+  });
+
+  it("disables Open as tab for the open worktree with the reason", async () => {
+    const { host } = mount(undefined, linked);
+
+    row(host, "/w/repo").dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 6 }));
+    await flush();
+
+    const open = document.querySelector('[role="menuitem"]') as HTMLElement;
+    expect(open.getAttribute("aria-disabled")).toBe("true");
+    expect(open.getAttribute("title")).toBe("This worktree is open here");
+  });
+
+  it("creates a worktree from the section header and opens the Worktrees panel from its title", () => {
+    const { host, calls } = mount(undefined, linked);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Create worktree"]')?.click();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Show worktrees"]')?.click();
+
+    expect(calls).toEqual([["create"], ["panel", "worktrees"]]);
+  });
+
+  it("opens each recovery source from the Recovery section", () => {
+    const { host, calls } = mount();
+
+    const section = host.querySelector('section[aria-label="Recovery"]') as HTMLElement;
+    const rows = [...section.querySelectorAll<HTMLElement>('[role="button"]')];
+    expect(rows.map((entry) => entry.getAttribute("aria-label"))).toEqual(["Reflog", "Lost commits", "Safety snapshots"]);
+    rows.forEach((entry) => entry.click());
+
+    expect(calls).toEqual([["panel", "reflog"], ["panel", "lost"], ["panel", "snapshots"]]);
   });
 });

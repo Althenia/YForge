@@ -4,15 +4,14 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { NOTHING_TO_UNDO } from "./activityModel";
 import {
   buildCommands,
+  commandIcon,
   hotkeyOf,
   shortcutCommands,
   fuzzyMatch,
-  loadRecentCommands,
   navigationTargets,
   parseQuery,
   rank,
   refOptions,
-  rememberCommand,
   type PaletteApp,
   type PaletteContext,
 } from "./palette";
@@ -84,6 +83,7 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
     revealHead: vi.fn(),
+    openPanel: vi.fn(),
     loadCommits: async () => [
       { sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false },
       { sha: "1234567abcdef", summary: "Merge topic", merge: true, root: false },
@@ -354,13 +354,34 @@ describe("fuzzy search and modes", () => {
     expect(parseQuery("/sam")).toEqual({ mode: "/", text: "sam" });
     expect(parseQuery("plain")).toEqual({ mode: undefined, text: "plain" });
   });
+});
 
-  it("remembers recently run commands, newest first, without duplicates", () => {
-    window.localStorage.clear();
-    rememberCommand("a");
-    rememberCommand("b");
-    rememberCommand("a");
-    expect(loadRecentCommands()).toEqual(["a", "b"]);
+describe("worktree and recovery commands", () => {
+  it("opens the Worktrees panel, the create dialog, and each Recovery tab through the open repository", () => {
+    const openPanel = vi.fn();
+    const commands = buildCommands(context({ openPanel }));
+
+    for (const [id, panel] of [
+      ["worktrees.show", "worktrees"],
+      ["worktrees.create", "create_worktree"],
+      ["recovery.reflog", "reflog"],
+      ["recovery.lost", "lost"],
+      ["recovery.snapshots", "snapshots"],
+    ] as const) {
+      find(commands, id).run([]);
+      expect(openPanel).toHaveBeenLastCalledWith(panel);
+    }
+    expect(find(commands, "worktrees.create").title).toBe("Create worktree…");
+    expect(find(commands, "recovery.lost").title).toBe("Recovery: find lost commits");
+  });
+
+  it("disables them without a repository, with the reason, and gives each an icon", () => {
+    const commands = buildCommands(context({}, null));
+
+    for (const id of ["worktrees.show", "worktrees.create", "recovery.reflog", "recovery.lost", "recovery.snapshots"]) {
+      expect(find(commands, id).disabledReason).toBe("Open a repository first");
+      expect(commandIcon(id)).toBeDefined();
+    }
   });
 });
 

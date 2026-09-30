@@ -3,6 +3,7 @@ import { client } from "../ipc/client";
 import { createDiffController, type DiffController } from "../state/diffController";
 import { diffModes, diffNotice, hunkLabel, targetMode, targetSource, type DiffTarget } from "../state/diffModel";
 import type { DiffPrefs } from "../state/diffPrefs";
+import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import type { DiffRow } from "../state/diffRows";
 import { selectionLabel } from "../state/lineSelection";
 import type { RepoSession } from "../state/repoSession";
@@ -49,7 +50,7 @@ function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; vi
   );
 }
 
-export function DiffView(props: { session: RepoSession; target: DiffTarget; prefs: DiffPrefs; onClose: () => void }) {
+export function DiffView(props: { session: RepoSession; target: DiffTarget; prefs: DiffPrefs; onClose: () => void; onViewFile: (target: FileViewTarget) => void }) {
   const diff = createDiffController({ session: props.session, target: () => props.target, prefs: props.prefs });
   const working = () => props.target.source === "working";
   const mode = () => props.prefs.mode();
@@ -173,6 +174,9 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
           </button>
           <button type="button" class="icon-btn dense" {...tip(`Next ${unit()}`, "N")} onClick={() => step(1)}>
             <Icon name="next" />
+          </button>
+          <button type="button" class="icon-btn dense" {...tip("View file")} onClick={() => props.onViewFile(fileViewTargetOf(props.target))}>
+            <Icon name="file" />
           </button>
           <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={openInEditor}>
             <Icon name="edit" />

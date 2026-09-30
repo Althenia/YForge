@@ -40,6 +40,11 @@ const commandIcons: Partial<Record<string, IconName>> = {
   "open.editor": "edit",
   "open.terminal": "terminal",
   "open.finder": "folder",
+  "worktrees.show": "worktree",
+  "worktrees.create": "worktree",
+  "recovery.reflog": "history",
+  "recovery.lost": "search",
+  "recovery.snapshots": "stash",
   undo: "undo",
   "changes.stage_all": "plus",
   "changes.unstage_all": "minus",
@@ -73,6 +78,8 @@ export function commandIcon(id: string): IconName | undefined {
   if (id.startsWith("go.repository.")) return "folder";
   return commandIcons[id];
 }
+
+export type PanelRequest = "worktrees" | "create_worktree" | "reflog" | "lost" | "snapshots";
 
 export type CommitChoice = { sha: string; summary: string; merge: boolean; root: boolean };
 
@@ -117,6 +124,7 @@ export type PaletteContext = {
   focusComposer: () => void;
   revealHead: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
+  openPanel: (panel: PanelRequest) => void;
 };
 
 const NO_REPOSITORY = "Open a repository first";
@@ -255,6 +263,11 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     command({ id: "open.editor", title: "Open repository in editor", group: "Repository", run: () => app.openExternal("editor") }),
     command({ id: "open.terminal", title: "Open repository in terminal", group: "Repository", run: () => app.openExternal("terminal") }),
     command({ id: "open.finder", title: "Reveal repository in Finder", group: "Repository", run: () => app.openExternal("finder") }),
+    command({ id: "worktrees.show", title: "Show worktrees", group: "Repository", run: () => context.openPanel("worktrees") }),
+    command({ id: "worktrees.create", title: "Create worktree…", group: "Repository", run: () => context.openPanel("create_worktree") }),
+    command({ id: "recovery.reflog", title: "Recovery: browse the reflog", group: "Repository", run: () => context.openPanel("reflog") }),
+    command({ id: "recovery.lost", title: "Recovery: find lost commits", group: "Repository", run: () => context.openPanel("lost") }),
+    command({ id: "recovery.snapshots", title: "Recovery: show safety snapshots", group: "Repository", run: () => context.openPanel("snapshots") }),
     command({
       id: "undo",
       title: "Undo last operation",
@@ -622,20 +635,6 @@ export function parseQuery(query: string): { mode: NavigationMode | undefined; t
   const first = query.charAt(0);
   const mode = NAVIGATION_HINTS.find((hint) => hint.prefix === first)?.prefix;
   return mode === undefined ? { mode: undefined, text: query } : { mode, text: query.slice(1) };
-}
-
-const RECENT_KEY = "yforge.palette.recent";
-const RECENT_LIMIT = 8;
-
-export function loadRecentCommands(): string[] {
-  const stored = window.localStorage.getItem(RECENT_KEY);
-  return stored === null ? [] : (JSON.parse(stored) as string[]);
-}
-
-export function rememberCommand(id: string): string[] {
-  const next = [id, ...loadRecentCommands().filter((entry) => entry !== id)].slice(0, RECENT_LIMIT);
-  window.localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-  return next;
 }
 
 const HOTKEY_PARTS: Record<string, string> = { "⌘": "Mod", "⇧": "Shift", "↵": "Enter" };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { activateTab, closeTab, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabLabel, type TabsState } from "./tabs";
+import { activateTab, closeTab, groupTabs, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabGroups, tabLabel, type TabsState } from "./tabs";
 
 const repos = (...paths: string[]): TabsState => ({ tabs: paths.map((path) => ({ kind: "repo", path })), active: 0 });
 
@@ -58,5 +58,45 @@ describe("tabs", () => {
   it("labels tabs by repository name", () => {
     expect(tabLabel({ kind: "repo", path: "/work/sample/" })).toBe("sample");
     expect(tabLabel({ kind: "launcher" })).toBe("New tab");
+  });
+});
+
+describe("worktree tab groups", () => {
+  const mains = { "/w/repo-feature": "/w/repo", "/w/repo-fix": "/w/repo" };
+
+  it("moves the tabs of a repository's worktrees next to it without changing which tab is active", () => {
+    const state: TabsState = { ...repos("/w/repo", "/w/other", "/w/repo-feature", "/w/repo-fix"), active: 2 };
+
+    const grouped = groupTabs(state, mains);
+
+    expect(grouped.tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo", "/w/repo-feature", "/w/repo-fix", "/w/other"]);
+    expect(grouped.tabs[grouped.active]).toEqual({ kind: "repo", path: "/w/repo-feature" });
+  });
+
+  it("leaves an already grouped list and unrelated tabs in place, launcher included", () => {
+    const state: TabsState = { tabs: [{ kind: "repo", path: "/a" }, { kind: "launcher" }, { kind: "repo", path: "/b" }], active: 1 };
+
+    expect(groupTabs(state, {})).toEqual(state);
+  });
+
+  it("keeps a worktree tab in its group when its main repository is not open", () => {
+    const state: TabsState = { ...repos("/w/repo-feature", "/w/other", "/w/repo-fix"), active: 0 };
+
+    expect(groupTabs(state, mains).tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo-feature", "/w/repo-fix", "/w/other"]);
+  });
+
+  it("describes the groups with the main repository, each tab's position, and whether it is a linked worktree", () => {
+    const grouped = groupTabs({ ...repos("/w/repo", "/w/other", "/w/repo-feature"), active: 0 }, mains);
+
+    expect(tabGroups(grouped, mains)).toEqual([
+      {
+        main: "/w/repo",
+        tabs: [
+          { tab: { kind: "repo", path: "/w/repo" }, index: 0, linked: false },
+          { tab: { kind: "repo", path: "/w/repo-feature" }, index: 1, linked: true },
+        ],
+      },
+      { main: "/w/other", tabs: [{ tab: { kind: "repo", path: "/w/other" }, index: 2, linked: false }] },
+    ]);
   });
 });

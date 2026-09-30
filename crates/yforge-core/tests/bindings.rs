@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 
 use ts_rs::{Config, TS};
 use yforge_core::{
-    ActivityEntry, AmendInfo, AppInfo, AppSettings, AuthPromptEvent, AuthReply, CheckoutOutcome,
-    CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide, CrashRecord,
-    CrashReport, ErrorPayload, FileDiff, ForceLease, ForcePushPlan, GraphPage, Identity,
-    IdentityField, IntegrationPreview, MergeMode, OperationKind, OperationOutcome,
+    ActivityEntry, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthPromptEvent, AuthReply,
+    CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide,
+    CrashRecord, CrashReport, ErrorPayload, FileDiff, ForceLease, ForcePushPlan, GraphPage,
+    Identity, IdentityField, IntegrationPreview, MergeMode, OperationKind, OperationOutcome,
     OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus, RemoteInfo, RepoChanged,
     RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
@@ -108,6 +108,7 @@ fn export_all(dir: &Path) {
     GraphVisibility::export_all(&config).expect("export GraphVisibility");
     StashDetails::export_all(&config).expect("export StashDetails");
     RepoUiPrefs::export_all(&config).expect("export RepoUiPrefs");
+    AppUiPrefs::export_all(&config).expect("export AppUiPrefs");
     OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
     CliInstall::export_all(&config).expect("export CliInstall");
 }

@@ -14,14 +14,18 @@ afterEach(async () => {
   clearMocks();
 });
 
-async function mountTabs() {
+async function mountTabs(tabs = ["/work/sample"], mains: Record<string, string> = {}) {
   mockIPC(
-    (cmd) => {
+    (cmd, args) => {
       if (cmd === "settings_load") return defaultSettings;
-      if (cmd === "session_load") return { tabs: ["/work/sample"], active: 0 };
+      if (cmd === "session_load") return { tabs, active: 0 };
       if (cmd === "activity_list" || cmd === "recents_list") return [];
       if (cmd === "launch_path") return "/nowhere";
-      if (cmd === "repo_open") throw { kind: "not_a_repository", message: "no", output: null };
+      if (cmd === "repo_open") {
+        const path = (args as { path: string }).path;
+        if (!tabs.includes(path)) throw { kind: "not_a_repository", message: "no", output: null };
+        return { root: path, main_root: mains[path] ?? path };
+      }
       return null;
     },
     { shouldMockEvents: true },
@@ -45,5 +49,20 @@ describe("tab bar", () => {
     expect(mark?.querySelector("circle")?.getAttribute("r")).toBe("96");
     expect(tab?.textContent).not.toContain("Y");
     expect(tab?.textContent?.replace(/\s+/g, " ").trim().startsWith("sample")).toBe(true);
+  });
+
+  it("groups a worktree's tab under its repository with the worktree glyph instead of the logo, and leaves single tabs ungrouped", async () => {
+    const host = await mountTabs(["/work/sample", "/work/other", "/work/sample-feature"], { "/work/sample-feature": "/work/sample" });
+
+    const groups = [...host.querySelectorAll(".tab-group")];
+    const names = (group: Element) => [...group.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("title"));
+
+    expect(groups.map(names)).toEqual([["/work/sample", "/work/sample-feature"], ["/work/other"]]);
+    expect(groups[0]?.getAttribute("role")).toBe("group");
+    expect(groups[0]?.getAttribute("aria-label")).toBe("sample and its worktrees");
+    expect(groups[0]?.querySelectorAll("svg.brand-mark")).toHaveLength(1);
+    expect(groups[0]?.querySelector(".tab.linked svg.brand-mark")).toBeNull();
+    expect(groups[0]?.querySelector(".tab.linked .icon")).not.toBeNull();
+    expect(groups[1]?.getAttribute("role")).toBeNull();
   });
 });

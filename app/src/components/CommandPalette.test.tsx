@@ -1,3 +1,4 @@
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { NOTHING_TO_UNDO } from "../state/activityModel";
@@ -14,7 +15,7 @@ afterEach(() => {
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
-  window.localStorage.clear();
+  clearMocks();
 });
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
@@ -53,6 +54,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     revealHead: vi.fn(),
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
+    openPanel: vi.fn(),
     loadCommits: async () => [{ sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false }],
     ...overrides,
   };
@@ -182,12 +184,29 @@ describe("command palette", () => {
     expect(closed).toHaveBeenCalled();
   });
 
-  it("orders recently run commands first for an empty query", async () => {
-    window.localStorage.setItem("yforge.palette.recent", JSON.stringify(["tab.new"]));
+  it("orders the recently run commands the database holds first for an empty query", async () => {
+    mockIPC((cmd) => (cmd === "app_ui_prefs_load" ? { palette_recents: ["tab.new"], last_parent_folder: null } : null));
     const { labels } = mount();
     await flush();
 
     expect(labels()[0]).toBe("New tab");
+  });
+
+  it("stores the command it runs as the newest recent command", async () => {
+    const saves: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "app_ui_prefs_save") saves.push(args);
+      return cmd === "app_ui_prefs_load" ? { palette_recents: ["tab.new"], last_parent_folder: null } : null;
+    });
+    const { input, key } = mount();
+    await flush();
+
+    type(input(), "clone");
+    await flush();
+    key("Enter");
+    await flush(40);
+
+    expect(saves).toEqual([{ prefs: { palette_recents: ["repository.clone", "tab.new"], last_parent_folder: null } }]);
   });
 
   it("without a repository, repository commands are disabled with a reason and application commands run", async () => {
