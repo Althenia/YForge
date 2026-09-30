@@ -14,20 +14,22 @@ use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use yforge_ai::{Ai, AiError, KeychainStore, Selection};
 use yforge_core::{
-    ActivityEntry, AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, AmendInfo, AppInfo,
-    AppSettings, AppUiPrefs, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget,
-    CliInstall, CommitBrief, CommitDetails, CommitDraft, ConflictFile, ConflictProposal,
-    ConflictSide, CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload,
-    FileAtRevision, FileDiff, ForceLease, ForcePushPlan, GraphPage, GraphVisibility, Identity,
-    IdentityField, IntegrationPreview, LostCommit, MergeMode, MessageEdit, OperationKind,
-    OperationOutcome, OperationProgress, Planned, Progress, ProviderInput, ProviderStatus,
-    ProviderSummary, ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget, RebaseOutcome,
-    RebasePlan, RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup,
-    RecomposePreview, RecomposeProposal, RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged,
-    RepoSettings, RepoSnapshot, RepoUiPrefs, RepoWatcher, ResetMode, SearchResult, SnapshotChange,
-    SnapshotInfo, SshKey, StashDetails, StashRestore, SwitchStash, TabSession, UsageRecord,
-    WorktreeIntegration, WorktreeStatus,
+    ActivityEntry, AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod,
+    AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, CancelToken, ChangeArea,
+    CheckoutOutcome, CheckoutTarget, CliInstall, CommitBrief, CommitDetails, CommitDraft,
+    ConflictFile, ConflictProposal, ConflictSide, CoreError, CrashRecord, CrashReport, CreatePull,
+    DiffHunk, ErrorKind, ErrorPayload, FileAtRevision, FileDiff, ForceLease, ForcePushPlan,
+    GraphPage, GraphVisibility, Identity, IdentityField, IntegrationPreview, LostCommit,
+    MatchedRepo, MergeMode, MessageEdit, ModelInfo, OperationKind, OperationOutcome,
+    OperationProgress, Planned, PlatformConnection, PlatformKind, PrDetail, Progress,
+    ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome,
+    PullReport, PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep,
+    RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
+    ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs, RepoWatcher,
+    ResetMode, SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails, StashRestore,
+    SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
+use yforge_platform::{NewConnection, PlatformService, PrFilter};
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
@@ -45,6 +47,8 @@ const LOST_COMMITS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs
 pub struct DataDir(pub PathBuf);
 
 pub struct AiState(pub Ai);
+
+pub struct PlatformState(pub Arc<PlatformService>);
 
 #[derive(Default)]
 struct WatchState(Mutex<Option<RepoWatcher>>);
@@ -2929,7 +2933,7 @@ impl<R: Runtime> AiCall<'_, R> {
                 operation: self.operation,
                 provider: self.selection.config.kind,
                 provider_name: self.selection.config.name.clone(),
-                model: self.selection.config.model.clone(),
+                model: Some(self.selection.model.clone()),
                 started_at,
                 duration_ms: u32::try_from(clock.elapsed().as_millis()).unwrap_or(u32::MAX),
                 error_kind: result.as_ref().err().map(ai_error_kind),
@@ -3021,21 +3025,95 @@ async fn ai_provider_test(
 }
 
 #[tauri::command]
-async fn ai_provider_models(
+async fn ai_models(
     data: State<'_, DataDir>,
     ai: State<'_, AiState>,
-    id: String,
-) -> Result<Vec<AiModel>, ErrorPayload> {
-    log::debug!("ai_provider_models id={id}");
-    let result = ai.0.models(&data_dir(&data), &id).await.map_err(ai_payload);
-    log_outcome("ai_provider_models", &result, |models| {
+    provider_id: String,
+) -> Result<Vec<ModelInfo>, ErrorPayload> {
+    log::debug!("ai_models provider_id={provider_id}");
+    let result =
+        ai.0.models(&data_dir(&data), &provider_id)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_models", &result, |models| {
         format!("models={}", models.len())
     });
     result
 }
 
+#[tauri::command]
+async fn ai_feature_config_list(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+) -> Result<Vec<AiFeatureSummary>, ErrorPayload> {
+    let result =
+        ai.0.feature_configs(&data_dir(&data))
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_feature_config_list", &result, |list| {
+        format!(
+            "configured={}",
+            list.iter().filter(|s| s.config.is_some()).count()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_feature_config_set(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    feature: AiFeature,
+    provider_id: String,
+    model_id: String,
+    prompt_template: String,
+) -> Result<AiFeatureSummary, ErrorPayload> {
+    log::debug!(
+        "ai_feature_config_set feature={feature:?} provider_id={provider_id} model_id={model_id} prompt_chars={}",
+        prompt_template.chars().count()
+    );
+    let config = AiFeatureConfig {
+        feature,
+        provider_id,
+        model_id,
+        prompt_template,
+    };
+    let result =
+        ai.0.set_feature(&data_dir(&data), config)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_feature_config_set", &result, |summary| {
+        format!("feature={:?}", summary.feature)
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_feature_config_reset(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    feature: AiFeature,
+) -> Result<AiFeatureSummary, ErrorPayload> {
+    log::debug!("ai_feature_config_reset feature={feature:?}");
+    let result =
+        ai.0.reset_feature(&data_dir(&data), feature)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_feature_config_reset", &result, |summary| {
+        format!("feature={:?}", summary.feature)
+    });
+    result
+}
+
+fn open_in_browser(url: &str) {
+    if let Err(error) = std::process::Command::new("open").arg(url).spawn() {
+        log::warn!("could not open the sign-in page: {error}");
+    }
+}
+
 fn stage_name(stage: &AiSignInStage) -> &'static str {
     match stage {
+        AiSignInStage::Browser { .. } => "browser",
         AiSignInStage::DeviceCode { .. } => "device_code",
         AiSignInStage::Completed { .. } => "completed",
     }
@@ -3061,6 +3139,9 @@ async fn ai_sign_in<R: Runtime>(
                 "ai-sign-in operation={operation} stage={}",
                 stage_name(&stage)
             );
+            if let AiSignInStage::Browser { url } = &stage {
+                open_in_browser(url);
+            }
             let event = AiSignInEvent {
                 operation: operation.clone(),
                 provider: target.clone(),
@@ -3088,7 +3169,7 @@ async fn ai_generate_commit_message<R: Runtime>(
 ) -> Result<CommitDraft, ErrorPayload> {
     log::debug!("ai_generate_commit_message path={path} id={id}");
     let selection =
-        ai.0.resolve(&app.state::<DataDir>().0)
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::GenerateCommit)
             .await
             .map_err(ai_payload)?;
     let target = path.clone();
@@ -3132,7 +3213,7 @@ async fn ai_propose_recompose<R: Runtime>(
 ) -> Result<RecomposeProposal, ErrorPayload> {
     log::debug!("ai_propose_recompose path={path} id={id} base={base}");
     let selection =
-        ai.0.resolve(&app.state::<DataDir>().0)
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::Recompose)
             .await
             .map_err(ai_payload)?;
     let target = path.clone();
@@ -3175,7 +3256,7 @@ async fn ai_propose_conflict<R: Runtime>(
 ) -> Result<ConflictProposal, ErrorPayload> {
     log::debug!("ai_propose_conflict path={path} id={id} file={file}");
     let selection =
-        ai.0.resolve(&app.state::<DataDir>().0)
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::ConflictFix)
             .await
             .map_err(ai_payload)?;
     let target = path.clone();
@@ -3444,13 +3525,235 @@ async fn snapshot_delete<R: Runtime>(
     result
 }
 
-pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
-    register_with(builder, Ai::new(Arc::new(KeychainStore)))
+fn platform_payload(error: yforge_platform::PlatformError) -> ErrorPayload {
+    ErrorPayload::from(CoreError::from(error))
 }
 
-pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::Builder<R> {
+async fn matched_repo(
+    platform: &State<'_, PlatformState>,
+    data: &State<'_, DataDir>,
+    path: String,
+) -> Result<MatchedRepo, ErrorPayload> {
+    let service = platform.0.clone();
+    let dir = data_dir(data);
+    blocking(move || {
+        service
+            .require_repo(&dir, Path::new(&path))
+            .map_err(CoreError::from)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn platform_connections_list(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+) -> Result<Vec<PlatformConnection>, ErrorPayload> {
+    let service = platform.0.clone();
+    let dir = data_dir(&data);
+    let result = blocking(move || service.list(&dir).map_err(CoreError::from)).await;
+    log_outcome("platform_connections_list", &result, |list| {
+        format!("connections={}", list.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_connection_add(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    kind: PlatformKind,
+    host: String,
+    name: String,
+    token: String,
+    insecure_tls: bool,
+) -> Result<PlatformConnection, ErrorPayload> {
+    log::debug!(
+        "platform_connection_add kind={kind:?} host={host} name={name:?} insecure_tls={insecure_tls} token=<redacted>"
+    );
+    let input = NewConnection {
+        kind,
+        host,
+        name,
+        token,
+        insecure_tls,
+    };
+    let result = platform
+        .0
+        .add(&data_dir(&data), input)
+        .await
+        .map_err(platform_payload);
+    log_outcome("platform_connection_add", &result, |connection| {
+        format!("id={}", connection.id)
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_connection_remove(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("platform_connection_remove id={id}");
+    let service = platform.0.clone();
+    let dir = data_dir(&data);
+    let result = blocking(move || service.remove(&dir, &id).map_err(CoreError::from)).await;
+    log_outcome("platform_connection_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn platform_connection_test(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<String, ErrorPayload> {
+    log::debug!("platform_connection_test id={id}");
+    let result = platform
+        .0
+        .test(&data_dir(&data), &id)
+        .await
+        .map_err(platform_payload);
+    log_outcome("platform_connection_test", &result, |login| {
+        format!("login={login}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_repo_match(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+) -> Result<Option<MatchedRepo>, ErrorPayload> {
+    log::debug!("platform_repo_match path={path}");
+    let service = platform.0.clone();
+    let dir = data_dir(&data);
+    let result = blocking(move || {
+        service
+            .match_repo(&dir, Path::new(&path))
+            .map_err(CoreError::from)
+    })
+    .await;
+    log_outcome("platform_repo_match", &result, |matched| {
+        format!("matched={}", matched.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_prs_list(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+    state: PrFilter,
+) -> Result<Vec<PullRequest>, ErrorPayload> {
+    log::debug!("platform_prs_list path={path} state={state:?}");
+    let result = async {
+        let matched = matched_repo(&platform, &data, path).await?;
+        platform
+            .0
+            .prs_list(&matched, state)
+            .await
+            .map_err(platform_payload)
+    }
+    .await;
+    log_outcome("platform_prs_list", &result, |pulls| {
+        format!("pulls={}", pulls.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_pr_detail(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+    number: i64,
+) -> Result<PrDetail, ErrorPayload> {
+    log::debug!("platform_pr_detail path={path} number={number}");
+    let result = async {
+        let matched = matched_repo(&platform, &data, path).await?;
+        platform
+            .0
+            .pr_detail(&matched, number)
+            .await
+            .map_err(platform_payload)
+    }
+    .await;
+    log_outcome("platform_pr_detail", &result, |detail| {
+        format!("files={}", detail.files.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_pr_create(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+    input: CreatePull,
+) -> Result<PullRequest, ErrorPayload> {
+    log::debug!(
+        "platform_pr_create path={path} source={} target={}",
+        input.source_ref,
+        input.target_ref
+    );
+    let result = async {
+        let matched = matched_repo(&platform, &data, path).await?;
+        platform
+            .0
+            .pr_create(&matched, &input)
+            .await
+            .map_err(platform_payload)
+    }
+    .await;
+    log_outcome("platform_pr_create", &result, |pull| {
+        format!("number={}", pull.number)
+    });
+    result
+}
+
+#[tauri::command]
+async fn platform_pr_merge(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+    number: i64,
+) -> Result<PullRequest, ErrorPayload> {
+    log::debug!("platform_pr_merge path={path} number={number}");
+    let result = async {
+        let matched = matched_repo(&platform, &data, path).await?;
+        platform
+            .0
+            .pr_merge(&matched, number)
+            .await
+            .map_err(platform_payload)
+    }
+    .await;
+    log_outcome("platform_pr_merge", &result, |pull| {
+        format!("number={} state={:?}", pull.number, pull.state)
+    });
+    result
+}
+
+pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    register_with(
+        builder,
+        Ai::new(Arc::new(KeychainStore)),
+        PlatformService::new(Arc::new(KeychainStore)),
+    )
+}
+
+pub fn register_with<R: Runtime>(
+    builder: tauri::Builder<R>,
+    ai: Ai,
+    platform: PlatformService,
+) -> tauri::Builder<R> {
     builder
         .manage(AiState(ai))
+        .manage(PlatformState(Arc::new(platform)))
         .manage(WatchState::default())
         .manage(Operations::default())
         .manage(ActivityLog::default())
@@ -3589,11 +3892,23 @@ pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::B
             ai_provider_remove,
             ai_set_active,
             ai_provider_test,
-            ai_provider_models,
+            ai_models,
+            ai_feature_config_list,
+            ai_feature_config_set,
+            ai_feature_config_reset,
             ai_sign_in,
             ai_generate_commit_message,
             ai_propose_recompose,
-            ai_propose_conflict
+            ai_propose_conflict,
+            platform_connections_list,
+            platform_connection_add,
+            platform_connection_remove,
+            platform_connection_test,
+            platform_repo_match,
+            platform_prs_list,
+            platform_pr_detail,
+            platform_pr_create,
+            platform_pr_merge
         ])
 }
 

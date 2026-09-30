@@ -4746,7 +4746,6 @@ dependencies = [
  "libc",
  "mio",
  "pin-project-lite",
- "signal-hook-registry",
  "socket2",
  "tokio-macros",
  "windows-sys 0.61.2",
@@ -5900,6 +5899,7 @@ dependencies = [
  "tempfile",
  "yforge-ai",
  "yforge-core",
+ "yforge-platform",
 ]
 
 [[package]]
@@ -5927,6 +5927,20 @@ dependencies = [
  "serde_json",
  "tempfile",
  "ts-rs",
+]
+
+[[package]]
+name = "yforge-platform"
+version = "0.1.0"
+dependencies = [
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "yforge-ai",
+ "yforge-core",
 ]
 
 [[package]]
