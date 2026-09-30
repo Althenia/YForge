@@ -143,6 +143,11 @@ The decision for each candidate follows its workflow dependency.
       - OpenRouter, with an API key;
       - OpenAI-compatible APIs, any number of custom endpoints, each with a base URL and an optional API key.
     - YForge never reads, refreshes, or stores subscription tokens. API keys live in the macOS Keychain, never in YForge's database.
+23. **Recovery** (owner decision, 2026-09-30)
+    - Reflog browser for HEAD and every branch: each entry shows the action, the commit, and when; any entry can be restored as a new branch, a detached checkout, or a reset of the current branch, each undoable.
+    - Lost-commit finder: commits no ref reaches (dropped stashes, deleted branches, rewritten history) found with `git fsck`, shown with their summary and date, restorable the same way.
+    - Safety snapshots: before any destructive YForge action (discard, hard reset, checkout that overwrites, interactive rebase, squash, recompose, stash drop, branch delete), YForge records HEAD, the index, and the working tree including untracked files as a snapshot under `refs/yforge/snapshots/*`, kept 30 days; any snapshot can be restored or its files copied back.
+    - Limits stated in the UI: work changed outside YForge and never committed, and objects Git has already pruned, cannot be recovered. Snapshot refs appear in `git log --all` in other tools and are pushed only by `git push --mirror`.
 
 ## Post-MVP
 
