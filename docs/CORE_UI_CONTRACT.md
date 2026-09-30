@@ -318,8 +318,9 @@ Every other command records `unavailable { reason: "<operation> has no safe undo
 
 - Install: `pnpm install` in `app/`.
 - Develop: `pnpm tauri dev` in `app/`. It starts Vite at `http://localhost:1420` (`beforeDevCommand`) and runs the shell against it.
-- Build: `pnpm tauri build --debug --bundles app` in `app/` embeds `app/dist` and produces `target/debug/bundle/macos/YForge.app`.
-- Run the built app: `YFORGE_REPO=<repository path> target/debug/bundle/macos/YForge.app/Contents/MacOS/yforge`. At startup the app restores the saved tabs, then adds the launch path (`YFORGE_REPO`, else the first CLI argument, else the current directory) as the active tab when it is a repository; with no tab it shows the launcher. Set `YFORGE_DATA_DIR` to keep settings, recents, and tabs out of the real app-data directory.
+- Release build: `pnpm tauri build` in `app/` embeds `app/dist` and produces `target/release/bundle/macos/YForge.app` and `target/release/bundle/dmg/YForge_<version>_<arch>.dmg` (targets `app` and `dmg`; the version comes from `app/package.json` through `tauri.conf.json`; macOS 13.3 or newer). The bundle is unsigned (ad-hoc), so a quarantined copy needs Gatekeeper approval; see [README.md](../README.md#release-build).
+- Debug build: `pnpm tauri build --debug --bundles app` in `app/` produces `target/debug/bundle/macos/YForge.app`, which logs every command at `debug` level (see Debug evidence).
+- Run the built app: `YFORGE_REPO=<repository path> target/release/bundle/macos/YForge.app/Contents/MacOS/yforge` (use `target/debug/…` for the debug build). At startup the app restores the saved tabs, then adds the launch path (`YFORGE_REPO`, else the first CLI argument, else the current directory) as the active tab when it is a repository; with no tab it shows the launcher. Set `YFORGE_DATA_DIR` to keep settings, recents, and tabs out of the real app-data directory.
 - `target/debug/yforge` produced by plain `cargo build` or `cargo test` loads `devUrl`, so it shows a blank window unless `pnpm dev` is running.
 
 ## Debug evidence
