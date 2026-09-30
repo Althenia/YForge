@@ -8,11 +8,13 @@ import { testSession } from "../components/testkit";
 
 let offline = false;
 const inspected: string[] = [];
+const openedWorktrees: string[] = [];
 
 afterEach(() => {
   clearMocks();
   offline = false;
   inspected.length = 0;
+  openedWorktrees.length = 0;
 });
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
@@ -47,7 +49,7 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
     return handler(call);
   });
   const session = testSession("/r", initial);
-  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", offline: () => offline, inspectStash: (sha) => inspected.push(sha), undoEntry: (id) => entries.find((entry) => entry.id === id) });
+  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", offline: () => offline, inspectStash: (sha) => inspected.push(sha), openWorktree: async (target) => (openedWorktrees.push(target), true), undoEntry: (id) => entries.find((entry) => entry.id === id) });
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
 
@@ -662,7 +664,7 @@ describe("integration actions", () => {
 describe("phase 3b actions", () => {
   it("pulls with the effective default mode", async () => {
     const { actions, calls } = setup(() => null, snapshot(), undefined);
-    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
+    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
 
     await rebasing.pullDefault();
     await actions.pullDefault();
@@ -1226,5 +1228,115 @@ describe("history editing entries", () => {
     actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { root: true });
     const edit = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "edit_history");
     expect(edit).toMatchObject({ disabledReason: "The root commit has no parent to rebase onto" });
+  });
+});
+
+describe("checkout of a branch owned by another worktree", () => {
+  const owned = () =>
+    setup((call) => {
+      if (call.cmd === "checkout") throw rejection("branch_in_worktree", "web-model-sort is checked out in worktree /w/my repo");
+      return null;
+    });
+
+  it("shows the core's message with an Open worktree action that opens that worktree and clears the notice", async () => {
+    const { actions, session } = owned();
+
+    actions.checkout({ kind: "local_branch", name: "web-model-sort" });
+    await settle();
+
+    const notice = actions.notices()[0];
+    expect(notice?.text).toBe("web-model-sort is checked out in worktree /w/my repo");
+    expect(notice?.actions.map((action) => action.label)).toEqual(["Open worktree"]);
+    expect(session.notice()).toBeUndefined();
+    await notice?.actions[0]?.run();
+    expect(openedWorktrees).toEqual(["/w/my repo"]);
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("drops the notice when the next switch starts", async () => {
+    let refuse = true;
+    const { actions } = setup((call) => {
+      if (call.cmd !== "checkout") return null;
+      if (refuse) throw rejection("branch_in_worktree", "web-model-sort is checked out in worktree /w/other");
+      return { auto_stash: "none" };
+    });
+    actions.checkout({ kind: "local_branch", name: "web-model-sort" });
+    await settle();
+    expect(actions.notices()).toHaveLength(1);
+
+    refuse = false;
+    actions.checkout({ kind: "local_branch", name: "feature" });
+    await settle();
+
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("reports a refusal that names no worktree as plain text", async () => {
+    const { actions, session } = setup((call) => {
+      if (call.cmd === "checkout") throw rejection("branch_in_worktree", "unexpected wording");
+      return null;
+    });
+
+    actions.checkout({ kind: "local_branch", name: "feature" });
+    await settle();
+
+    expect(actions.notices()).toEqual([]);
+    expect(session.notice()).toBe("unexpected wording");
+  });
+});
+
+describe("bulk branch and stash actions", () => {
+  const stashes = [
+    { index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "On main: one", time: 0 },
+    { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: two", time: 0 },
+    { index: 2, sha: "s2", base_sha: null, author_name: "Yui", message: "On main: three", time: 0 },
+  ];
+
+  it("confirms deleting several branches once, naming them and the commits that would lose their name, then forces only those", async () => {
+    const lost = [{ sha: "aaaaaaa1234", summary: "Topic work" }];
+    const { actions, calls } = setup((call) => (call.cmd === "branch_delete_preview" ? (call.args.name === "feature" ? lost : []) : null));
+
+    await actions.deleteBranches(["feature", "spare"]);
+
+    const dialog = actions.dialog();
+    expect(dialog?.copy).toMatchObject({ title: "Delete 2 branches?", names: ["feature", "spare"], confirmLabel: "Delete branches", warning: true });
+    expect(dialog?.copy.also).toEqual({ heading: "Commits left without a name", names: ["feature: aaaaaaa Topic work"] });
+    expect(calls.some((call) => call.cmd === "delete_branch")).toBe(false);
+    await dialog?.run();
+    expect(calls.filter((call) => call.cmd === "delete_branch").map((call) => call.args)).toEqual([
+      { path: "/r", name: "feature", force: true },
+      { path: "/r", name: "spare", force: false },
+    ]);
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
+  });
+
+  it("stops at the first refused branch and says why", async () => {
+    const { actions, calls, session } = setup((call) => {
+      if (call.cmd === "branch_delete_preview") return [];
+      if (call.cmd === "delete_branch" && call.args.name === "feature") throw rejection("branch_in_worktree", "feature is checked out in worktree /w/x");
+      return null;
+    });
+
+    await actions.deleteBranches(["feature", "spare"]);
+    await actions.dialog()?.run();
+    await settle();
+
+    expect(calls.filter((call) => call.cmd === "delete_branch")).toHaveLength(1);
+    expect(session.notice()).toBe("feature is checked out in worktree /w/x");
+  });
+
+  it("drops several stashes from the highest index down after one confirmation", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.dropStashes([stashes[0], stashes[2]] as never);
+    const dialog = actions.dialog();
+
+    expect(dialog?.copy).toMatchObject({ title: "Drop 2 stashes?", names: ["stash@{0} On main: one", "stash@{2} On main: three"], confirmLabel: "Drop stashes" });
+    expect(calls.some((call) => call.cmd === "stash_drop")).toBe(false);
+    await dialog?.run();
+    expect(calls.filter((call) => call.cmd === "stash_drop").map((call) => call.args)).toEqual([
+      { path: "/r", index: 2, sha: "s2" },
+      { path: "/r", index: 0, sha: "s0" },
+    ]);
   });
 });

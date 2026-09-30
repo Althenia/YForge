@@ -4,8 +4,10 @@ import { useApp } from "../state/app";
 import { entriesFor, undoState } from "../state/activityModel";
 import { earlierEntries } from "../state/diagnosticsModel";
 import { createPagedList } from "../state/pagedList";
-import { diagnosticsKeys } from "../state/queryKeys";
+import { useQuery } from "../state/query";
+import { appKeys, diagnosticsKeys, repoKeys } from "../state/queryKeys";
 import { ActivityEntryView } from "./ActivityEntryView";
+import { AuthorBadge } from "./AuthorBadge";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
 
@@ -18,6 +20,8 @@ export function ActivityDrawer(props: { repo: string | undefined; onUndo: (id: n
     return { key: diagnosticsKeys.history(repo ?? ""), fetchPage: (before, limit) => client.activityHistory(repo as string, before, limit), enabled: repo !== undefined && !everything() };
   });
   const earlier = createMemo(() => (everything() ? [] : earlierEntries(history.rows(), app.activity())));
+  const identity = useQuery(() => ({ queryKey: props.repo === undefined ? appKeys.identity : repoKeys.identity(props.repo), queryFn: () => client.identityRead(props.repo ?? null) }));
+  const who = () => identity.data?.name.value ?? undefined;
   const undoId = () => {
     const state = props.repo === undefined ? undefined : undoState(app.activity(), props.repo);
     return state?.kind === "available" ? state.entry.id : undefined;
@@ -29,6 +33,14 @@ export function ActivityDrawer(props: { repo: string | undefined; onUndo: (id: n
           <Icon name="activity" />
           Activity
         </h2>
+        <Show when={who()}>
+          {(name) => (
+            <span class="drawer-who" title={identity.data?.email.value ?? undefined}>
+              <AuthorBadge name={name()} email={identity.data?.email.value} />
+              {name()}
+            </span>
+          )}
+        </Show>
         <Show when={props.repo}>
           <label class="check">
             <input type="checkbox" checked={everything()} onChange={(event) => setEverything(event.currentTarget.checked)} />

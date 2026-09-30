@@ -2,6 +2,7 @@ import { createSignal } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AutoStash } from "../ipc/bindings/AutoStash";
 import type { CheckoutTarget } from "../ipc/bindings/CheckoutTarget";
+import type { CommitBrief } from "../ipc/bindings/CommitBrief";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { MergeMode } from "../ipc/bindings/MergeMode";
@@ -14,16 +15,19 @@ import type { PullStash } from "../ipc/bindings/PullStash";
 import type { PushTarget } from "../ipc/bindings/PushTarget";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashRestore } from "../ipc/bindings/StashRestore";
+import type { IconName } from "../iconNames";
 import { client, IpcError } from "../ipc/client";
 import { changeTotal } from "./changes";
 import {
   deleteBranchAndRemoteCopy,
   deleteBranchCopy,
+  deleteBranchesCopy,
   deleteRemoteBranchCopy,
   deleteRemoteTagCopy,
   deleteTagCopy,
   detachCopy,
   dropStashCopy,
+  dropStashesCopy,
   forcePushCopy,
   pullStashKeptCopy,
   rebaseCopy,
@@ -76,7 +80,7 @@ export type HistoryView =
 
 export type HistoryRow = { root?: boolean; squashReason?: string };
 
-export type StripNotice = { id: string; text: string; detail?: string; actions: Array<{ label: string; run: () => void | Promise<void> }> };
+export type StripNotice = { id: string; text: string; icon?: IconName; detail?: string; actions: Array<{ label: string; run: () => void | Promise<void> }> };
 
 export type DialogState = { copy: ConfirmCopy; run: () => void | Promise<void> };
 
@@ -133,6 +137,8 @@ export function restoreMessage(kind: "apply" | "pop", restore: StashRestore): st
 }
 
 const PULL_STASH_NOTICE = "pull-stash";
+const BRANCH_WORKTREE_NOTICE = "branch-worktree";
+const worktreeOfMessage = (message: string): string | undefined => /^\S+ is checked out in worktree (.+)$/.exec(message)?.[1];
 
 let sequence = 0;
 const nextId = (): string => `op-${Date.now()}-${(sequence += 1)}`;
@@ -143,6 +149,7 @@ export type RepoActionDeps = {
   pullMode: () => PullMode;
   offline: () => boolean;
   inspectStash: (sha: string) => void;
+  openWorktree: (path: string) => Promise<boolean>;
   undoEntry: (id: number) => ActivityEntry | undefined;
 };
 
@@ -336,8 +343,31 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (state.kind === "running" && state.id === progress.id) setSync({ ...state, phase: progress.phase, percent: progress.percent });
   }
 
+  function offerOpenWorktree(error: IpcError): void {
+    const worktree = worktreeOfMessage(error.message);
+    if (worktree === undefined) {
+      fail(error);
+      return;
+    }
+    addNotice({
+      id: BRANCH_WORKTREE_NOTICE,
+      text: error.message,
+      icon: "worktree",
+      actions: [
+        {
+          label: "Open worktree",
+          run: async () => {
+            dismissNotice(BRANCH_WORKTREE_NOTICE);
+            await deps.openWorktree(worktree);
+          },
+        },
+      ],
+    });
+  }
+
   async function switchTo(target: CheckoutTarget, label: string, stash: boolean): Promise<void> {
     dismissNotice(PULL_STASH_NOTICE);
+    dismissNotice(BRANCH_WORKTREE_NOTICE);
     try {
       const left = currentBranch();
       const outcome = await client.checkout(path, target, stash, stash);
@@ -346,6 +376,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     } catch (failure) {
       const error = asIpcError(failure);
       if (error.kind === "local_changes" && !stash) confirm(stashAndSwitchCopy(label, currentBranch()), () => switchTo(target, label, true));
+      else if (error.kind === "branch_in_worktree") offerOpenWorktree(error);
       else fail(error);
     }
     await session.refresh();
@@ -384,6 +415,22 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       return;
     }
     confirm(deleteBranchCopy(name, lost), () => void session.mutate(() => client.deleteBranch(path, name, true)));
+  }
+
+  async function deleteBranches(names: readonly string[]): Promise<void> {
+    let previews: Array<{ name: string; commits: CommitBrief[] }>;
+    try {
+      previews = await Promise.all(names.map(async (name) => ({ name, commits: await session.read(["delete-preview", name], () => client.branchDeletePreview(path, name)) })));
+    } catch (failure) {
+      fail(failure);
+      return;
+    }
+    const lost = previews.filter((preview) => preview.commits.length > 0).map((preview) => ({ branch: preview.name, commits: preview.commits }));
+    confirm(deleteBranchesCopy(names, lost), async () => {
+      await session.mutate(async () => {
+        for (const preview of previews) await client.deleteBranch(path, preview.name, preview.commits.length > 0);
+      });
+    });
   }
 
   function remoteBranchOf(target: RefTarget): { remote: string; name: string } | undefined {
@@ -706,6 +753,13 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const dropStash = (stash: StashEntry) => confirm(dropStashCopy(stash), () => void session.mutate(() => client.stashDrop(path, stash.index, stash.sha)));
 
+  const dropStashes = (stashes: readonly StashEntry[]) =>
+    confirm(dropStashesCopy(stashes), async () => {
+      await session.mutate(async () => {
+        for (const stash of [...stashes].sort((left, right) => right.index - left.index)) await client.stashDrop(path, stash.index, stash.sha);
+      });
+    });
+
   const openCreateBranchAt = (at: string | null, anchor: Anchor) =>
     setPopover({ kind: "create_branch", anchor, at, atLabel: at === null ? "HEAD" : startLabel(at) });
 
@@ -873,11 +927,13 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     openCreateTag,
     pushTag,
     deleteBranch,
+    deleteBranches,
     openRenameBranch,
     openCreateBranchAt,
     deleteLocalTag,
     deleteTagOnRemote,
     dropStash,
+    dropStashes,
     restoreStash,
     confirmForcePush,
     cancelSync,

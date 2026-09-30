@@ -1,5 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { gravatarUrl, setGravatarEnabled } from "../state/avatar";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { defaultSettings } from "../state/settingsModel";
 import { ActivityDrawer } from "./ActivityDrawer";
@@ -8,6 +9,8 @@ import { buttonNamed, flush, mountWithApp } from "./testkit";
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
+  setGravatarEnabled(true);
+  vi.unstubAllGlobals();
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
@@ -32,7 +35,7 @@ const entry = (id: number, overrides: Partial<ActivityEntry> = {}): ActivityEntr
   ...overrides,
 });
 
-async function open(options: { history: ActivityEntry[]; session: ActivityEntry[]; repo?: string | undefined }) {
+async function open(options: { history: ActivityEntry[]; session: ActivityEntry[]; repo?: string | undefined; identity?: unknown }) {
   let history = options.history;
   let session = options.session;
   const calls: Call[] = [];
@@ -52,6 +55,8 @@ async function open(options: { history: ActivityEntry[]; session: ActivityEntry[
         return [];
       case "activity_list":
         return session;
+      case "identity_read":
+        return options.identity ?? null;
       case "activity_history": {
         const before = call.args.before as number | null;
         return history.filter((each) => before === null || each.id < before).slice(0, call.args.limit as number);
@@ -146,5 +151,42 @@ describe("activity drawer earlier group", () => {
     expect(calls.filter((call) => call.cmd === "activity_clear").map((call) => call.args)).toEqual([{ repo: "/r" }]);
     expect(rowsOf(host)).toHaveLength(0);
     expect(host.querySelector(".act-group")).toBeNull();
+  });
+});
+
+describe("activity drawer identity badge", () => {
+  const identity = { name: { value: "Yui", source: "global" }, email: { value: "Yui@Example.com", source: "global" } };
+  const requested: string[] = [];
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    referrerPolicy = "";
+    set src(address: string) {
+      requested.push(address);
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  it("shows the gravatar of the git identity the operations run as, next to its name", async () => {
+    requested.length = 0;
+    vi.stubGlobal("Image", FakeImage);
+    const { host, calls } = await open({ history: [], session: [], identity });
+    await flush();
+
+    expect(host.querySelector(".drawer-who")?.textContent).toContain("Yui");
+    expect(host.querySelector(".drawer-who .avatar img")?.getAttribute("src")).toBe(gravatarUrl("yui@example.com"));
+    expect(calls.find((call) => call.cmd === "identity_read")?.args).toEqual({ path: "/r" });
+    expect(requested).toEqual([gravatarUrl("yui@example.com")]);
+  });
+
+  it("shows the initial and requests nothing when profile pictures are off", async () => {
+    requested.length = 0;
+    vi.stubGlobal("Image", FakeImage);
+    setGravatarEnabled(false);
+    const { host } = await open({ history: [], session: [], identity });
+    await flush();
+
+    expect(host.querySelector(".drawer-who .avatar")?.textContent).toBe("Y");
+    expect(requested).toEqual([]);
   });
 });

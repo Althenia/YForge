@@ -26,6 +26,7 @@ pub enum ErrorKind {
     UnmergedBranch,
     WhitespaceIgnored,
     WorktreeDirty,
+    BranchInWorktree,
     OperationInProgress,
     NotHead,
     MergeCommitInRange,
@@ -37,6 +38,9 @@ pub enum ErrorKind {
     AiInvalidResponse,
     AiFailed,
     AiTimeout,
+    NotFound,
+    ApiError,
+    Network,
     Internal,
 }
 
@@ -105,6 +109,10 @@ pub enum CoreError {
     LocalChanges {
         detail: String,
     },
+    BranchInWorktree {
+        branch: String,
+        worktree: String,
+    },
     PushRejected {
         detail: String,
     },
@@ -163,6 +171,18 @@ pub enum CoreError {
         provider: String,
         seconds: u32,
     },
+    NotFound {
+        detail: String,
+    },
+    ApiError {
+        host: String,
+        status: u16,
+        detail: String,
+    },
+    Network {
+        host: String,
+        detail: String,
+    },
 }
 
 impl CoreError {
@@ -188,6 +208,7 @@ impl CoreError {
             Self::UnmergedBranch { .. } => ErrorKind::UnmergedBranch,
             Self::WhitespaceIgnored => ErrorKind::WhitespaceIgnored,
             Self::WorktreeDirty { .. } => ErrorKind::WorktreeDirty,
+            Self::BranchInWorktree { .. } => ErrorKind::BranchInWorktree,
             Self::OperationInProgress { .. } => ErrorKind::OperationInProgress,
             Self::NotHead { .. } => ErrorKind::NotHead,
             Self::MergeCommitInRange { .. } => ErrorKind::MergeCommitInRange,
@@ -199,6 +220,9 @@ impl CoreError {
             Self::AiInvalidResponse { .. } => ErrorKind::AiInvalidResponse,
             Self::AiFailed { .. } => ErrorKind::AiFailed,
             Self::AiTimeout { .. } => ErrorKind::AiTimeout,
+            Self::NotFound { .. } => ErrorKind::NotFound,
+            Self::ApiError { .. } => ErrorKind::ApiError,
+            Self::Network { .. } => ErrorKind::Network,
         }
     }
 
@@ -283,6 +307,10 @@ impl fmt::Display for CoreError {
                 f,
                 "{path} has uncommitted changes. Commit, stash, or discard them first"
             ),
+            Self::BranchInWorktree { branch, worktree } => write!(
+                f,
+                "{branch} is checked out in worktree {worktree}"
+            ),
             Self::OperationInProgress { operation } => write!(
                 f,
                 "A {operation} is in progress. Finish or abort it first"
@@ -318,6 +346,13 @@ impl fmt::Display for CoreError {
             Self::AiTimeout { provider, seconds } => {
                 write!(f, "{provider} did not answer within {seconds} seconds")
             }
+            Self::NotFound { detail } => write!(f, "{detail}"),
+            Self::ApiError {
+                host,
+                status,
+                detail,
+            } => write!(f, "{host} answered with HTTP {status}: {detail}"),
+            Self::Network { host, detail } => write!(f, "Could not reach {host}: {detail}"),
         }
     }
 }

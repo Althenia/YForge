@@ -1,6 +1,6 @@
 # YForge MVP Scope (Phase 4)
 
-Status: **approved 2026-09-29** (revision 2: standalone scope; Rust + Vite/SolidJS)
+Status: **approved 2026-09-29** (revision 3: 2026-09-30, platform integrations added per owner decision)
 
 ## Goal
 
@@ -148,6 +148,13 @@ The decision for each candidate follows its workflow dependency.
     - Lost-commit finder: commits no ref reaches (dropped stashes, deleted branches, rewritten history) found with `git fsck`, shown with their summary and date, restorable the same way.
     - Safety snapshots: before any destructive YForge action (discard, hard reset, checkout that overwrites, interactive rebase, squash, recompose, stash drop, branch delete), YForge records HEAD, the index, and the working tree including untracked files as a snapshot under `refs/yforge/snapshots/*`, kept 30 days; any snapshot can be restored or its files copied back.
     - Limits stated in the UI: work changed outside YForge and never committed, and objects Git has already pruned, cannot be recovered. Snapshot refs appear in `git log --all` in other tools and are pushed only by `git push --mirror`.
+24. **Platform integrations** (owner decision, 2026-09-30; see [PLATFORM_INTEGRATIONS.md](PLATFORM_INTEGRATIONS.md))
+    - GitHub (cloud + Enterprise Server), GitLab (cloud + self-hosted), Bitbucket (Cloud + Data Center).
+    - Connections added in Settings: kind, host, name, personal access token (macOS Keychain, never in the database), optional insecure-TLS flag for self-signed private servers.
+    - A repository matches a connection through its remotes; HTTPS and SSH remote URL forms are both recognized.
+    - Pull requests / merge requests: list, detail (files with change counts), create from a local branch, merge (then fetch).
+    - Auth errors surface a clear "Authentication failed for <host>" with an edit-connection action.
+    - OAuth device flow, repo discovery, and CI checks remain post-MVP.
 
 ## Post-MVP
 
@@ -156,7 +163,6 @@ The decision for each candidate follows its workflow dependency.
 - GitHub:
   - OAuth device flow;
   - repository discovery for clone;
-  - pull requests (list, detail, create, checkout);
   - CI checks.
 - File history, blame, and compare (commit vs working tree, commit vs commit).
 - Image diff.
@@ -170,7 +176,7 @@ The decision for each candidate follows its workflow dependency.
 
 ## Later
 
-- GitLab, Bitbucket, and Azure DevOps adapters; issue trackers; branch from an issue.
+- Azure DevOps adapter; issue trackers; branch from an issue.
 - Local multi-repository workspaces with bulk fetch and pull.
 - In-app file editor; in-app terminal; patches; Gitflow; sparse checkout; encodings; worktree lock.
 

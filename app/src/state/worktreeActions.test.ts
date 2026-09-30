@@ -134,6 +134,58 @@ describe("worktree actions", () => {
     });
   });
 
+  describe("remove several", () => {
+    const spare = lane({ path: "/w/repo-spare", branch: "spare", current: false });
+
+    it("confirms once, naming every path, then removes each with force only where it has changes and closes its tab", async () => {
+      const { actions, calls, closed } = setup(() => null, [main, feature, fix, spare]);
+
+      await actions.removeMany(["/w/repo-feature", "/w/repo-fix"]);
+
+      expect(actions.confirm()?.copy).toMatchObject({ title: "Remove 2 worktrees and discard changes?", names: ["/w/repo-feature", "/w/repo-fix"], confirmLabel: "Remove and discard changes", warning: true });
+      expect(calls.some((call) => call.cmd === "worktree_remove")).toBe(false);
+      await actions.confirm()?.run();
+      expect(calls.filter((call) => call.cmd === "worktree_remove").map((call) => call.args)).toEqual([
+        { path: "/r", worktree: "/w/repo-feature", force: false },
+        { path: "/r", worktree: "/w/repo-fix", force: true },
+      ]);
+      expect(closed).toEqual(["/w/repo-feature", "/w/repo-fix"]);
+      expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
+    });
+
+    it("uses the plain wording when no worktree has changes", async () => {
+      const { actions } = setup(() => null, [main, feature, spare]);
+
+      await actions.removeMany(["/w/repo-feature", "/w/repo-spare"]);
+
+      expect(actions.confirm()?.copy).toMatchObject({ title: "Remove 2 worktrees?", confirmLabel: "Remove worktrees" });
+    });
+
+    it("refuses the whole selection with the reason of the first worktree that cannot be removed, asking nothing", async () => {
+      const { actions, notices, calls } = setup(() => null);
+
+      await actions.removeMany(["/w/repo-feature", "/w/repo"]);
+
+      expect(actions.confirm()).toBeUndefined();
+      expect(notices).toEqual(["This worktree is open here. Switch to another worktree to remove it"]);
+      expect(calls.some((call) => call.cmd === "worktree_remove")).toBe(false);
+    });
+
+    it("stops at the first refused removal and reports it", async () => {
+      const { actions, calls, closed, session } = setup((call) => {
+        if (call.cmd === "worktree_remove" && call.args.worktree === "/w/repo-feature") throw rejection("git_failed", "could not remove /w/repo-feature");
+        return null;
+      }, [main, feature, spare]);
+
+      await actions.removeMany(["/w/repo-feature", "/w/repo-spare"]);
+      await actions.confirm()?.run();
+
+      expect(calls.filter((call) => call.cmd === "worktree_remove")).toHaveLength(1);
+      expect(closed).toEqual([]);
+      expect(session.notice()).toBe("could not remove /w/repo-feature");
+    });
+  });
+
   describe("integrate", () => {
     it("opens the target dialog for a worktree that can integrate, and refuses one that cannot with the reason", async () => {
       const { actions, notices } = setup(() => null);

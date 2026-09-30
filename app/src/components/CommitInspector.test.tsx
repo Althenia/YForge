@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { gravatarUrl, setGravatarEnabled } from "../state/avatar";
 import { createRepoActions } from "../state/repoActions";
 import { BranchNameForm } from "./BranchForms";
 import { CommitInspector } from "./CommitInspector";
@@ -45,12 +46,12 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[] } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"] } = {}) {
   const selected: string[] = [];
   const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "commit_details") return { ...details(sha), files: options.files ?? [], parents: options.parents ?? [OLDER] };
+    if (cmd === "commit_details") return { ...details(sha), author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
     if (cmd === "integration_preview") return { incoming: { count: 0, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
@@ -59,7 +60,7 @@ function mount(sha: string, options: { pushed?: boolean; operation?: boolean; fi
   });
   const current = options.operation === true ? ({ ...snapshot, operation: "rebase" } as unknown as RepoSnapshot) : snapshot;
   const session = testSession("/r", current);
-  const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
+  const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
   const mounted = mountWithApp(() => (
     <>
       <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} onViewFile={(view) => viewed.push(view)} />
@@ -249,5 +250,48 @@ describe("file view entry", () => {
 
     expect(viewed).toEqual([{ file: "src/a.ts", rev: HEAD, source: HEAD.slice(0, 7) }]);
     expect(host.querySelector('button[aria-label="View src/gone.ts"]')).toBeNull();
+  });
+});
+
+describe("author badge", () => {
+  const grace = { name: "Grace", email: "Grace@Example.test", time: 1_700_000_000 };
+  const requested: string[] = [];
+  class FakeImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    referrerPolicy = "";
+    set src(address: string) {
+      requested.push(address);
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  beforeEach(() => {
+    requested.length = 0;
+    vi.stubGlobal("Image", FakeImage);
+  });
+
+  afterEach(() => setGravatarEnabled(true));
+
+  const rowOf = (host: HTMLElement, label: string) => [...host.querySelectorAll(".mrow")].find((row) => row.querySelector(".k")?.textContent === label) as HTMLElement;
+
+  it("shows the author's gravatar from the hashed email beside the author, and nothing beside the committer", async () => {
+    const { host } = mount(OLDER, { author: grace });
+    await flush(60);
+
+    expect(rowOf(host, "Author").querySelector(".avatar img")?.getAttribute("src")).toBe(gravatarUrl("grace@example.test"));
+    expect(rowOf(host, "Author").textContent).toContain("Grace");
+    expect(rowOf(host, "Committer").querySelector(".avatar")).toBeNull();
+    expect(requested).toEqual([gravatarUrl("grace@example.test")]);
+  });
+
+  it("shows the initial and requests nothing when profile pictures are off", async () => {
+    setGravatarEnabled(false);
+    const { host } = mount(OLDER, { author: grace });
+    await flush(60);
+
+    expect(rowOf(host, "Author").querySelector(".avatar")?.textContent).toBe("G");
+    expect(rowOf(host, "Author").querySelector("img")).toBeNull();
+    expect(requested).toEqual([]);
   });
 });

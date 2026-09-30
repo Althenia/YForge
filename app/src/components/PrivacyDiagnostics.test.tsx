@@ -1,5 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
+import { gravatarEnabled, setGravatarEnabled } from "../state/avatar";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { CrashRecord } from "../ipc/bindings/CrashRecord";
@@ -11,6 +12,7 @@ import { buttonNamed, flush, mountWithApp } from "./testkit";
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
+  setGravatarEnabled(true);
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
@@ -331,5 +333,36 @@ describe("privacy and diagnostics settings", () => {
     expect(calls.filter((call) => call.cmd === "activity_clear").map((call) => call.args)).toEqual([{ repo: "/r" }]);
     expect(historySection.textContent).toContain("No activity recorded for this repository");
     expect(app.activity()).toEqual([]);
+  });
+});
+
+describe("profile pictures setting", () => {
+  const pictureSwitch = (host: ParentNode) => host.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Show profile pictures from Gravatar"]');
+
+  it("is on by default, says that only a hash of the email is sent, and turns the pictures off and on", async () => {
+    const { host } = await open();
+    const section = region(host, "Profile pictures");
+
+    expect(pictureSwitch(host)?.getAttribute("aria-checked")).toBe("true");
+    expect(section.textContent).toContain("On");
+    expect(section.textContent).toContain("MD5 hash of the author's email");
+    expect(section.textContent).toContain("never the email itself");
+    expect(section.textContent).toContain("initial");
+
+    pictureSwitch(host)?.click();
+    await flush();
+    expect(gravatarEnabled()).toBe(false);
+    expect(pictureSwitch(host)?.getAttribute("aria-checked")).toBe("false");
+    expect(section.textContent).toContain("Off");
+
+    pictureSwitch(host)?.click();
+    await flush();
+    expect(gravatarEnabled()).toBe(true);
+  });
+
+  it("no longer claims that nothing is sent anywhere, since the pictures are fetched when on", async () => {
+    const { host } = await open();
+
+    expect(host.textContent).not.toContain("Nothing is sent anywhere");
   });
 });

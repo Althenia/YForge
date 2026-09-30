@@ -13,6 +13,7 @@ import type { MenuEntry } from "../state/refMenu";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
+import { AuthorBadge } from "./AuthorBadge";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
 import { MessageForm } from "./MessageForm";
@@ -31,11 +32,14 @@ export function Delta(props: { file: Pick<CommitFile, "additions" | "deletions">
   );
 }
 
-function Person(props: { label: string; who: Signature }) {
+function Person(props: { label: string; who: Signature; badge?: boolean }) {
   return (
     <div class="mrow">
       <span class="k">{props.label}</span>
       <span class="v" title={props.who.email}>
+        <Show when={props.badge}>
+          <AuthorBadge name={props.who.name} email={props.who.email} />
+        </Show>
         {props.who.name}
       </span>
     </div>
@@ -176,7 +180,7 @@ export function CommitInspector(props: {
                   <span class="k">Commit</span>
                   <span class="v sha">{commit().sha.slice(0, 7)}</span>
                 </div>
-                <Person label="Author" who={commit().author} />
+                <Person label="Author" who={commit().author} badge />
                 <Person label="Committer" who={commit().committer} />
                 <div class="mrow">
                   <span class="k">Date</span>

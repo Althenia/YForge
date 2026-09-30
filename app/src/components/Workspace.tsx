@@ -12,6 +12,7 @@ import { createRepoActions, type HistoryView, type PopoverState } from "../state
 import { createRepoUiPrefs } from "../state/repoUiPrefs";
 import type { PanelRequest } from "../state/palette";
 import { createWorktreeActions } from "../state/worktreeActions";
+import { createPlatformActions } from "../state/platformActions";
 import { createRepoSession } from "../state/repoSession";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
@@ -22,6 +23,7 @@ import type { WorkspaceView } from "../state/workspace";
 import { ActivityBar } from "./ActivityBar";
 import { BranchNameForm, StashForm } from "./BranchForms";
 import { CommandBar } from "./CommandBar";
+import { CreatePullDialog } from "./CreatePullDialog";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConflictResolver } from "./ConflictResolver";
 import { ContextMenu } from "./ContextMenu";
@@ -75,7 +77,17 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     pullMode: () => effectivePullMode(app.settings(), repoSettings()).mode,
     offline: () => !app.online(),
     inspectStash: (sha) => inspectStash(sha),
+    openWorktree: worktrees.open,
     undoEntry: (id) => app.activity().find((entry) => entry.id === id),
+  });
+  const platform = createPlatformActions(session, {
+    notify: session.inform,
+    fetchAll: () => actions.fetchAll(),
+    openSettings: () => app.openSettings("platforms"),
+  });
+  createEffect(() => {
+    const problem = platform.matchFailure();
+    if (problem !== undefined) session.inform(problem.message);
   });
   const popoverOf = <K extends PopoverState["kind"]>(...kinds: K[]) => {
     const state = actions.popover();
@@ -229,6 +241,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         hotkey: "Escape",
         callback: (event: KeyboardEvent) => {
           if (event.defaultPrevented) return;
+          event.preventDefault();
           if (fileTarget() !== undefined) closeFile();
           else if (diffTarget() !== undefined) closeDiff();
         },
@@ -269,6 +282,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       },
       loadCommits,
       openPanel: requestPanel,
+      platform,
     });
     onCleanup(() => app.setBridge(undefined));
     const unlisten = client.onRepoChanged((change) => {
@@ -301,7 +315,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
       />
       <div class="main">
-        <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} />
+        <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} onSelectPull={(number) => select({ kind: "pull", number })} />
         <div class="center">
           <Show
             when={!unborn()}
@@ -354,6 +368,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         <Inspector
           session={session}
           actions={actions}
+          platform={platform}
           composer={composer}
           selection={selection()}
           activeTarget={diffTarget()}
@@ -410,6 +425,21 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               void pending.run();
             }}
             onCancel={worktrees.closeConfirm}
+          />
+        )}
+      </Show>
+      <Show when={platform.dialog()} keyed>
+        {(dialog) => <CreatePullDialog snapshot={session.snapshot()} platform={platform} draft={dialog.draft} />}
+      </Show>
+      <Show when={platform.confirm()} keyed>
+        {(pending) => (
+          <ConfirmDialog
+            copy={pending.copy}
+            onConfirm={() => {
+              platform.closeConfirm();
+              void pending.run();
+            }}
+            onCancel={platform.closeConfirm}
           />
         )}
       </Show>

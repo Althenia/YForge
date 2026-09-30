@@ -26,8 +26,35 @@ pub(crate) fn classify_local_changes(error: CoreError) -> CoreError {
         {
             CoreError::LocalChanges { detail: stderr }
         }
+        CoreError::GitFailed {
+            command,
+            status,
+            stderr,
+        } => match parse_worktree_conflict(&stderr) {
+            Some((branch, worktree)) => CoreError::BranchInWorktree { branch, worktree },
+            None => CoreError::GitFailed {
+                command,
+                status,
+                stderr,
+            },
+        },
         other => other,
     }
+}
+
+fn parse_worktree_conflict(stderr: &str) -> Option<(String, String)> {
+    const MARKER: &str = "is already used by worktree at '";
+    let at = stderr.find(MARKER)?;
+    let rest = &stderr[at + MARKER.len()..];
+    let end = rest.find('\'')?;
+    let before = &stderr[..at];
+    let close = before.rfind('\'')?;
+    let open = before[..close].rfind('\'')?;
+    let branch = &before[open + 1..close];
+    if branch.is_empty() {
+        return None;
+    }
+    Some((branch.to_owned(), rest[..end].to_owned()))
 }
 
 pub(crate) fn ref_exists(root: &Path, full_name: &str) -> Result<bool, CoreError> {

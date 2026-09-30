@@ -8,6 +8,7 @@ import {
   integrationNotice,
   removeBlock,
   removeCopy,
+  removeManyCopy,
   type CreateMode,
 } from "./worktreeModel";
 
@@ -55,6 +56,18 @@ export function createWorktreeActions(session: RepoSession, deps: WorktreeDeps) 
     await session.refresh();
   }
 
+  async function runRemoveMany(targets: readonly WorktreeStatus[]): Promise<void> {
+    try {
+      for (const worktree of targets) {
+        await client.worktreeRemove(path, worktree.path, worktree.dirty);
+        deps.closeTabsAt(worktree.path);
+      }
+    } catch (failure) {
+      session.report(failure);
+    }
+    await session.refresh();
+  }
+
   return {
     dialog,
     closeDialog: () => setDialog(undefined),
@@ -84,6 +97,30 @@ export function createWorktreeActions(session: RepoSession, deps: WorktreeDeps) 
         return;
       }
       setConfirm({ copy: removeCopy(found.worktree, found.worktree.dirty), run: () => runRemove(found.worktree, found.worktree.dirty) });
+    },
+    async removeMany(targets: readonly string[]): Promise<void> {
+      let all: WorktreeStatus[];
+      try {
+        all = await fresh();
+      } catch (failure) {
+        session.report(failure);
+        return;
+      }
+      const chosen: WorktreeStatus[] = [];
+      for (const target of targets) {
+        const worktree = all.find((entry) => entry.path === target);
+        if (worktree === undefined) {
+          deps.notify(`${target} is no longer a worktree of this repository.`);
+          return;
+        }
+        const block = removeBlock(worktree, all);
+        if (block !== undefined) {
+          deps.notify(block);
+          return;
+        }
+        chosen.push(worktree);
+      }
+      setConfirm({ copy: removeManyCopy(chosen), run: () => runRemoveMany(chosen) });
     },
     async integrate(target: string): Promise<void> {
       const found = await find(target);

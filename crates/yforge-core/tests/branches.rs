@@ -182,7 +182,7 @@ fn a_failed_switch_restores_the_auto_stash_and_reports_the_failure() {
 
     let error = checkout(&repo.path, &local("occupied"), true).unwrap_err();
 
-    assert_eq!(error.kind(), ErrorKind::GitFailed);
+    assert_eq!(error.kind(), ErrorKind::BranchInWorktree);
     assert_eq!(repo.read("a.txt"), "local\n");
     assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
 }
@@ -556,7 +556,7 @@ fn leaving_a_stash_from_a_detached_head_or_with_a_failing_switch_keeps_the_chang
     let dir = data_dir();
 
     let failed = checkout_leaving_stash(&repo.path, &local("occupied"), dir.path()).unwrap_err();
-    assert_eq!(failed.kind(), ErrorKind::GitFailed);
+    assert_eq!(failed.kind(), ErrorKind::BranchInWorktree);
     assert_eq!(repo.read("a.txt"), "local\n");
     assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
     assert!(switch_stashes(dir.path(), &repo.path, "main")
@@ -568,4 +568,22 @@ fn leaving_a_stash_from_a_detached_head_or_with_a_failing_switch_keeps_the_chang
     let detached = checkout_leaving_stash(&repo.path, &local("feature"), dir.path()).unwrap_err();
     assert_eq!(detached.kind(), ErrorKind::InvalidRequest);
     assert_eq!(repo.read("a.txt"), "local\n");
+}
+
+#[test]
+fn switching_to_a_branch_owned_by_a_worktree_names_the_worktree() {
+    let repo = ready();
+    repo.git(&["branch", "feature/wt"]);
+    let worktree = repo.sibling("wt-feature");
+    repo.git(&["worktree", "add", worktree.to_str().unwrap(), "feature/wt"]);
+
+    let error = checkout(&repo.path, &local("feature/wt"), false).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::BranchInWorktree);
+    assert!(matches!(
+        &error,
+        yforge_core::CoreError::BranchInWorktree { branch, worktree: wt }
+            if branch == "feature/wt" && wt == worktree.to_str().unwrap()
+    ));
+    assert_eq!(repo.read("a.txt"), "one\n");
 }

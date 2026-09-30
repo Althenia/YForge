@@ -107,6 +107,26 @@ export function deleteBranchCopy(name: string, lost: readonly CommitBrief[]): Co
   };
 }
 
+export function deleteBranchesCopy(names: readonly string[], lost: ReadonlyArray<{ branch: string; commits: readonly CommitBrief[] }>): ConfirmCopy {
+  const commits = lost.flatMap((entry) => entry.commits.map((commit) => `${entry.branch}: ${commit.sha.slice(0, 7)} ${commit.summary}`));
+  const copy: ConfirmCopy = {
+    title: `Delete ${names.length} branches?`,
+    consequences: ["The branches are deleted from this repository. Remote branches stay."],
+    names: [...names],
+    confirmLabel: "Delete branches",
+  };
+  if (commits.length === 0) return copy;
+  return {
+    ...copy,
+    consequences: [
+      ...copy.consequences,
+      `${commits.length === 1 ? "One commit is" : `${commits.length} commits are`} on no other branch, remote branch, or tag, so deleting ${commits.length === 1 ? "it leaves it" : "them leaves them"} without a name. ${commits.length === 1 ? "It" : "They"} can only be recovered through the reflog.`,
+    ],
+    also: { heading: "Commits left without a name", names: commits },
+    warning: true,
+  };
+}
+
 export function deleteRemoteBranchCopy(remote: string, name: string): ConfirmCopy {
   return {
     title: `Delete ${remote}/${name} from ${remote}?`,
@@ -149,6 +169,15 @@ export function dropStashCopy(stash: Pick<StashEntry, "index" | "message">): Con
     consequences: ["The stash is removed from the list and its changes are not applied anywhere. A snapshot of it is saved first; bring it back from Recovery, Lost commits or Safety snapshots."],
     names: [stash.message],
     confirmLabel: "Drop stash",
+  };
+}
+
+export function dropStashesCopy(stashes: ReadonlyArray<Pick<StashEntry, "index" | "message">>): ConfirmCopy {
+  return {
+    title: `Drop ${stashes.length} stashes?`,
+    consequences: ["The stashes are removed from the list and their changes are not applied anywhere. A snapshot of each is saved first; bring them back from Recovery, Lost commits or Safety snapshots."],
+    names: stashes.map((stash) => `stash@{${stash.index}} ${stash.message}`),
+    confirmLabel: "Drop stashes",
   };
 }
 
@@ -300,4 +329,13 @@ export function removeProviderCopy(name: string, hasKey: boolean, active: boolea
   const consequences = [hasKey ? "Its API key is deleted from the macOS Keychain." : "Nothing else on this Mac changes."];
   if (active) consequences.push("It is the active provider, so AI actions stop until you choose another one.");
   return { title: "Remove this AI provider?", names: [name], consequences, confirmLabel: "Remove provider" };
+}
+
+export function removeConnectionCopy(name: string, host: string): ConfirmCopy {
+  return {
+    title: "Remove this platform connection?",
+    names: [`${name} · ${host}`],
+    consequences: ["Its access token is deleted from the macOS Keychain. Pull requests on the platform are not changed, and repositories on this host lose their Pull requests section until you connect again."],
+    confirmLabel: "Remove connection",
+  };
 }

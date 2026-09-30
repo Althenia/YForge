@@ -10,6 +10,7 @@ import { useApp } from "../state/app";
 import { clearCrashesCopy, clearHistoryCopy, clearUsageCopy, type ConfirmCopy } from "../state/confirmCopy";
 import { commandCount, eventLabel, firstLine, usageOutcome } from "../state/diagnosticsModel";
 import { createPagedList, type PagedList } from "../state/pagedList";
+import { gravatarEnabled, setGravatarEnabled } from "../state/avatar";
 import { diagnosticsKeys } from "../state/queryKeys";
 import { ActivityEntryView } from "./ActivityEntryView";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -121,6 +122,21 @@ function UsageRow(props: { record: UsageRecord }) {
         </span>
       </div>
     </li>
+  );
+}
+
+function ProfilePictures() {
+  return (
+    <section aria-label="Profile pictures" class="diag">
+      <h3>Profile pictures</h3>
+      <SettingRow
+        title="Show profile pictures from Gravatar"
+        note="When on, YForge asks gravatar.com for each author's picture in the commit inspector, the pull request list, and the Activity drawer. Only the MD5 hash of the author's email is sent, never the email itself. Pictures are kept in memory for the session. When off, nothing is requested and each author shows their initial."
+      >
+        <Switch label="Show profile pictures from Gravatar" checked={gravatarEnabled()} onChange={setGravatarEnabled} />
+        <span class="setting-title">{gravatarEnabled() ? "On" : "Off"}</span>
+      </SettingRow>
+    </section>
   );
 }
 
@@ -298,7 +314,8 @@ export function PrivacyDiagnostics() {
   return (
     <>
       <h2>Privacy &amp; diagnostics</h2>
-      <p class="setting-note">Everything on this page is stored on this Mac. Nothing is sent anywhere.</p>
+      <p class="setting-note">Diagnostics on this page are stored on this Mac and never sent. Profile pictures are the one thing fetched from the network, and only while they are on.</p>
+      <ProfilePictures />
       <UsageData />
       <CrashReports />
       <ActivityHistory />
