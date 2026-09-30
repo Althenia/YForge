@@ -7,6 +7,7 @@ use crate::git;
 use crate::model::{IntegrationPreview, MergeMode, OperationOutcome, ResetMode, RevisionRange};
 use crate::operation::{require_no_operation, settle};
 use crate::repo;
+use crate::snapshots::{self, Action};
 
 const PREVIEW_LIMIT: &str = "--max-count=20";
 
@@ -185,5 +186,13 @@ pub fn reset(path: &Path, target: &str, mode: ResetMode) -> Result<(), CoreError
         ResetMode::Mixed => "--mixed",
         ResetMode::Hard => "--hard",
     };
+    if mode == ResetMode::Hard {
+        snapshots::capture(
+            &root,
+            Action::ResetHard,
+            &format!("Reset --hard to {target}"),
+            None,
+        )?;
+    }
     git::run(&root, &["reset", "--quiet", flag, &target]).map(drop)
 }

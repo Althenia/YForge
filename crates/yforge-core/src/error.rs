@@ -29,6 +29,7 @@ pub enum ErrorKind {
     OperationInProgress,
     NotHead,
     MergeCommitInRange,
+    SnapshotFailed,
     AiNotConfigured,
     AiProviderUnavailable,
     AiAuthRequired,
@@ -129,6 +130,10 @@ pub enum CoreError {
     MergeCommitInRange {
         sha: String,
     },
+    SnapshotFailed {
+        action: String,
+        detail: String,
+    },
     AiNotConfigured {
         detail: String,
     },
@@ -180,6 +185,7 @@ impl CoreError {
             Self::OperationInProgress { .. } => ErrorKind::OperationInProgress,
             Self::NotHead { .. } => ErrorKind::NotHead,
             Self::MergeCommitInRange { .. } => ErrorKind::MergeCommitInRange,
+            Self::SnapshotFailed { .. } => ErrorKind::SnapshotFailed,
             Self::AiNotConfigured { .. } => ErrorKind::AiNotConfigured,
             Self::AiProviderUnavailable { .. } => ErrorKind::AiProviderUnavailable,
             Self::AiAuthRequired { .. } => ErrorKind::AiAuthRequired,
@@ -279,6 +285,10 @@ impl fmt::Display for CoreError {
                 f,
                 "{} is a merge commit; rewriting history that contains merge commits is not supported",
                 sha.chars().take(7).collect::<String>()
+            ),
+            Self::SnapshotFailed { action, detail } => write!(
+                f,
+                "Could not save a safety snapshot before {action}, so nothing was changed: {detail}"
             ),
             Self::AiNotConfigured { detail } => write!(f, "No AI provider is ready: {detail}"),
             Self::AiProviderUnavailable { provider, detail } => {

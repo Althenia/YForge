@@ -18,6 +18,7 @@ use crate::model::{
 };
 use crate::operation;
 use crate::repo;
+use crate::snapshots::{self, Action};
 use crate::stage;
 use crate::undo;
 
@@ -368,8 +369,23 @@ fn run_rebase(root: &Path, base: &str, todo: &str) -> Result<RebaseOutcome, Core
     })
 }
 
-fn rewrite(root: &Path, range: &Range, steps: &[RebaseStep]) -> Result<RebaseResult, CoreError> {
+fn rewrite(
+    root: &Path,
+    range: &Range,
+    steps: &[RebaseStep],
+    action: Action,
+) -> Result<RebaseResult, CoreError> {
     let todo = build_todo(range, steps)?;
+    snapshots::capture(
+        root,
+        action,
+        &format!(
+            "Rewrite {} commit(s) above {}",
+            range.commits.len(),
+            short(&range.base)
+        ),
+        None,
+    )?;
     let pushed = !pushed_commits(root, range)?.is_empty();
     let outcome = run_rebase(root, &range.base, &todo.text)?;
     Ok(RebaseResult {
@@ -388,7 +404,7 @@ pub fn rebase_interactive(
     operation::require_settled(&root)?;
     let range = read_range(&root, base)?;
     reject_merges(&range)?;
-    rewrite(&root, &range, steps)
+    rewrite(&root, &range, steps, Action::InteractiveRebase)
 }
 
 fn selected_commits(root: &Path, shas: &[String]) -> Result<Vec<String>, CoreError> {
@@ -477,7 +493,7 @@ pub fn squash_commits(
             }
         })
         .collect();
-    rewrite(&root, &range, &steps)
+    rewrite(&root, &range, &steps, Action::SquashCommits)
 }
 
 struct FileEntry {
@@ -863,6 +879,16 @@ pub fn recompose_apply(
     }
     let assigned = assign(&files, groups)?;
     let pushed = !pushed_commits(&root, &range)?.is_empty();
+    snapshots::capture(
+        &root,
+        Action::Recompose,
+        &format!(
+            "Recompose {} commit(s) above {}",
+            range.commits.len(),
+            short(&range.base)
+        ),
+        None,
+    )?;
     match commit_groups(&root, &range, &files, &assigned) {
         Ok(head) => Ok(RecomposeResult { head, pushed }),
         Err(error) => {

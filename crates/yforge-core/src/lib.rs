@@ -17,8 +17,10 @@ mod integrate;
 mod layout;
 mod model;
 mod operation;
+mod recovery;
 mod refs;
 mod repo;
+mod snapshots;
 mod sqlite;
 mod ssh;
 mod stage;
@@ -80,8 +82,14 @@ pub use model::{
     Signature, StashEntry, StashKeptReason, StashRestore, SwitchStash, Upstream, Worktree,
     WorktreeIntegration, WorktreeStatus,
 };
+pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
+pub use recovery::{lost_commits, reflog_list, reflog_refs};
 pub use repo::repo_snapshot;
+pub use snapshots::{
+    snapshot_changed_files, snapshot_delete, snapshot_restore_all, snapshot_restore_files,
+    snapshots_list,
+};
 pub use ssh::{list_ssh_keys, SshKey};
 pub use stage::{
     discard_files, discard_hunk, discard_lines, stage_all, stage_files, stage_hunk, stage_lines,

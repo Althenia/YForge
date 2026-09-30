@@ -141,6 +141,14 @@ pub(crate) fn run_with_env(
     capture(command, None, &describe(args))
 }
 
+pub(crate) fn run_env(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+) -> Result<String, CoreError> {
+    checked(run_with_env(dir, args, env)?, describe(args))
+}
+
 pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<String, CoreError> {
     checked(run_unchecked(dir, args, None)?, describe(args))
 }
@@ -284,6 +292,16 @@ pub(crate) fn run_streaming(
     dir: &Path,
     args: &[&str],
     cancel: &CancelToken,
+    on_line: impl FnMut(&str),
+) -> Result<Completed, CoreError> {
+    run_streaming_until(dir, args, cancel, None, on_line)
+}
+
+pub(crate) fn run_streaming_until(
+    dir: &Path,
+    args: &[&str],
+    cancel: &CancelToken,
+    deadline: Option<Instant>,
     mut on_line: impl FnMut(&str),
 ) -> Result<Completed, CoreError> {
     let description = describe(args);
@@ -327,9 +345,15 @@ pub(crate) fn run_streaming(
     });
     let mut kept = Vec::new();
     let mut killed = false;
+    let mut timed_out = false;
     loop {
         if cancel.is_cancelled() {
             killed = true;
+            let _ = child.kill();
+            break;
+        }
+        if deadline.is_some_and(|limit| Instant::now() >= limit) {
+            timed_out = true;
             let _ = child.kill();
             break;
         }
@@ -351,6 +375,13 @@ pub(crate) fn run_streaming(
     let status = status?;
     if killed {
         return Err(CoreError::Cancelled);
+    }
+    if timed_out {
+        return Err(CoreError::GitFailed {
+            command: description,
+            status: None,
+            stderr: "timed out".to_owned(),
+        });
     }
     let _ = err_reader.join();
     let stdout = out_reader.join().unwrap_or_default();

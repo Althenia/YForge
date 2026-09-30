@@ -109,7 +109,7 @@ fn short(sha: &str) -> &str {
     &sha[..sha.len().min(7)]
 }
 
-fn head_sha(root: &Path) -> Result<Option<String>, CoreError> {
+pub(crate) fn head_sha(root: &Path) -> Result<Option<String>, CoreError> {
     let completed = git::run_unchecked(root, &["rev-parse", "--verify", "--quiet", "HEAD"], None)?;
     Ok(completed
         .succeeded()

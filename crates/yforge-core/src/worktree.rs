@@ -6,6 +6,7 @@ use crate::git;
 use crate::model::{OperationOutcome, Worktree, WorktreeIntegration, WorktreeStatus};
 use crate::operation::{require_settled, settle};
 use crate::repo;
+use crate::snapshots::{self, Action};
 
 fn is_dirty(dir: &Path) -> Result<bool, CoreError> {
     Ok(
@@ -153,6 +154,15 @@ pub fn remove_worktree(path: &Path, worktree: &str, force: bool) -> Result<(), C
         return Err(CoreError::WorktreeDirty {
             path: target.path.clone(),
         });
+    }
+    if present && force {
+        let location = repo::resolve_root(Path::new(&target.path))?;
+        snapshots::capture(
+            &location,
+            Action::RemoveWorktree,
+            &format!("Remove worktree {}", target.path),
+            None,
+        )?;
     }
     let mut args = vec!["worktree", "remove"];
     if force || !present {

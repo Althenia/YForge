@@ -5,6 +5,7 @@ use crate::error::CoreError;
 use crate::git;
 use crate::model::{ChangeArea, DiffHunk, DiffLineKind};
 use crate::repo;
+use crate::snapshots::{self, Action};
 
 pub(crate) fn with_paths<'a>(prefix: &[&'a str], files: &'a [String]) -> Vec<&'a str> {
     let mut args = vec!["--literal-pathspecs"];
@@ -65,6 +66,12 @@ pub fn discard_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
             )));
         }
     }
+    snapshots::capture(
+        &root,
+        Action::Discard,
+        &format!("Discard changes in {} file(s)", files.len()),
+        None,
+    )?;
     if !tracked.is_empty() {
         git::run(&root, &with_paths(&["restore"], &tracked))?;
     }
@@ -192,6 +199,14 @@ fn apply_selection(
     let mut check: Vec<&str> = base.to_vec();
     check.extend(["--check", "-"]);
     git::run_with_input(&root, &check, &patch).map_err(stale)?;
+    if action == HunkAction::Discard {
+        let (kind, unit) = if selected.is_some() {
+            (Action::DiscardLines, "lines")
+        } else {
+            (Action::DiscardHunk, "a hunk")
+        };
+        snapshots::capture(&root, kind, &format!("Discard {unit} in {file}"), None)?;
+    }
     let mut apply: Vec<&str> = base.to_vec();
     apply.push("-");
     git::run_with_input(&root, &apply, &patch).map(drop)

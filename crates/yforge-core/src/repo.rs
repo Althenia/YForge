@@ -5,6 +5,7 @@ use crate::git;
 use crate::model::{Operation, RefKind, RepoSnapshot, Worktree};
 use crate::operation;
 use crate::refs;
+use crate::snapshots;
 use crate::status::{self, ParsedStatus};
 
 const WORKTREE_COMMAND: &str = "git worktree list";
@@ -188,6 +189,7 @@ fn parse_worktrees(output: &str, root: &Path) -> Result<Vec<Worktree>, CoreError
 pub fn repo_snapshot(path: &Path) -> Result<RepoSnapshot, CoreError> {
     git::ensure_supported()?;
     let root = resolve_root(path)?;
+    snapshots::prune_on_open(&root);
     let ParsedStatus {
         head,
         upstream,

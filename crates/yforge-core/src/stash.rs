@@ -5,6 +5,7 @@ use crate::git;
 use crate::model::StashRestore;
 use crate::refs;
 use crate::repo;
+use crate::snapshots::{self, Action};
 
 fn stash_ref(index: u32) -> String {
     format!("stash@{{{index}}}")
@@ -94,6 +95,12 @@ pub fn stash_pop(path: &Path, index: u32, sha: &str) -> Result<StashRestore, Cor
 pub fn stash_drop(path: &Path, index: u32, sha: &str) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     let reference = verified_ref(&root, index, sha)?;
+    snapshots::capture(
+        &root,
+        Action::DropStash,
+        &format!("Drop {reference}"),
+        Some(sha),
+    )?;
     git::run(&root, &["stash", "drop", "--quiet", &reference]).map(drop)
 }
 

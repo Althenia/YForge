@@ -17,13 +17,14 @@ use yforge_core::{
     AppSettings, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CommitBrief,
     CommitDetails, CommitDraft, ConflictFile, ConflictProposal, ConflictSide, CoreError,
     CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
-    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode, MessageEdit,
-    OperationKind, OperationOutcome, OperationProgress, Planned, Progress, ProviderInput,
-    ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget,
-    RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup,
-    RecomposePreview, RecomposeProposal, RecomposeResult, RemoteInfo, RepoChanged, RepoSettings,
-    RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore, SwitchStash,
-    TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
+    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, LostCommit, MergeMode,
+    MessageEdit, OperationKind, OperationOutcome, OperationProgress, Planned, Progress,
+    ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome,
+    PullReport, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
+    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
+    ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoWatcher, ResetMode,
+    SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashRestore, SwitchStash, TabSession,
+    UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -36,6 +37,7 @@ const DATA_DIR_ENV: &str = "YFORGE_DATA_DIR";
 const REPO_CHANGED_EVENT: &str = "repo-changed";
 const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const AI_SIGN_IN_EVENT: &str = "ai-sign-in";
+const LOST_COMMITS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub struct DataDir(pub PathBuf);
 
@@ -3050,6 +3052,248 @@ async fn ai_propose_conflict<R: Runtime>(
     result
 }
 
+#[tauri::command]
+async fn reflog_refs(path: String) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("reflog_refs path={path}");
+    let result = blocking(move || yforge_core::reflog_refs(Path::new(&path))).await;
+    log_outcome("reflog_refs", &result, |refs| {
+        format!("refs={}", refs.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn reflog_list(
+    path: String,
+    reference: String,
+    before: Option<u32>,
+    limit: u32,
+) -> Result<Vec<ReflogEntry>, ErrorPayload> {
+    log::debug!("reflog_list path={path} reference={reference} before={before:?} limit={limit}");
+    let result =
+        blocking(move || yforge_core::reflog_list(Path::new(&path), &reference, before, limit))
+            .await;
+    log_outcome("reflog_list", &result, |entries| {
+        format!("entries={}", entries.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn lost_commits(
+    operations: State<'_, Operations>,
+    path: String,
+    id: Option<String>,
+) -> Result<Vec<LostCommit>, ErrorPayload> {
+    log::debug!("lost_commits path={path} id={id:?}");
+    let token = match &id {
+        Some(id) => operations.running.register(id, CancelToken::new())?,
+        None => CancelToken::new(),
+    };
+    let result =
+        blocking(move || yforge_core::lost_commits(Path::new(&path), &token, LOST_COMMITS_TIMEOUT))
+            .await;
+    if let Some(id) = &id {
+        operations.running.finish(id);
+    }
+    log_outcome("lost_commits", &result, |found| {
+        format!("found={}", found.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn restore_as_branch<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    sha: String,
+    name: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("restore_as_branch path={path} sha={sha} name={name}");
+    let target = path.clone();
+    let created = name.clone();
+    let label = format!("Restored {} as branch {name}", short(&sha));
+    let tip = sha.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::RestoreBranch, true, true),
+            move |()| label,
+            {
+                let path = path.clone();
+                move || yforge_core::head_ref(Path::new(&path))
+            },
+            move || yforge_core::create_branch(Path::new(&target), &name, Some(&sha), false),
+            move |before, ()| {
+                Ok(yforge_core::plan_branch_create(
+                    &created, &tip, &before, false,
+                ))
+            },
+        )
+        .await;
+    log_outcome("restore_as_branch", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn restore_checkout<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    sha: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("restore_checkout path={path} sha={sha}");
+    let target = path.clone();
+    let planned = path.clone();
+    let label = format!("Checked out {} (detached)", short(&sha));
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::RestoreCheckout, true, true),
+            move |()| label,
+            {
+                let path = path.clone();
+                move || yforge_core::head_ref(Path::new(&path))
+            },
+            move || {
+                yforge_core::checkout(Path::new(&target), &CheckoutTarget::Commit { sha }, false)
+                    .map(drop)
+            },
+            move |before, ()| {
+                let after = yforge_core::head_ref(Path::new(&planned))?;
+                Ok(yforge_core::plan_checkout(&before, &after, false))
+            },
+        )
+        .await;
+    log_outcome("restore_checkout", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn restore_reset<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    sha: String,
+    mode: ResetMode,
+) -> Result<(), ErrorPayload> {
+    log::debug!("restore_reset path={path} sha={sha} mode={mode:?}");
+    let location = path.clone();
+    let planned = path.clone();
+    let label = format!("Reset ({mode:?}) the current branch to {}", short(&sha));
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::RestoreReset, true, true),
+            move |()| label,
+            state_of(&path),
+            move || yforge_core::reset(Path::new(&location), &sha, mode),
+            move |before, ()| {
+                let after = yforge_core::capture_state(Path::new(&planned))?;
+                Ok(yforge_core::plan_reset(&before, &after, mode))
+            },
+        )
+        .await;
+    log_outcome("restore_reset", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn snapshots_list(path: String) -> Result<Vec<SnapshotInfo>, ErrorPayload> {
+    log::debug!("snapshots_list path={path}");
+    let result = blocking(move || yforge_core::snapshots_list(Path::new(&path))).await;
+    log_outcome("snapshots_list", &result, |listed| {
+        format!("snapshots={}", listed.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn snapshot_files(
+    path: String,
+    reference: String,
+) -> Result<Vec<SnapshotChange>, ErrorPayload> {
+    log::debug!("snapshot_files path={path} reference={reference}");
+    let result =
+        blocking(move || yforge_core::snapshot_changed_files(Path::new(&path), &reference)).await;
+    log_outcome("snapshot_files", &result, |files| {
+        format!("files={}", files.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn snapshot_restore_files<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    reference: String,
+    files: Vec<String>,
+) -> Result<String, ErrorPayload> {
+    log::debug!("snapshot_restore_files path={path} reference={reference} files={files:?}");
+    let target = path.clone();
+    let count = files.len();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::RestoreSnapshot, true, true),
+            move |safety: &String| {
+                format!(
+                    "Restored {} from a snapshot; the previous state is saved as {safety}",
+                    counted(count, "file")
+                )
+            },
+            move || yforge_core::snapshot_restore_files(Path::new(&target), &reference, &files),
+        )
+        .await;
+    log_outcome("snapshot_restore_files", &result, |safety| {
+        format!("safety={safety}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn snapshot_restore_all<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    reference: String,
+    force: bool,
+) -> Result<String, ErrorPayload> {
+    log::debug!("snapshot_restore_all path={path} reference={reference} force={force}");
+    let target = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::RestoreSnapshot, true, true),
+            move |safety: &String| {
+                format!("Restored a snapshot; the previous state is saved as {safety}")
+            },
+            move || yforge_core::snapshot_restore_all(Path::new(&target), &reference, force),
+        )
+        .await;
+    log_outcome("snapshot_restore_all", &result, |safety| {
+        format!("safety={safety}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn snapshot_delete<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    reference: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("snapshot_delete path={path} reference={reference}");
+    let target = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::DeleteSnapshot, false, true),
+            move |()| "Deleted a snapshot".to_owned(),
+            move || yforge_core::snapshot_delete(Path::new(&target), &reference),
+        )
+        .await;
+    log_outcome("snapshot_delete", &result, |()| String::new());
+    result
+}
+
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     register_with(builder, Ai::new(Arc::new(KeychainStore)))
 }
@@ -3140,6 +3384,17 @@ pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::B
             worktree_create,
             worktree_remove,
             worktree_integrate,
+            reflog_refs,
+            reflog_list,
+            lost_commits,
+            restore_as_branch,
+            restore_checkout,
+            restore_reset,
+            snapshots_list,
+            snapshot_files,
+            snapshot_restore_files,
+            snapshot_restore_all,
+            snapshot_delete,
             clone_repo,
             init_repo,
             settings_load,

@@ -597,3 +597,50 @@ pub struct RecomposeResult {
     pub head: String,
     pub pushed: bool,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct ReflogEntry {
+    pub index: u32,
+    pub selector: String,
+    pub sha: String,
+    pub previous_sha: Option<String>,
+    pub action: String,
+    pub message: String,
+    pub time: i64,
+    pub summary: String,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum LostKind {
+    Commit,
+    Stash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct LostCommit {
+    pub sha: String,
+    pub summary: String,
+    pub author: String,
+    pub time: i64,
+    pub kind: LostKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct SnapshotInfo {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub time: i64,
+    pub action: String,
+    pub description: String,
+    pub head_sha: Option<String>,
+    pub branch: Option<String>,
+    pub files_changed: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct SnapshotChange {
+    pub path: String,
+    pub status: FileStatus,
+}

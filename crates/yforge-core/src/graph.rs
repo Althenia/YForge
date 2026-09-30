@@ -83,6 +83,7 @@ fn read_commits(root: &Path) -> Result<Vec<RowSeed>, CoreError> {
             "--topo-order",
             "--no-show-signature",
             "--exclude=refs/stash",
+            "--exclude=refs/yforge/*",
             "--all",
             "-z",
             "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s",
@@ -252,7 +253,11 @@ fn history_key(
     status: &ParsedStatus,
     stashes: &[StashEntry],
 ) -> Result<String, CoreError> {
-    let refs = git::run(root, &["for-each-ref", "--format=%(objectname) %(refname)"])?;
+    let refs: String = git::run(root, &["for-each-ref", "--format=%(objectname) %(refname)"])?
+        .lines()
+        .filter(|line| !line.contains(" refs/yforge/"))
+        .flat_map(|line| [line, "\n"])
+        .collect();
     let head = match &status.head {
         Head::Branch { sha, .. } | Head::Detached { sha } => sha.as_str(),
         Head::Unborn { .. } => "",
@@ -394,6 +399,7 @@ fn read_searchables(root: &Path) -> Result<HashMap<String, Searchable>, CoreErro
             "log",
             "--no-show-signature",
             "--exclude=refs/stash",
+            "--exclude=refs/yforge/*",
             "--all",
             "-z",
             "--format=%H%x1f%an%x1f%ae%x1f%B",

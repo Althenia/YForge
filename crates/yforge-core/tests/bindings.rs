@@ -16,6 +16,7 @@ use yforge_core::{
     ProviderConfig, ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate,
     RecomposeProposal,
 };
+use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
     MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
 };
@@ -96,6 +97,10 @@ fn export_all(dir: &Path) {
     CommitDraft::export_all(&config).expect("export CommitDraft");
     RecomposeProposal::export_all(&config).expect("export RecomposeProposal");
     ConflictProposal::export_all(&config).expect("export ConflictProposal");
+    ReflogEntry::export_all(&config).expect("export ReflogEntry");
+    LostCommit::export_all(&config).expect("export LostCommit");
+    SnapshotInfo::export_all(&config).expect("export SnapshotInfo");
+    SnapshotChange::export_all(&config).expect("export SnapshotChange");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

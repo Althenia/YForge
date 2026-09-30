@@ -6,6 +6,7 @@ use crate::git;
 use crate::model::{AutoStash, CheckoutOutcome, CheckoutTarget, CommitBrief, StashRestore};
 use crate::refs;
 use crate::repo;
+use crate::snapshots::{self, Action};
 use crate::stash;
 use crate::store;
 
@@ -213,6 +214,14 @@ fn switch_branch(
             "leaving changes stashed needs a checked-out branch to return to; carry the changes instead",
         ));
     }
+    if dirty {
+        snapshots::capture(
+            &root,
+            Action::Checkout,
+            &format!("Auto-stash before switching to {}", switch.label),
+            None,
+        )?;
+    }
     let message = format!("YForge: auto-stash before switching to {}", switch.label);
     if !dirty || !stash::push_auto(&root, &message, true)? {
         run_switch(&root, &switch)?;
@@ -346,6 +355,13 @@ pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreErr
             });
         }
     }
+    let tip = git::run(&root, &["rev-parse", &format!("refs/heads/{name}")])?;
+    snapshots::capture(
+        &root,
+        Action::DeleteBranch,
+        &format!("Delete branch {name}"),
+        Some(tip.trim()),
+    )?;
     git::run(&root, &["branch", "--delete", "--force", name]).map(drop)
 }
 

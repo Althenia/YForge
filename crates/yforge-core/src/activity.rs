@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -44,6 +44,7 @@ pub enum OperationKind {
     DeleteBranch,
     DeleteRemoteBranch,
     DeleteRemoteTag,
+    DeleteSnapshot,
     DeleteTag,
     Discard,
     DiscardHunk,
@@ -75,6 +76,10 @@ pub enum OperationKind {
     Reset,
     ResetConflict,
     ResolveConflict,
+    RestoreBranch,
+    RestoreCheckout,
+    RestoreReset,
+    RestoreSnapshot,
     Revert,
     SetIdentity,
     SetUpstream,
@@ -114,6 +119,7 @@ impl OperationKind {
             Self::DeleteBranch => "Delete branch",
             Self::DeleteRemoteBranch => "Delete remote branch",
             Self::DeleteRemoteTag => "Delete remote tag",
+            Self::DeleteSnapshot => "Delete snapshot",
             Self::DeleteTag => "Delete tag",
             Self::Discard => "Discard",
             Self::DiscardHunk => "Discard hunk",
@@ -145,6 +151,10 @@ impl OperationKind {
             Self::Reset => "Reset",
             Self::ResetConflict => "Reset conflict",
             Self::ResolveConflict => "Resolve conflict",
+            Self::RestoreBranch => "Restore as branch",
+            Self::RestoreCheckout => "Restore checkout",
+            Self::RestoreReset => "Restore reset",
+            Self::RestoreSnapshot => "Restore snapshot",
             Self::Revert => "Revert",
             Self::SetIdentity => "Set identity",
             Self::SetUpstream => "Set upstream",
@@ -199,6 +209,14 @@ pub struct ActivityEntry {
 
 thread_local! {
     static COLLECTOR: RefCell<Option<Vec<CommandRecord>>> = const { RefCell::new(None) };
+    static MUTED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(crate) fn quietly<T>(task: impl FnOnce() -> T) -> T {
+    let previous = MUTED.replace(true);
+    let result = task();
+    MUTED.set(previous);
+    result
 }
 
 pub fn collect<T>(task: impl FnOnce() -> T) -> (T, Vec<CommandRecord>) {
@@ -224,6 +242,9 @@ fn is_reading(command: &str) -> bool {
 }
 
 pub(crate) fn note(command: &str, status: Option<i32>, output: &str, elapsed: Duration) {
+    if MUTED.get() {
+        return;
+    }
     COLLECTOR.with(|slot| {
         let mut slot = slot.borrow_mut();
         let Some(records) = slot.as_mut() else {
