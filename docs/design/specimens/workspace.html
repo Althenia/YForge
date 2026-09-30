@@ -14,7 +14,6 @@ const highlight = YF.flags.has("highlight") ? "feature/search" : null;
 const banner = `<div class="banner op"><span>Rebasing <span class="ref">feature/greeting</span> onto <span class="ref">main</span> · step 1 of 1 · <span class="st st-C">! 1 conflict</span></span><span class="spacer"></span><span class="btn primary">Resolve</span><span class="btn">Continue</span><span class="btn">Skip</span><span class="btn danger">Abort</span></div>`;
 const overflow = YF.flags.has("overflow");
 const multi = YF.flags.has("multi");
-const worktrees = YF.flags.has("worktrees");
 const inspector = `<aside class="panel inspector" aria-label="Changes">
   <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
   <div class="ilist">
@@ -30,14 +29,14 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
     <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
   </div>
 </aside>`;
-const popover = overflow ? `<div class="popover" id="pop" role="dialog" aria-label="More branches on 5e1a9c2" style="width: 240px"><div class="ref-overflow" role="listbox" aria-label="More branches"><div class="ref-overflow-option active" role="option" aria-selected="true"><span class="label" style="--lane: var(--l1)"><span class="name">feature/greeting</span>${YF.icon.remote}</span></div><div class="ref-overflow-option" role="option" aria-selected="false"><span class="label" style="--lane: var(--l1)"><span class="name">feature/inline-branch</span>${YF.icon.local}</span></div></div></div>` : worktrees ? `<div class="popover" id="pop" role="dialog" aria-label="Worktrees" style="width: 360px"><ul class="wt-list" style="list-style:none;margin:0;padding:0;display:grid;gap:4px"><li class="wt-row">${YF.glyph("worktree")}<span class="ref">feature/greeting</span><span class="path">/work/sample</span><span class="wt-flag">current</span></li><li class="wt-row">${YF.glyph("worktree")}<span class="ref">hotfix/wt-demo</span><span class="path">/work/sample-hotfix-wt-demo</span><span class="wt-flag st-M">changes</span></li></ul></div>` : "";
+const popover = overflow ? `<div class="popover" id="pop" role="dialog" aria-label="More branches on 5e1a9c2" style="width: 240px"><div class="ref-overflow" role="listbox" aria-label="More branches"><div class="ref-overflow-option active" role="option" aria-selected="true"><span class="label" style="--lane: var(--l1)"><span class="name">feature/greeting</span>${YF.icon.remote}</span></div><div class="ref-overflow-option" role="option" aria-selected="false"><span class="label" style="--lane: var(--l1)"><span class="name">feature/inline-branch</span>${YF.icon.local}</span></div></div></div>` : "";
 document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip(rebase ? { banner } : {})}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + popover);
 if (rebase) document.body.classList.add("op");
-YF.boot(`workspace${highlight ? " · hovering feature/search" : ""}${rebase ? " · rebase conflict" : ""}${overflow ? " · +N popover" : ""}${multi ? " · multi-select" : ""}${YF.flags.has("columns") ? " · optional columns" : ""}${worktrees ? " · worktree list" : ""}`);
+YF.boot(`workspace${highlight ? " · hovering feature/search" : ""}${rebase ? " · rebase conflict" : ""}${overflow ? " · +N popover" : ""}${multi ? " · multi-select" : ""}${YF.flags.has("columns") ? " · optional columns" : ""}`);
 YF.mountGraph({ hovered: highlight ? 15 : 5, highlight, multi: multi ? [2, 3, 4] : [], conflict: rebase ? "Conflicts: 1 · resolve README.md to continue the rebase" : null });
 const pop = document.getElementById("pop");
 if (pop) {
-  const anchor = overflow ? document.querySelectorAll("#gbody .more")[0] : [...document.querySelectorAll(".chip")].find(c => c.textContent.includes("worktrees"));
+  const anchor = document.querySelectorAll("#gbody .more")[0];
   const rect = anchor.getBoundingClientRect();
   pop.style.left = `${Math.min(rect.left, innerWidth - pop.offsetWidth - 10)}px`;
   pop.style.top = `${rect.bottom + 8}px`;

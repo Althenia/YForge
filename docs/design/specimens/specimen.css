@@ -361,7 +361,4 @@ svg.g { position: absolute; left: 0; top: 0; z-index: 2; pointer-events: none; o
 .popover .ref-overflow-option .label { --lane: var(--l0); }
 .popover .check { display: flex; align-items: center; gap: 8px; height: 24px; font: 400 13px/20px var(--sans); }
 .popover h3 { margin: 0 0 6px; font: 600 13px/20px var(--sans); }
-.wt-row { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 0 8px; border-radius: var(--r-sm); }
-.wt-row .path { flex: 1; min-width: 0; color: var(--muted); font: 400 12px/16px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wt-flag { padding: 0 7px; border-radius: 999px; background: var(--fill); font: 500 11px/16px var(--sans); color: var(--muted); }
 .menu .item.off { color: var(--muted); }
