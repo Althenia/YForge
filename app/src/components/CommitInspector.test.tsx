@@ -1,9 +1,13 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { Show } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { createRepoActions } from "../state/repoActions";
+import { BranchNameForm } from "./BranchForms";
 import { CommitInspector } from "./CommitInspector";
+import { ContextMenu } from "./ContextMenu";
 import { buttonNamed, flush, mountWithApp, stubLayout, testSession, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
@@ -39,28 +43,125 @@ const person = { name: "Ada", email: "ada@example.test", time: 1_700_000_000 };
 
 const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries", body: "Because.", author: person, committer: person, parents: [OLDER], refs: [], files: [] });
 
-const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null } as unknown as RepoSnapshot;
+const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"] } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[] } = {}) {
   const selected: string[] = [];
   const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "commit_details") return { ...details(sha), files: options.files ?? [] };
+    if (cmd === "commit_details") return { ...details(sha), files: options.files ?? [], parents: options.parents ?? [OLDER] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
+    if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
+    if (cmd === "integration_preview") return { incoming: { count: 0, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
     if (cmd === "edit_head_message") return { sha: "c".repeat(40), pushed: options.pushed ?? false };
     return null;
   });
   const current = options.operation === true ? ({ ...snapshot, operation: "rebase" } as unknown as RepoSnapshot) : snapshot;
+  const session = testSession("/r", current);
+  const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
   const mounted = mountWithApp(() => (
-    <CommitInspector session={testSession("/r", current)} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} onViewFile={(view) => viewed.push(view)} />
+    <>
+      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} onViewFile={(view) => viewed.push(view)} />
+      <Show when={actions.menu()} keyed>
+        {(menu) => <ContextMenu menu={menu} onClose={actions.closeMenu} />}
+      </Show>
+      <Show when={actions.popover()} keyed>
+        {(state) => (state.kind === "create_branch" ? <BranchNameForm state={state} session={session} actions={actions} /> : null)}
+      </Show>
+    </>
   ));
   dispose = mounted.dispose;
-  return { ...mounted, selected, viewed };
+  return { ...mounted, selected, viewed, actions };
 }
 
 const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-label="Edit message"]');
 const field = (host: HTMLElement, label: string) => host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
+
+const verb = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.ihead button[aria-label="${name}"]`);
+
+describe("commit verbs in the header", () => {
+  it("offers Branch here, Cherry-pick, Revert, and Reset for any selected commit", async () => {
+    const { host } = mount(OLDER);
+    await flush(60);
+
+    expect(["Branch here", "Cherry-pick", "Revert", "Reset main to here"].map((name) => verb(host, name)?.getAttribute("aria-disabled"))).toEqual([null, null, null, null]);
+    expect(verb(host, "Cherry-pick")?.getAttribute("data-tip")).toBe(`Cherry-pick ${OLDER.slice(0, 7)} onto main`);
+    expect(verb(host, "Reset main to here")?.getAttribute("data-tip")).toBe(`Reset main to ${OLDER.slice(0, 7)}`);
+  });
+
+  it("creates a branch at the commit: button, name, Enter", async () => {
+    const { host } = mount(OLDER);
+    await flush(60);
+
+    verb(host, "Branch here")?.click();
+    await flush(60);
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Branch name"]');
+    expect(document.body.textContent).toContain(`from ${OLDER.slice(0, 7)}`);
+    type(input, "topic/here");
+    await flush(60);
+    (document.querySelector("form.popform") as HTMLFormElement).requestSubmit();
+    await flush(80);
+
+    expect(calls.find((call) => call.cmd === "create_branch")?.args).toEqual({ path: "/r", name: "topic/here", at: OLDER, checkout: true });
+  });
+
+  it("cherry-picks and reverts the commit through the core", async () => {
+    const { host } = mount(OLDER);
+    await flush(60);
+
+    verb(host, "Cherry-pick")?.click();
+    verb(host, "Revert")?.click();
+    await flush(60);
+
+    expect(calls.filter((call) => call.cmd === "cherry_pick" || call.cmd === "revert").map((call) => [call.cmd, call.args.sha])).toEqual([
+      ["cherry_pick", OLDER],
+      ["revert", OLDER],
+    ]);
+  });
+
+  it("disables Cherry-pick and Revert on a merge commit with the stated reason, while Branch here and Reset stay available", async () => {
+    const { host } = mount(OLDER, { parents: [HEAD, "c".repeat(40)] });
+    await flush(60);
+
+    for (const name of ["Cherry-pick", "Revert"]) {
+      expect(verb(host, name)?.getAttribute("aria-disabled")).toBe("true");
+      expect(verb(host, name)?.getAttribute("data-tip")).toBe("A merge commit needs a parent choice, which is not available yet");
+    }
+    verb(host, "Cherry-pick")?.click();
+    await flush(40);
+    expect(calls.some((call) => call.cmd === "cherry_pick")).toBe(false);
+    expect(verb(host, "Branch here")?.getAttribute("aria-disabled")).toBeNull();
+    expect(verb(host, "Reset main to here")?.getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("disables Cherry-pick, Revert, and Reset while an operation is in progress", async () => {
+    const { host } = mount(OLDER, { operation: true });
+    await flush(60);
+
+    for (const name of ["Cherry-pick", "Revert", "Reset main to here"]) {
+      expect(verb(host, name)?.getAttribute("aria-disabled")).toBe("true");
+      expect(verb(host, name)?.getAttribute("data-tip")).toBe("Finish or abort the rebase first");
+    }
+  });
+
+  it("resets through Soft, Mixed, Hard, then a confirmation", async () => {
+    const { host, actions } = mount(OLDER);
+    await flush(60);
+
+    verb(host, "Reset main to here")?.click();
+    await flush(40);
+    expect([...document.querySelectorAll('[role="menuitem"]')].map((entry) => entry.textContent?.replace(/keep changes.*|discard changes/, "").trim())).toEqual(["Soft", "Mixed", "Hard"]);
+    (document.querySelectorAll('[role="menuitem"]')[1] as HTMLButtonElement).click();
+    await flush(80);
+
+    expect(actions.dialog()?.copy.title).toContain(OLDER.slice(0, 7));
+    expect(calls.some((call) => call.cmd === "reset")).toBe(false);
+    await actions.dialog()?.run();
+    await flush(60);
+    expect(calls.find((call) => call.cmd === "reset")?.args).toMatchObject({ path: "/r", target: OLDER, mode: "mixed" });
+  });
+});
 
 describe("edit the HEAD message", () => {
   it("is offered only for the HEAD commit", async () => {

@@ -23,6 +23,7 @@
   | Remote freshness chip | A button. `chip-success` (accent-tint / accent-ink) with the check glyph while fresh; the warning state uses `attention-ink` + warning icon. Click fetches now; disabled with its reason while offline, syncing, or mid-operation |
   | Offline chip | `chip-attention` with the warning glyph and the word "Offline"; while it shows, Fetch, Pull, Push, and Push to… are disabled with the reason "You are offline" |
   | Auth failure | `chip-danger` "auth failed for <remote>", the hint, then text-labelled Fix (settings glyph; opens the SSH key setting for an SSH remote, the repository's remotes otherwise), Retry, and Dismiss |
+  | Detached action | Beside the chip group while HEAD is detached: a `btn sm` with the `branch` glyph and the text "Create branch here". It opens the Create branch form at the detached commit, checked out on submit (name, Enter) |
   | Strip notice | A `chip-attention` chip with the outcome in text, an optional `hint-text` detail, text-labelled `btn sm` actions, and a dismiss icon button. Used for "Your changes were stashed and restored", "Your changes are kept in stash@{n}" (Apply, Pop), and "Restore the changes stashed when you left <branch>?" (Restore, Keep in stash). Inside the operation banner it is plain text |
   | Worktrees chip | A button: worktree glyph + count, then "· N with changes", pushed to the end. It opens a popover list: branch in `ref` role, path truncated from the left, and text flags (current, changes, locked, missing) |
   | Operation banner (replaces all chips) | `banner-operation` (attention-tint / attention-ink, ui-strong, pill, `controls.banner`, 1px inset attention at 35%) + buttons at `controls.height-dense`: Resolve `button-primary`, Continue and Skip `button-secondary`, Abort `button-danger`; these keep a text label (S15) |
@@ -177,6 +178,14 @@
 - **Accessibility:** ⌘↵ commits and ⌘⇧↵ commits and pushes from anywhere in the Changes inspector; the menu is a `role="menu"` with arrow-key navigation and Esc to close.
 - **Consumers:** S03, S04.
 
+## Commit inspector actions
+
+- **Purpose:** Carry the common commit verbs in the header of the commit inspector, so a selected commit needs no context menu (Flow C).
+- **Anatomy:** a row of four `btn sm` buttons under the header text: Branch here (`branch` glyph), Cherry-pick, Revert (`undo` glyph), and "Reset <current branch or HEAD> to here ▸" (the ▸ is `aria-hidden`). Each has an `aria-label` equal to its text and a tooltip that names the action in full ("Cherry-pick 1a2b3c4 onto main").
+- **States:** enablement and disabled reasons are those of the commit context menu: Cherry-pick and Revert are `aria-disabled` on a merge commit ("A merge commit needs a parent choice, which is not available yet"); Cherry-pick, Revert, and Reset are `aria-disabled` while an operation is in progress ("Finish or abort the rebase first"), with the reason as tooltip.
+- **Interaction:** Branch here opens the Create branch form at that commit (button, name, Enter). Cherry-pick and Revert run at once. Reset opens the Soft, Mixed, Hard menu below the button, then the same confirmation as the context menu.
+- **Consumers:** S03, S15.
+
 ## Message edit form
 
 - **Purpose:** Rewrite the message of the HEAD commit from the commit inspector.
@@ -277,7 +286,7 @@ Specimens 21 and 22, rule S28. A center panel over the graph column (header, bod
 - **Row:** `canvas` with a 1px `rule` inset: the `worktree` glyph, the branch in mono (`bare` or `detached` without one), chips for "Main worktree" and the flags current, changes (attention), locked, and missing, the path truncated from the left, and four 24px icon buttons: Open as tab, Open in terminal, Integrate, Remove. The worktree open here uses the selection fill with the 2px accent bar.
 - **Unavailable:** Open is disabled for the worktree open here and a missing one; Integrate and Remove are `aria-disabled` with the reason as tooltip (S15, S17).
 - **Empty:** a repository with only its main worktree shows "No linked worktrees. Create one to work on another branch in parallel."
-- **Dialogs:** Create worktree (New branch or Existing branch radio, branch name or select, start point select, Folder input with the suggested path, the note that the folder must not exist or be empty); Integrate (target select, the cleanup checkbox, and the exact sequence as two sentences); Remove (a confirmation that names the discarded changes and the safety snapshot when the worktree has changes).
+- **Dialogs:** Create worktree (New branch or Existing branch radio, branch name or select, start point select, Folder input with the suggested path, the note that the folder must not exist or be empty); Integrate (target select, the removal checkbox ticked by default and still untickable, and the exact sequence as two imperative sentences: "Rebase … fast-forward …" and "Remove the worktree … and delete the branch …"; one confirmation carries the cleanup); Remove (a confirmation that names the discarded changes and the safety snapshot when the worktree has changes).
 - **Entry points:** the state strip worktree chip, the sidebar Worktrees header (open, and a plus for Create), the palette ("Show worktrees", "Create worktree…"). Each sidebar worktree row opens its tab and has a menu with the same actions.
 
 ## Recovery view

@@ -60,6 +60,7 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
     },
     openBranchPicker: record("branch-picker"),
     openSyncMenu: record("sync-menu"),
+    openCreateBranchAt: record("create-branch-at"),
     fetchAll: record("fetch"),
     retrySync: record("retry"),
     dismissSync: record("dismiss-sync"),
@@ -134,6 +135,20 @@ describe("state strip chips", () => {
     expect(host.textContent).toContain("detached at 1a2b3c4");
     expect(button(host, /^Reveal HEAD/).getAttribute("aria-label")).toBe("Reveal HEAD in the graph: detached at 1a2b3c4");
     expect(button(host, /^Branch menu/)).toBeUndefined();
+  });
+
+  it("offers Create branch here only on a detached HEAD and opens the form at that commit", () => {
+    const sha = "1a2b3c4d5e6f".padEnd(40, "0");
+    const detached = mount({ shape: snapshot({ head: { kind: "detached", sha }, upstream: null }) });
+
+    button(detached.host, /^Create branch here/).click();
+
+    expect(detached.calls).toEqual([["create-branch-at", sha, expect.objectContaining({ left: expect.any(Number), top: expect.any(Number) })]]);
+    detached.dispose();
+    document.body.innerHTML = "";
+
+    const attached = mount();
+    expect(button(attached.host, /^Create branch here/)).toBeUndefined();
   });
 
   it("names the missing upstream and still opens the branch menu, where Set upstream lives", () => {

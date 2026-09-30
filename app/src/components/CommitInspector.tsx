@@ -3,10 +3,13 @@ import { useQuery } from "../state/query";
 import { createEffect, createSignal, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
+import type { IconName } from "../iconNames";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
 import { repoKeys } from "../state/queryKeys";
+import type { Anchor, RepoActions } from "../state/repoActions";
+import type { MenuEntry } from "../state/refMenu";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
@@ -48,10 +51,57 @@ function RefChip(props: { entry: GraphRef }) {
   );
 }
 
+type MenuItem = Extract<MenuEntry, { kind: "item" }>;
+
+type Verb = { id: string; label: string; icon?: IconName };
+
+const anchorBelow = (element: Element): Anchor => {
+  const rect = element.getBoundingClientRect();
+  return { left: rect.left, top: rect.bottom + 8 };
+};
+
+const plain = (entry: MenuItem) => entry.label.map((part) => (typeof part === "string" ? part : part.ref)).join("");
+
+function CommitVerbs(props: { actions: RepoActions; sha: string; merge: boolean; current: string }) {
+  const verbs = (): Verb[] => [
+    { id: "create_branch", label: "Branch here", icon: "branch" },
+    { id: "cherry_pick", label: "Cherry-pick" },
+    { id: "revert", label: "Revert", icon: "undo" },
+    { id: "reset", label: `Reset ${props.current} to here` },
+  ];
+  const items = () => props.actions.commitEntries(props.sha, props.merge).filter((entry): entry is MenuItem => entry.kind === "item");
+  return (
+    <div class="hrow ihead-actions">
+      <For each={verbs()}>
+        {(verb) => {
+          const item = () => items().find((entry) => entry.id === verb.id);
+          const reason = () => item()?.disabledReason;
+          return (
+            <button
+              type="button"
+              class="btn sm"
+              {...tip(reason() ?? plain(item() as MenuItem), undefined, verb.label)}
+              aria-disabled={reason() === undefined ? undefined : "true"}
+              onClick={(event) => reason() === undefined && props.actions.runCommitItem(verb.id, props.sha, anchorBelow(event.currentTarget))}
+            >
+              <Show when={verb.icon}>{(icon) => <Icon name={icon()} size={14} />}</Show>
+              {verb.label}
+              <Show when={verb.id === "reset"}>
+                <span aria-hidden="true">▸</span>
+              </Show>
+            </button>
+          );
+        }}
+      </For>
+    </div>
+  );
+}
+
 const OPERATION_REASON = "Finish the operation in progress first";
 
 export function CommitInspector(props: {
   session: RepoSession;
+  actions: RepoActions;
   sha: string;
   activeTarget: DiffTarget | undefined;
   onSelectCommit: (sha: string) => void;
@@ -71,6 +121,10 @@ export function CommitInspector(props: {
   const isHead = () => {
     const head = props.session.snapshot().head;
     return head.kind !== "unborn" && head.sha === shown()?.sha;
+  };
+  const currentLabel = () => {
+    const head = props.session.snapshot().head;
+    return head.kind === "branch" ? head.name : "HEAD";
   };
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
   const now = Math.floor(Date.now() / 1000);
@@ -110,6 +164,7 @@ export function CommitInspector(props: {
                   <Icon name="edit" />
                 </button>
               </Show>
+              <CommitVerbs actions={props.actions} sha={commit().sha} merge={commit().parents.length > 1} current={currentLabel()} />
             </div>
             <div class="ilist commit-body" ref={scroller}>
               <Show when={editing()}>

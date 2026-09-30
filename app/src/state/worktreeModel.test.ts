@@ -78,11 +78,11 @@ describe("integrating a worktree", () => {
   it("states the exact sequence, with and without cleanup", () => {
     const plain = integrateCopy(feature, "main", false);
     expect(plain.title).toBe("Integrate feature/x into main?");
-    expect(plain.consequences).toEqual(["Rebases feature/x onto main in /w/repo-feature, then fast-forwards main to it, so the history stays linear.", "The worktree and feature/x are kept."]);
+    expect(plain.consequences).toEqual(["Rebase feature/x onto main in /w/repo-feature, fast-forward main to it, so the history stays linear.", "The worktree and feature/x are kept."]);
     expect(plain.confirmLabel).toBe("Integrate");
 
     const cleaned = integrateCopy(feature, "main", true);
-    expect(cleaned.consequences[1]).toBe("Then removes the worktree at /w/repo-feature and deletes the branch feature/x.");
+    expect(cleaned.consequences[1]).toBe("Remove the worktree at /w/repo-feature and delete the branch feature/x.");
   });
 
   it("reports the outcome and routes a stopped rebase to the worktree that holds it", () => {

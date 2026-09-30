@@ -108,6 +108,20 @@ function HeadChip(props: { snapshot: RepoSnapshot; actions: RepoActions; onRevea
   );
 }
 
+function DetachedAction(props: { head: RepoSnapshot["head"]; actions: RepoActions }) {
+  const sha = () => (props.head.kind === "detached" ? props.head.sha : undefined);
+  return (
+    <Show when={sha()}>
+      {(value) => (
+        <button type="button" class="btn sm" onClick={(event) => props.actions.openCreateBranchAt(value(), anchorBelow(event.currentTarget))}>
+          <Icon name="branch" size={14} />
+          Create branch here
+        </button>
+      )}
+    </Show>
+  );
+}
+
 function ChangesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
   const present = () => countLetters.filter(([key]) => props.snapshot.counts[key] > 0);
   return (
@@ -329,6 +343,7 @@ export function StateStrip(props: {
         fallback={
           <>
             <HeadChip snapshot={props.snapshot} actions={props.actions} onRevealHead={props.onRevealHead} />
+            <DetachedAction head={props.snapshot.head} actions={props.actions} />
             <ChangesChip snapshot={props.snapshot} onOpen={props.onOpenChanges} />
             <FreshnessChip snapshot={props.snapshot} actions={props.actions} online={props.online} />
             <Show when={!props.online}>

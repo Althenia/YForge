@@ -190,29 +190,44 @@ describe("integrate worktree dialog", () => {
     return { ...mounted, ...context };
   }
 
-  it("defaults to main, states the exact sequence, and changes the statement when cleanup is chosen", async () => {
+  it("defaults to main with the removal ticked and states the exact sequence, and changes the statement when it is unticked", async () => {
     await mountIntegrate();
 
     const target = document.querySelector<HTMLSelectElement>('select[aria-label="Target branch"]') as HTMLSelectElement;
     expect([...target.options].map((option) => option.value)).toEqual(["main", "fix"]);
     expect(target.value).toBe("main");
-    expect(document.body.textContent).toContain("Rebases feature/x onto main in /w/repo-feature, then fast-forwards main to it");
-    expect(document.body.textContent).toContain("The worktree and feature/x are kept.");
-    (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    const cleanup = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(cleanup.checked).toBe(true);
+    expect(document.body.textContent).toContain("Rebase feature/x onto main in /w/repo-feature, fast-forward main to it");
+    expect(document.body.textContent).toContain("Remove the worktree at /w/repo-feature and delete the branch feature/x.");
+    cleanup.click();
     await flush();
-    expect(document.body.textContent).toContain("Then removes the worktree at /w/repo-feature and deletes the branch feature/x.");
+    expect(cleanup.checked).toBe(false);
+    expect(document.body.textContent).toContain("The worktree and feature/x are kept.");
   });
 
-  it("integrates into the chosen target with the cleanup choice and closes on success", async () => {
-    const { calls, notices, actions } = await mountIntegrate((call) => (call.cmd === "worktree_integrate" ? { kind: "integrated", target_sha: "abcdef1234567", cleaned_up: false } : null));
+  it("integrates into main and removes the worktree with one confirmation, then closes", async () => {
+    const { calls, notices, actions } = await mountIntegrate((call) => (call.cmd === "worktree_integrate" ? { kind: "integrated", target_sha: "abcdef1234567", cleaned_up: true } : null));
     actions.openCreate();
 
     buttonNamed(document, "Integrate")?.click();
     await flush(60);
 
+    expect(calls.find((call) => call.cmd === "worktree_integrate")?.args).toEqual({ path: "/w/repo", worktree: "/w/repo-feature", target: "main", cleanup: true });
+    expect(notices.at(-1)).toBe("Integrated feature/x into main at abcdef1 and removed the worktree.");
+    expect(actions.dialog()).toBeUndefined();
+  });
+
+  it("keeps the worktree when the removal is unticked", async () => {
+    const { calls, notices } = await mountIntegrate((call) => (call.cmd === "worktree_integrate" ? { kind: "integrated", target_sha: "abcdef1234567", cleaned_up: false } : null));
+
+    (document.querySelector('input[type="checkbox"]') as HTMLInputElement).click();
+    await flush();
+    buttonNamed(document, "Integrate")?.click();
+    await flush(60);
+
     expect(calls.find((call) => call.cmd === "worktree_integrate")?.args).toEqual({ path: "/w/repo", worktree: "/w/repo-feature", target: "main", cleanup: false });
     expect(notices.at(-1)).toBe("Integrated feature/x into main at abcdef1.");
-    expect(actions.dialog()).toBeUndefined();
   });
 
   it("shows the refusal and stays open", async () => {

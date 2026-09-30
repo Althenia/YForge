@@ -69,8 +69,8 @@ export function integrateCopy(worktree: WorktreeStatus, target: string, cleanup:
   return {
     title: `Integrate ${branch} into ${target}?`,
     consequences: [
-      `Rebases ${branch} onto ${target} in ${worktree.path}, then fast-forwards ${target} to it, so the history stays linear.`,
-      cleanup ? `Then removes the worktree at ${worktree.path} and deletes the branch ${branch}.` : `The worktree and ${branch} are kept.`,
+      `Rebase ${branch} onto ${target} in ${worktree.path}, fast-forward ${target} to it, so the history stays linear.`,
+      cleanup ? `Remove the worktree at ${worktree.path} and delete the branch ${branch}.` : `The worktree and ${branch} are kept.`,
     ],
     names: [],
     confirmLabel: "Integrate",

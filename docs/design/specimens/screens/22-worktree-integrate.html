@@ -63,8 +63,8 @@ const dialog = remove
   : `<div class="scrim"></div><div class="dialog" role="dialog" aria-label="Integrate feature/greeting into main"><h3>Integrate hotfix/wt-demo into main?</h3>
   <div class="field"><label>Integrate into</label><div class="input"><span>main</span>${YF.icon.chevron}</div><span class="note2">The target must be checked out in a worktree: <span class="ref">/tmp/yforge-gk-lab/sample</span></span></div>
   <div class="choice"><span class="cbox on">${G("check", 14)}</span><span>Remove the worktree and delete hotfix/wt-demo afterwards</span></div>
-  <p class="note2">Rebases hotfix/wt-demo onto main in /tmp/yforge-gk-lab/sample-hotfix, then fast-forwards main to it, so the history stays linear.</p>
-  <p class="note2">Then removes the worktree at /tmp/yforge-gk-lab/sample-hotfix and deletes the branch hotfix/wt-demo.</p>
+  <p class="note2">Rebase hotfix/wt-demo onto main in /tmp/yforge-gk-lab/sample-hotfix, fast-forward main to it, so the history stays linear.</p>
+  <p class="note2">Remove the worktree at /tmp/yforge-gk-lab/sample-hotfix and delete the branch hotfix/wt-demo.</p>
   <div class="foot"><span class="btn">Cancel</span><span class="btn primary">${G("merge")}Integrate</span></div></div>`;
 const row = (branch, path, extra = "") => `<li class="wrow">${G("worktree")}<span class="ref">${branch}</span>${extra}<span class="wpath"><bdi dir="ltr">${path}</bdi></span></li>`;
 const panel = `<section class="panel rpanel" aria-label="Worktrees"><div class="rhead">${G("worktree")}<span>Worktrees</span><span class="dim">3</span></div><div class="rbody"><ul class="rlist">${row("feature/greeting", "/tmp/yforge-gk-lab/sample", '<span class="chip">Main worktree</span><span class="chip">current</span>')}${row("hotfix/wt-demo", "/tmp/yforge-gk-lab/sample-hotfix")}${row("feature/search", "/tmp/yforge-gk-lab/sample-search", '<span class="chip attn">changes</span>')}</ul></div></section>`;

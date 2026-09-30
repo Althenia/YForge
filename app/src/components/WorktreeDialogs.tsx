@@ -150,7 +150,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
 export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: readonly WorktreeStatus[]; actions: WorktreeActions }) {
   const targets = () => integrationTargets(props.worktree, props.all);
   const [target, setTarget] = createSignal(defaultIntegrationTarget(targets()));
-  const [cleanup, setCleanup] = createSignal(false);
+  const [cleanup, setCleanup] = createSignal(true);
   const [failure, setFailure] = createSignal<string | undefined>();
   const [busy, setBusy] = createSignal(false);
   const branch = () => props.worktree.branch ?? "";

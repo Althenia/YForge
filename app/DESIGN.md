@@ -1192,6 +1192,7 @@ A child radius never exceeds its parent's radius.
 | Buttons (primary, secondary, danger, icon, split) | Actions | Front matter tokens | All |
 | Tabs, chips, command field, breadcrumb | Bar controls | Front matter tokens | S01–S31 |
 | Composer (split Commit button) | Commit message entry; Commit and Commit & Push | COMPONENT_SPECS § Composer | S03, S04 |
+| Commit inspector actions | Branch here, Cherry-pick, Revert, and Reset in the header of a selected commit | COMPONENT_SPECS § Commit inspector actions | S03, S15 |
 | Message edit form | Edit the HEAD commit message in the commit inspector | COMPONENT_SPECS § Message edit form | S03 |
 | Menu, context menu, drop menu | Direct manipulation | UX_PATTERNS §6–7 | S12 |
 | Command palette | Keyboard access | SCREEN_INVENTORY S21 | S21 |

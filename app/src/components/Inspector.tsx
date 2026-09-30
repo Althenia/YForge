@@ -52,7 +52,7 @@ export function Inspector(props: {
       </Match>
       <Match when={commitSha()}>
         {(sha) => (
-          <CommitInspector session={props.session} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
+          <CommitInspector session={props.session} actions={props.actions} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
         )}
       </Match>
     </Switch>

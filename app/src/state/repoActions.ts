@@ -647,21 +647,26 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (base !== undefined) setHistory({ kind: "recompose", base });
   }
 
+  const commitEntries = (sha: string, merge: boolean, selection: readonly string[] = [sha], row: HistoryRow = {}): MenuEntry[] =>
+    commitMenu({ ...menuContext(), sha, merge, selection, ...row });
+
+  function runCommitItem(id: string, sha: string, anchor: Anchor, selection: readonly string[] = [sha]): void {
+    if (id === "create_branch") openCreateBranchAt(sha, anchor);
+    else if (id === "create_tag") openCreateTag(sha, anchor);
+    else if (id === "cherry_pick") void applyCommit(sha, "Cherry-pick");
+    else if (id === "revert") void applyCommit(sha, "Revert");
+    else if (id === "reset") openResetModes(sha, sha.slice(0, 7), anchor);
+    else if (id === "edit_history") void openRebaseEditor(sha);
+    else if (id === "squash") setHistory({ kind: "squash", shas: selection });
+    else if (id === "recompose") void openRecomposeFrom(sha);
+  }
+
   function openCommitMenu(sha: string, merge: boolean, anchor: Anchor, selection: readonly string[] = [sha], row: HistoryRow = {}): void {
     setMenu({
       anchor,
-      entries: commitMenu({ ...menuContext(), sha, merge, selection, ...row }),
+      entries: commitEntries(sha, merge, selection, row),
       ...(selection.length > 1 ? { title: [`${selection.length} commits selected`] } : {}),
-      run: (id) => {
-        if (id === "create_branch") openCreateBranchAt(sha, anchor);
-        else if (id === "create_tag") openCreateTag(sha, anchor);
-        else if (id === "cherry_pick") void applyCommit(sha, "Cherry-pick");
-        else if (id === "revert") void applyCommit(sha, "Revert");
-        else if (id === "reset") openResetModes(sha, sha.slice(0, 7), anchor);
-        else if (id === "edit_history") void openRebaseEditor(sha);
-        else if (id === "squash") setHistory({ kind: "squash", shas: selection });
-        else if (id === "recompose") void openRecomposeFrom(sha);
-      },
+      run: (id) => runCommitItem(id, sha, anchor, selection),
     });
   }
 
@@ -830,6 +835,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     openCreateBranch,
     submitCreateBranch,
     openCommitMenu,
+    commitEntries,
+    runCommitItem,
     openDropMenu,
     submitMerge,
     submitCreateTag,
