@@ -115,6 +115,7 @@ The surface file ([app/DESIGN.md](app/DESIGN.md)) derives semantic roles per the
 - **Sans:** Geist Sans for UI and commit prose.
 - **Mono:** Geist Mono for SHAs, ref names, paths, diffs, commands, and the wordmark.
 - **Delivery:** both families are bundled with the app under the SIL Open Font License (`brand/fonts/`), so there are no hosted fonts and the app works offline. System fonts are only the fallback.
+- **Rendering:** text renders with grayscale antialiasing (`-webkit-font-smoothing: antialiased`), the rendering Geist is drawn for; without it macOS thickens light text on dark surfaces and Geist reads like the system font.
 - **Hierarchy:** comes from weight (400/500/600), then size, then ink level. Letter case does not carry hierarchy: there are no uppercase section headers.
 
 ## Motion

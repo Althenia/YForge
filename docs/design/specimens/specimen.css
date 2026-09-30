@@ -43,7 +43,7 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; }
-body { font: 400 13px/20px var(--sans); color: var(--text); background: var(--bg); overflow: hidden; }
+body { font: 400 13px/20px var(--sans); color: var(--text); background: var(--bg); overflow: hidden; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 
 .aurora { position: fixed; inset: -25%; z-index: 0; pointer-events: none; }
 .aurora i { position: absolute; display: block; border-radius: 50%; will-change: transform; animation: drift 64s ease-in-out infinite alternate; }

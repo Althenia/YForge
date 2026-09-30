@@ -84,6 +84,8 @@ body,
 
 body {
   font: var(--font-ui-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   color: var(--colors-text);
   background: var(--colors-backdrop);
   overflow: hidden;
