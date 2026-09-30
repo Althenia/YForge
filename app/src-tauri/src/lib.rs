@@ -1,5 +1,6 @@
 mod auth;
 mod crash;
+mod instance;
 mod open;
 mod tracking;
 
@@ -14,21 +15,23 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use yforge_ai::{Ai, AiError, KeychainStore, Selection};
 use yforge_core::{
     ActivityEntry, AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, AmendInfo, AppInfo,
-    AppSettings, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CommitBrief,
-    CommitDetails, CommitDraft, ConflictFile, ConflictProposal, ConflictSide, CoreError,
-    CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
-    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, LostCommit, MergeMode,
-    MessageEdit, OperationKind, OperationOutcome, OperationProgress, Planned, Progress,
-    ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome,
-    PullReport, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
-    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
-    ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoWatcher, ResetMode,
-    SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashRestore, SwitchStash, TabSession,
-    UsageRecord, WorktreeIntegration, WorktreeStatus,
+    AppSettings, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CliInstall,
+    CommitBrief, CommitDetails, CommitDraft, ConflictFile, ConflictProposal, ConflictSide,
+    CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileAtRevision,
+    FileDiff, ForceLease, ForcePushPlan, GraphPage, GraphVisibility, Identity, IdentityField,
+    IntegrationPreview, LostCommit, MergeMode, MessageEdit, OperationKind, OperationOutcome,
+    OperationProgress, Planned, Progress, ProviderInput, ProviderStatus, ProviderSummary,
+    ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget, RebaseOutcome, RebasePlan,
+    RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview,
+    RecomposeProposal, RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged, RepoSettings,
+    RepoSnapshot, RepoUiPrefs, RepoWatcher, ResetMode, SearchResult, SnapshotChange, SnapshotInfo,
+    SshKey, StashDetails, StashRestore, SwitchStash, TabSession, UsageRecord, WorktreeIntegration,
+    WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
+pub use instance::{requested_path, second_instance, OPEN_PATH_REQUESTED_EVENT};
 use open::OpenWith;
 use tracking::{execute, plain, unix_now, ActivityLog, AiRun, Draft, Track};
 
@@ -403,10 +406,21 @@ async fn repo_open(path: String) -> Result<RepoSnapshot, ErrorPayload> {
 }
 
 #[tauri::command]
-async fn repo_graph(path: String, offset: u32, limit: u32) -> Result<GraphPage, ErrorPayload> {
-    log::debug!("repo_graph path={path} offset={offset} limit={limit}");
+async fn repo_graph(
+    path: String,
+    offset: u32,
+    limit: u32,
+    visibility: Option<GraphVisibility>,
+) -> Result<GraphPage, ErrorPayload> {
+    log::debug!("repo_graph path={path} offset={offset} limit={limit} visibility={visibility:?}");
+    let visibility = visibility.unwrap_or_default();
     let result = blocking(move || {
-        yforge_core::graph_page(Path::new(&path), offset as usize, limit as usize)
+        yforge_core::graph_page(
+            Path::new(&path),
+            offset as usize,
+            limit as usize,
+            &visibility,
+        )
     })
     .await;
     log_outcome("repo_graph", &result, |page| {
@@ -416,12 +430,18 @@ async fn repo_graph(path: String, offset: u32, limit: u32) -> Result<GraphPage, 
 }
 
 #[tauri::command]
-async fn search_commits(path: String, query: String) -> Result<SearchResult, ErrorPayload> {
+async fn search_commits(
+    path: String,
+    query: String,
+    visibility: Option<GraphVisibility>,
+) -> Result<SearchResult, ErrorPayload> {
     log::debug!(
-        "search_commits path={path} query_chars={}",
+        "search_commits path={path} query_chars={} visibility={visibility:?}",
         query.chars().count()
     );
-    let result = blocking(move || yforge_core::search_commits(Path::new(&path), &query)).await;
+    let visibility = visibility.unwrap_or_default();
+    let result =
+        blocking(move || yforge_core::search_commits(Path::new(&path), &query, &visibility)).await;
     log_outcome("search_commits", &result, |found| {
         format!("matches={} total={}", found.rows.len(), found.total)
     });
@@ -738,11 +758,68 @@ async fn commit_file_diff(
     path: String,
     sha: String,
     file: String,
+    ignore_whitespace: Option<bool>,
 ) -> Result<FileDiff, ErrorPayload> {
-    log::debug!("commit_file_diff path={path} sha={sha} file={file}");
+    log::debug!(
+        "commit_file_diff path={path} sha={sha} file={file} ignore_whitespace={ignore_whitespace:?}"
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
     let result =
-        blocking(move || yforge_core::commit_file_diff(Path::new(&path), &sha, &file)).await;
+        blocking(move || yforge_core::commit_file_diff(Path::new(&path), &sha, &file, ignore))
+            .await;
     log_outcome("commit_file_diff", &result, |diff| {
+        format!("hunks={} binary={}", diff.hunks.len(), diff.binary)
+    });
+    result
+}
+
+#[tauri::command]
+async fn file_at_revision(
+    path: String,
+    file: String,
+    rev: String,
+) -> Result<FileAtRevision, ErrorPayload> {
+    log::debug!("file_at_revision path={path} file={file} rev={rev}");
+    let result =
+        blocking(move || yforge_core::file_at_revision(Path::new(&path), &file, &rev)).await;
+    log_outcome("file_at_revision", &result, |content| match content {
+        FileAtRevision::Text { size, .. } => format!("text size={size}"),
+        FileAtRevision::Binary { size } => format!("binary size={size}"),
+    });
+    result
+}
+
+#[tauri::command]
+async fn stash_details(
+    path: String,
+    index: u32,
+    sha: String,
+) -> Result<StashDetails, ErrorPayload> {
+    log::debug!("stash_details path={path} index={index} sha={sha}");
+    let result = blocking(move || yforge_core::stash_details(Path::new(&path), index, &sha)).await;
+    log_outcome("stash_details", &result, |details| {
+        format!("files={}", details.files.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn stash_file_diff(
+    path: String,
+    index: u32,
+    sha: String,
+    file: String,
+    ignore_whitespace: Option<bool>,
+) -> Result<FileDiff, ErrorPayload> {
+    log::debug!(
+        "stash_file_diff path={path} index={index} sha={sha} file={file} ignore_whitespace={ignore_whitespace:?}"
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let result = blocking(move || {
+        yforge_core::stash_file_diff(Path::new(&path), index, &sha, &file, ignore)
+    })
+    .await;
+    log_outcome("stash_file_diff", &result, |diff| {
         format!("hunks={} binary={}", diff.hunks.len(), diff.binary)
     });
     result
@@ -1888,6 +1965,57 @@ async fn repo_settings_save(
     let dir = data_dir(&data);
     let result = blocking(move || yforge_core::save_repo_settings(&dir, &path, &settings)).await;
     log_outcome("repo_settings_save", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn repo_ui_prefs_load(
+    data: State<'_, DataDir>,
+    path: String,
+) -> Result<RepoUiPrefs, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repo_ui_prefs_load(&dir, &path)).await;
+    log_outcome("repo_ui_prefs_load", &result, |prefs| {
+        format!(
+            "columns={} folders={}",
+            prefs.columns.len(),
+            prefs.collapsed_folders.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn repo_ui_prefs_save(
+    data: State<'_, DataDir>,
+    path: String,
+    prefs: RepoUiPrefs,
+) -> Result<(), ErrorPayload> {
+    log::debug!("repo_ui_prefs_save path={path}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repo_ui_prefs_save(&dir, &path, &prefs)).await;
+    log_outcome("repo_ui_prefs_save", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn cli_install() -> Result<CliInstall, ErrorPayload> {
+    log::debug!("cli_install");
+    let result = blocking(|| {
+        let home = std::env::var_os("HOME")
+            .filter(|home| !home.is_empty())
+            .ok_or_else(|| CoreError::InvalidRequest {
+                detail: "HOME is not set, so the command cannot be installed".to_owned(),
+            })?;
+        let executable = std::env::current_exe().map_err(|error| CoreError::InvalidRequest {
+            detail: format!("cannot locate the YForge executable: {error}"),
+        })?;
+        yforge_core::install_cli(&Path::new(&home).join(".local/bin"), &executable)
+    })
+    .await;
+    log_outcome("cli_install", &result, |installed| {
+        format!("path={} replaced={}", installed.path, installed.replaced)
+    });
     result
 }
 
@@ -3327,6 +3455,12 @@ pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::B
             amend_info,
             commit_details,
             commit_file_diff,
+            file_at_revision,
+            stash_details,
+            stash_file_diff,
+            repo_ui_prefs_load,
+            repo_ui_prefs_save,
+            cli_install,
             checkout,
             check_branch_name,
             create_branch,
@@ -3448,25 +3582,31 @@ pub fn run() {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
         .init();
-    register(tauri::Builder::default().plugin(tauri_plugin_dialog::init()))
-        .setup(|app| {
-            let dir = match std::env::var_os(DATA_DIR_ENV).filter(|value| !value.is_empty()) {
-                Some(dir) => PathBuf::from(dir),
-                None => app.path().app_data_dir()?,
-            };
-            if let Some(moved) = yforge_core::start_storage(&dir)? {
-                log::warn!(
-                    "diagnostics database was unreadable and was moved to {}",
-                    moved.display()
-                );
-            }
-            crash::seed_repositories(&dir);
-            install_panic_hook(dir.clone());
-            app.manage(DataDir(dir));
-            Ok(())
-        })
-        .run(tauri::generate_context!())
-        .expect("failed to run the YForge application");
+    register(
+        tauri::Builder::default()
+            .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+                second_instance(app, &argv, &cwd);
+            }))
+            .plugin(tauri_plugin_dialog::init()),
+    )
+    .setup(|app| {
+        let dir = match std::env::var_os(DATA_DIR_ENV).filter(|value| !value.is_empty()) {
+            Some(dir) => PathBuf::from(dir),
+            None => app.path().app_data_dir()?,
+        };
+        if let Some(moved) = yforge_core::start_storage(&dir)? {
+            log::warn!(
+                "diagnostics database was unreadable and was moved to {}",
+                moved.display()
+            );
+        }
+        crash::seed_repositories(&dir);
+        install_panic_hook(dir.clone());
+        app.manage(DataDir(dir));
+        Ok(())
+    })
+    .run(tauri::generate_context!())
+    .expect("failed to run the YForge application");
 }
 
 #[cfg(test)]

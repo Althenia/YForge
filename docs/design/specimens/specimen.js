@@ -141,11 +141,14 @@
   }
 
   const headChip = (branch = "feature/greeting", upstream = "origin/feature/greeting", counts = '<span class="st st-A">↑2</span> ↓0') =>
-    `<span class="chip"><span class="junction"></span>HEAD <span class="ref">${branch}</span>${upstream ? ` → <span class="ref">${upstream}</span> ${counts}` : ""}</span>`;
+    `<span class="chip-group" role="group" aria-label="HEAD, branch, and sync"><span class="chip-seg"><span class="junction"></span>HEAD <span class="ref">${branch}</span></span>${upstream ? `<span class="chip-seg">→ <span class="ref">${upstream}</span></span><span class="chip-seg">${counts}</span>` : '<span class="chip-seg">no upstream</span>'}</span>`;
 
-  function strip({ banner, chips, fresh = `<span class="chip ok">${glyph("check")}fetched 2 min ago</span>`, right = '<span class="chip">⑂ 2 worktrees · hotfix/wt-demo clean</span>' } = {}) {
+  const notice = (text, actions = [], detail = "") =>
+    `<span class="strip-notice"><span class="chip attn">${glyph("stash")}${text}</span>${detail ? `<span class="hint">${detail}</span>` : ""}${actions.map(a => `<span class="btn sm">${a}</span>`).join("")}<span class="icon-btn dense" aria-label="Dismiss">${glyph("close", 14)}</span></span>`;
+
+  function strip({ banner, chips, fresh = `<span class="chip ok">${glyph("check")}fetched 2 min ago</span>`, right = `<span class="chip">${glyph("worktree")}2 worktrees · 1 with changes</span>`, extra = "" } = {}) {
     if (banner) return `<div class="bar chips">${banner}</div>`;
-    const left = chips || `${headChip()}<span class="chip">${glyph("changes")}Changes <span class="st st-M">M 1</span> <span class="st st-U">U 1</span></span>${fresh}`;
+    const left = chips || `${headChip()}<span class="chip">${glyph("changes")}Changes <span class="st st-M">M 1</span> <span class="st st-U">U 1</span></span>${fresh}${extra}`;
     return `<div class="bar chips">${left}<span class="spacer"></span>${right}</div>`;
   }
 
@@ -157,8 +160,8 @@
       ${sec("changes", "Changes", 2)}
       ${sec("branch", "Branches", 7)}
       ${row("main", "↑3")}
-      <div class="srow folder">bugfix/</div>${row("header", "", " child")}
-      <div class="srow folder">feature/</div>${row("greeting", current === "greeting" ? "↑2 · HEAD" : "", " child")}${row("inline-branch", "", " child")}${row("login", "", " child")}${row("search", "↓1", " child")}
+      <div class="srow folder"><span class="chev">${glyph("chevron", 14)}</span>bugfix <span class="meta">1 branch</span></div>${row("header", "", " child")}
+      <div class="srow folder"><span class="chev">${glyph("chevron", 14)}</span>feature <span class="meta">4 branches</span></div>${row("greeting", current === "greeting" ? "↑2 · HEAD" : "", " child")}${row("inline-branch", "", " child")}${row("login", "", " child")}${row("search", "↓1", " child")}
       ${sec("remote", "Remotes", 5)}
       ${sec("tag", "Tags", 3)}
       ${sec("stash", "Stashes", 2)}
@@ -168,7 +171,10 @@
     </aside>`;
   }
 
-  const graphPanel = () => `<section class="panel graph" aria-label="Commit graph"><div class="ghead"><span>Branch / Tag</span><span>Graph</span><span>Commit message</span><span class="gear" aria-label="Column settings">${svg('<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>', 14)}</span></div><div class="gbody" id="gbody"><svg class="g" id="g"></svg></div></section>`;
+  const COLUMNS = flags.has("columns") ? [["Author", 130], ["Date / Time", 130], ["SHA", 100]] : [];
+  const EXTRA = COLUMNS.reduce((total, [, width]) => total + width, 0);
+
+  const graphPanel = () => `<section class="panel graph" aria-label="Commit graph" style="--extra-w: ${EXTRA}px"><div class="ghead" style="grid-template-columns: var(--ref-w) var(--graph-w) 1fr${COLUMNS.map(([, width]) => ` ${width}px`).join("")} 24px"><span class="gh">Branch / Tag<i class="gresize end" role="separator" aria-orientation="vertical" aria-label="Resize Branch / Tag column"></i></span><span class="gh">Graph</span><span class="gh">Commit message</span>${COLUMNS.map(([name]) => `<span class="gh">${name}<i class="gresize start" role="separator" aria-orientation="vertical" aria-label="Resize ${name} column"></i></span>`).join("")}<span class="gh gear" aria-label="Graph columns">${svg('<circle cx="12" cy="12" r="3"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>', 14)}</span></div><div class="gbody" id="gbody"><svg class="g" id="g"></svg></div></section>`;
 
   const activity = ({ command = 'git commit -m "Export shout helper"', duration = "0.2 s", action = "Undo commit" } = {}) =>
     `<div class="bar activity"><span class="chip">${glyph("activity", 14)}Activity · Last: <code>${command}</code> · ${duration}</span><span class="spacer"></span>${action ? `<span class="btn">${glyph("undo", 14)}${action}</span>` : ""}</div>`;
@@ -219,7 +225,7 @@
     return (L + 0.05) / 0.05 >= 1.05 / (L + 0.05) ? "#000000" : "#FFFFFF";
   }
 
-  function mountGraph({ selected = 0, hovered = 5, highlight = null, conflict = null, dimAll = false } = {}) {
+  function mountGraph({ selected = 0, hovered = 5, highlight = null, conflict = null, dimAll = false, multi = [] } = {}) {
     const rows = baseRows();
     if (conflict) { rows[0].m = conflict; rows[0].conflict = true; }
     layout(rows);
@@ -263,7 +269,7 @@
     g.innerHTML = refLines + edges + nodes;
     rows.forEach((r, i) => {
       const el = document.createElement("div");
-      el.className = ["row", i === selected ? "sel" : "", i === hovered && i !== selected ? "hover" : "", r.kind || "", r.conflict ? "conflict" : "", (highlight && r.branch !== highlight) || (dimAll && i !== selected) ? "dim" : ""].filter(Boolean).join(" ");
+      el.className = ["row", i === selected || multi.includes(i) ? "sel" : "", i === hovered && i !== selected ? "hover" : "", r.kind || "", r.conflict ? "conflict" : "", (highlight && r.branch !== highlight) || (dimAll && i !== selected) ? "dim" : ""].filter(Boolean).join(" ");
       el.style.top = `${i * ROW}px`;
       el.style.setProperty("--lane", laneVar(r.col));
       const msgLeft = refW + graphW;
@@ -275,13 +281,24 @@
         return `<span class="label${ref.head ? " active" : ""}${kind}" title="${title}">${ref.head ? icon.check : ""}<span class="name">${ref.n}</span>${icons}</span>`;
       });
       if (!labels.length && r.ghost && i === hovered && !highlight) labels.push(`<span class="label ghost"><span class="name">${r.ghost}</span>${icon.local}</span>`);
-      if (labels.length) html += `<div class="refcell">${labels[0]}${labels.length > 1 ? `<span class="more">+${labels.length - 1}</span>` : ""}</div>`;
+      if (labels.length) html += `<div class="refcell">${labels[0]}${labels.length > 1 ? `<span class="more" aria-haspopup="dialog" aria-label="${labels.length - 1} more branch">+${labels.length - 1}</span>` : ""}</div>`;
       html += `<div class="msg" style="left:${msgLeft + 12}px"><span class="sum">${r.m}</span>${r.body ? `<span class="body">${r.body}</span>` : ""}</div>`;
       if (r.div) html += `<span class="tpill">${r.div}</span>`;
+      if (COLUMNS.length) {
+        const people = { YL: "Yui Lin", CN: "Chen Nakamura", BO: "Bo Okafor", AP: "Ada Petrov" };
+        const ages = ["2m", "5m", "1h", "1h", "3h", "1d", "1d", "2d", "3d", "4d", "1w", "2w", "3w", "3w", "4w", "4w", "5w", "5w", "6w", "7w", "2mo", "2mo", "3mo", "3mo", "4mo"];
+        const cells = { Author: people[r.au] || "", "Date / Time": r.kind === "wip" ? "" : ages[i % ages.length], SHA: r.kind === "wip" ? "" : (0x3b1c9d + i * 7919).toString(16).slice(0, 7) };
+        html += `<div class="gextra">${COLUMNS.map(([name, width]) => `<span class="gcell${name === "SHA" ? " mono" : ""}" style="width:${width}px">${cells[name]}</span>`).join("")}</div>`;
+      }
       el.innerHTML = html;
       body.appendChild(el);
     });
+    if (multi.length > 1) {
+      const short = i => (0x3b1c9d + i * 7919).toString(16).slice(0, 7);
+      const oldest = Math.max(...multi), newest = Math.min(...multi);
+      body.parentElement.insertAdjacentHTML("beforeend", `<div class="gsummary" role="status"><span>${multi.length} commits selected</span><span class="range"><span class="ref">${short(newest)}</span>${glyph("next", 14)}<span class="ref">${short(oldest)}</span></span><span class="spacer"></span><span class="icon-btn dense" aria-label="Clear selection">${glyph("close", 14)}</span></div>`);
+    }
   }
 
-  window.YF = { flags, theme, icon, glyph, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, aurora, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
+  window.YF = { flags, theme, icon, glyph, notice, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, aurora, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
 })();

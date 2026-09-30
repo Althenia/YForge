@@ -3,6 +3,7 @@ import { basename } from "../format";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { UndoState } from "../state/activityModel";
 import { pushRemote } from "../state/refMenu";
+import { SHORTCUTS } from "../state/shortcuts";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import { createToolbarLabels } from "../state/viewport";
 import type { IconName } from "../iconNames";
@@ -97,15 +98,25 @@ export function CommandBar(props: {
         <span class="sep">›</span>
         {worktreeLabel()}
         <span class="sep">›</span>
-        <span class="branch">{headLabel(props.snapshot)}</span>
-        <Icon name="chevron" />
+        <button
+          type="button"
+          class="branch"
+          aria-haspopup="menu"
+          aria-label={`Branch menu: ${headLabel(props.snapshot)}`}
+          disabled={unborn()}
+          title={unborn() ? "Make a first commit before switching branches" : undefined}
+          onClick={(event) => props.actions.openBranchPicker(below(event.currentTarget))}
+        >
+          {headLabel(props.snapshot)}
+          <Icon name="chevron" />
+        </button>
       </span>
       <button type="button" class="cmd" aria-label="Open the command palette" onClick={props.onPalette}>
         <Icon name="search" />
         <span class="cmd-text">Search commits, branches, or run a command</span>
-        <span class="kbd">⌘K</span>
+        <span class="kbd">{SHORTCUTS.palette}</span>
       </button>
-      <button type="button" class="icon-btn" {...tip("Search commits", "⌘F")} onClick={props.onSearch}>
+      <button type="button" class="icon-btn" {...tip("Search commits", SHORTCUTS.search)} onClick={props.onSearch}>
         <Icon name="search" />
       </button>
       <Show
@@ -145,12 +156,12 @@ export function CommandBar(props: {
         reason={unborn() ? "Make a first commit before creating branches" : undefined}
         onClick={(event) => props.actions.openCreateBranch(below(event.currentTarget))}
       />
-      <Tool icon="stash" label="Stash" labelled={labelled()} shortcut="⌘⇧S" onClick={(event) => props.actions.openStashForm(below(event.currentTarget))} />
+      <Tool icon="stash" label="Stash" labelled={labelled()} shortcut={SHORTCUTS.stash} onClick={(event) => props.actions.openStashForm(below(event.currentTarget))} />
       <Tool
         icon="undo"
         label="Undo"
         labelled={labelled()}
-        shortcut="⌘Z"
+        shortcut={SHORTCUTS.undo}
         name={props.undo.kind === "available" ? `Undo: ${props.undo.scope}` : "Undo"}
         disabled={props.undo.kind !== "available"}
         reason={props.undo.kind === "available" ? (labelled() ? props.undo.scope : undefined) : props.undo.reason}

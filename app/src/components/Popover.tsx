@@ -15,7 +15,7 @@ export function Popover(props: { anchor: Anchor; label: string; onClose: () => v
       left: Math.max(MARGIN, Math.min(props.anchor.left, window.innerWidth - rect.width - MARGIN)),
       top: Math.max(MARGIN, Math.min(props.anchor.top, window.innerHeight - rect.height - MARGIN)),
     });
-    element.querySelector<HTMLElement>("input")?.focus();
+    element.querySelector<HTMLElement>("input, select, [data-autofocus]")?.focus();
     const dismiss = (event: PointerEvent) => {
       if (event.target instanceof Node && !element?.contains(event.target)) props.onClose();
     };

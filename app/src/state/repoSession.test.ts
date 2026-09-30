@@ -1,6 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createQueryClient } from "./queryClient";
 import { repoKeys } from "./queryKeys";
@@ -117,5 +118,26 @@ describe("repo session", () => {
     expect(stale("/r")).toBe(false);
     await session.mutate(() => Promise.resolve());
     expect(stale("/r")).toBe(true);
+  });
+});
+
+describe("search with a branch visibility", () => {
+  it("searches only the commits the chosen visibility shows, and asks again when it changes", async () => {
+    const searches: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "search_commits") searches.push(args);
+      return { total: 0, rows: [] };
+    });
+    let visibility: GraphVisibility = { kind: "all" };
+    const session = createRoot(() => createRepoSession("/r", snapshotWith("/r"), sharedClient(), () => visibility));
+
+    await session.searchCommits("fix");
+    visibility = { kind: "current_and_upstream" };
+    await session.searchCommits("fix");
+
+    expect(searches).toEqual([
+      { path: "/r", query: "fix" },
+      { path: "/r", query: "fix", visibility: { kind: "current_and_upstream" } },
+    ]);
   });
 });

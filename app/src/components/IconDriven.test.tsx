@@ -46,12 +46,13 @@ const setWidth = (width: number) => {
   window.dispatchEvent(new Event("resize"));
 };
 
-const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, graphColumn: 160, laneColors: 10 };
+const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
 const info: AppInfo = { app_version: "0.1.0", git_version: "2.50.0" };
 const counts = { modified: 2, added: 0, deleted: 0, renamed: 0, untracked: 1, conflicted: 0 };
 
 const snapshot: RepoSnapshot = {
   root: "/r",
+  main_root: "/r",
   head: { kind: "branch", name: "feature/greeting", sha: "a".repeat(40) },
   upstream: { name: "origin/feature/greeting", ahead_behind: { ahead: 2, behind: 0 } },
   counts,

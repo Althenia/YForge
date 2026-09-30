@@ -2,8 +2,10 @@ import type { QueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup } from "solid-js";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import { client, IpcError } from "../ipc/client";
 import { repoKeys } from "../state/queryKeys";
+import { visibilityKey } from "../state/repoUiPrefs";
 import { edgeKey, placeRowEdges, type PlacedEdge } from "./laneArt";
 
 export const PAGE_SIZE = 200;
@@ -37,9 +39,17 @@ function withPage(layout: Layout, page: number, result: GraphPage): Layout {
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
-export function createGraphStore(path: string, queryClient: QueryClient) {
-  const fetchPage = (page: number): Promise<GraphPage> =>
-    queryClient.fetchQuery({ queryKey: repoKeys.graph(path, page), queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE), staleTime: Infinity });
+const allBranches: GraphVisibility = { kind: "all" };
+
+export function createGraphStore(path: string, queryClient: QueryClient, visibility: () => GraphVisibility = () => allBranches) {
+  const fetchPage = (page: number): Promise<GraphPage> => {
+    const chosen = visibility();
+    return queryClient.fetchQuery({
+      queryKey: repoKeys.graph(path, page, visibilityKey(chosen)),
+      queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE, chosen.kind === "all" ? undefined : chosen),
+      staleTime: Infinity,
+    });
+  };
 
   const [layout, setLayout] = createSignal(emptyLayout);
   const [error, setError] = createSignal<IpcError | undefined>();
@@ -74,6 +84,14 @@ export function createGraphStore(path: string, queryClient: QueryClient) {
       requested.add(page);
       if (rebuilding === undefined) void loadPage(page);
     }
+  }
+
+  async function load(first: number, end: number): Promise<void> {
+    ensure(first, end);
+    const lastPage = Math.floor(Math.max(end - 1, 0) / PAGE_SIZE);
+    const pages = Array.from({ length: lastPage - Math.floor(first / PAGE_SIZE) + 1 }, (_, offset) => Math.floor(first / PAGE_SIZE) + offset);
+    await Promise.all(pages.map((page) => fetchPage(page)));
+    await rebuilding;
   }
 
   async function rebuild(): Promise<void> {
@@ -122,6 +140,7 @@ export function createGraphStore(path: string, queryClient: QueryClient) {
     lanes: () => layout().lanes,
     error,
     ensure,
+    load,
     refresh,
   };
 }

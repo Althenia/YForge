@@ -6,6 +6,7 @@ import type { PopoverState, RepoActions } from "../state/repoActions";
 import { createRepoSession } from "../state/repoSession";
 import { BranchNameForm, StashForm } from "./BranchForms";
 import { TagForm } from "./IntegrationForms";
+import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
 import { buttonNamed, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
@@ -42,6 +43,15 @@ function actionsStub() {
     },
     renameBranch: async (from: string, to: string) => {
       calls.push(["rename", from, to]);
+    },
+    setUpstream: async (branch: string, upstream: string | null) => {
+      calls.push(["upstream", branch, upstream]);
+    },
+    pushTo: async (target: unknown) => {
+      calls.push(["push_to", target]);
+    },
+    renameStash: async (stash: { index: number }, message: string) => {
+      calls.push(["rename_stash", stash.index, message]);
     },
   } as unknown as RepoActions;
   return { calls, actions };
@@ -209,5 +219,150 @@ describe("branch name form", () => {
 
     expect(calls.find(([name]) => name === "rename")).toEqual(["rename", "main", "trunk"]);
     expect(calls.some(([name]) => name === "close")).toBe(true);
+  });
+});
+
+const remoteSnapshot = (overrides: Record<string, unknown> = {}) =>
+  ({
+    root: "/r",
+    head: { kind: "branch", name: "feature", sha: "a" },
+    upstream: null,
+    remotes: ["backup", "origin"],
+    remote_branches: ["backup/feature", "origin/main", "origin/feature"],
+    counts,
+    ...overrides,
+  }) as unknown as RepoSnapshot;
+
+describe("set upstream form", () => {
+  function mountUpstream(branch: string, shape = remoteSnapshot()) {
+    const { calls, actions } = actionsStub();
+    const state = { kind: "set_upstream", anchor, branch } as Extract<PopoverState, { kind: "set_upstream" }>;
+    const mounted = mountWithApp(() => <SetUpstreamForm state={state} snapshot={shape} actions={actions} />);
+    dispose = mounted.dispose;
+    return { ...mounted, calls };
+  }
+  const select = (host: ParentNode) => host.querySelector<HTMLSelectElement>('select[aria-label="Upstream branch"]');
+
+  it("offers every remote branch, preselects the one with the branch's name on the preferred remote, and sets it", async () => {
+    const { host, calls } = mountUpstream("feature");
+    await flush();
+
+    expect([...(select(host)?.options ?? [])].map((option) => option.value)).toEqual(["backup/feature", "origin/main", "origin/feature"]);
+    expect(select(host)?.value).toBe("origin/feature");
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["upstream", "feature", "origin/feature"]]);
+  });
+
+  it("sets the chosen remote branch", async () => {
+    const { host, calls } = mountUpstream("feature");
+    await flush();
+    const chooser = select(host) as HTMLSelectElement;
+    chooser.value = "origin/main";
+    chooser.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["upstream", "feature", "origin/main"]]);
+  });
+
+  it("explains an empty choice list and disables Set upstream", async () => {
+    const { host } = mountUpstream("feature", remoteSnapshot({ remote_branches: [] }));
+    await flush();
+
+    expect(reason(host)).toBe("No remote branches yet. Fetch first, or push the branch to create one.");
+    expect(submit(host)?.disabled).toBe(true);
+  });
+});
+
+describe("Push to… form", () => {
+  function mountPushTo(shape = remoteSnapshot()) {
+    const { calls, actions } = actionsStub();
+    const state = { kind: "push_to", anchor } as Extract<PopoverState, { kind: "push_to" }>;
+    const mounted = mountWithApp(() => <PushToForm state={state} snapshot={shape} actions={actions} />);
+    dispose = mounted.dispose;
+    return { ...mounted, calls };
+  }
+
+  it("defaults to the preferred remote, the current branch name, and sets the upstream when the branch has none", async () => {
+    const { host, calls } = mountPushTo();
+    await flush();
+
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Remote"]')?.value).toBe("origin");
+    expect(input(host, "Remote branch name")?.value).toBe("feature");
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Set as upstream"]')?.checked).toBe(true);
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true }]]);
+  });
+
+  it("pushes to the typed name on the chosen remote without the upstream when unchecked", async () => {
+    const { host, calls } = mountPushTo(remoteSnapshot({ upstream: { name: "origin/feature", ahead_behind: null } }));
+    await flush();
+    const remote = host.querySelector<HTMLSelectElement>('select[aria-label="Remote"]') as HTMLSelectElement;
+    remote.value = "backup";
+    remote.dispatchEvent(new Event("change", { bubbles: true }));
+    type(input(host, "Remote branch name"), "topic");
+    await flush();
+
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Set as upstream"]')?.checked).toBe(false);
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["push_to", { remote: "backup", name: "topic", set_upstream: false }]]);
+  });
+
+  it("refuses an empty name or one with spaces", async () => {
+    const { host } = mountPushTo();
+    await flush();
+
+    type(input(host, "Remote branch name"), "");
+    await flush();
+    expect(submit(host)?.disabled).toBe(true);
+    expect(reason(host)).toBe("Enter a branch name");
+    type(input(host, "Remote branch name"), "my topic");
+    await flush();
+    expect(submit(host)?.disabled).toBe(true);
+    expect(reason(host)).toBe("A branch name cannot contain spaces");
+  });
+});
+
+describe("rename stash form", () => {
+  const stash = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: half done", time: 0 };
+
+  function mountRename(message = stash.message) {
+    const { calls, actions } = actionsStub();
+    const state = { kind: "rename_stash", anchor, stash: { ...stash, message } } as Extract<PopoverState, { kind: "rename_stash" }>;
+    const mounted = mountWithApp(() => <RenameStashForm state={state} actions={actions} />);
+    dispose = mounted.dispose;
+    return { ...mounted, calls };
+  }
+
+  it("starts from the message without git's branch prefix and renames with the new text", async () => {
+    const { host, calls } = mountRename();
+    await flush();
+
+    expect(input(host, "Stash message")?.value).toBe("half done");
+    expect(submit(host)?.disabled).toBe(true);
+    type(input(host, "Stash message"), "nearly done");
+    await flush();
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["rename_stash", 1, "nearly done"]]);
+  });
+
+  it("strips the WIP prefix and refuses an empty message", async () => {
+    const { host } = mountRename("WIP on main: abc1234 Subject");
+    await flush();
+
+    expect(input(host, "Stash message")?.value).toBe("abc1234 Subject");
+    type(input(host, "Stash message"), "  ");
+    await flush();
+    expect(submit(host)?.disabled).toBe(true);
+    expect(reason(host)).toBe("Enter a name for the stash");
   });
 });

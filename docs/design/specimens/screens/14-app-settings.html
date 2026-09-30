@@ -57,7 +57,8 @@
 const I = YF.icon;
 const tabs = YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"');
 const navIcons = { General: "settings", Git: "branch", Appearance: "theme" };
-const privacy = !YF.flags.has("appearance");
+const git = YF.flags.has("git");
+const privacy = !YF.flags.has("appearance") && !git;
 const navGlyph = (name) => name === "Privacy &amp; diagnostics" ? YF.icon.lock : navIcons[name] ? YF.glyph(navIcons[name]) : "";
 const nav = (name, cls = "", extra = "") => `<div class="nrow${cls}"><span class="icon-slot">${navGlyph(name)}</span>${name}${extra}</div>`;
 const ok = `<span class="st">${YF.glyph("check", 14)}</span>`;
@@ -103,7 +104,7 @@ const html = `
   <div class="settings">
     <nav class="panel nav" aria-label="Settings sections">
       <h2>Settings</h2>
-      ${nav("General")}${nav("Git")}${nav("Accounts &amp; authentication")}${nav("Appearance", privacy ? "" : " sel")}${nav("Privacy &amp; diagnostics", privacy ? " sel" : "")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations", "", '<span class="chip">GitHub — coming later</span>')}${nav("Advanced")}
+      ${nav("General")}${nav("Git", git ? " sel" : "")}${nav("Accounts &amp; authentication")}${nav("Appearance", privacy || git ? "" : " sel")}${nav("Privacy &amp; diagnostics", privacy ? " sel" : "")}${nav("Diff &amp; merge")}${nav("Keyboard")}${nav("Integrations", "", '<span class="chip">GitHub — coming later</span>')}${nav("Advanced")}
     </nav>
     <main class="panel content">
       <div class="topline">
@@ -111,7 +112,15 @@ const html = `
         <div class="input search">${I.search}<span class="ph">Search settings</span><span class="kbd">⌘F</span></div>
       </div>
       ${privacy ? privacySection : ""}
-      ${privacy ? "" : `<section class="section" aria-labelledby="appearance">
+      ${git ? `<section class="section" aria-labelledby="ssh">
+        <h1 id="ssh">SSH</h1>
+        <p>Applies to every repository that has no key of its own.</p>
+        <div class="setting"><div><div class="name">SSH key</div><div class="desc">Key used for every repository that has no key of its own. Leave it on ssh-agent to use the agent and your default keys.</div></div>
+          <div class="control"><div class="input select"><span>id_ed25519 · ssh-ed25519</span>${I.chevron}</div><span class="btn sm">Browse…</span></div></div>
+        <div class="setting"><div><div class="name">Listed keys</div><div class="desc">Private keys in ~/.ssh that have a matching .pub file.</div></div>
+          <div class="control"><span class="chip"><span class="ref">ssh-agent (default)</span></span><span class="chip"><span class="ref">id_ed25519</span> ssh-ed25519</span><span class="chip"><span class="ref">work</span> ssh-rsa</span></div></div>
+      </section>` : ""}
+      ${privacy || git ? "" : `<section class="section" aria-labelledby="appearance">
         <h1 id="appearance">Appearance</h1>
         <p>Applies to every repository.</p>
         <div class="setting"><div><div class="name">Theme</div><div class="desc">Dark, light, or follow the system.</div></div>

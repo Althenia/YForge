@@ -98,12 +98,16 @@ fn read_commit(root: &Path, revision: &str) -> Result<RawCommit, CoreError> {
     parse_commit(&output)
 }
 
+pub(crate) fn empty_tree(root: &Path) -> Result<String, CoreError> {
+    Ok(git::run(root, &["hash-object", "-t", "tree", "/dev/null"])?
+        .trim()
+        .to_owned())
+}
+
 fn diff_base(root: &Path, commit: &RawCommit) -> Result<String, CoreError> {
     match commit.parents.first() {
         Some(parent) => Ok(parent.clone()),
-        None => Ok(git::run(root, &["hash-object", "-t", "tree", "/dev/null"])?
-            .trim()
-            .to_owned()),
+        None => empty_tree(root),
     }
 }
 
@@ -178,7 +182,11 @@ fn parse_numstat(output: &str) -> Result<HashMap<String, Counts>, CoreError> {
     Ok(counts)
 }
 
-fn commit_files(root: &Path, base: &str, sha: &str) -> Result<Vec<CommitFile>, CoreError> {
+pub(crate) fn commit_files(
+    root: &Path,
+    base: &str,
+    sha: &str,
+) -> Result<Vec<CommitFile>, CoreError> {
     let flags = [
         "diff",
         "--no-color",
@@ -239,7 +247,12 @@ pub fn commit_details(path: &Path, sha: &str) -> Result<CommitDetails, CoreError
     })
 }
 
-pub fn commit_file_diff(path: &Path, sha: &str, file: &str) -> Result<FileDiff, CoreError> {
+pub fn commit_file_diff(
+    path: &Path,
+    sha: &str,
+    file: &str,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
     let root = repo::open(path)?;
     validate_sha(sha)?;
     repo::check_paths(&[file])?;
@@ -249,13 +262,14 @@ pub fn commit_file_diff(path: &Path, sha: &str, file: &str) -> Result<FileDiff, 
         .into_iter()
         .find(|entry| entry.path == file)
         .and_then(|entry| entry.original_path);
-    let parsed = diff::read_commit_diff(&root, &base, &commit.sha, file, original_path.as_deref())?;
-    Ok(FileDiff {
-        path: file.to_owned(),
-        original_path,
-        binary: parsed.binary,
-        hunks: parsed.hunks,
-    })
+    diff::diff_between(
+        &root,
+        &base,
+        &commit.sha,
+        file,
+        original_path.as_deref(),
+        ignore_whitespace,
+    )
 }
 
 pub fn amend_info(path: &Path) -> Result<AmendInfo, CoreError> {

@@ -88,9 +88,17 @@ fn push_text(segments: &mut Vec<ConflictSegment>, lines: Vec<String>) {
     }
 }
 
-fn split_lines(text: &str) -> (String, bool, Vec<String>) {
+pub(crate) fn majority_eol(text: &str) -> &'static str {
     let crlf = text.matches("\r\n").count();
     let bare = text.matches('\n').count() - crlf;
+    if crlf > bare {
+        "\r\n"
+    } else {
+        "\n"
+    }
+}
+
+fn split_lines(text: &str) -> (String, bool, Vec<String>) {
     let final_newline = text.ends_with('\n');
     let body = text.strip_suffix('\n').unwrap_or(text);
     let lines = if text.is_empty() {
@@ -100,8 +108,7 @@ fn split_lines(text: &str) -> (String, bool, Vec<String>) {
             .map(|line| line.strip_suffix('\r').unwrap_or(line).to_owned())
             .collect()
     };
-    let eol = if crlf > bare { "\r\n" } else { "\n" };
-    (eol.to_owned(), final_newline, lines)
+    (majority_eol(text).to_owned(), final_newline, lines)
 }
 
 pub(crate) fn parse_conflicts(text: &str) -> (String, bool, Vec<ConflictSegment>) {

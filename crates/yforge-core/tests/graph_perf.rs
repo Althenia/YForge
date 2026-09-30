@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use tempfile::TempDir;
-use yforge_core::{graph_page, NodeKind};
+use yforge_core::{graph_page, GraphVisibility, NodeKind};
 
 const PAGE: usize = 200;
 const SPINE_SPAN: usize = 12;
@@ -106,7 +106,7 @@ fn first_page_within(commits: usize, limit: Duration) {
     let repo = generate(commits);
 
     let started = Instant::now();
-    let page = graph_page(repo.path(), 0, PAGE).unwrap();
+    let page = graph_page(repo.path(), 0, PAGE, &GraphVisibility::All).unwrap();
     let elapsed = started.elapsed();
 
     println!("graph first page, {commits} commits: {elapsed:?} (limit {limit:?})");
@@ -117,7 +117,7 @@ fn first_page_within(commits: usize, limit: Duration) {
     assert!(elapsed < limit, "{commits} commits took {elapsed:?}");
 
     let started = Instant::now();
-    let deep = graph_page(repo.path(), commits / 2, PAGE).unwrap();
+    let deep = graph_page(repo.path(), commits / 2, PAGE, &GraphVisibility::All).unwrap();
     println!(
         "graph mid-history page, {commits} commits: {:?}",
         started.elapsed()

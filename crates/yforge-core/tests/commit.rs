@@ -205,7 +205,7 @@ fn commit_details_of_a_root_commit_has_no_parents_and_lists_added_files() {
     assert!(details.parents.is_empty());
     assert_eq!(details.files.len(), 1);
     assert_eq!(details.files[0].status, FileStatus::Added);
-    let diff = commit_file_diff(&repo.path, &root, "a.txt").unwrap();
+    let diff = commit_file_diff(&repo.path, &root, "a.txt", false).unwrap();
     assert_eq!(diff.hunks[0].lines[0].kind, DiffLineKind::Added);
     assert_eq!(diff.hunks[0].lines[0].text, "1");
 }
@@ -232,11 +232,11 @@ fn merge_commit_details_and_diff_are_taken_against_the_first_parent() {
         .map(|file| file.path.as_str())
         .collect();
     assert_eq!(paths, vec!["feature.txt"]);
-    let diff = commit_file_diff(&repo.path, &merge, "feature.txt").unwrap();
+    let diff = commit_file_diff(&repo.path, &merge, "feature.txt", false).unwrap();
     assert_eq!(diff.hunks.len(), 1);
     assert_eq!(diff.hunks[0].lines.len(), 1);
     assert_eq!(diff.hunks[0].lines[0].text, "f");
-    assert!(commit_file_diff(&repo.path, &merge, "main.txt")
+    assert!(commit_file_diff(&repo.path, &merge, "main.txt", false)
         .unwrap()
         .hunks
         .is_empty());
@@ -260,7 +260,7 @@ fn commit_details_and_diff_report_renames_with_their_source() {
     assert_eq!(details.files[0].status, FileStatus::Renamed);
     assert_eq!(details.files[0].original_path.as_deref(), Some("big.txt"));
     assert_eq!(details.files[0].additions, Some(1));
-    let diff = commit_file_diff(&repo.path, &head, "moved.txt").unwrap();
+    let diff = commit_file_diff(&repo.path, &head, "moved.txt", false).unwrap();
     assert_eq!(diff.original_path.as_deref(), Some("big.txt"));
     assert_eq!(diff.hunks.len(), 1);
 }
@@ -274,7 +274,7 @@ fn commit_details_rejects_ids_that_are_not_hexadecimal() {
         ErrorKind::InvalidRequest
     );
     assert_eq!(
-        commit_file_diff(&repo.path, "--all", "a.txt")
+        commit_file_diff(&repo.path, "--all", "a.txt", false)
             .unwrap_err()
             .kind(),
         ErrorKind::InvalidRequest
@@ -351,4 +351,60 @@ fn editing_a_pushed_head_message_warns_that_published_history_was_rewritten() {
 
     assert!(edit.pushed);
     assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Reworded");
+}
+
+#[test]
+fn commit_file_diff_ignores_whitespace_only_changes_on_request() {
+    let repo = ready_repository();
+    repo.commit("w.txt", "one\ntwo\nthree\n", "Add w");
+    repo.write("w.txt", "one\ntwo  \n   3\n");
+    repo.git(&["commit", "-q", "-a", "-m", "Whitespace and a real edit"]);
+    let mixed = repo.git(&["rev-parse", "HEAD"]);
+    repo.write("w.txt", "  one\ntwo\n   3\n");
+    repo.git(&["commit", "-q", "-a", "-m", "Whitespace only"]);
+    let whitespace_only = repo.git(&["rev-parse", "HEAD"]);
+
+    let plain = commit_file_diff(&repo.path, &whitespace_only, "w.txt", false).unwrap();
+    let ignored = commit_file_diff(&repo.path, &whitespace_only, "w.txt", true).unwrap();
+    let real = commit_file_diff(&repo.path, &mixed, "w.txt", true).unwrap();
+
+    assert_eq!(plain.hunks.len(), 1);
+    assert!(ignored.hunks.is_empty());
+    let changed: Vec<(DiffLineKind, &str)> = real.hunks[0]
+        .lines
+        .iter()
+        .filter(|line| line.kind != DiffLineKind::Context)
+        .map(|line| (line.kind, line.text.trim()))
+        .collect();
+    assert_eq!(
+        changed,
+        vec![(DiffLineKind::Removed, "three"), (DiffLineKind::Added, "3")]
+    );
+}
+
+#[test]
+fn binary_commit_diffs_carry_the_size_of_each_side_that_exists() {
+    let repo = ready_repository();
+    repo.write("logo.png", "PNG\0\u{1}\u{2}");
+    repo.git(&["add", "logo.png"]);
+    repo.git(&["commit", "-q", "-m", "Add logo"]);
+    let added = repo.git(&["rev-parse", "HEAD"]);
+    repo.write("logo.png", "PNG\0\u{1}\u{2}\u{3}\u{4}");
+    repo.git(&["commit", "-q", "-a", "-m", "Grow logo"]);
+    let grown = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["rm", "-q", "logo.png"]);
+    repo.git(&["commit", "-q", "-m", "Remove logo"]);
+    let removed = repo.git(&["rev-parse", "HEAD"]);
+
+    let sizes = |sha: &str| {
+        let diff = commit_file_diff(&repo.path, sha, "logo.png", false).unwrap();
+        assert!(diff.binary);
+        (diff.old_size, diff.new_size)
+    };
+
+    assert_eq!(sizes(&added), (None, Some(6)));
+    assert_eq!(sizes(&grown), (Some(6), Some(8)));
+    assert_eq!(sizes(&removed), (Some(8), None));
+    let text = commit_file_diff(&repo.path, &added, "a.txt", false).unwrap();
+    assert_eq!((text.old_size, text.new_size), (None, None));
 }

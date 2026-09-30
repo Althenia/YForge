@@ -15,11 +15,16 @@
   | Part | Token(s) |
   |---|---|
   | Container | `state-strip`: a transparent row of height `controls.bar-state` over the backdrop; every segment is a `chip` (surface-2 control, text-muted, ui-caption, pill, `controls.height-chip`) |
-  | HEAD chip | `head-junction` glyph (a 12px lane disc inside a 1.5px ring, 2px clear of the disc) + "HEAD" + ref in `ref` role, `text` |
-  | Upstream arrow + counts | ↑ ahead in `status-added` ink, ↓ behind in `text-muted`; tabular figures; diverged adds the word "diverged" |
+  | Chip group | One pill (`chip` surface) of three flat segment buttons that gain `material.control-hover` at hover: HEAD, branch and upstream, ahead and behind |
+  | HEAD segment | `head-junction` glyph (a 12px lane disc inside a 1.5px ring, 2px clear of the disc) + "HEAD" + ref in `ref` role, `text`; detached reads "HEAD detached at 1a2b3c4" with the warning glyph in `attention-ink`. Click reveals HEAD in the graph (⌘⇧H) |
+  | Branch segment | "→" + upstream in `ref` role, or "no upstream". Click opens the branch menu: every local branch (the checked-out one marked with the check glyph and disabled with its reason), then Set upstream… and, when one exists, Unset upstream |
+  | Sync segment | ↑ ahead in `status-added` ink, ↓ behind in `text-muted`; tabular figures; diverged adds the word "diverged"; "—" with a tooltip when unknown. Click opens the Sync menu |
   | Changes chip | `changes` glyph (16px, 6px gap) + "Changes" + status letters in `status-*` inks (S15: icon and label) |
-  | Remote freshness chip | `chip-success` (accent-tint / accent-ink) with the check glyph while fresh; the warning state uses `attention-ink` + warning icon |
-  | Worktrees chip | Worktree glyph + count, pushed to the end; lanes with changes in `text` |
+  | Remote freshness chip | A button. `chip-success` (accent-tint / accent-ink) with the check glyph while fresh; the warning state uses `attention-ink` + warning icon. Click fetches now; disabled with its reason while offline, syncing, or mid-operation |
+  | Offline chip | `chip-attention` with the warning glyph and the word "Offline"; while it shows, Fetch, Pull, Push, and Push to… are disabled with the reason "You are offline" |
+  | Auth failure | `chip-danger` "auth failed for <remote>", the hint, then text-labelled Fix (settings glyph; opens the SSH key setting for an SSH remote, the repository's remotes otherwise), Retry, and Dismiss |
+  | Strip notice | A `chip-attention` chip with the outcome in text, an optional `hint-text` detail, text-labelled `btn sm` actions, and a dismiss icon button. Used for "Your changes were stashed and restored", "Your changes are kept in stash@{n}" (Apply, Pop), and "Restore the changes stashed when you left <branch>?" (Restore, Keep in stash). Inside the operation banner it is plain text |
+  | Worktrees chip | A button: worktree glyph + count, then "· N with changes", pushed to the end. It opens a popover list: branch in `ref` role, path truncated from the left, and text flags (current, changes, locked, missing) |
   | Operation banner (replaces all chips) | `banner-operation` (attention-tint / attention-ink, ui-strong, pill, `controls.banner`, 1px inset attention at 35%) + buttons at `controls.height-dense`: Resolve `button-primary`, Continue and Skip `button-secondary`, Abort `button-danger`; these keep a text label (S15) |
 
 - **Variants:**
@@ -35,6 +40,7 @@
 - **Responsive behavior:**
   - Below 1280, freshness collapses to an icon, and the Worktrees segment collapses to its count.
   - Operation buttons never collapse.
+  - Strip notices keep their text and actions; the detail line truncates first.
 - **Motion:** The banner appears with `panel-reveal`, and the `aurora-operation` recipe shifts the aurora to its attention glow; under reduced motion both change instantly.
 - **Accessibility contract:**
   - `role="status"` region for segment updates, announced politely.
@@ -56,6 +62,9 @@
   | Lane strip | `controls.graph-lane-strip` of lane color on the inner band where the message column starts, at 60% opacity; there is no row streak |
   | Message | 12px after the lane strip. Summary in `graph-text`, then the first body line inline in `graph-text-body` (`graph-row-body`); Changes and stash messages in `graph-text-body`, stash in italic |
   | Time pill | `graph-time-pill` (pill) at the message column's right edge, 8px above the first row of each relative-time bucket |
+  | Optional columns | Author (name, or initials at 40px and narrower), Date / Time (relative age, absolute time in the tooltip), and SHA (7 characters, `ref` role) in `graph-text-body`, right-aligned before the settings square; widths from `layout.graph-author-column`, `-date-column`, and `-sha-column` |
+  | Clean working-tree row | The core's Changes row when nothing changed: the dotted ring in HEAD's lane and the italic message "Working tree clean"; selecting it opens the Changes inspector |
+  | Selection summary | A `selection`-filled row below the list: "N commits selected", the newest and oldest short ids in `ref` role, and a Clear icon button (Esc) |
   | Selection | `graph-row-selected` plus the lane strip at full opacity (S6) |
 
 - **Lane model (S13):**
@@ -71,18 +80,22 @@
   - focus-visible: the 2px focus ring;
   - selected;
   - multi-selected (the selection fill on every selected row);
-  - dimmed: message text drops to `graph-text-dim` through the `graph-dim` recipe.
+  - dimmed: message text drops to `graph-text-dim` through the `graph-dim` recipe;
+  - faded (branch hover, pinned highlight): the same dimming plus lane art at 30% opacity (connectors 10%); the Changes row never fades.
 - **Content states:**
   - a message without a body;
   - a very long summary, which truncates at the end with the full text in a tooltip;
   - an empty message → "(no message)";
   - an unknown author → "?" in the node.
-- **Responsive behavior:** The message column absorbs width changes. The optional Author, Date / Time, and SHA columns drop in the `compact` and `minimum` classes. The Branch / Tag column keeps at least `layout.graph-ref-column-min`.
+- **Column settings:** The gear at the header's end opens a popover with a checkbox per optional column, Reset columns, and the branch visibility choice (All branches, Current + upstream), which the core applies by hiding the other commits and laying the lanes out again. Widths change from focusable `separator` handles (drag, ←/→ by 8px, double-click or Home resets) within `layout.graph-ref-column-min` to `-max` for Branch / Tag and 32 to 300 (Author), 56 to 300 (Date / Time), and 56 to 200 (SHA); the choices are saved per repository in the app database.
+- **Selection:** Click selects one commit; ⌘/Ctrl-click toggles; ⇧-click selects the range from the anchor (loading the pages between); ⇧↑/⇧↓ and ⇧J/⇧K extend; Space toggles the current commit; Esc collapses to it. Right-clicking a selected commit opens the menu for the whole selection, and a commit outside it is selected first.
+- **Highlight:** Pointing at a branch label fades every commit that branch does not contain; B on the selected row pins the highlight of its branch until B or Esc.
+- **Responsive behavior:** The message column absorbs width changes. The optional Author, Date / Time, and SHA columns drop in the `compact` and `minimum` classes (below 1024px). The Branch / Tag column keeps at least `layout.graph-ref-column-min`.
 - **Motion:** Refresh uses the `graph-refresh` cross-fade and dimming uses `graph-dim`. Rows never slide.
 - **Accessibility contract:**
   - Listbox semantics with multi-select.
   - The accessible name combines summary, author, relative time, refs, node kind (for example "merge commit" or "stash"), and "checked out" for HEAD.
-  - J/K moves; Space toggles selection; Enter runs the primary action; ⇧F10 opens the menu.
+  - J/K moves; ⇧ extends; Space toggles selection; Enter opens the `+N` list when the row has hidden branches; H reveals HEAD; B pins the branch highlight; ⇧F10 opens the menu.
 - **Platform variants:** The ghost label and branch highlight are gated to hover-capable pointers and mirrored on focus (S7).
 - **Consumers:** S02, S05, S22.
 
@@ -98,7 +111,7 @@
   | Tag | `ref-label-tag`: no lane edge; a solid `graph-pill` fill with a 1px `rule-panel` outline, `rounded.sm`, 6px padding, `graph-tag` role, and the tag glyph |
   | Kind glyphs | 14px after the name, 5px apart: local (laptop), remote (cloud), tag, worktree |
   | Connector | A 1px lane-color line at 25% opacity from the column start to the node, under the label; 2px at full opacity on the selected or hovered row |
-  | Overflow | A `+N` count in the tinted Rail treatment; it opens a popover listing every ref at the commit |
+  | Overflow | A `+N` button in the tinted Rail treatment, named "N more branches: <names>" (`aria-haspopup="dialog"`); it opens a popover that lists the hidden branches as ref labels in a listbox (↑/↓ move, Enter checks out, ⇧F10 opens the menu, Esc closes and returns focus to the graph). Each label keeps its drag and context menu |
 
 - **Variants:**
   - local;

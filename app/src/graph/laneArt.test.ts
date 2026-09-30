@@ -12,6 +12,11 @@ const geometry: Geometry = {
   line: 2,
   arc: 11,
   refColumn: 130,
+  refColumnMin: 32,
+  refColumnMax: 300,
+  authorColumn: 130,
+  dateColumn: 130,
+  shaColumn: 100,
   graphColumn: 150,
   laneColors: 10,
 };

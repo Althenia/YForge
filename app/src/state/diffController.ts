@@ -21,13 +21,15 @@ export type Reveal = { nonce: number; hunk: number | undefined; index: number };
 const order = (left: LineRef, right: LineRef): number => left.hunk - right.hunk || left.line - right.line;
 
 function load(path: string, target: DiffTarget, ignoreWhitespace: boolean): Promise<FileDiff> {
-  return target.source === "working" ? client.diffFile(path, target.file, target.area, ignoreWhitespace) : client.commitFileDiff(path, target.sha, target.file);
+  if (target.source === "working") return client.diffFile(path, target.file, target.area, ignoreWhitespace);
+  if (target.source === "stash") return client.stashFileDiff(path, target.index, target.sha, target.file, ignoreWhitespace);
+  return client.commitFileDiff(path, target.sha, target.file);
 }
 
 export function createDiffController(deps: { session: RepoSession; target: () => DiffTarget; prefs: DiffPrefs }) {
   const { session, prefs } = deps;
   const path = session.path;
-  const ignoreWhitespace = () => deps.target().source === "working" && prefs.ignoreWhitespace();
+  const ignoreWhitespace = () => deps.target().source !== "commit" && prefs.ignoreWhitespace();
   const diff = useQuery(() => ({
     queryKey: repoKeys.diff(path, deps.target(), ignoreWhitespace()),
     queryFn: () => load(path, deps.target(), ignoreWhitespace()),

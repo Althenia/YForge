@@ -2,6 +2,7 @@ mod ai;
 mod history;
 mod legacy;
 mod stashes;
+mod ui_prefs;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -26,6 +27,7 @@ pub use ai::{
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
 pub(crate) use stashes::record_switch_stash;
 pub use stashes::{dismiss_switch_stash, switch_stashes};
+pub use ui_prefs::{repo_ui_prefs_load, repo_ui_prefs_save, ColumnPref, GraphColumn, RepoUiPrefs};
 
 const RECENT_LIMIT: i64 = 30;
 const THEME: &str = "appearance.theme";
@@ -48,6 +50,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("schema.sql")),
         M::up(include_str!("switch_stashes.sql")),
         M::up(include_str!("ai_providers.sql")),
+        M::up(include_str!("repo_ui_prefs.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];

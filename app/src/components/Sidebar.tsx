@@ -1,9 +1,12 @@
-import { createSignal, For, Show, type JSX } from "solid-js";
+import { createMemo, createSignal, For, Show, type JSX } from "solid-js";
 import { basename } from "../format";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { changeTotal } from "../state/changes";
 import { localTarget, remoteTarget, tagTarget, type RefTarget } from "../state/refMenu";
+import { treeRows, type TreeRow } from "../state/refTree";
 import type { Anchor, RepoActions } from "../state/repoActions";
+import type { Selection } from "../state/selection";
+import { toggleFolder, type RepoUiPrefsStore } from "../state/repoUiPrefs";
 import type { IconName } from "../iconNames";
 import { Icon } from "./Icon";
 
@@ -27,8 +30,13 @@ const anchorOf = (element: HTMLElement): Anchor => {
   return { left: rect.left + 24, top: rect.bottom };
 };
 
-export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions }) {
+const indent = (depth: number, base = 14): string => `${base + depth * 14}px`;
+
+const branchCount = (count: number): string => `${count} ${count === 1 ? "branch" : "branches"}`;
+
+export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions; uiPrefs: RepoUiPrefsStore; selection: Selection | undefined; onSelectStash: (sha: string) => void }) {
   const snapshot = () => props.snapshot;
+  const collapsedFolders = createMemo((): ReadonlySet<string> => new Set(props.uiPrefs.prefs().collapsed_folders));
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const currentBranch = () => {
     const head = snapshot().head;
@@ -40,6 +48,17 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions })
     return { ahead: counts?.ahead ?? 0, behind: counts?.behind ?? 0 };
   };
   const remoteBranches = (remote: string) => snapshot().remote_branches.filter((name) => name.startsWith(`${remote}/`));
+  const localRows = () => treeRows(snapshot().branches, collapsedFolders(), "local:");
+  const remoteRows = (remote: string) =>
+    treeRows(
+      remoteBranches(remote).map((name) => name.slice(remote.length + 1)),
+      collapsedFolders(),
+      `${remote}:`,
+    );
+  const firstRowId = () => {
+    const first = localRows()[0];
+    return first === undefined ? undefined : first.kind === "folder" ? `folder:${first.id}` : `branch:${first.path}`;
+  };
 
   const onKeyDown = (event: KeyboardEvent) => {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
@@ -52,30 +71,35 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions })
     }
   };
 
+  const tabStop = (id: string) => activeRow() === id || (activeRow() === undefined && id === firstRowId());
+
   function NavRow(row: {
     id: string;
     title: string;
     current?: boolean;
-    child?: boolean;
+    depth?: number;
+    base?: number;
     label: string;
     onOpen: (anchor: Anchor) => void;
     onMenu: (anchor: Anchor) => void;
     onActivate?: () => void;
+    onClick?: () => void;
     children?: JSX.Element;
   }) {
-    const first = () => activeRow() === undefined && row.id === "first";
     return (
       <div
         class="srow"
-        classList={{ current: row.current === true, child: row.child === true }}
+        classList={{ current: row.current === true }}
+        style={{ "padding-left": indent(row.depth ?? 0, row.base) }}
         role="button"
         aria-haspopup="menu"
         aria-label={row.label}
         aria-current={row.current === true ? "true" : undefined}
         data-nav={row.id}
-        tabindex={activeRow() === row.id || first() ? 0 : -1}
+        tabindex={tabStop(row.id) ? 0 : -1}
         title={row.title}
         onFocus={() => setActiveRow(row.id)}
+        onClick={() => row.onClick?.()}
         onContextMenu={(event) => {
           event.preventDefault();
           row.onMenu({ left: event.clientX, top: event.clientY });
@@ -97,71 +121,113 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions })
     );
   }
 
+  function FolderRow(row: { id: string; scopeId: string; name: string; path: string; count: number; open: boolean; depth: number; base?: number; noun: "Folder" | "Remote" }) {
+    const toggle = () => props.uiPrefs.update((current) => toggleFolder(current, row.scopeId));
+    return (
+      <div
+        class="srow folder"
+        style={{ "padding-left": indent(row.depth, row.base ?? 6) }}
+        role="button"
+        aria-expanded={row.open}
+        aria-label={`${row.noun} ${row.path}, ${branchCount(row.count)}, ${row.open ? "expanded" : "collapsed"}`}
+        data-nav={row.id}
+        tabindex={tabStop(row.id) ? 0 : -1}
+        title={row.path}
+        onFocus={() => setActiveRow(row.id)}
+        onClick={toggle}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget) return;
+          if (event.key === "Enter" || event.key === " " || (event.key === "ArrowRight" && !row.open) || (event.key === "ArrowLeft" && row.open)) {
+            event.preventDefault();
+            toggle();
+          }
+        }}
+      >
+        <span class="folder-chevron" classList={{ collapsed: !row.open }}>
+          <Icon name="chevron" size={14} />
+        </span>
+        <span class="name">{row.name}</span>
+        <span class="meta">{branchCount(row.count)}</span>
+      </div>
+    );
+  }
+
   const branchTarget = (name: string): RefTarget => localTarget(snapshot(), name);
   const checkoutOf = (target: RefTarget) => () => {
     if (target.kind !== "local_branch" || target.name !== currentBranch()) props.actions.checkoutRef(target);
   };
 
+  const localRow = (row: TreeRow) =>
+    row.kind === "folder" ? (
+      <FolderRow id={`folder:${row.id}`} scopeId={row.id} name={row.name} path={row.id.slice("local:".length)} count={row.count} open={row.open} depth={row.depth} noun="Folder" />
+    ) : (
+      <NavRow
+        id={`branch:${row.path}`}
+        title={row.path}
+        label={`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`}
+        current={row.path === currentBranch()}
+        depth={row.depth}
+        onOpen={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
+        onMenu={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
+        onActivate={checkoutOf(branchTarget(row.path))}
+      >
+        <span class="name">{row.label}</span>
+        <Show when={branchMeta(row.path)}>
+          {(meta) => (
+            <span class="meta">
+              <Show when={meta().ahead > 0}>
+                <span class="up">↑{meta().ahead} </span>
+              </Show>
+              <Show when={meta().behind > 0}>↓{meta().behind} </Show>
+              HEAD
+            </span>
+          )}
+        </Show>
+      </NavRow>
+    );
+
+  const remoteRow = (remote: string, row: TreeRow) =>
+    row.kind === "folder" ? (
+      <FolderRow id={`folder:${row.id}`} scopeId={row.id} name={row.name} path={`${remote}/${row.id.slice(remote.length + 1)}`} count={row.count} open={row.open} depth={row.depth + 1} base={6} noun="Folder" />
+    ) : (
+      <NavRow
+        id={`remote:${remote}/${row.path}`}
+        title={`${remote}/${row.path}`}
+        label={`Remote branch ${remote}/${row.path}`}
+        depth={row.depth + 1}
+        base={14}
+        onOpen={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
+        onMenu={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
+        onActivate={checkoutOf(remoteTarget(`${remote}/${row.path}`))}
+      >
+        <span class="name">{row.label}</span>
+      </NavRow>
+    );
+
   return (
     <aside class="panel sidebar" aria-label="Repository" onKeyDown={onKeyDown}>
       <Section icon="changes" title="Changes" count={changeTotal(snapshot().counts)} />
       <Section icon="branch" title="Branches" count={snapshot().branches.length}>
-        <For each={snapshot().branches}>
-          {(name, index) => {
-            const target = () => branchTarget(name);
-            return (
-              <NavRow
-                id={index() === 0 ? "first" : `branch:${name}`}
-                title={name}
-                label={`Branch ${name}${name === currentBranch() ? ", checked out" : ""}`}
-                current={name === currentBranch()}
-                onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
-                onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
-                onActivate={checkoutOf(target())}
-              >
-                <span class="name">{name}</span>
-                <Show when={branchMeta(name)}>
-                  {(meta) => (
-                    <span class="meta">
-                      <Show when={meta().ahead > 0}>
-                        <span class="up">↑{meta().ahead} </span>
-                      </Show>
-                      <Show when={meta().behind > 0}>↓{meta().behind} </Show>
-                      HEAD
-                    </span>
-                  )}
-                </Show>
-              </NavRow>
-            );
-          }}
-        </For>
+        <For each={localRows()}>{localRow}</For>
       </Section>
       <Section icon="remote" title="Remotes" count={snapshot().remotes.length}>
         <For each={snapshot().remotes}>
           {(remote) => (
             <>
-              <div class="srow folder" title={remote}>
-                <span class="name">{remote}</span>
-                <span class="meta">{remoteBranches(remote).length} branches</span>
-              </div>
-              <For each={remoteBranches(remote)}>
-                {(name) => {
-                  const target = () => remoteTarget(name);
-                  return (
-                    <NavRow
-                      id={`remote:${name}`}
-                      title={name}
-                      label={`Remote branch ${name}`}
-                      child
-                      onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
-                      onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
-                      onActivate={checkoutOf(target())}
-                    >
-                      <span class="name">{name.slice(remote.length + 1)}</span>
-                    </NavRow>
-                  );
-                }}
-              </For>
+              <FolderRow
+                id={`folder:remote:${remote}`}
+                scopeId={`remote:${remote}`}
+                name={remote}
+                path={remote}
+                count={remoteBranches(remote).length}
+                open={!collapsedFolders().has(`remote:${remote}`)}
+                depth={0}
+                base={6}
+                noun="Remote"
+              />
+              <Show when={!collapsedFolders().has(`remote:${remote}`)}>
+                <For each={remoteRows(remote)}>{(row) => remoteRow(remote, row)}</For>
+              </Show>
             </>
           )}
         </For>
@@ -192,8 +258,11 @@ export function Sidebar(props: { snapshot: RepoSnapshot; actions: RepoActions })
               id={`stash:${stash.sha}`}
               title={stash.message}
               label={`Stash ${stash.index}: ${stash.message}`}
+              current={props.selection?.kind === "stash" && props.selection.sha === stash.sha}
+              onClick={() => props.onSelectStash(stash.sha)}
               onOpen={(anchor) => props.actions.openStashMenu(stash, anchor)}
               onMenu={(anchor) => props.actions.openStashMenu(stash, anchor)}
+              onActivate={() => props.onSelectStash(stash.sha)}
             >
               <span class="name">{stash.message}</span>
               <span class="meta">stash@&#123;{stash.index}&#125;</span>

@@ -1,11 +1,19 @@
-import { For, Show } from "solid-js";
+import { useQuery } from "@tanstack/solid-query";
+import { createSignal, For, Show } from "solid-js";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { client } from "../ipc/client";
+import { useApp } from "../state/app";
 import { conflictLabel, firstConflict, operationButtons, operationSummary, operationTitle, stepLabel } from "../state/operationModel";
-import type { RepoActions } from "../state/repoActions";
-import { freshness, runningText, type SyncState } from "../state/syncModel";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
+import type { Anchor, RepoActions } from "../state/repoActions";
+import { SHORTCUTS } from "../state/shortcuts";
+import { freshness, OFFLINE_REASON, runningText, type SyncState } from "../state/syncModel";
 import { MenuLabel } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { tip } from "./Tooltip";
+import { WorktreePopover } from "./WorktreePopover";
 
 const countLetters = [
   ["modified", "M"],
@@ -16,57 +24,86 @@ const countLetters = [
   ["conflicted", "!"],
 ] as const;
 
-function HeadChip(props: { snapshot: RepoSnapshot }) {
+const anchorBelow = (element: Element): Anchor => {
+  const rect = element.getBoundingClientRect();
+  return { left: rect.left, top: rect.bottom + 8 };
+};
+
+function HeadChip(props: { snapshot: RepoSnapshot; actions: RepoActions; onRevealHead: () => void }) {
   const head = () => props.snapshot.head;
   const upstream = () => props.snapshot.upstream;
+  const branch = () => {
+    const value = head();
+    return value.kind === "branch" ? value : undefined;
+  };
+  const counts = () => upstream()?.ahead_behind;
+  const headText = () => {
+    const value = head();
+    return value.kind === "branch" ? value.name : value.kind === "detached" ? `detached at ${value.sha.slice(0, 7)}` : "";
+  };
   return (
-    <span class="chip" classList={{ "chip-attention": head().kind === "detached" }}>
-      <Show when={head().kind === "detached"} fallback={<span class="junction" aria-hidden="true" />}>
-        <Icon name="warning" />
-      </Show>
-      HEAD
-      {(() => {
-        const value = head();
-        switch (value.kind) {
-          case "branch":
-            return <span class="ref">{value.name}</span>;
-          case "detached":
-            return (
-              <>
-                <span class="ref">{value.sha.slice(0, 7)}</span>
-                <span>detached</span>
-              </>
-            );
-          case "unborn":
-            return (
-              <>
-                <span class="ref">{value.branch}</span>
-                <span>no commits yet</span>
-              </>
-            );
+    <span class="chip-group" classList={{ "chip-attention": head().kind === "detached" }} role="group" aria-label="HEAD, branch, and sync">
+      <Show
+        when={head().kind !== "unborn"}
+        fallback={
+          <span class="chip-seg static">
+            <span class="junction" aria-hidden="true" />
+            HEAD
+            <span class="ref">{head().kind === "unborn" ? (head() as { branch: string }).branch : ""}</span>
+            <span>no commits yet</span>
+          </span>
         }
-      })()}
-      <Show when={head().kind === "branch"}>
-        <Show when={upstream()} fallback={<span>no upstream</span>}>
-          {(value) => (
-            <>
-              <span aria-hidden="true">→</span>
-              <span class="ref">{value().name}</span>
-              <Show when={value().ahead_behind} fallback={<span title="Fetch to compare">—</span>}>
-                {(counts) => (
-                  <>
-                    <span class="ahead" aria-label={`${counts().ahead} ahead`}>
-                      ↑{counts().ahead}
-                    </span>
-                    <span aria-label={`${counts().behind} behind`}>↓{counts().behind}</span>
-                    <Show when={counts().ahead > 0 && counts().behind > 0}>
-                      <span>diverged</span>
-                    </Show>
-                  </>
-                )}
-              </Show>
-            </>
-          )}
+      >
+        <button type="button" class="chip-seg" {...tip("Reveal HEAD in the graph", SHORTCUTS.revealHead, `Reveal HEAD in the graph: ${headText()}`)} onClick={props.onRevealHead}>
+          <Show when={head().kind === "detached"} fallback={<span class="junction" aria-hidden="true" />}>
+            <Icon name="warning" />
+          </Show>
+          HEAD
+          {(() => {
+            const value = head();
+            if (value.kind === "branch") return <span class="ref">{value.name}</span>;
+            if (value.kind === "detached") return <span>detached at <span class="ref">{value.sha.slice(0, 7)}</span></span>;
+            return null;
+          })()}
+        </button>
+      </Show>
+      <Show when={branch()}>
+        <button
+          type="button"
+          class="chip-seg"
+          aria-haspopup="menu"
+          aria-label={`Branch menu: ${upstream() === null ? "no upstream" : `upstream ${upstream()?.name}`}`}
+          onClick={(event) => props.actions.openBranchPicker(anchorBelow(event.currentTarget))}
+        >
+          <Show when={upstream()} fallback={<span>no upstream</span>}>
+            {(value) => (
+              <>
+                <span aria-hidden="true">→</span>
+                <span class="ref">{value().name}</span>
+              </>
+            )}
+          </Show>
+        </button>
+        <Show when={upstream()}>
+          <button
+            type="button"
+            class="chip-seg"
+            aria-haspopup="menu"
+            aria-label={`Sync menu: ${counts() === null || counts() === undefined ? "counts unknown" : `${counts()?.ahead} ahead, ${counts()?.behind} behind`}`}
+            onClick={(event) => props.actions.openSyncMenu(anchorBelow(event.currentTarget))}
+          >
+            <Show when={counts()} fallback={<span title="Fetch to compare">—</span>}>
+              {(value) => (
+                <>
+                  <span class="ahead">↑{value().ahead}</span>
+                  <span>↓{value().behind}</span>
+                  <Show when={value().ahead > 0 && value().behind > 0}>
+                    <span>diverged</span>
+                  </Show>
+                </>
+              )}
+            </Show>
+          </button>
         </Show>
       </Show>
     </span>
@@ -92,21 +129,94 @@ function ChangesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
   );
 }
 
-function FreshnessChip(props: { snapshot: RepoSnapshot }) {
+function FreshnessChip(props: { snapshot: RepoSnapshot; actions: RepoActions; online: boolean }) {
   const state = () => freshness(props.snapshot.last_fetch, Math.floor(Date.now() / 1000), props.snapshot.remotes.length > 0);
+  const reason = () => {
+    if (!props.online) return OFFLINE_REASON;
+    if (props.actions.sync().kind === "running") return "A sync is running";
+    return props.snapshot.operation === null ? undefined : "Finish the operation in progress first";
+  };
   return (
     <Show when={state()}>
       {(value) => (
-        <span class="chip" classList={{ "chip-success": value().tone === "fresh", "chip-attention": value().tone !== "fresh" }} title={value().text}>
+        <button
+          type="button"
+          class="chip"
+          classList={{ "chip-success": value().tone === "fresh", "chip-attention": value().tone !== "fresh" }}
+          aria-label={`${value().text}. Fetch now`}
+          title={reason() ?? `${value().text}. Fetch now`}
+          disabled={reason() !== undefined}
+          onClick={() => void props.actions.fetchAll()}
+        >
           <Icon name={value().tone === "fresh" ? "check" : "warning"} />
           <span class="chip-text">{value().text}</span>
-        </span>
+        </button>
       )}
     </Show>
   );
 }
 
+function OfflineChip() {
+  return (
+    <span class="chip chip-attention" title="No network connection. Fetch, pull, and push are unavailable until you are back online.">
+      <Icon name="warning" />
+      Offline
+    </span>
+  );
+}
+
+function Notices(props: { actions: RepoActions; plain: boolean }) {
+  return (
+    <For each={props.actions.notices()}>
+      {(notice) => (
+        <span class="strip-notice" role="group" aria-label={notice.text}>
+          <span classList={{ chip: !props.plain, "chip-attention": !props.plain }}>
+            <Icon name="stash" />
+            {notice.text}
+          </span>
+          <Show when={notice.detail}>{(detail) => <span class="hint-text">{detail()}</span>}</Show>
+          <For each={notice.actions}>
+            {(action) => (
+              <button type="button" class="btn sm" onClick={() => void action.run()}>
+                {action.label}
+              </button>
+            )}
+          </For>
+          <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => props.actions.dismissNotice(notice.id)}>
+            <Icon name="close" size={14} />
+          </button>
+        </span>
+      )}
+    </For>
+  );
+}
+
+function WorktreesChip(props: { snapshot: RepoSnapshot }) {
+  const [anchor, setAnchor] = createSignal<Anchor | undefined>();
+  const worktrees = useQuery(() => ({ queryKey: repoKeys.worktrees(props.snapshot.root), queryFn: () => client.worktreeList(props.snapshot.root) }));
+  const listed = () => dataOf(worktrees) ?? [];
+  const dirty = () => listed().filter((worktree) => worktree.dirty).length;
+  const count = () => props.snapshot.worktrees.length;
+  return (
+    <>
+      <button
+        type="button"
+        class="chip"
+        aria-haspopup="dialog"
+        aria-expanded={anchor() !== undefined}
+        onClick={(event) => setAnchor(anchor() === undefined ? anchorBelow(event.currentTarget) : undefined)}
+      >
+        <Icon name="worktree" />
+        {count()} {count() === 1 ? "worktree" : "worktrees"}
+        <Show when={dirty() > 0}> · {dirty()} with changes</Show>
+      </button>
+      <Show when={anchor()}>{(at) => <WorktreePopover anchor={at()} worktrees={listed()} onClose={() => setAnchor(undefined)} />}</Show>
+    </>
+  );
+}
+
 function SyncChip(props: { state: SyncState; actions: RepoActions }) {
+  const app = useApp();
   return (
     <>
       <Show when={props.state.kind === "running" && props.state}>
@@ -140,6 +250,10 @@ function SyncChip(props: { state: SyncState; actions: RepoActions }) {
               {failed().message}
             </span>
             <span class="hint-text">{failed().hint}</span>
+            <button type="button" class="btn sm" title={failed().fix.label} onClick={() => app.openSettings(failed().fix.section)}>
+              <Icon name="settings" />
+              Fix
+            </button>
             <button type="button" class="btn sm" onClick={() => void props.actions.retrySync()}>
               Retry
             </button>
@@ -167,6 +281,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
       <Show when={conflicts() > 0}>
         <span class="st st-conflicted">! {conflictLabel(conflicts())}</span>
       </Show>
+      <Notices actions={props.actions} plain />
       <span class="spacer" />
       <Show when={buttons().resolvable}>
         <button
@@ -209,22 +324,30 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
   );
 }
 
-export function StateStrip(props: { snapshot: RepoSnapshot; actions: RepoActions; onOpenChanges: () => void; onResolve: (file: string) => void }) {
+export function StateStrip(props: {
+  snapshot: RepoSnapshot;
+  actions: RepoActions;
+  online: boolean;
+  onOpenChanges: () => void;
+  onRevealHead: () => void;
+  onResolve: (file: string) => void;
+}) {
   return (
     <div class="bar chips" role="status">
       <Show
         when={props.snapshot.operation}
         fallback={
           <>
-            <HeadChip snapshot={props.snapshot} />
+            <HeadChip snapshot={props.snapshot} actions={props.actions} onRevealHead={props.onRevealHead} />
             <ChangesChip snapshot={props.snapshot} onOpen={props.onOpenChanges} />
-            <FreshnessChip snapshot={props.snapshot} />
+            <FreshnessChip snapshot={props.snapshot} actions={props.actions} online={props.online} />
+            <Show when={!props.online}>
+              <OfflineChip />
+            </Show>
             <SyncChip state={props.actions.sync()} actions={props.actions} />
+            <Notices actions={props.actions} plain={false} />
             <span class="spacer" />
-            <span class="chip">
-              <Icon name="worktree" />
-              {props.snapshot.worktrees.length} {props.snapshot.worktrees.length === 1 ? "worktree" : "worktrees"}
-            </span>
+            <WorktreesChip snapshot={props.snapshot} />
           </>
         }
       >

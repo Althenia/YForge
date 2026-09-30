@@ -75,6 +75,11 @@ const html = `
         <p>Strategy used when pulling into branches of this repository.</p>
         <div class="input select"><span>Fast-forward, merge if needed · inherited</span>${I.chevron}</div>
       </section>
+      <section class="section" aria-labelledby="ssh">
+        <h1 id="ssh">SSH</h1>
+        <p>Key used to reach this repository's remotes over SSH. It overrides the app-wide key.</p>
+        <div class="control"><div class="input select"><span>Inherit · ssh-agent (default)</span>${I.chevron}</div><span class="btn sm">Browse…</span></div>
+      </section>
       <section class="section" aria-labelledby="hooks">
         <h1 id="hooks">Hooks path</h1>
         <p>Directory Git reads hooks from instead of .git/hooks.</p>

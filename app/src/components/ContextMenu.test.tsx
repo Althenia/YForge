@@ -87,4 +87,17 @@ describe("context menu", () => {
 
     expect(isOpen()).toBe(false);
   });
+
+  it("shows the shortcut of an item after its label", () => {
+    const { host } = mount([
+      { kind: "item", id: "fetch", label: ["Fetch all"], shortcut: "⌘⇧F" },
+      { kind: "item", id: "push", label: ["Push"], note: "default", shortcut: "⌘⇧P" },
+      { kind: "item", id: "plain", label: ["Plain"] },
+    ]);
+    const [fetch, push, plain] = [...host.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+
+    expect(fetch?.querySelector(".kbd")?.textContent).toBe("⌘⇧F");
+    expect(push?.textContent).toBe("Pushdefault⌘⇧P");
+    expect(plain?.querySelector(".kbd")).toBeNull();
+  });
 });

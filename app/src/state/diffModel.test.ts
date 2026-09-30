@@ -7,7 +7,7 @@ import { diffNotice, followTarget, isConflictTarget, hunkActions, hunkHeader, hu
 const hunk: DiffHunk = { old_start: 3, old_lines: 7, new_start: 3, new_lines: 7, heading: "export function clamp", lines: [] };
 const working = (area: "unstaged" | "staged" | "untracked" | "conflicted"): DiffTarget => ({ source: "working", area, file: "src/util.js" });
 const commit: DiffTarget = { source: "commit", sha: "62db91d0000", file: "README.md" };
-const diff = (overrides: Partial<FileDiff>): FileDiff => ({ path: "f", original_path: null, binary: false, hunks: [hunk], ...overrides });
+const diff = (overrides: Partial<FileDiff>): FileDiff => ({ path: "f", original_path: null, binary: false, old_size: null, new_size: null, hunks: [hunk], ...overrides });
 
 describe("diff view model", () => {
   it("formats the hunk header and its accessible name from the ranges", () => {
@@ -79,5 +79,20 @@ describe("diff view model", () => {
     expect(followTarget([change("a.txt", "staged"), change("b.txt", "conflicted")], target)).toEqual({ source: "working", area: "conflicted", file: "b.txt" });
     expect(followTarget([change("a.txt", "staged")], target)).toBeUndefined();
     expect(followTarget([], target)).toBeUndefined();
+  });
+});
+
+describe("stash targets", () => {
+  const stash: DiffTarget = { source: "stash", index: 1, sha: "abcdef0123", file: "a.txt" };
+
+  it("identify a file of one stash, name the stash as the source, and stay put while the working tree changes", () => {
+    expect(sameTarget(stash, { ...stash })).toBe(true);
+    expect(sameTarget(stash, { ...stash, sha: "other" })).toBe(false);
+    expect(sameTarget(stash, { source: "commit", sha: "abcdef0123", file: "a.txt" })).toBe(false);
+    expect(targetSource(stash)).toBe("stash@{1}");
+    expect(targetMode(stash)).toBe("Stash");
+    expect(hunkActions(stash)).toEqual([]);
+    expect(followTarget([], stash)).toBe(stash);
+    expect(diffNotice(diff({ hunks: [] }), stash)).toBe("No textual change in this file.");
   });
 });

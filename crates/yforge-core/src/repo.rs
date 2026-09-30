@@ -204,11 +204,16 @@ pub fn repo_snapshot(path: &Path) -> Result<RepoSnapshot, CoreError> {
             .collect::<Vec<_>>()
     };
     let (operation, git_dir) = read_operation(&root)?;
+    let worktrees = read_worktrees(&root)?;
+    let main_root = worktrees
+        .first()
+        .map_or_else(|| root.display().to_string(), |main| main.path.clone());
     let operation_detail = operation
         .map(|operation| operation::detail(&root, &git_dir, operation, &files))
         .transpose()?;
     Ok(RepoSnapshot {
         root: root.display().to_string(),
+        main_root,
         head,
         upstream,
         counts,
@@ -216,7 +221,7 @@ pub fn repo_snapshot(path: &Path) -> Result<RepoSnapshot, CoreError> {
         operation,
         operation_detail,
         last_fetch: read_last_fetch(&git_dir),
-        worktrees: read_worktrees(&root)?,
+        worktrees,
         branches: names(RefKind::LocalBranch),
         remote_branches: names(RefKind::RemoteBranch),
         remotes: refs::read_remotes(&root)?,

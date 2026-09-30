@@ -1,8 +1,10 @@
 use std::path::Path;
 
+use crate::commit::{commit_files, empty_tree};
+use crate::diff;
 use crate::error::CoreError;
 use crate::git;
-use crate::model::StashRestore;
+use crate::model::{CommitFile, FileDiff, StashDetails, StashFile, StashRestore};
 use crate::refs;
 use crate::repo;
 use crate::snapshots::{self, Action};
@@ -134,4 +136,104 @@ pub fn stash_rename(path: &Path, index: u32, sha: &str, message: &str) -> Result
         .inspect_err(|_| {
             let _ = git::run(&root, &["stash", "store", "-m", &current, sha]);
         })
+}
+
+struct Located {
+    base: String,
+    target: String,
+    file: CommitFile,
+    untracked: bool,
+}
+
+fn stash_parents(root: &Path, sha: &str) -> Result<Vec<String>, CoreError> {
+    Ok(git::run(root, &["rev-list", "--parents", "-n", "1", sha])?
+        .split_whitespace()
+        .skip(1)
+        .map(str::to_owned)
+        .collect())
+}
+
+fn located_files(root: &Path, sha: &str) -> Result<(Vec<String>, Vec<Located>), CoreError> {
+    let parents = stash_parents(root, sha)?;
+    let mut located = Vec::new();
+    if let Some(base) = parents.first() {
+        located.extend(
+            commit_files(root, base, sha)?
+                .into_iter()
+                .map(|file| Located {
+                    base: base.clone(),
+                    target: sha.to_owned(),
+                    file,
+                    untracked: false,
+                }),
+        );
+    }
+    if let Some(untracked) = parents.get(2) {
+        let empty = empty_tree(root)?;
+        located.extend(
+            commit_files(root, &empty, untracked)?
+                .into_iter()
+                .map(|file| Located {
+                    base: empty.clone(),
+                    target: untracked.clone(),
+                    file,
+                    untracked: true,
+                }),
+        );
+    }
+    Ok((parents, located))
+}
+
+pub fn stash_details(path: &Path, index: u32, sha: &str) -> Result<StashDetails, CoreError> {
+    let root = repo::open(path)?;
+    verified_ref(&root, index, sha)?;
+    let message = refs::read_stashes(&root)?
+        .into_iter()
+        .find(|entry| entry.index == index)
+        .map(|entry| entry.message)
+        .unwrap_or_default();
+    let (parents, located) = located_files(&root, sha)?;
+    Ok(StashDetails {
+        index,
+        sha: sha.to_owned(),
+        message,
+        base_sha: parents.first().cloned(),
+        untracked_sha: parents.get(2).cloned(),
+        files: located
+            .into_iter()
+            .map(|entry| StashFile {
+                path: entry.file.path,
+                original_path: entry.file.original_path,
+                status: entry.file.status,
+                additions: entry.file.additions,
+                deletions: entry.file.deletions,
+                untracked: entry.untracked,
+            })
+            .collect(),
+    })
+}
+
+pub fn stash_file_diff(
+    path: &Path,
+    index: u32,
+    sha: &str,
+    file: &str,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
+    let root = repo::open(path)?;
+    repo::check_paths(&[file])?;
+    verified_ref(&root, index, sha)?;
+    let (_, located) = located_files(&root, sha)?;
+    let entry = located
+        .into_iter()
+        .find(|entry| entry.file.path == file)
+        .ok_or_else(|| CoreError::invalid_request(format!("{file} is not part of this stash")))?;
+    diff::diff_between(
+        &root,
+        &entry.base,
+        &entry.target,
+        file,
+        entry.file.original_path.as_deref(),
+        ignore_whitespace,
+    )
 }

@@ -9,17 +9,23 @@ import type { OperationOutcome } from "../ipc/bindings/OperationOutcome";
 import type { OperationProgress } from "../ipc/bindings/OperationProgress";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
 import type { PullMode } from "../ipc/bindings/PullMode";
+import type { PullOutcome } from "../ipc/bindings/PullOutcome";
+import type { PullStash } from "../ipc/bindings/PullStash";
+import type { PushTarget } from "../ipc/bindings/PushTarget";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashRestore } from "../ipc/bindings/StashRestore";
 import { client, IpcError } from "../ipc/client";
 import { changeTotal } from "./changes";
 import {
+  deleteBranchAndRemoteCopy,
   deleteBranchCopy,
+  deleteRemoteBranchCopy,
   deleteRemoteTagCopy,
   deleteTagCopy,
   detachCopy,
   dropStashCopy,
   forcePushCopy,
+  pullStashKeptCopy,
   rebaseCopy,
   resetCopy,
   stashAndSwitchCopy,
@@ -28,11 +34,14 @@ import {
 } from "./confirmCopy";
 import { abortCopy } from "./operationModel";
 import {
+  branchPickerMenu,
   commitMenu,
   dropBase,
   dropPlan,
+  localTarget,
   pushRemote,
   refMenu,
+  remoteOf,
   resetModeMenu,
   shortRefName,
   startLabel,
@@ -44,7 +53,7 @@ import {
 } from "./refMenu";
 import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
-import { authFailure, isDiverged, syncMenu, type SyncState } from "./syncModel";
+import { authFailure, authFix, isDiverged, syncMenu, type AuthFix, type SyncState } from "./syncModel";
 
 export type Anchor = { left: number; top: number };
 
@@ -55,20 +64,27 @@ export type PopoverState =
   | { kind: "rename_branch"; anchor: Anchor; name: string }
   | { kind: "stash"; anchor: Anchor }
   | { kind: "merge"; anchor: Anchor; source: string; current: string; preview: IntegrationPreview }
-  | { kind: "create_tag"; anchor: Anchor; at: string | null; atLabel: string; remote: string | undefined };
+  | { kind: "create_tag"; anchor: Anchor; at: string | null; atLabel: string; remote: string | undefined }
+  | { kind: "set_upstream"; anchor: Anchor; branch: string }
+  | { kind: "push_to"; anchor: Anchor }
+  | { kind: "rename_stash"; anchor: Anchor; stash: StashEntry };
+
+export type StripNotice = { id: string; text: string; detail?: string; actions: Array<{ label: string; run: () => void | Promise<void> }> };
 
 export type DialogState = { copy: ConfirmCopy; run: () => void | Promise<void> };
 
-type SyncName = "Fetch" | "Pull" | "Push" | "Publish" | "Force push" | "Push tag" | "Delete remote tag";
+type SyncName = "Fetch" | "Pull" | "Push" | "Push to" | "Publish" | "Force push" | "Push tag" | "Delete remote tag" | "Delete remote branch";
 
 const progressive: Record<SyncName, string> = {
   Fetch: "Fetching",
   Pull: "Pulling",
   Push: "Pushing",
+  "Push to": "Pushing to",
   Publish: "Publishing",
   "Force push": "Force pushing",
   "Push tag": "Pushing tag",
   "Delete remote tag": "Deleting remote tag",
+  "Delete remote branch": "Deleting remote branch",
 };
 
 export type TagRequest = { name: string; message: string | null; push: boolean };
@@ -85,7 +101,7 @@ const describe = (error: IpcError): string => {
   return detail === undefined ? error.message : `${error.message}: ${detail.trim()}`;
 };
 
-export function autoStashMessage(outcome: AutoStash, label: string): string | undefined {
+export function autoStashMessage(outcome: AutoStash, label: string, left?: string): string | undefined {
   switch (outcome) {
     case "none":
       return undefined;
@@ -95,6 +111,10 @@ export function autoStashMessage(outcome: AutoStash, label: string): string | un
       return `Switched to ${label}. Restoring your changes conflicted; they are kept in stash@{0}.`;
     case "kept":
       return `Switched to ${label}. Your changes could not be restored automatically and remain in stash@{0}.`;
+    case "stashed":
+      return left === undefined
+        ? `Switched to ${label}. Your changes are stashed in stash@{0}.`
+        : `Switched to ${label}. Your changes are stashed and will be offered back when you return to ${left}.`;
   }
 }
 
@@ -105,6 +125,8 @@ export function restoreMessage(kind: "apply" | "pop", restore: StashRestore): st
     : "The stash applied with conflicts. Resolve them in the Changes list.";
 }
 
+const PULL_STASH_NOTICE = "pull-stash";
+
 let sequence = 0;
 const nextId = (): string => `op-${Date.now()}-${(sequence += 1)}`;
 
@@ -112,6 +134,8 @@ export type RepoActionDeps = {
   selectedSha: () => string | undefined;
   onSelectionGone: () => void;
   pullMode: () => PullMode;
+  offline: () => boolean;
+  inspectStash: (sha: string) => void;
   undoEntry: (id: number) => ActivityEntry | undefined;
 };
 
@@ -122,6 +146,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [dialog, setDialog] = createSignal<DialogState | undefined>();
   const [sync, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
+  const [notices, setNotices] = createSignal<StripNotice[]>([]);
   let retry: (() => Promise<void>) | undefined;
 
   const snapshot = session.snapshot;
@@ -132,6 +157,17 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const fail = (failure: unknown) => session.inform(describe(asIpcError(failure)));
   const confirm = (copy: ConfirmCopy, run: () => void | Promise<void>) => setDialog({ copy, run });
   const busy = () => sync().kind === "running";
+  const addNotice = (notice: StripNotice) => setNotices((list) => [...list.filter((entry) => entry.id !== notice.id), notice]);
+  const dismissNotice = (id: string) => setNotices((list) => list.filter((entry) => entry.id !== id));
+
+  async function authFixFor(remote: string | undefined): Promise<AuthFix> {
+    try {
+      const remotes = await session.read(["remotes"], () => client.remotesList(path));
+      return authFix(remotes.find((entry) => entry.name === remote)?.fetch_url);
+    } catch {
+      return authFix(undefined);
+    }
+  }
 
   async function runSync<T>(
     name: SyncName,
@@ -141,6 +177,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     const running = sync();
     if (running.kind === "running") return { error: new IpcError({ kind: "invalid_request", message: "Another sync is running" }) };
     const id = nextId();
+    dismissNotice(PULL_STASH_NOTICE);
     announceOperation(id, name.toLowerCase());
     setSync({ kind: "running", id, label: progressive[name], phase: undefined, percent: null });
     retry = undefined;
@@ -155,7 +192,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if (error.kind === "cancelled") session.inform(`${name} cancelled.`);
       else if (error.kind === "auth_failed") {
         const copy = authFailure(error.message);
-        setSync({ kind: "failed", message: copy.text, hint: copy.hint });
+        setSync({ kind: "failed", message: copy.text, hint: copy.hint, fix: await authFixFor(copy.remote) });
         retry = async () => void (await runSync(name, start, onError));
       } else if (onError?.(error) !== true) fail(error);
       await session.refresh();
@@ -163,15 +200,46 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     }
   }
 
-  async function fetchAll(): Promise<void> {
-    await runSync("Fetch", (id) => client.fetch(path, id, false));
+  async function fetchAll(prune = false): Promise<void> {
+    await runSync("Fetch", (id) => client.fetch(path, id, prune));
+  }
+
+  function reportPull(outcome: PullOutcome): void {
+    if (outcome === "conflicts") session.inform("Pull stopped on conflicts. Resolve them, then continue, or abort.");
+    else if (outcome === "up_to_date") session.inform("Already up to date.");
+  }
+
+  function showPullStash(stash: PullStash): void {
+    if (stash.kind === "restored") {
+      addNotice({ id: PULL_STASH_NOTICE, text: "Your changes were stashed and restored", actions: [] });
+    } else if (stash.kind === "kept") {
+      const index = Number(/\{(\d+)\}/.exec(stash.reference)?.[1] ?? 0);
+      const restore = (kind: "apply" | "pop") => async () => {
+        dismissNotice(PULL_STASH_NOTICE);
+        await restoreStash(kind, { index, sha: stash.sha });
+      };
+      addNotice({
+        id: PULL_STASH_NOTICE,
+        text: `Your changes are kept in ${stash.reference}`,
+        detail: pullStashKeptCopy(stash.reason),
+        actions: [
+          { label: "Apply", run: restore("apply") },
+          { label: "Pop", run: restore("pop") },
+        ],
+      });
+    }
   }
 
   async function pull(mode: PullMode): Promise<void> {
+    if (changeTotal(snapshot().counts) > 0) {
+      const stashing = await runSync("Pull", (id) => client.pullWithAutostash(path, id, mode));
+      if (!("value" in stashing)) return;
+      reportPull(stashing.value.outcome);
+      showPullStash(stashing.value.stash);
+      return;
+    }
     const result = await runSync("Pull", (id) => client.pull(path, id, mode));
-    if (!("value" in result)) return;
-    if (result.value === "conflicts") session.inform("Pull stopped on conflicts. Resolve them, then continue, or abort.");
-    else if (result.value === "up_to_date") session.inform("Already up to date.");
+    if ("value" in result) reportPull(result.value);
   }
 
   const pullDefault = () => pull(deps.pullMode());
@@ -181,7 +249,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function autoFetch(): Promise<boolean> {
-    if (sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return true;
+    if (deps.offline() || sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return true;
     const result = await runSync("Fetch", (id) => client.fetch(path, id, false, false), () => true);
     return "value" in result;
   }
@@ -256,13 +324,15 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function switchTo(target: CheckoutTarget, label: string, stash: boolean): Promise<void> {
+    dismissNotice(PULL_STASH_NOTICE);
     try {
-      const outcome = await client.checkout(path, target, stash);
-      const message = autoStashMessage(outcome.auto_stash, label);
+      const left = currentBranch();
+      const outcome = await client.checkout(path, target, stash, stash);
+      const message = autoStashMessage(outcome.auto_stash, label, left);
       if (message !== undefined) session.inform(message);
     } catch (failure) {
       const error = asIpcError(failure);
-      if (error.kind === "local_changes" && !stash) confirm(stashAndSwitchCopy(label), () => switchTo(target, label, true));
+      if (error.kind === "local_changes" && !stash) confirm(stashAndSwitchCopy(label, currentBranch()), () => switchTo(target, label, true));
       else fail(error);
     }
     await session.refresh();
@@ -303,7 +373,117 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     confirm(deleteBranchCopy(name, lost), () => void session.mutate(() => client.deleteBranch(path, name, true)));
   }
 
-  const menuContext = (): MenuContext => ({ current: currentBranch(), remotes: snapshot().remotes, operation: snapshot().operation });
+  function remoteBranchOf(target: RefTarget): { remote: string; name: string } | undefined {
+    const ref = target.kind === "remote_branch" ? target.name : target.kind === "local_branch" ? target.remoteName : undefined;
+    const remote = ref === undefined ? undefined : remoteOf({ kind: "remote_branch", name: ref }, snapshot().remotes);
+    return ref === undefined || remote === undefined ? undefined : { remote, name: ref.slice(remote.length + 1) };
+  }
+
+  const removeRemoteBranch = (remote: string, name: string) =>
+    runSync("Delete remote branch", (id) => client.deleteRemoteBranch(path, id, remote, name));
+
+  function deleteRemoteBranch(target: RefTarget): void {
+    const found = remoteBranchOf(target);
+    if (found === undefined) return;
+    confirm(deleteRemoteBranchCopy(found.remote, found.name), async () => void (await removeRemoteBranch(found.remote, found.name)));
+  }
+
+  async function deleteBranchAndRemote(name: string): Promise<void> {
+    const found = remoteBranchOf(localTarget(snapshot(), name));
+    if (found === undefined) {
+      session.inform(`${name} has no remote branch.`);
+      return;
+    }
+    let lost;
+    try {
+      lost = await session.read(["delete-preview", name], () => client.branchDeletePreview(path, name));
+    } catch (failure) {
+      fail(failure);
+      return;
+    }
+    confirm(deleteBranchAndRemoteCopy(name, found.remote, lost), async () => {
+      if (await session.mutate(() => client.deleteBranch(path, name, true))) await removeRemoteBranch(found.remote, found.name);
+    });
+  }
+
+  const openSetUpstream = (branch: string, anchor: Anchor) => setPopover({ kind: "set_upstream", anchor, branch });
+
+  async function setUpstream(branch: string, upstream: string | null): Promise<void> {
+    setPopover(undefined);
+    await session.mutate(() => client.setUpstream(path, branch, upstream));
+  }
+
+  async function unsetUpstream(): Promise<void> {
+    const branch = currentBranch();
+    if (branch !== undefined) await setUpstream(branch, null);
+  }
+
+  const openPushTo = (anchor: Anchor) => setPopover({ kind: "push_to", anchor });
+
+  async function pushTo(target: PushTarget): Promise<void> {
+    setPopover(undefined);
+    await runSync("Push to", (id) => client.pushTo(path, id, target), (error) => {
+      if (error.kind !== "push_rejected") return false;
+      session.inform(`${target.remote}/${target.name} has commits this branch does not. Pull first, or push to another name.`);
+      return true;
+    });
+  }
+
+  function openBranchPicker(anchor: Anchor): void {
+    const upstream = snapshot().upstream?.name ?? null;
+    setMenu({
+      anchor,
+      entries: branchPickerMenu(snapshot().branches, currentBranch(), upstream, snapshot().remotes),
+      run: (id) => {
+        if (id.startsWith("checkout:")) checkoutRef(localTarget(snapshot(), id.slice("checkout:".length)));
+        else if (id === "set_upstream") openSetUpstream(currentBranch() ?? "", anchor);
+        else if (id === "unset_upstream") void unsetUpstream();
+      },
+    });
+  }
+
+  async function offerSwitchStashes(): Promise<void> {
+    const branch = currentBranch();
+    setNotices((list) => list.filter((entry) => !entry.id.startsWith("switch:") || (branch !== undefined && entry.id.startsWith(`switch:${branch}:`))));
+    if (branch === undefined) return;
+    let recorded;
+    try {
+      recorded = await client.switchStashes(path, branch);
+    } catch (failure) {
+      fail(failure);
+      return;
+    }
+    for (const entry of recorded) {
+      const id = `switch:${branch}:${entry.sha}`;
+      const settle = async (act: () => Promise<StashRestore | null>) => {
+        dismissNotice(id);
+        try {
+          const restore = await act();
+          const message = restore === null ? undefined : restoreMessage("pop", restore);
+          if (message !== undefined) session.inform(message);
+        } catch (failure) {
+          fail(failure);
+        }
+        await session.refresh();
+      };
+      addNotice({
+        id,
+        text: `Restore the changes stashed when you left ${branch}?`,
+        detail: entry.message,
+        actions: [
+          { label: "Restore", run: () => settle(() => client.switchStashRestore(path, branch, entry.sha)) },
+          { label: "Keep in stash", run: () => settle(async () => (await client.switchStashDismiss(path, branch, entry.sha), null)) },
+        ],
+      });
+    }
+  }
+
+  const menuContext = (): MenuContext => ({
+    current: currentBranch(),
+    remotes: snapshot().remotes,
+    operation: snapshot().operation,
+    upstream: snapshot().upstream?.name ?? null,
+  });
   const currentLabel = () => currentBranch() ?? "HEAD";
 
   async function integrate(verb: string, step: () => Promise<OperationOutcome>): Promise<void> {
@@ -411,6 +591,11 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
         else if (id === "create_branch") openCreateBranchAt(target.startPoint, anchor);
         else if (id === "rename" && target.kind === "local_branch") openRenameBranch(target.name, anchor);
         else if (id === "delete" && target.kind === "local_branch") void deleteBranch(target.name);
+        else if (id === "delete_remote") deleteRemoteBranch(target);
+        else if (id === "delete_both") void deleteBranchAndRemote(target.name);
+        else if (id === "set_upstream") openSetUpstream(target.name, anchor);
+        else if (id === "unset_upstream") void unsetUpstream();
+        else if (id === "push_to") openPushTo(anchor);
       },
     });
   }
@@ -427,10 +612,11 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     await session.mutate(() => client.createBranch(path, name, state.at, checkoutNew));
   }
 
-  function openCommitMenu(sha: string, merge: boolean, anchor: Anchor): void {
+  function openCommitMenu(sha: string, merge: boolean, anchor: Anchor, selection: readonly string[] = [sha]): void {
     setMenu({
       anchor,
-      entries: commitMenu({ ...menuContext(), sha, merge }),
+      entries: commitMenu({ ...menuContext(), sha, merge, selection }),
+      ...(selection.length > 1 ? { title: [`${selection.length} commits selected`] } : {}),
       run: (id) => {
         if (id === "create_branch") openCreateBranchAt(sha, anchor);
         else if (id === "create_tag") openCreateTag(sha, anchor);
@@ -482,9 +668,16 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const openStashForm = (anchor: Anchor) => setPopover({ kind: "stash", anchor });
 
+  const openRenameStash = (stash: StashEntry, anchor: Anchor) => setPopover({ kind: "rename_stash", anchor, stash });
+
+  const renameStash = async (stash: StashEntry, message: string) => {
+    setPopover(undefined);
+    await session.mutate(() => client.stashRename(path, stash.index, stash.sha, message));
+  };
+
   const stashChanges = (message: string, untracked: boolean) => session.mutate(() => client.stashPush(path, message, untracked));
 
-  async function restoreStash(kind: "apply" | "pop", stash: StashEntry): Promise<void> {
+  async function restoreStash(kind: "apply" | "pop", stash: Pick<StashEntry, "index" | "sha">): Promise<void> {
     try {
       const restore = await (kind === "apply" ? client.stashApply : client.stashPop)(path, stash.index, stash.sha);
       const message = restoreMessage(kind, restore);
@@ -502,6 +695,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       run: (id) => {
         if (id === "apply" || id === "pop") void restoreStash(id, stash);
         else if (id === "drop") dropStash(stash);
+        else if (id === "inspect") deps.inspectStash(stash.sha);
+        else if (id === "rename_stash") openRenameStash(stash, anchor);
       },
     });
   }
@@ -517,10 +712,13 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   function openSyncMenu(anchor: Anchor): void {
     setMenu({
       anchor,
-      entries: syncMenu(snapshot(), busy(), deps.pullMode()),
+      entries: syncMenu(snapshot(), busy(), deps.pullMode(), deps.offline()),
       run: (id) => {
         if (id === "fetch") void fetchAll();
+        else if (id === "fetch_prune") void fetchAll(true);
         else if (id === "push") void push();
+        else if (id === "push_to") openPushTo(anchor);
+        else if (id === "set_upstream") openSetUpstream(currentBranch() ?? "", anchor);
         else if (id.startsWith("pull:")) void pull(id.slice("pull:".length) as PullMode);
       },
     });
@@ -562,6 +760,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     closeDialog: () => setDialog(undefined),
     sync,
     dismissSync: () => setSync({ kind: "idle" }),
+    notices,
+    dismissNotice,
     retrySync: () => retry?.(),
     operationBusy,
     checkout,
@@ -577,7 +777,19 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     openStashForm,
     stashChanges,
     openStashMenu,
+    openRenameStash,
+    renameStash,
+    inspectStash: (stash: Pick<StashEntry, "sha">) => deps.inspectStash(stash.sha),
     openSyncMenu,
+    openBranchPicker,
+    openSetUpstream,
+    setUpstream,
+    unsetUpstream,
+    openPushTo,
+    pushTo,
+    deleteRemoteBranch,
+    deleteBranchAndRemote,
+    offerSwitchStashes,
     openPublishMenu,
     fetchAll,
     pull,

@@ -18,7 +18,7 @@
 <script src="../specimen.js"></script>
 <script>
 const r = name => `<span class="r">${name}</span>`;
-const ctx = `<div class="menu" id="ctx" style="width: 340px">
+const ctx = `<div class="menu" id="ctx" style="width: 440px">
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("check")}</span><span>Checkout ${r("feature/greeting")}</span></span></div>
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("merge")}</span><span>Merge ${r("feature/greeting")} into ${r("main")}</span></span></div>
   <div class="item"><span class="item-main"><span class="item-icon"></span><span>Rebase ${r("feature/greeting")} onto ${r("main")}</span></span></div>
@@ -31,8 +31,13 @@ const ctx = `<div class="menu" id="ctx" style="width: 340px">
   <div class="item sel" id="reset"><span class="item-main"><span class="item-icon"></span><span>Reset ${r("feature/greeting")}</span></span><span class="sub">▸</span></div>
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("edit")}</span><span>Edit commit message</span></span></div>
   <div class="sep"></div>
+  <div class="item"><span class="item-main"><span class="item-icon"></span><span>Set upstream of ${r("feature/greeting")}…</span></span></div>
+  <div class="item"><span class="item-main"><span class="item-icon"></span><span>Unset upstream of ${r("feature/greeting")}</span></span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("push")}</span><span>Push ${r("feature/greeting")} to…</span></span></div>
+  <div class="sep"></div>
   <div class="item danger"><span class="item-main"><span class="item-icon">${YF.glyph("trash")}</span><span>Delete ${r("feature/greeting")}…</span></span></div>
   <div class="item danger"><span class="item-main"><span class="item-icon">${YF.glyph("trash")}</span><span>Delete ${r("origin/feature/greeting")}…</span></span></div>
+  <div class="item danger"><span class="item-main"><span class="item-icon">${YF.glyph("trash")}</span><span>Delete ${r("feature/greeting")} and ${r("origin/feature/greeting")}…</span></span></div>
   <div class="sep"></div>
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("copy")}</span><span>Copy</span></span><span class="sub">▸</span></div>
   <div class="sep"></div>
@@ -50,6 +55,13 @@ const drop = `<div class="menu" id="drop" style="width: 300px">
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("merge")}</span><span>Merge ${r("feature/greeting")} into ${r("main")}</span></span></div>
   <div class="item"><span class="item-main"><span class="item-icon"></span><span>Rebase ${r("feature/greeting")} onto ${r("main")}</span></span></div>
 </div>`;
+const multi = `<div class="menu" id="multi" style="width: 300px">
+  <div class="title">3 commits selected</div>
+  <div class="item off"><span class="item-main"><span class="item-icon"></span><span>Cherry-pick 5e1a9c2 onto ${r("main")}</span></span></div>
+  <div class="item off"><span class="item-main"><span class="item-icon">${YF.glyph("branch")}</span><span>Create branch here…</span></span><span class="kbd">⌘B</span></div>
+  <div class="item off"><span class="item-main"><span class="item-icon"></span><span>Reset ${r("main")} to 5e1a9c2</span></span></div>
+  <div class="title">Select a single commit</div>
+</div>`;
 const inspector = `<aside class="panel inspector" aria-label="Changes">
   <div class="ihead"><h2>${YF.glyph("changes")}Changes</h2><p>on <span class="ref">feature/greeting</span> · 2 files</p></div>
   <div class="ilist">
@@ -65,13 +77,13 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
     <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
   </div>
 </aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + ctx + reset + drop);
+document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + ctx + reset + drop + multi);
 YF.boot("screen 5 · branch context actions (context menu and drop menu shown together)");
 YF.mountGraph({ selected: 0, hovered: 1 });
 const label = document.getElementById("gbody").children[2].querySelector(".label").getBoundingClientRect();
 const ctxEl = document.getElementById("ctx");
 ctxEl.style.left = `${label.left}px`;
-ctxEl.style.top = `${label.bottom + 4}px`;
+ctxEl.style.top = `${Math.max(8, Math.min(label.bottom + 4, innerHeight - ctxEl.offsetHeight - 8))}px`;
 const ctxRect = ctxEl.getBoundingClientRect();
 const resetRect = document.getElementById("reset").getBoundingClientRect();
 const resetEl = document.getElementById("resetmenu");
@@ -79,6 +91,9 @@ resetEl.style.left = `${ctxRect.right + 4}px`;
 resetEl.style.top = `${resetRect.top - 7}px`;
 const dropEl = document.getElementById("drop");
 dropEl.style.left = `${ctxRect.right + 20}px`;
+const multiEl = document.getElementById("multi");
+multiEl.style.left = `${ctxRect.right + 20}px`;
+multiEl.style.top = `${document.getElementById("gbody").children[10].getBoundingClientRect().top}px`;
 dropEl.style.top = `${document.getElementById("gbody").children[5].getBoundingClientRect().top}px`;
 </script>
 </body>

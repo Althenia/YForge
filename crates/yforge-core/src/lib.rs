@@ -3,6 +3,7 @@ mod ai;
 mod ai_context;
 mod askpass;
 mod branch;
+mod cli;
 mod clone;
 mod commit;
 mod config;
@@ -10,6 +11,7 @@ mod conflict;
 mod diagnostics;
 mod diff;
 mod error;
+mod file_view;
 mod git;
 mod graph;
 mod history;
@@ -49,6 +51,7 @@ pub use branch::{
     branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
     delete_branch, rename_branch, set_upstream,
 };
+pub use cli::install_cli;
 pub use clone::{clone_repository, init_repository};
 pub use commit::{amend_info, commit, commit_details, commit_file_diff, edit_head_message};
 pub use config::{
@@ -63,6 +66,7 @@ pub use diagnostics::{
 };
 pub use diff::diff_file;
 pub use error::{CoreError, ErrorKind, ErrorPayload};
+pub use file_view::file_at_revision;
 pub use git::{ensure_supported, git_version, CancelToken, GitVersion};
 pub use graph::{graph_page, search_commits};
 pub use history::{
@@ -71,16 +75,17 @@ pub use history::{
 pub use integrate::{cherry_pick, fast_forward, integration_preview, merge, rebase, reset, revert};
 pub use model::{
     AheadBehind, AmendInfo, AppInfo, AuthPromptEvent, Author, AutoStash, CarriedEdge, ChangeArea,
-    ChangeCounts, CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, CommitFile,
-    ConflictFile, ConflictSegment, ConflictSide, ConflictSides, DiffHunk, DiffLine, DiffLineKind,
-    FileChange, FileDiff, FileStatus, ForceLease, ForcePushPlan, GraphEdge, GraphPage, GraphRef,
-    GraphRow, Head, IntegrationPreview, MergeMode, MessageEdit, NodeKind, Operation,
-    OperationDetail, OperationOutcome, OperationProgress, OperationStep, PullMode, PullOutcome,
-    PullReport, PullStash, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep,
-    RebaseTodo, RecomposeChange, RecomposeFile, RecomposeGroup, RecomposeHunk, RecomposePreview,
-    RecomposeResult, RefKind, RepoChanged, RepoSnapshot, ResetMode, RevisionRange, SearchResult,
-    Signature, StashEntry, StashKeptReason, StashRestore, SwitchStash, Upstream, Worktree,
-    WorktreeIntegration, WorktreeStatus,
+    ChangeCounts, CheckoutOutcome, CheckoutTarget, CliInstall, CommitBrief, CommitDetails,
+    CommitFile, ConflictFile, ConflictSegment, ConflictSide, ConflictSides, DiffHunk, DiffLine,
+    DiffLineKind, FileAtRevision, FileChange, FileDiff, FileStatus, ForceLease, ForcePushPlan,
+    GraphEdge, GraphPage, GraphRef, GraphRow, GraphVisibility, Head, IntegrationPreview, MergeMode,
+    MessageEdit, NodeKind, OpenPathRequested, Operation, OperationDetail, OperationOutcome,
+    OperationProgress, OperationStep, PullMode, PullOutcome, PullReport, PullStash, PushTarget,
+    RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RebaseTodo, RecomposeChange,
+    RecomposeFile, RecomposeGroup, RecomposeHunk, RecomposePreview, RecomposeResult, RefKind,
+    RefSelector, RepoChanged, RepoSnapshot, ResetMode, RevisionRange, SearchResult, Signature,
+    StashDetails, StashEntry, StashFile, StashKeptReason, StashRestore, SwitchStash, Upstream,
+    Worktree, WorktreeIntegration, WorktreeStatus,
 };
 pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
@@ -95,14 +100,17 @@ pub use stage::{
     discard_files, discard_hunk, discard_lines, stage_all, stage_files, stage_hunk, stage_lines,
     unstage_all, unstage_files, unstage_hunk, unstage_lines,
 };
-pub use stash::{stash_apply, stash_drop, stash_pop, stash_push, stash_rename};
+pub use stash::{
+    stash_apply, stash_details, stash_drop, stash_file_diff, stash_pop, stash_push, stash_rename,
+};
 pub use store::{
     activity_history, add_recent, ai_active_provider, ai_choose, ai_provider, ai_provider_add,
     ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers, append_activity,
     clear_activity, dismiss_switch_stash, load_recents, load_repo_settings, load_session,
-    load_settings, mark_activity_undone, recent_status, remove_recent, save_repo_settings,
-    save_session, save_settings, ssh_key_for, switch_stashes, AppSettings, Density, RecentRepo,
-    RecentStatus, RepoSettings, TabSession, Theme,
+    load_settings, mark_activity_undone, recent_status, remove_recent, repo_ui_prefs_load,
+    repo_ui_prefs_save, save_repo_settings, save_session, save_settings, ssh_key_for,
+    switch_stashes, AppSettings, ColumnPref, Density, GraphColumn, RecentRepo, RecentStatus,
+    RepoSettings, RepoUiPrefs, TabSession, Theme,
 };
 pub use sync::{
     delete_remote_branch, fetch, publish, pull, pull_autostash, push, push_force, push_plan,

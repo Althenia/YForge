@@ -329,7 +329,7 @@ fn search_commits_returns_row_indexes_and_the_searched_total() {
     )
     .unwrap();
 
-    assert_eq!(found, json!({ "total": 2, "rows": [0] }));
+    assert_eq!(found, json!({ "total": 2, "rows": [1] }));
 }
 
 #[test]

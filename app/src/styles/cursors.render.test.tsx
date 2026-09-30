@@ -13,7 +13,7 @@ import { FileRow } from "../components/FileRow";
 import { GraphPanel } from "../components/GraphPanel";
 import { Switch } from "../components/Switch";
 import { TabBar } from "../components/TabBar";
-import { flush, mountWithApp, stubLayout, testSession } from "../components/testkit";
+import { flush, mountWithApp, stubLayout, testSession, testUiPrefs } from "../components/testkit";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -217,7 +217,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
 
 describe("cursors on the graph", () => {
   const VIEWPORT = 280;
-  const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, graphColumn: 160, laneColors: 10 };
+  const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
 
   beforeEach(() => {
     vi.stubGlobal(
@@ -254,7 +254,8 @@ describe("cursors on the graph", () => {
       edges: [{ lane: 0, parent_row: null, parent_column: null }],
     };
     mockIPC((cmd) => (cmd === "repo_graph" ? { rows: [row], carried: [], total: 1 } : null));
-    const snapshot = { root: "/r", remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
+    const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: "sha0" }, upstream: null, remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
+    const uiPrefs = testUiPrefs();
     const mounted = mountWithApp(() => (
       <GraphPanel
         path="/r"
@@ -268,6 +269,8 @@ describe("cursors on the graph", () => {
         searching={false}
         focus={undefined}
         onSelect={() => undefined}
+        uiPrefs={uiPrefs}
+        onRevealHead={() => undefined}
       />
     ));
     dispose = mounted.dispose;

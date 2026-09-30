@@ -6,6 +6,7 @@ import type { ResetMode } from "../ipc/bindings/ResetMode";
 import { NOTHING_TO_UNDO, type UndoState } from "./activityModel";
 import { commitMenu, localTarget, NOT_AVAILABLE, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
 import type { Anchor, RepoActions } from "./repoActions";
+import { SHORTCUTS } from "./shortcuts";
 import { pullModes, syncMenu } from "./syncModel";
 
 export type PickerOption = { value: string; label: string; note?: string; disabledReason?: string };
@@ -102,12 +103,14 @@ export type PaletteContext = {
   actions: RepoActions | undefined;
   selectedSha: string | undefined;
   pullMode: PullMode;
+  offline: boolean;
   undo: UndoState;
   anchor: Anchor;
   app: PaletteApp;
   revealCommit: (sha: string) => void;
   revealRef: (name: string) => void;
   focusComposer: () => void;
+  revealHead: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
 };
 
@@ -119,6 +122,7 @@ const menuContextOf = (snapshot: RepoSnapshot): MenuContext => ({
   current: snapshot.head.kind === "branch" ? snapshot.head.name : undefined,
   remotes: snapshot.remotes,
   operation: snapshot.operation,
+  upstream: snapshot.upstream?.name ?? null,
 });
 
 const reasonOf = (entries: MenuEntry[], id: string): { present: boolean; reason: string | undefined } => {
@@ -198,7 +202,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
 
   const sync = (id: string): { disabledReason?: string } => {
     if (snapshot === undefined) return {};
-    const { reason } = reasonOf(syncMenu(snapshot, busy === true, context.pullMode), id);
+    const { reason } = reasonOf(syncMenu(snapshot, busy === true, context.pullMode, context.offline), id);
     return reason === undefined ? {} : { disabledReason: reason };
   };
 
@@ -241,7 +245,8 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       run: (values) => app.setTheme((values[0] ?? "system") as "light" | "dark" | "system"),
     }),
     command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: "⌘⇧Y", run: () => app.toggleDrawer() }),
-    command({ id: "search.commits", title: "Search commits", group: "Commits", shortcut: "⌘F", run: () => app.openSearch() }),
+    command({ id: "head.reveal", title: "Reveal HEAD in the graph", group: "Repository", shortcut: SHORTCUTS.revealHead, run: () => context.revealHead() }),
+    command({ id: "search.commits", title: "Search commits", group: "Commits", shortcut: SHORTCUTS.search, run: () => app.openSearch() }),
     command({ id: "open.editor", title: "Open repository in editor", group: "Repository", run: () => app.openExternal("editor") }),
     command({ id: "open.terminal", title: "Open repository in terminal", group: "Repository", run: () => app.openExternal("terminal") }),
     command({ id: "open.finder", title: "Reveal repository in Finder", group: "Repository", run: () => app.openExternal("finder") }),
@@ -249,7 +254,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       id: "undo",
       title: "Undo last operation",
       group: "Repository",
-      shortcut: "⌘Z",
+      shortcut: SHORTCUTS.undo,
       ...(context.undo.kind === "available" ? {} : { disabledReason: context.undo.reason === "" ? NOTHING_TO_UNDO : context.undo.reason }),
       run: () => {
         if (context.undo.kind === "available") void repo?.actions.undo(context.undo.entry.id);
@@ -257,7 +262,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     }),
     command({ id: "changes.stage_all", title: "Stage all changes", group: "Repository", run: () => void repo?.actions.stageAll() }),
     command({ id: "changes.unstage_all", title: "Unstage all changes", group: "Repository", run: () => void repo?.actions.unstageAll() }),
-    command({ id: "commit", title: "Commit staged changes…", group: "Repository", shortcut: "⌘↵", run: () => context.focusComposer() }),
+    command({ id: "commit", title: "Commit staged changes…", group: "Repository", shortcut: SHORTCUTS.commit, run: () => context.focusComposer() }),
     command({
       id: "branch.checkout",
       title: "Checkout…",
@@ -270,7 +275,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       id: "branch.create",
       title: "Create branch…",
       group: "Branches",
-      shortcut: "⌘B",
+      shortcut: SHORTCUTS.createBranch,
       covers: ["create_branch"],
       ...(snapshot?.head.kind === "unborn" ? { disabledReason: "Make a first commit before creating branches" } : {}),
       run: () => repo?.actions.openCreateBranchAt(context.selectedSha ?? null, context.anchor),
@@ -290,6 +295,38 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       covers: ["delete"],
       args: [localBranchOption("delete", "Delete")],
       run: withTarget((target, actions) => void actions.deleteBranch(target.name)),
+    }),
+    command({
+      id: "branch.set_upstream",
+      title: "Set upstream…",
+      group: "Branches",
+      covers: ["set_upstream"],
+      args: [localBranchOption("set_upstream", "Set upstream of")],
+      run: withTarget((target, actions) => actions.openSetUpstream(target.name, context.anchor)),
+    }),
+    command({
+      id: "branch.unset_upstream",
+      title: "Unset upstream",
+      group: "Branches",
+      covers: ["unset_upstream"],
+      ...(snapshot?.head.kind === "branch" && snapshot.upstream === null ? { disabledReason: "The checked-out branch has no upstream" } : {}),
+      run: () => void repo?.actions.unsetUpstream(),
+    }),
+    command({
+      id: "branch.delete_remote",
+      title: "Delete remote branch…",
+      group: "Branches",
+      covers: ["delete_remote"],
+      args: [refArg("delete_remote", "Delete on the remote")],
+      run: withTarget((target, actions) => actions.deleteRemoteBranch(target)),
+    }),
+    command({
+      id: "branch.delete_both",
+      title: "Delete branch and its remote branch…",
+      group: "Branches",
+      covers: ["delete_both"],
+      args: [localBranchOption("delete_both", "Delete with its remote branch")],
+      run: withTarget((target, actions) => void actions.deleteBranchAndRemote(target.name)),
     }),
     command({
       id: "branch.merge",
@@ -384,17 +421,17 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       args: [tagOption("delete_remote_tag", "Delete from remote")],
       run: withTarget((target, actions) => actions.deleteTagOnRemote(target.name)),
     }),
-    command({ id: "sync.fetch", title: "Fetch all", group: "Sync", shortcut: "⌘⇧F", covers: ["fetch"], ...sync("fetch"), run: () => void repo?.actions.fetchAll() }),
+    command({ id: "sync.fetch", title: "Fetch all", group: "Sync", shortcut: SHORTCUTS.fetch, covers: ["fetch"], ...sync("fetch"), run: () => void repo?.actions.fetchAll() }),
     ...pullModes.map((entry) => modeCommand(entry.mode, entry.label)),
     command({
       id: "sync.pull",
       title: "Pull with the default mode",
       group: "Sync",
-      shortcut: "⌘⇧L",
+      shortcut: SHORTCUTS.pull,
       ...sync(`pull:${context.pullMode}`),
       run: () => void repo?.actions.pullDefault(),
     }),
-    command({ id: "sync.push", title: "Push", group: "Sync", shortcut: "⌘⇧P", covers: ["push"], ...sync("push"), run: () => void repo?.actions.push() }),
+    command({ id: "sync.push", title: "Push", group: "Sync", shortcut: SHORTCUTS.push, covers: ["push"], ...sync("push"), run: () => void repo?.actions.push() }),
     command({
       id: "sync.cancel",
       title: "Cancel running sync",
@@ -402,9 +439,9 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       ...(busy === true ? {} : { disabledReason: "No sync is running" }),
       run: () => repo?.actions.cancelSync(),
     }),
-    unavailable("push_to", "Push to…", "Sync"),
-    unavailable("set_upstream", "Set upstream…", "Sync"),
-    command({ id: "stash.push", title: "Stash changes…", group: "Stash", shortcut: "⌘⇧S", run: () => repo?.actions.openStashForm(context.anchor) }),
+    command({ id: "sync.fetch_prune", title: "Fetch all and prune", group: "Sync", covers: ["fetch_prune"], ...sync("fetch_prune"), run: () => void repo?.actions.fetchAll(true) }),
+    command({ id: "sync.push_to", title: "Push to…", group: "Sync", covers: ["push_to"], ...sync("push_to"), run: () => repo?.actions.openPushTo(context.anchor) }),
+    command({ id: "stash.push", title: "Stash changes…", group: "Stash", shortcut: SHORTCUTS.stash, run: () => repo?.actions.openStashForm(context.anchor) }),
     command({
       id: "stash.apply",
       title: "Apply stash…",
@@ -424,6 +461,24 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       run: withStash((stash, actions) => void actions.restoreStash("pop", stash)),
     }),
     command({
+      id: "stash.inspect",
+      title: "Inspect stash…",
+      group: "Stash",
+      covers: ["inspect"],
+      args: [stashArg],
+      ...(noStashes === undefined ? {} : { disabledReason: noStashes }),
+      run: withStash((stash, actions) => actions.inspectStash(stash)),
+    }),
+    command({
+      id: "stash.rename",
+      title: "Rename stash…",
+      group: "Stash",
+      covers: ["rename_stash"],
+      args: [stashArg],
+      ...(noStashes === undefined ? {} : { disabledReason: noStashes }),
+      run: withStash((stash, actions) => actions.openRenameStash(stash, context.anchor)),
+    }),
+    command({
       id: "stash.drop",
       title: "Drop stash…",
       group: "Stash",
@@ -437,7 +492,6 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     command({ id: "operation.abort", title: "Abort operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => repo?.actions.abortOperation() }),
     unavailable("create_worktree", "Create worktree…", "Branches"),
     unavailable("edit_message", "Edit commit message…", "Commits"),
-    unavailable("delete_remote", "Delete remote branch…", "Branches"),
     unavailable("copy", "Copy…", "Application"),
     unavailable("hide", "Hide in graph", "Application"),
   ];
@@ -566,7 +620,7 @@ export function hotkeyOf(shortcut: string): Hotkey {
 export function shortcutCommands(commands: readonly PaletteCommand[]): PaletteCommand[] {
   const seen = new Set<string>();
   return commands.filter((command) => {
-    if (command.shortcut === undefined || command.id === "commit" || command.args.length > 0 || seen.has(command.shortcut)) return false;
+    if (command.shortcut === undefined || command.args.length > 0 || seen.has(command.shortcut)) return false;
     seen.add(command.shortcut);
     return true;
   });

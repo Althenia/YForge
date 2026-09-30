@@ -4,6 +4,7 @@ import {
   MERGE_COMMIT_REASON,
   NOT_AVAILABLE,
   NO_REMOTE,
+  SINGLE_COMMIT_REASON,
   commitMenu,
   dropPlan,
   operationBlock,
@@ -60,9 +61,12 @@ describe("branch context menu", () => {
       "Reset main to feature/greeting",
       "Edit commit message",
       "-",
+      "Set upstream of feature/greeting…",
+      "-",
       "Rename feature/greeting…",
       "Delete feature/greeting…",
       "Delete origin/feature/greeting…",
+      "Delete feature/greeting and origin/feature/greeting…",
       "-",
       "Copy",
       "-",
@@ -76,10 +80,13 @@ describe("branch context menu", () => {
     for (const id of ["checkout", "merge", "rebase", "fast_forward", "create_branch", "create_tag", "reset", "rename", "delete"]) {
       expect(item(entries, id).disabledReason).toBeUndefined();
     }
-    for (const id of ["create_worktree", "edit_message", "delete_remote", "copy", "hide"]) {
+    for (const id of ["create_worktree", "edit_message", "copy", "hide"]) {
       expect(item(entries, id).disabledReason).toBe(NOT_AVAILABLE);
     }
     expect(item(entries, "delete").danger).toBe(true);
+    expect(item(entries, "delete_remote").danger).toBe(true);
+    expect(item(entries, "delete_remote").disabledReason).toBeUndefined();
+    expect(item(entries, "delete_both").danger).toBe(true);
   });
 
   it("disables the integration items on the checked-out branch and while an operation is in progress", () => {
@@ -101,6 +108,7 @@ describe("branch context menu", () => {
     expect(item(entries, "checkout").disabledReason).toBe("Already checked out");
     expect(item(entries, "delete").disabledReason).toMatch(/Checked out/);
     expect(entries.some((entry) => entry.kind === "item" && entry.id === "delete_remote")).toBe(false);
+    expect(entries.some((entry) => entry.kind === "item" && entry.id === "delete_both")).toBe(false);
   });
 
   it("names HEAD as the merge target when nothing is checked out", () => {
@@ -114,7 +122,35 @@ describe("branch context menu", () => {
     expect(text(item(entries, "checkout").label)).toBe("Checkout feature/x");
     expect(item(entries, "checkout").note).toBe("creates a tracking branch");
     expect(entries.some((entry) => entry.kind === "item" && (entry.id === "rename" || entry.id === "delete"))).toBe(false);
-    expect(item(entries, "delete_remote").disabledReason).toBe(NOT_AVAILABLE);
+    expect(text(item(entries, "delete_remote").label)).toBe("Delete origin/feature/x…");
+    expect(item(entries, "delete_remote").danger).toBe(true);
+    expect(item(entries, "delete_remote").disabledReason).toBeUndefined();
+    expect(entries.some((entry) => entry.kind === "item" && (entry.id === "set_upstream" || entry.id === "delete_both"))).toBe(false);
+  });
+
+  it("offers set upstream on any local branch and unset upstream and Push to… only on the checked-out branch that tracks one", () => {
+    const other = refMenu(local, { ...context("main", ["origin"]), upstream: "origin/main" });
+    expect(item(other, "set_upstream").disabledReason).toBeUndefined();
+    expect(other.some((entry) => entry.kind === "item" && (entry.id === "unset_upstream" || entry.id === "push_to"))).toBe(false);
+
+    const own = refMenu({ ...local, name: "main", remoteName: undefined }, { ...context("main", ["origin"]), upstream: "origin/main" });
+    expect(text(item(own, "unset_upstream").label)).toBe("Unset upstream of main");
+    expect(text(item(own, "push_to").label)).toBe("Push main to…");
+    const untracked = refMenu({ ...local, name: "main", remoteName: undefined }, { ...context("main", ["origin"]), upstream: null });
+    expect(untracked.some((entry) => entry.kind === "item" && entry.id === "unset_upstream")).toBe(false);
+    expect(item(untracked, "push_to").disabledReason).toBeUndefined();
+  });
+
+  it("disables set upstream and Push to… without a remote", () => {
+    const entries = refMenu({ ...local, name: "main", remoteName: undefined }, context("main"));
+    expect(item(entries, "set_upstream").disabledReason).toBe(NO_REMOTE);
+    expect(item(entries, "push_to").disabledReason).toBe(NO_REMOTE);
+  });
+
+  it("disables deleting both on the checked-out branch", () => {
+    const entries = refMenu({ ...local, name: "main", remoteName: "origin/main" }, context("main", ["origin"]));
+    expect(item(entries, "delete_both").disabledReason).toMatch(/Checked out/);
+    expect(item(entries, "delete_remote").disabledReason).toBeUndefined();
   });
 
   it("offers a tag a detached checkout and no merge or reset actions", () => {
@@ -177,10 +213,10 @@ describe("branch context menu", () => {
 });
 
 describe("stash menu", () => {
-  it("lists apply, pop, and a danger drop that asks for confirmation", () => {
+  it("lists inspect, apply, pop, rename, and a danger drop that asks for confirmation", () => {
     const entries = stashMenu({ index: 2 });
 
-    expect(layout(entries)).toEqual(["Apply stash@{2}", "Pop stash@{2}", "-", "Drop stash@{2}…"]);
+    expect(layout(entries)).toEqual(["Inspect stash@{2}", "Apply stash@{2}", "Pop stash@{2}", "Rename stash@{2}…", "-", "Drop stash@{2}…"]);
     expect(item(entries, "drop").danger).toBe(true);
   });
 });
@@ -221,6 +257,28 @@ describe("commit row context menu", () => {
     const busy = menu({ operation: "merge" });
     for (const id of ["cherry_pick", "revert", "reset"]) expect(item(busy, id).disabledReason).toBe("Finish or abort the merge first");
     expect(item(busy, "create_tag").disabledReason).toBeUndefined();
+  });
+});
+
+describe("commit menu with a multi-selection", () => {
+  const selected = { ...context("main"), sha: "abcdef0123456", merge: false, selection: ["abcdef0123456", "1234567abcdef"] };
+
+  it("disables the verbs that act on one commit and says to select a single commit", () => {
+    const entries = commitMenu(selected);
+    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset"]) {
+      expect(item(entries, id).disabledReason).toBe(SINGLE_COMMIT_REASON);
+    }
+  });
+
+  it("keeps the verbs enabled for a selection of one", () => {
+    const entries = commitMenu({ ...selected, selection: ["abcdef0123456"] });
+    expect(item(entries, "cherry_pick").disabledReason).toBeUndefined();
+  });
+});
+
+describe("menu shortcut hints", () => {
+  it("shows the branch shortcut on Create branch here in the commit menu", () => {
+    expect(item(commitMenu({ ...context("main"), sha: "abcdef0123456", merge: false }), "create_branch").shortcut).toBe("⌘B");
   });
 });
 

@@ -30,6 +30,7 @@ pub enum ErrorKind {
     NotHead,
     MergeCommitInRange,
     SnapshotFailed,
+    FileTooLarge,
     AiNotConfigured,
     AiProviderUnavailable,
     AiAuthRequired,
@@ -134,6 +135,11 @@ pub enum CoreError {
         action: String,
         detail: String,
     },
+    FileTooLarge {
+        file: String,
+        size: u64,
+        limit: u64,
+    },
     AiNotConfigured {
         detail: String,
     },
@@ -186,6 +192,7 @@ impl CoreError {
             Self::NotHead { .. } => ErrorKind::NotHead,
             Self::MergeCommitInRange { .. } => ErrorKind::MergeCommitInRange,
             Self::SnapshotFailed { .. } => ErrorKind::SnapshotFailed,
+            Self::FileTooLarge { .. } => ErrorKind::FileTooLarge,
             Self::AiNotConfigured { .. } => ErrorKind::AiNotConfigured,
             Self::AiProviderUnavailable { .. } => ErrorKind::AiProviderUnavailable,
             Self::AiAuthRequired { .. } => ErrorKind::AiAuthRequired,
@@ -290,6 +297,10 @@ impl fmt::Display for CoreError {
                 f,
                 "Could not save a safety snapshot before {action}, so nothing was changed: {detail}"
             ),
+            Self::FileTooLarge { file, size, limit } => write!(
+                f,
+                "{file} is {size} bytes; files over {limit} bytes are not shown"
+            ),
             Self::AiNotConfigured { detail } => write!(f, "No AI provider is ready: {detail}"),
             Self::AiProviderUnavailable { provider, detail } => {
                 write!(f, "{provider} is unavailable: {detail}")
@@ -321,6 +332,7 @@ impl From<CoreError> for ErrorPayload {
             | CoreError::LocalChanges { detail }
             | CoreError::PushRejected { detail }
             | CoreError::NotFastForward { detail } => Some(detail.clone()),
+            CoreError::FileTooLarge { size, .. } => Some(size.to_string()),
             CoreError::AiAuthRequired { detail, .. } => {
                 Some(detail.clone()).filter(|text| !text.is_empty())
             }

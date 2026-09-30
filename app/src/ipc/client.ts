@@ -33,7 +33,13 @@ import type { ErrorPayload } from "./bindings/ErrorPayload";
 import type { FileDiff } from "./bindings/FileDiff";
 import type { ForceLease } from "./bindings/ForceLease";
 import type { ForcePushPlan } from "./bindings/ForcePushPlan";
+import type { CliInstall } from "./bindings/CliInstall";
+import type { FileAtRevision } from "./bindings/FileAtRevision";
 import type { GraphPage } from "./bindings/GraphPage";
+import type { OpenPathRequested } from "./bindings/OpenPathRequested";
+import type { GraphVisibility } from "./bindings/GraphVisibility";
+import type { RepoUiPrefs } from "./bindings/RepoUiPrefs";
+import type { StashDetails } from "./bindings/StashDetails";
 import type { IntegrationPreview } from "./bindings/IntegrationPreview";
 import type { MergeMode } from "./bindings/MergeMode";
 import type { MessageEdit } from "./bindings/MessageEdit";
@@ -44,12 +50,18 @@ import type { PullOutcome } from "./bindings/PullOutcome";
 import type { RepoChanged } from "./bindings/RepoChanged";
 import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 import type { ResetMode } from "./bindings/ResetMode";
+import type { PullReport } from "./bindings/PullReport";
+import type { PushTarget } from "./bindings/PushTarget";
+import type { SshKey } from "./bindings/SshKey";
 import type { StashRestore } from "./bindings/StashRestore";
+import type { SwitchStash } from "./bindings/SwitchStash";
+import type { WorktreeStatus } from "./bindings/WorktreeStatus";
 
 export const REPO_CHANGED_EVENT = "repo-changed";
 export const OPERATION_PROGRESS_EVENT = "operation-progress";
 export const AUTH_PROMPT_EVENT = "auth-prompt";
 export const ACTIVITY_EVENT = "activity-recorded";
+export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
 
 export type OpenWith = "editor" | "terminal" | "finder";
 
@@ -89,7 +101,8 @@ export const client = {
   appInfo: () => call<AppInfo>("app_info"),
   launchPath: () => call<string>("launch_path"),
   repoOpen: (path: string) => call<RepoSnapshot>("repo_open", { path }),
-  repoGraph: (path: string, offset: number, limit: number) => call<GraphPage>("repo_graph", { path, offset, limit }),
+  repoGraph: (path: string, offset: number, limit: number, visibility?: GraphVisibility) =>
+    call<GraphPage>("repo_graph", visibility === undefined ? { path, offset, limit } : { path, offset, limit, visibility }),
   diffFile: (path: string, file: string, area: ChangeArea, ignoreWhitespace = false) =>
     call<FileDiff>("diff_file", ignoreWhitespace ? { path, file, area, ignoreWhitespace } : { path, file, area }),
   stageFiles: (path: string, files: string[]) => call<null>("stage_files", { path, files }),
@@ -110,7 +123,8 @@ export const client = {
   amendInfo: (path: string) => call<AmendInfo>("amend_info", { path }),
   commitDetails: (path: string, sha: string) => call<CommitDetails>("commit_details", { path, sha }),
   commitFileDiff: (path: string, sha: string, file: string) => call<FileDiff>("commit_file_diff", { path, sha, file }),
-  checkout: (path: string, target: CheckoutTarget, stash: boolean) => call<CheckoutOutcome>("checkout", { path, target, stash }),
+  checkout: (path: string, target: CheckoutTarget, stash: boolean, leaveStashed = false) =>
+    call<CheckoutOutcome>("checkout", leaveStashed ? { path, target, stash, leaveStashed } : { path, target, stash }),
   checkBranchName: (path: string, name: string) => call<string>("check_branch_name", { path, name }),
   createBranch: (path: string, name: string, at: string | null, checkout: boolean) =>
     call<null>("create_branch", { path, name, at, checkout }),
@@ -124,7 +138,17 @@ export const client = {
   fetch: (path: string, id: string, prune: boolean, interactive = true) =>
     call<null>("fetch", interactive ? { path, id, prune } : { path, id, prune, interactive }),
   pull: (path: string, id: string, mode: PullMode) => call<PullOutcome>("pull", { path, id, mode }),
+  pullWithAutostash: (path: string, id: string, mode: PullMode) => call<PullReport>("pull_with_autostash", { path, id, mode }),
   push: (path: string, id: string) => call<null>("push", { path, id }),
+  pushTo: (path: string, id: string, target: PushTarget) => call<null>("push_to", { path, id, target }),
+  deleteRemoteBranch: (path: string, id: string, remote: string, name: string) => call<null>("delete_remote_branch", { path, id, remote, name }),
+  setUpstream: (path: string, branch: string, upstream: string | null) => call<null>("set_upstream", { path, branch, upstream }),
+  stashRename: (path: string, index: number, sha: string, message: string) => call<null>("stash_rename", { path, index, sha, message }),
+  switchStashes: (path: string, branch: string) => call<SwitchStash[]>("switch_stashes", { path, branch }),
+  switchStashRestore: (path: string, branch: string, sha: string) => call<StashRestore>("switch_stash_restore", { path, branch, sha }),
+  switchStashDismiss: (path: string, branch: string, sha: string) => call<null>("switch_stash_dismiss", { path, branch, sha }),
+  sshKeysList: () => call<SshKey[]>("ssh_keys_list"),
+  worktreeList: (path: string) => call<WorktreeStatus[]>("worktree_list", { path }),
   pushPlan: (path: string) => call<ForcePushPlan>("push_plan", { path }),
   pushForce: (path: string, id: string, lease: ForceLease) => call<null>("push_force", { path, id, lease }),
   publish: (path: string, id: string, remote: string) => call<null>("publish", { path, id, remote }),
@@ -152,7 +176,15 @@ export const client = {
   conflictResolve: (path: string, file: string, content: string) => call<null>("conflict_resolve", { path, file, content }),
   conflictTakeSide: (path: string, file: string, side: ConflictSide) => call<null>("conflict_take_side", { path, file, side }),
   conflictReset: (path: string, file: string) => call<null>("conflict_reset", { path, file }),
-  searchCommits: (path: string, query: string) => call<SearchResult>("search_commits", { path, query }),
+  searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
+    call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
+  fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
+  cliInstall: () => call<CliInstall>("cli_install"),
+  stashDetails: (path: string, index: number, sha: string) => call<StashDetails>("stash_details", { path, index, sha }),
+  stashFileDiff: (path: string, index: number, sha: string, file: string, ignoreWhitespace = false) =>
+    call<FileDiff>("stash_file_diff", ignoreWhitespace ? { path, index, sha, file, ignoreWhitespace } : { path, index, sha, file }),
+  repoUiPrefsLoad: (path: string) => call<RepoUiPrefs>("repo_ui_prefs_load", { path }),
+  repoUiPrefsSave: (path: string, prefs: RepoUiPrefs) => call<null>("repo_ui_prefs_save", { path, prefs }),
   cloneRepo: (id: string, url: string, destination: string) => call<string>("clone_repo", { id, url, destination }),
   initRepo: (path: string) => call<string>("init_repo", { path }),
   settingsLoad: () => call<AppSettings>("settings_load"),
@@ -190,6 +222,10 @@ export const client = {
     const picked = await open({ directory: true, multiple: false, title });
     return picked ?? undefined;
   },
+  pickFile: async (title: string, defaultPath?: string): Promise<string | undefined> => {
+    const picked = await open({ directory: false, multiple: false, title, ...(defaultPath === undefined ? {} : { defaultPath }) });
+    return picked ?? undefined;
+  },
   pickSavePath: async (title: string, defaultPath: string): Promise<string | undefined> => (await save({ title, defaultPath })) ?? undefined,
   homeDirectory: () => homeDir(),
   onFolderDrop: (handler: (paths: string[]) => void): Promise<UnlistenFn> =>
@@ -202,6 +238,8 @@ export const client = {
     listen<AuthPromptEvent>(AUTH_PROMPT_EVENT, (event) => handler(event.payload)),
   onActivity: (handler: (entry: ActivityEntry) => void): Promise<UnlistenFn> =>
     listen<ActivityEntry>(ACTIVITY_EVENT, (event) => handler(event.payload)),
+  onOpenPathRequested: (handler: (request: OpenPathRequested) => void): Promise<UnlistenFn> =>
+    listen<OpenPathRequested>(OPEN_PATH_REQUESTED_EVENT, (event) => handler(event.payload)),
   onRepoChanged: (handler: (change: RepoChanged) => void): Promise<UnlistenFn> =>
     listen<RepoChanged>(REPO_CHANGED_EVENT, (event) => handler(event.payload)),
 };

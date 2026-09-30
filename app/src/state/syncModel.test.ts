@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { authFailure, AUTH_HINT, DEFAULT_PULL_MODE, freshness, FRESH_SECONDS, isDiverged, pullModes, runningText, syncMenu } from "./syncModel";
+import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullModes, runningText, syncMenu } from "./syncModel";
 import type { MenuEntry } from "./refMenu";
 
 const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
@@ -38,6 +38,7 @@ describe("sync menu", () => {
 
     expect(entries.map((entry) => (entry.kind === "separator" ? "-" : entry.id))).toEqual([
       "fetch",
+      "fetch_prune",
       "-",
       "pull:fast_forward_only",
       "pull:fast_forward_or_merge",
@@ -53,14 +54,37 @@ describe("sync menu", () => {
     expect(pullModes.map((entry) => entry.mode)).toEqual(["fast_forward_only", "fast_forward_or_merge", "rebase"]);
   });
 
-  it("enables fetch, pull, and push on a tracked branch and disables the out-of-scope entries", () => {
+  it("enables fetch, prune, pull, push, Push to…, and set upstream on a tracked branch", () => {
     const state = reasons(syncMenu(snapshot(), false));
 
-    expect(state.fetch).toBeUndefined();
-    expect(state["pull:rebase"]).toBeUndefined();
-    expect(state.push).toBeUndefined();
-    expect(state.push_to).toBe("Not available yet");
-    expect(state.set_upstream).toBe("Not available yet");
+    for (const id of ["fetch", "fetch_prune", "pull:rebase", "push", "push_to", "set_upstream"]) expect(state[id]).toBeUndefined();
+  });
+
+  it("shows the shortcut of each command that has one: fetch, the default pull mode, and push", () => {
+    const shortcuts = Object.fromEntries(syncMenu(snapshot(), false).flatMap((entry) => (entry.kind === "item" ? [[entry.id, entry.shortcut]] : [])));
+
+    expect(shortcuts.fetch).toBe("⌘⇧F");
+    expect(shortcuts[`pull:${DEFAULT_PULL_MODE}`]).toBe("⌘⇧L");
+    expect(shortcuts["pull:rebase"]).toBeUndefined();
+    expect(shortcuts.push).toBe("⌘⇧P");
+    expect(shortcuts.fetch_prune).toBeUndefined();
+  });
+
+  it("explains how prune differs from a plain fetch", () => {
+    const prune = syncMenu(snapshot(), false).find((entry) => entry.kind === "item" && entry.id === "fetch_prune");
+    expect(prune).toMatchObject({ label: ["Fetch all and prune"], note: "removes deleted remote branches" });
+  });
+
+  it("disables the network entries with a reason while the machine is offline", () => {
+    const state = reasons(syncMenu(snapshot(), false, DEFAULT_PULL_MODE, true));
+
+    for (const id of ["fetch", "fetch_prune", "pull:rebase", "push", "push_to"]) expect(state[id]).toBe(OFFLINE_REASON);
+    expect(state.set_upstream).toBeUndefined();
+  });
+
+  it("sets an upstream only for a checked-out branch and needs a remote to push to", () => {
+    expect(reasons(syncMenu(snapshot({ head: { kind: "detached", sha: "a" } }), false)).set_upstream).toBe("Check out a branch to set its upstream");
+    expect(reasons(syncMenu(snapshot({ remotes: [] }), false)).push_to).toBe("This repository has no remotes");
   });
 
   it("allows the first push of a branch without an upstream but not a pull", () => {
@@ -101,8 +125,17 @@ describe("diverged branches", () => {
 
 describe("authentication failure copy", () => {
   it("names the remote and gives the next action", () => {
-    expect(authFailure("Authentication failed for origin")).toEqual({ text: "auth failed for origin", hint: AUTH_HINT });
-    expect(authFailure("something else").text).toBe("auth failed for the remote");
+    expect(authFailure("Authentication failed for origin")).toEqual({ text: "auth failed for origin", hint: AUTH_HINT, remote: "origin" });
+    expect(authFailure("something else")).toEqual({ text: "auth failed for the remote", hint: AUTH_HINT, remote: undefined });
+  });
+
+  it("sends an SSH remote to the SSH key setting and any other remote to the repository's remotes", () => {
+    const ssh = { section: "git", label: "Choose an SSH key" };
+    expect(authFix("git@github.com:o/r.git")).toEqual(ssh);
+    expect(authFix("ssh://git@host/o/r.git")).toEqual(ssh);
+    const https = { section: "repository", label: "Check the remote" };
+    expect(authFix("https://github.com/o/r.git")).toEqual(https);
+    expect(authFix(undefined)).toEqual(https);
   });
 });
 

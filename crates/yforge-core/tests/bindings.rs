@@ -16,6 +16,9 @@ use yforge_core::{
     ProviderConfig, ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate,
     RecomposeProposal,
 };
+use yforge_core::{
+    CliInstall, FileAtRevision, GraphVisibility, OpenPathRequested, RepoUiPrefs, StashDetails,
+};
 use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
     MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
@@ -101,6 +104,12 @@ fn export_all(dir: &Path) {
     LostCommit::export_all(&config).expect("export LostCommit");
     SnapshotInfo::export_all(&config).expect("export SnapshotInfo");
     SnapshotChange::export_all(&config).expect("export SnapshotChange");
+    FileAtRevision::export_all(&config).expect("export FileAtRevision");
+    GraphVisibility::export_all(&config).expect("export GraphVisibility");
+    StashDetails::export_all(&config).expect("export StashDetails");
+    RepoUiPrefs::export_all(&config).expect("export RepoUiPrefs");
+    OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
+    CliInstall::export_all(&config).expect("export CliInstall");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

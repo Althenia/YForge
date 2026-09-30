@@ -130,6 +130,26 @@ pub struct StashEntry {
     pub time: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct StashFile {
+    pub path: String,
+    pub original_path: Option<String>,
+    pub status: FileStatus,
+    pub additions: Option<u32>,
+    pub deletions: Option<u32>,
+    pub untracked: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct StashDetails {
+    pub index: u32,
+    pub sha: String,
+    pub message: String,
+    pub base_sha: Option<String>,
+    pub untracked_sha: Option<String>,
+    pub files: Vec<StashFile>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 pub struct OperationStep {
     pub current: u32,
@@ -150,6 +170,7 @@ pub struct OperationDetail {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct RepoSnapshot {
     pub root: String,
+    pub main_root: String,
     pub head: Head,
     pub upstream: Option<Upstream>,
     pub counts: ChangeCounts,
@@ -165,7 +186,7 @@ pub struct RepoSnapshot {
     pub stashes: Vec<StashEntry>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum RefKind {
     LocalBranch,
@@ -187,6 +208,24 @@ pub enum NodeKind {
     Merge,
     Stash,
     Changes,
+    CleanChanges,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct RefSelector {
+    pub name: String,
+    pub kind: RefKind,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GraphVisibility {
+    #[default]
+    All,
+    CurrentAndUpstream,
+    Refs {
+        refs: Vec<RefSelector>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -268,7 +307,22 @@ pub struct FileDiff {
     pub path: String,
     pub original_path: Option<String>,
     pub binary: bool,
+    pub old_size: Option<u64>,
+    pub new_size: Option<u64>,
     pub hunks: Vec<DiffHunk>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FileAtRevision {
+    Text {
+        text: String,
+        size: u64,
+        eol: String,
+    },
+    Binary {
+        size: u64,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -316,6 +370,17 @@ pub struct CommitDetails {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct RepoChanged {
     pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct OpenPathRequested {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct CliInstall {
+    pub path: String,
+    pub replaced: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

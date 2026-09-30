@@ -68,14 +68,14 @@ const second: DiffHunk = {
   lines: [line("context", "tail();", 40, 41), line("removed", "old();", 41, null), line("context", "done();", 42, 42)],
 };
 
-const diff: FileDiff = { path: "src/app.ts", original_path: null, binary: false, hunks: [first, second] };
+const diff: FileDiff = { path: "src/app.ts", original_path: null, binary: false, old_size: null, new_size: null, hunks: [first, second] };
 
 const working = (area: "unstaged" | "staged" = "unstaged"): DiffTarget => ({ source: "working", area, file: "src/app.ts" });
 
 function mount(target: DiffTarget, result: FileDiff = diff, prefs = createDiffPrefs()) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    return cmd === "diff_file" || cmd === "commit_file_diff" ? result : null;
+    return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? result : null;
   });
   const mounted = mountWithApp(() => (
     <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={target} prefs={prefs} onClose={() => undefined} />
@@ -372,7 +372,7 @@ describe("syntax and word highlighting", () => {
 
 describe("binary and editor", () => {
   it("shows the binary placeholder instead of hunks", async () => {
-    const { host } = mount(working(), { path: "logo.png", original_path: null, binary: true, hunks: [] });
+    const { host } = mount(working(), { path: "logo.png", original_path: null, binary: true, old_size: null, new_size: null, hunks: [] });
     await flush(60);
 
     expect(host.querySelector(".empty")?.textContent).toBe("Binary file — no text diff");
@@ -400,7 +400,7 @@ describe("large diffs", () => {
     heading: "",
     lines: Array.from({ length: LINES }, (_, index) => line("added", `line ${index}`, null, index + 1)),
   };
-  const big: FileDiff = { path: "big.txt", original_path: null, binary: false, hunks: [bigHunk] };
+  const big: FileDiff = { path: "big.txt", original_path: null, binary: false, old_size: null, new_size: null, hunks: [bigHunk] };
   const bigTarget: DiffTarget = { source: "working", area: "unstaged", file: "big.txt" };
 
   it("renders the window of a very large hunk while keeping the hunk focusable and labelled", async () => {
@@ -425,5 +425,28 @@ describe("large diffs", () => {
     const rows = host.querySelectorAll(".dline, .dsplit");
     expect(rows.length).toBeGreaterThan(0);
     expect(rows.length).toBeLessThan(100);
+  });
+});
+
+describe("stash diff", () => {
+  const stashTarget: DiffTarget = { source: "stash", index: 2, sha: "5".repeat(40), file: "src/app.ts" };
+
+  it("loads the file of a stash from the stash, offers no staging, and names the stash in the header", async () => {
+    const { host } = mount(stashTarget);
+    await flush(60);
+
+    expect(called("stash_file_diff")).toEqual([{ cmd: "stash_file_diff", args: { path: "/r", index: 2, sha: "5".repeat(40), file: "src/app.ts" } }]);
+    expect(called("commit_file_diff")).toEqual([]);
+    expect(host.textContent).toContain("stash@{2}");
+    expect(named(host, "Stage hunk")).toBeNull();
+  });
+
+  it("asks for a diff without whitespace changes when Ignore whitespace is on", async () => {
+    const { prefs } = mount(stashTarget);
+    await flush(60);
+    prefs.setIgnoreWhitespace(true);
+    await flush(60);
+
+    expect(called("stash_file_diff").at(-1)?.args).toMatchObject({ ignoreWhitespace: true });
   });
 });

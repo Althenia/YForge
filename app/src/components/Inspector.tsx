@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Match, Switch } from "solid-js";
 import type { Composer } from "../state/composer";
 import type { DiffTarget } from "../state/diffModel";
 import type { RepoActions } from "../state/repoActions";
@@ -7,6 +7,7 @@ import type { Selection } from "../state/selection";
 import { ChangesInspector } from "./ChangesInspector";
 import { CommitInspector } from "./CommitInspector";
 import { OperationInspector } from "./OperationInspector";
+import { StashInspector } from "./StashInspector";
 
 export function Inspector(props: {
   session: RepoSession;
@@ -19,34 +20,39 @@ export function Inspector(props: {
   onCommitted: (sha: string) => void;
 }) {
   const commitSha = () => (props.selection?.kind === "commit" ? props.selection.sha : undefined);
+  const stash = () => {
+    const current = props.selection;
+    return current?.kind === "stash" ? props.session.snapshot().stashes.find((entry) => entry.sha === current.sha) : undefined;
+  };
   return (
-    <Show
-      when={commitSha()}
+    <Switch
       fallback={
-        <Show
-          when={props.session.snapshot().operation === null}
-          fallback={<OperationInspector session={props.session} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} />}
+        <Switch
+          fallback={
+            <ChangesInspector
+              session={props.session}
+              actions={props.actions}
+              composer={props.composer}
+              activeTarget={props.activeTarget}
+              onOpenDiff={props.onOpenDiff}
+              onCommitted={props.onCommitted}
+            />
+          }
         >
-          <ChangesInspector
-            session={props.session}
-            actions={props.actions}
-            composer={props.composer}
-            activeTarget={props.activeTarget}
-            onOpenDiff={props.onOpenDiff}
-            onCommitted={props.onCommitted}
-          />
-        </Show>
+          <Match when={props.session.snapshot().operation !== null}>
+            <OperationInspector session={props.session} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} />
+          </Match>
+        </Switch>
       }
     >
-      {(sha) => (
-        <CommitInspector
-          session={props.session}
-          sha={sha()}
-          activeTarget={props.activeTarget}
-          onSelectCommit={props.onSelectCommit}
-          onOpenDiff={props.onOpenDiff}
-        />
-      )}
-    </Show>
+      <Match when={stash()}>
+        {(entry) => <StashInspector session={props.session} stash={entry()} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} />}
+      </Match>
+      <Match when={commitSha()}>
+        {(sha) => (
+          <CommitInspector session={props.session} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} />
+        )}
+      </Match>
+    </Switch>
   );
 }

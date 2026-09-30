@@ -26,17 +26,21 @@ const menuOnly = YF.flags.has("menu");
 const I = YF.icon;
 const r = name => `<span class="r">${name}</span>`;
 const fetching = `<span class="chip"><span>Fetching <span class="ref">origin</span>… 42%</span><span class="progress" role="progressbar" aria-valuenow="42" aria-valuemin="0" aria-valuemax="100"><i style="width: 42%"></i></span></span><span class="btn sm">Cancel</span>`;
-const strip = YF.strip({ fresh: fetching });
+const noticeVariant = YF.flags.has("notice");
+const strip = noticeVariant
+  ? YF.strip({ extra: YF.notice("Your changes are kept in stash@{0}", ["Apply", "Pop"], "The pull stopped on conflicts, so your changes were not restored.") })
+  : YF.strip({ fresh: fetching });
 const command = YF.command({ sync: `Sync <span class="k">↑2</span>${I.chevron}`, syncClass: "primary open" });
 const syncMenu = `<div class="menu" id="sync" style="width: 340px">
-  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("fetch")}</span>Fetch all</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("fetch")}</span>Fetch all</span><span class="k">⌘⇧F</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("fetch")}</span>Fetch all and prune</span><span class="k">removes deleted remote branches</span></div>
   <div class="sep"></div>
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: fast-forward only</span></div>
-  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: fast-forward, merge if needed</span><span class="k">default</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: fast-forward, merge if needed</span><span class="k">default</span><span class="kbd">⌘⇧L</span></div>
   <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("pull")}</span>Pull: rebase</span></div>
   <div class="sep"></div>
-  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("push")}</span>Push</span></div>
-  <div class="item"><span class="item-main"><span class="item-icon"></span>Push to…</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("push")}</span>Push</span><span class="kbd">⌘⇧P</span></div>
+  <div class="item"><span class="item-main"><span class="item-icon">${YF.glyph("push")}</span>Push to…</span></div>
   <div class="item"><span class="item-main"><span class="item-icon"></span>Set upstream…</span></div>
 </div>`;
 const dialog = `<div class="scrim"></div><div class="dialog" role="alertdialog" aria-labelledby="fp-title">
@@ -70,6 +74,7 @@ YF.boot(`screen 6 · pull, push, and sync state${menuOnly ? " · sync menu" : ""
 YF.mountGraph({ selected: 0, hovered: -1 });
 const sync = document.querySelector(".bar .btn.primary").getBoundingClientRect();
 const menu = document.getElementById("sync");
+if (noticeVariant) menu.remove();
 menu.style.left = `${Math.min(sync.left, innerWidth - 340 - 10)}px`;
 menu.style.top = `${sync.bottom + 8}px`;
 </script>

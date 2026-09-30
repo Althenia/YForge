@@ -21,6 +21,7 @@ export const defaultSettings: AppSettings = {
   editor_command: "",
   terminal_command: "",
   telemetry_opt_in: false,
+  ssh_key_path: null,
 };
 
 export const pullModeLabel = (mode: PullMode): string => pullModes.find((entry) => entry.mode === mode)?.label.replace(/^Pull: /, "") ?? mode;
@@ -64,3 +65,8 @@ export function applyAppearance(root: HTMLElement, settings: Pick<AppSettings, "
 export function settingsChanged(left: AppSettings, right: AppSettings): boolean {
   return JSON.stringify(left) !== JSON.stringify(right);
 }
+
+export const SSH_AGENT_LABEL = "ssh-agent (default)";
+
+export const sshKeyLabel = (path: string | null | undefined, keys: ReadonlyArray<{ path: string; name: string }>): string =>
+  path === null || path === undefined || path === "" ? SSH_AGENT_LABEL : (keys.find((key) => key.path === path)?.name ?? path);

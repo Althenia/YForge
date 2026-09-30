@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
@@ -6,14 +6,15 @@ use crate::error::CoreError;
 use crate::git;
 use crate::layout::{self, index_u32, RowLayout};
 use crate::model::{
-    Author, CarriedEdge, ChangeCounts, GraphPage, GraphRef, GraphRow, Head, NodeKind, RefKind,
-    SearchResult, StashEntry,
+    Author, CarriedEdge, ChangeCounts, GraphPage, GraphRef, GraphRow, GraphVisibility, Head,
+    NodeKind, RefKind, SearchResult, StashEntry,
 };
 use crate::refs::{self, RefEntry};
 use crate::repo;
 use crate::status::ParsedStatus;
 
 const LOG_COMMAND: &str = "git log";
+const CLEAN_SUMMARY: &str = "Working tree clean";
 
 struct RowSeed {
     sha: Option<String>,
@@ -75,21 +76,71 @@ fn parse_commits(output: &str) -> Result<Vec<RowSeed>, CoreError> {
     Ok(seeds)
 }
 
-fn read_commits(root: &Path) -> Result<Vec<RowSeed>, CoreError> {
-    let output = git::run(
-        root,
-        &[
-            "log",
-            "--topo-order",
-            "--no-show-signature",
-            "--exclude=refs/stash",
-            "--exclude=refs/yforge/*",
-            "--all",
-            "-z",
-            "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s",
-        ],
-    )?;
-    parse_commits(&output)
+struct Visible {
+    tips: Vec<String>,
+    labelled: Vec<RefEntry>,
+}
+
+fn scope_of(
+    refs: &[RefEntry],
+    status: &ParsedStatus,
+    visibility: &GraphVisibility,
+) -> Option<Visible> {
+    let entry_named = |name: &str, kinds: &[RefKind]| {
+        kinds.iter().find_map(|kind| {
+            refs.iter()
+                .find(|entry| entry.kind == *kind && entry.name == name)
+        })
+    };
+    let chosen: Vec<&RefEntry> = match visibility {
+        GraphVisibility::All => return None,
+        GraphVisibility::CurrentAndUpstream => {
+            let current = match &status.head {
+                Head::Branch { name, .. } => entry_named(name, &[RefKind::LocalBranch]),
+                Head::Detached { .. } | Head::Unborn { .. } => None,
+            };
+            let upstream = status.upstream.as_ref().and_then(|upstream| {
+                entry_named(
+                    &upstream.name,
+                    &[RefKind::RemoteBranch, RefKind::LocalBranch],
+                )
+            });
+            current.into_iter().chain(upstream).collect()
+        }
+        GraphVisibility::Refs { refs: selectors } => selectors
+            .iter()
+            .filter_map(|selector| entry_named(&selector.name, &[selector.kind]))
+            .collect(),
+    };
+    let mut tips: Vec<String> = chosen.iter().map(|entry| entry.target.clone()).collect();
+    if let (GraphVisibility::CurrentAndUpstream, Head::Detached { sha }) =
+        (visibility, &status.head)
+    {
+        tips.push(sha.clone());
+    }
+    tips.sort();
+    tips.dedup();
+    let mut labelled: Vec<RefEntry> = chosen.into_iter().cloned().collect();
+    if matches!(visibility, GraphVisibility::CurrentAndUpstream) {
+        labelled.extend(
+            refs.iter()
+                .filter(|entry| entry.kind == RefKind::Tag)
+                .cloned(),
+        );
+    }
+    Some(Visible { tips, labelled })
+}
+
+fn read_commits(root: &Path, scope: Option<&Visible>) -> Result<Vec<RowSeed>, CoreError> {
+    const FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s";
+    let mut args = vec!["log", "--topo-order", "--no-show-signature"];
+    match scope {
+        None => args.extend(["--exclude=refs/stash", "--exclude=refs/yforge/*", "--all"]),
+        Some(scope) if scope.tips.is_empty() => return Ok(Vec::new()),
+        Some(scope) => args.extend(scope.tips.iter().map(String::as_str)),
+    }
+    args.extend(["-z", FORMAT, "--"]);
+    parse_commits(&git::run(root, &args)?)
 }
 
 fn stash_seed(stash: &StashEntry) -> RowSeed {
@@ -210,13 +261,40 @@ fn ordered_seeds(
     root: &Path,
     status: &ParsedStatus,
     stashes: &[StashEntry],
+    scope: Option<&Visible>,
 ) -> Result<Vec<RowSeed>, CoreError> {
-    let mut seeds = with_stashes(read_commits(root)?, stashes);
-    if status.counts.total() > 0 {
-        let head_sha = match &status.head {
-            Head::Branch { sha, .. } | Head::Detached { sha } => Some(sha.clone()),
-            Head::Unborn { .. } => None,
-        };
+    let commits = read_commits(root, scope)?;
+    let mut seeds = if scope.is_some() {
+        let shown: HashSet<&str> = commits
+            .iter()
+            .filter_map(|commit| commit.sha.as_deref())
+            .collect();
+        let visible: Vec<StashEntry> = stashes
+            .iter()
+            .filter(|stash| {
+                stash
+                    .base_sha
+                    .as_deref()
+                    .is_some_and(|base| shown.contains(base))
+            })
+            .cloned()
+            .collect();
+        with_stashes(commits, &visible)
+    } else {
+        with_stashes(commits, stashes)
+    };
+    let head_sha = match &status.head {
+        Head::Branch { sha, .. } | Head::Detached { sha } => Some(sha.clone()),
+        Head::Unborn { .. } => None,
+    };
+    let working_tree = if status.counts.total() > 0 {
+        Some(NodeKind::Changes)
+    } else if head_sha.is_some() {
+        Some(NodeKind::CleanChanges)
+    } else {
+        None
+    };
+    if let Some(kind) = working_tree {
         seeds.insert(
             0,
             RowSeed {
@@ -225,7 +303,7 @@ fn ordered_seeds(
                 summary: String::new(),
                 author: None,
                 time: None,
-                kind: NodeKind::Changes,
+                kind,
             },
         );
     }
@@ -243,6 +321,7 @@ impl History {
         let seed = &self.seeds[row];
         match seed.kind {
             NodeKind::Changes => changes_summary(&status.counts),
+            NodeKind::CleanChanges => CLEAN_SUMMARY.to_owned(),
             _ => seed.summary.clone(),
         }
     }
@@ -252,6 +331,7 @@ fn history_key(
     root: &Path,
     status: &ParsedStatus,
     stashes: &[StashEntry],
+    scope: Option<&Visible>,
 ) -> Result<String, CoreError> {
     let refs: String = git::run(root, &["for-each-ref", "--format=%(objectname) %(refname)"])?
         .lines()
@@ -263,8 +343,9 @@ fn history_key(
         Head::Unborn { .. } => "",
     };
     let stash_shas: Vec<&str> = stashes.iter().map(|stash| stash.sha.as_str()).collect();
+    let tips = scope.map_or_else(|| "all".to_owned(), |scope| scope.tips.join(" "));
     Ok(format!(
-        "{head}\n{}\n{}\n{refs}",
+        "{head}\n{}\n{}\n{tips}\n{refs}",
         status.counts.total() > 0,
         stash_shas.join(" ")
     ))
@@ -281,8 +362,9 @@ fn history(
     root: &Path,
     status: &ParsedStatus,
     stashes: &[StashEntry],
+    scope: Option<&Visible>,
 ) -> Result<Arc<History>, CoreError> {
-    let key = history_key(root, status, stashes)?;
+    let key = history_key(root, status, stashes, scope)?;
     let cached = HISTORIES
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
@@ -292,7 +374,7 @@ fn history(
     if let Some(history) = cached {
         return Ok(history);
     }
-    let seeds = ordered_seeds(root, status, stashes)?;
+    let seeds = ordered_seeds(root, status, stashes, scope)?;
     let layouts = layout::layout(&parent_indices(&seeds));
     let history = Arc::new(History { seeds, layouts });
     HISTORIES
@@ -308,15 +390,24 @@ fn history(
     Ok(history)
 }
 
-pub fn graph_page(path: &Path, offset: usize, limit: usize) -> Result<GraphPage, CoreError> {
+pub fn graph_page(
+    path: &Path,
+    offset: usize,
+    limit: usize,
+    visibility: &GraphVisibility,
+) -> Result<GraphPage, CoreError> {
     git::ensure_supported()?;
     let root = repo::resolve_root(path)?;
     let status = repo::read_status(&root)?;
     let refs = refs::read_refs(&root)?;
     let stashes = refs::read_stashes(&root)?;
+    let scope = scope_of(&refs, &status, visibility);
 
-    let history = history(&root, &status, &stashes)?;
-    let mut labels = ref_labels(&refs, &status.head);
+    let history = history(&root, &status, &stashes, scope.as_ref())?;
+    let mut labels = ref_labels(
+        scope.as_ref().map_or(&refs, |scope| &scope.labelled),
+        &status.head,
+    );
     let total = index_u32(history.seeds.len());
     let carried = history
         .seeds
@@ -426,16 +517,22 @@ fn read_searchables(root: &Path) -> Result<HashMap<String, Searchable>, CoreErro
     Ok(found)
 }
 
-pub fn search_commits(path: &Path, query: &str) -> Result<SearchResult, CoreError> {
+pub fn search_commits(
+    path: &Path,
+    query: &str,
+    visibility: &GraphVisibility,
+) -> Result<SearchResult, CoreError> {
     git::ensure_supported()?;
     let root = repo::resolve_root(path)?;
     let status = repo::read_status(&root)?;
+    let refs = refs::read_refs(&root)?;
     let stashes = refs::read_stashes(&root)?;
-    let history = history(&root, &status, &stashes)?;
+    let scope = scope_of(&refs, &status, visibility);
+    let history = history(&root, &status, &stashes, scope.as_ref())?;
     let seeds = &history.seeds;
     let commits = seeds
         .iter()
-        .filter(|seed| seed.kind != NodeKind::Changes)
+        .filter(|seed| !matches!(seed.kind, NodeKind::Changes | NodeKind::CleanChanges))
         .count();
     let (scope, needle) = parse_query(query);
     if needle.is_empty() {
@@ -605,7 +702,7 @@ mod tests {
     fn cached(root: &Path) -> Arc<History> {
         let status = repo::read_status(root).unwrap();
         let stashes = refs::read_stashes(root).unwrap();
-        history(root, &status, &stashes).unwrap()
+        history(root, &status, &stashes, None).unwrap()
     }
 
     #[test]
@@ -616,7 +713,7 @@ mod tests {
         let second = cached(&root);
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(first.layouts.len(), 2);
+        assert_eq!(first.layouts.len(), 3);
     }
 
     #[test]
@@ -627,12 +724,12 @@ mod tests {
         git_in(&root, &["branch", "topic"]);
         let with_ref = cached(&root);
         assert!(!Arc::ptr_eq(&first, &with_ref));
-        assert_eq!(with_ref.layouts.len(), 2);
+        assert_eq!(with_ref.layouts.len(), 3);
 
         git_in(&root, &["commit", "-q", "--allow-empty", "-m", "Third"]);
         let with_commit = cached(&root);
         assert!(!Arc::ptr_eq(&with_ref, &with_commit));
-        assert_eq!(with_commit.layouts.len(), 3);
+        assert_eq!(with_commit.layouts.len(), 4);
 
         std::fs::write(root.join("a.txt"), "a\n").unwrap();
         git_in(&root, &["add", "a.txt"]);
@@ -642,7 +739,39 @@ mod tests {
         git_in(&root, &["stash", "push", "-q"]);
         let with_stash = cached(&root);
         assert!(!Arc::ptr_eq(&with_changes, &with_stash));
-        assert_eq!(with_stash.layouts.len(), 4);
+        assert_eq!(with_stash.layouts.len(), 5);
+    }
+
+    #[test]
+    fn a_different_visibility_does_not_reuse_the_cached_layout() {
+        let (_dir, root) = repository();
+        git_in(&root, &["branch", "topic", "HEAD~1"]);
+        let status = repo::read_status(&root).unwrap();
+        let refs = refs::read_refs(&root).unwrap();
+        let stashes = refs::read_stashes(&root).unwrap();
+        let topic = scope_of(
+            &refs,
+            &status,
+            &GraphVisibility::Refs {
+                refs: vec![crate::model::RefSelector {
+                    name: "topic".into(),
+                    kind: RefKind::LocalBranch,
+                }],
+            },
+        );
+        let current = scope_of(&refs, &status, &GraphVisibility::CurrentAndUpstream);
+
+        let everything = history(&root, &status, &stashes, None).unwrap();
+        let only_topic = history(&root, &status, &stashes, topic.as_ref()).unwrap();
+        let only_current = history(&root, &status, &stashes, current.as_ref()).unwrap();
+        let topic_again = history(&root, &status, &stashes, topic.as_ref()).unwrap();
+
+        assert_eq!(everything.layouts.len(), 3);
+        assert_eq!(only_topic.layouts.len(), 2);
+        assert_eq!(only_current.layouts.len(), 3);
+        assert!(!Arc::ptr_eq(&everything, &only_topic));
+        assert!(!Arc::ptr_eq(&only_topic, &only_current));
+        assert_eq!(topic_again.layouts.len(), 2);
     }
 
     #[test]
@@ -650,11 +779,11 @@ mod tests {
         let (_dir, root) = repository();
         std::fs::write(root.join("a.txt"), "a\n").unwrap();
         let first = cached(&root);
-        let one = graph_page(&root, 0, 10).unwrap();
+        let one = graph_page(&root, 0, 10, &GraphVisibility::All).unwrap();
 
         std::fs::write(root.join("b.txt"), "b\n").unwrap();
         let second = cached(&root);
-        let two = graph_page(&root, 0, 10).unwrap();
+        let two = graph_page(&root, 0, 10, &GraphVisibility::All).unwrap();
 
         assert!(Arc::ptr_eq(&first, &second));
         assert_eq!(one.rows[0].summary, "Changes: 1 untracked");

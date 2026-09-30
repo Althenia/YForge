@@ -241,12 +241,77 @@ pub(crate) fn read_commit_diff(
     sha: &str,
     file: &str,
     original: Option<&str>,
+    ignore_whitespace: bool,
 ) -> Result<ParsedDiff, CoreError> {
     let mut args: Vec<&str> = DIFF_FLAGS.to_vec();
+    if ignore_whitespace {
+        args.push("-w");
+    }
     args.extend(["-M", base, sha, "--"]);
     args.extend(original);
     args.push(file);
     parse_diff(&git::run(root, &args)?)
+}
+
+fn blob_size(root: &Path, spec: &str) -> Result<Option<u64>, CoreError> {
+    let completed = git::run_unchecked(root, &["cat-file", "-s", spec], None)?;
+    Ok(completed
+        .succeeded()
+        .then(|| completed.stdout.trim().parse().ok())
+        .flatten())
+}
+
+fn worktree_size(root: &Path, file: &str) -> Option<u64> {
+    std::fs::symlink_metadata(root.join(file))
+        .ok()
+        .filter(std::fs::Metadata::is_file)
+        .map(|metadata| metadata.len())
+}
+
+pub(crate) fn diff_between(
+    root: &Path,
+    base: &str,
+    target: &str,
+    file: &str,
+    original: Option<&str>,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
+    let parsed = read_commit_diff(root, base, target, file, original, ignore_whitespace)?;
+    let (old_size, new_size) = if parsed.binary {
+        (
+            blob_size(root, &format!("{base}:{}", original.unwrap_or(file)))?,
+            blob_size(root, &format!("{target}:{file}"))?,
+        )
+    } else {
+        (None, None)
+    };
+    Ok(FileDiff {
+        path: file.to_owned(),
+        original_path: original.map(str::to_owned),
+        binary: parsed.binary,
+        old_size,
+        new_size,
+        hunks: parsed.hunks,
+    })
+}
+
+fn working_sizes(
+    root: &Path,
+    area: ChangeArea,
+    file: &str,
+    original: Option<&str>,
+) -> Result<(Option<u64>, Option<u64>), CoreError> {
+    Ok(match area {
+        ChangeArea::Unstaged => (
+            blob_size(root, &format!(":0:{file}"))?,
+            worktree_size(root, file),
+        ),
+        ChangeArea::Staged => (
+            blob_size(root, &format!("HEAD:{}", original.unwrap_or(file)))?,
+            blob_size(root, &format!(":0:{file}"))?,
+        ),
+        ChangeArea::Untracked | ChangeArea::Conflicted => (None, worktree_size(root, file)),
+    })
 }
 
 pub fn diff_file(
@@ -258,10 +323,17 @@ pub fn diff_file(
     let root = repo::open(path)?;
     repo::check_paths(&[file])?;
     let (parsed, original_path) = read_file_diff(&root, file, area, true, ignore_whitespace)?;
+    let (old_size, new_size) = if parsed.binary {
+        working_sizes(&root, area, file, original_path.as_deref())?
+    } else {
+        (None, None)
+    };
     Ok(FileDiff {
         path: file.to_owned(),
         original_path,
         binary: parsed.binary,
+        old_size,
+        new_size,
         hunks: parsed.hunks,
     })
 }

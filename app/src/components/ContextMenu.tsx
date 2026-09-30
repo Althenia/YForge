@@ -107,6 +107,7 @@ export function ContextMenu(props: { menu: MenuState; onClose: () => void }) {
                   <MenuLabel parts={item().label} />
                 </span>
                 <Show when={item().note}>{(note) => <span class="note-k">{note()}</span>}</Show>
+                <Show when={item().shortcut}>{(shortcut) => <span class="kbd">{shortcut()}</span>}</Show>
               </button>
             )}
           </Show>

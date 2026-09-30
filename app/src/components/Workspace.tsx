@@ -1,5 +1,5 @@
 import { createHotkeys } from "@tanstack/solid-hotkeys";
-import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import type { Geometry } from "../graph/geometry";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
@@ -9,6 +9,7 @@ import { createComposer } from "../state/composer";
 import { createDiffPrefs } from "../state/diffPrefs";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
 import { createRepoActions, type PopoverState } from "../state/repoActions";
+import { createRepoUiPrefs } from "../state/repoUiPrefs";
 import { createRepoSession } from "../state/repoSession";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
@@ -26,6 +27,7 @@ import { EmptyRepository } from "./EmptyRepository";
 import { GraphPanel } from "./GraphPanel";
 import { Inspector } from "./Inspector";
 import { MergeForm, TagForm } from "./IntegrationForms";
+import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
 import { Notice } from "./Notice";
 import { SearchBar } from "./SearchBar";
 import { Sidebar } from "./Sidebar";
@@ -37,14 +39,15 @@ const MINUTE_MS = 60_000;
 
 export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready" }>; geometry: Geometry }) {
   const app = useApp();
-  const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient);
+  const uiPrefs = createRepoUiPrefs(props.view.path, app.queryClient, (failure) => session.report(failure));
+  const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient, () => uiPrefs.prefs().branch_visibility);
   const composer = createComposer();
   const diffPrefs = createDiffPrefs();
   const [selection, setSelection] = createStoreValue<Selection | undefined>(undefined);
   const [diffTarget, setDiffTarget] = createStoreValue<DiffTarget | undefined>(undefined);
-  const [graphFocus, setGraphFocus] = createSignal<{ nonce: number; index?: number; ref?: string } | undefined>();
+  const [graphFocus, setGraphFocus] = createSignal<{ nonce: number; index?: number; ref?: string; select?: boolean } | undefined>();
   let focusNonce = 0;
-  const revealRow = (index: number) => setGraphFocus({ nonce: (focusNonce += 1), index });
+  const revealRow = (index: number, select = true) => setGraphFocus({ nonce: (focusNonce += 1), index, select });
   const search = createSearch(session.searchCommits, session.report, revealRow);
   const matches = createMemo(() => new Set(search.state().rows));
   const repoSettings = () => app.repoSettings(session.path);
@@ -55,6 +58,8 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     },
     onSelectionGone: () => select({ kind: "changes" }),
     pullMode: () => effectivePullMode(app.settings(), repoSettings()).mode,
+    offline: () => !app.online(),
+    inspectStash: (sha) => inspectStash(sha),
     undoEntry: (id) => app.activity().find((entry) => entry.id === id),
   });
   const popoverOf = <K extends PopoverState["kind"]>(...kinds: K[]) => {
@@ -83,15 +88,37 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   };
   const unborn = () => session.snapshot().head.kind === "unborn";
 
-  async function revealSha(sha: string): Promise<void> {
+  async function revealSha(sha: string, select = true): Promise<void> {
     try {
       const found = await session.searchCommits(`sha:${sha}`);
       const row = found.rows[0];
-      if (row !== undefined) revealRow(row);
+      if (row !== undefined) revealRow(row, select);
     } catch (failure) {
       session.report(failure);
     }
   }
+
+  function revealHead(select = true): void {
+    const head = session.snapshot().head;
+    if (head.kind === "branch") setGraphFocus({ nonce: (focusNonce += 1), ref: head.name, select });
+    else if (head.kind === "detached") void revealSha(head.sha, select);
+  }
+
+  function inspectStash(sha: string): void {
+    select({ kind: "stash", sha });
+    void revealSha(sha, false);
+  }
+
+  const headKey = createMemo(() => {
+    const head = session.snapshot().head;
+    return head.kind === "branch" ? `branch:${head.name}` : head.kind === "detached" ? `detached:${head.sha}` : "unborn";
+  });
+  const checkedOutBranch = createMemo(() => {
+    const head = session.snapshot().head;
+    return head.kind === "branch" ? head.name : undefined;
+  });
+  createEffect(on(headKey, () => revealHead(false)));
+  createEffect(on(checkedOutBranch, () => void actions.offerSwitchStashes()));
 
   async function loadCommits() {
     const page = await client.repoGraph(session.path, 0, 200);
@@ -104,6 +131,11 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     const next = followTarget(session.snapshot().files, target);
     if (next === undefined) closeDiff();
     else if (next !== target) setDiffTarget(next);
+  });
+
+  createEffect(() => {
+    const current = selection();
+    if (current?.kind === "stash" && !session.snapshot().stashes.some((entry) => entry.sha === current.sha)) select({ kind: "changes" });
   });
 
   createEffect(() => {
@@ -159,6 +191,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         void revealSha(sha);
       },
       revealRef: (name) => setGraphFocus({ nonce: (focusNonce += 1), ref: name }),
+      revealHead: () => revealHead(true),
       openSearch: search.show,
       focusComposer: () => {
         select({ kind: "changes" });
@@ -190,11 +223,13 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       <StateStrip
         snapshot={session.snapshot()}
         actions={actions}
+        online={app.online()}
         onOpenChanges={() => select({ kind: "changes" })}
+        onRevealHead={() => revealHead(true)}
         onResolve={(file) => setDiffTarget({ source: "working", area: "conflicted", file })}
       />
       <div class="main">
-        <Sidebar snapshot={session.snapshot()} actions={actions} />
+        <Sidebar snapshot={session.snapshot()} actions={actions} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} />
         <div class="center">
           <Show
             when={!unborn()}
@@ -211,7 +246,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               dimmed={(index) => isDimmed(search.state(), matches(), index)}
               searching={search.open()}
               focus={graphFocus()}
+              uiPrefs={uiPrefs}
               onSelect={select}
+              onRevealHead={() => revealHead(true)}
             />
           </Show>
           <Show when={search.open()}>
@@ -251,6 +288,15 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       </Show>
       <Show when={popoverOf("create_tag")} keyed>
         {(state) => <TagForm state={state} actions={actions} />}
+      </Show>
+      <Show when={popoverOf("set_upstream")} keyed>
+        {(state) => <SetUpstreamForm state={state} snapshot={session.snapshot()} actions={actions} />}
+      </Show>
+      <Show when={popoverOf("push_to")} keyed>
+        {(state) => <PushToForm state={state} snapshot={session.snapshot()} actions={actions} />}
+      </Show>
+      <Show when={popoverOf("rename_stash")} keyed>
+        {(state) => <RenameStashForm state={state} actions={actions} />}
       </Show>
       <Show when={actions.dialog()} keyed>
         {(dialog) => (

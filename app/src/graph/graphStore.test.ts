@@ -3,6 +3,7 @@ import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import { createQueryClient } from "../state/queryClient";
 import { createGraphStore } from "./graphStore";
 
@@ -84,5 +85,37 @@ describe("graph store", () => {
       expect(store.error()?.message).toBe("boom");
       dispose();
     });
+  });
+
+  it("resolves load only once every row of the range is in the layout", async () => {
+    install(() => page(row("a"), row("b"), row("c")));
+    await createRoot(async (dispose) => {
+      const store = createGraphStore("/r", createQueryClient());
+      expect(store.rows().size).toBe(0);
+
+      await store.load(0, 3);
+
+      expect([...store.rows().values()].map((entry) => entry.sha)).toEqual(["a", "b", "c"]);
+      dispose();
+    });
+  });
+
+  it("asks the core for the chosen branch visibility and lays the history out again when it changes", async () => {
+    const calls = install(() => page(row("a"), row("b")));
+    await createRoot(async (dispose) => {
+      let visibility: GraphVisibility = { kind: "all" };
+      const store = createGraphStore("/r", createQueryClient(), () => visibility);
+      store.ensure(0, 10);
+      await vi.waitFor(() => expect(store.total()).toBe(2));
+
+      visibility = { kind: "current_and_upstream" };
+      await store.refresh();
+      dispose();
+    });
+
+    expect(calls).toEqual([
+      { cmd: "repo_graph", args: { path: "/r", offset: 0, limit: 200 } },
+      { cmd: "repo_graph", args: { path: "/r", offset: 0, limit: 200, visibility: { kind: "current_and_upstream" } } },
+    ]);
   });
 });

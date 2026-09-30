@@ -80,12 +80,14 @@ export function detachCopy(label: string, dirty: boolean): ConfirmCopy {
   return { title: `Check out ${label} as a detached HEAD?`, consequences, names: [], confirmLabel: "Check out detached", neutral: true };
 }
 
-export function stashAndSwitchCopy(label: string): ConfirmCopy {
+export function stashAndSwitchCopy(label: string, from: string | undefined): ConfirmCopy {
   return {
     title: `Stash your changes and switch to ${label}?`,
     consequences: [
       "Your local changes would be overwritten by this switch.",
-      "They are stashed first, then restored on the new checkout. If restoring conflicts, the stash is kept and you are told.",
+      from === undefined
+        ? "They are stashed first and kept in the stash list."
+        : `They are stashed first, kept in the stash list, and offered back when you return to ${from}.`,
     ],
     names: [],
     confirmLabel: "Stash and switch",
@@ -103,6 +105,42 @@ export function deleteBranchCopy(name: string, lost: readonly CommitBrief[]): Co
     names: lost.map((commit) => `${commit.sha.slice(0, 7)} ${commit.summary}`),
     confirmLabel: "Delete branch",
   };
+}
+
+export function deleteRemoteBranchCopy(remote: string, name: string): ConfirmCopy {
+  return {
+    title: `Delete ${remote}/${name} from ${remote}?`,
+    consequences: [
+      `The branch is removed from ${remote} for everyone who fetches from it. A local branch of the same name stays.`,
+      "Undo pushes the branch back to the commit this repository last saw for it, unless the name has been used again or that commit is unknown.",
+    ],
+    names: [],
+    confirmLabel: `Delete from ${remote}`,
+  };
+}
+
+export function deleteBranchAndRemoteCopy(name: string, remote: string, lost: readonly CommitBrief[]): ConfirmCopy {
+  return {
+    title: `Delete ${name} and ${remote}/${name}?`,
+    consequences: [
+      `The local branch is deleted first, then the branch is removed from ${remote} for everyone who fetches from it.`,
+      "Each deletion is its own operation, so Undo restores them one at a time.",
+    ],
+    namesHeading: lost.length === 0 ? undefined : `${lost.length === 1 ? "This commit is" : "These commits are"} only on the local branch`,
+    names: lost.map((commit) => `${commit.sha.slice(0, 7)} ${commit.summary}`),
+    confirmLabel: "Delete both",
+  };
+}
+
+export function pullStashKeptCopy(reason: "pull_conflicts" | "restore_conflicts" | "restore_failed"): string {
+  switch (reason) {
+    case "pull_conflicts":
+      return "The pull stopped on conflicts, so your changes were not restored.";
+    case "restore_conflicts":
+      return "Restoring them conflicted with the pulled changes.";
+    case "restore_failed":
+      return "Git could not restore them.";
+  }
 }
 
 export function dropStashCopy(stash: Pick<StashEntry, "index" | "message">): ConfirmCopy {

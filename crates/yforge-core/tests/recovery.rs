@@ -13,8 +13,8 @@ use yforge_core::{
     reflog_list, reflog_refs, remove_worktree, repo_snapshot, reset, search_commits,
     snapshot_changed_files, snapshot_delete, snapshot_restore_all, snapshot_restore_files,
     snapshots_list, squash_commits, stash_drop, stash_push, CancelToken, ChangeArea,
-    CheckoutTarget, ErrorKind, FileStatus, LostKind, RebaseStep, RecomposeChange, RecomposeGroup,
-    ResetMode,
+    CheckoutTarget, ErrorKind, FileStatus, GraphVisibility, LostKind, RebaseStep, RecomposeChange,
+    RecomposeGroup, ResetMode,
 };
 
 const MINUTE: Duration = Duration::from_secs(60);
@@ -87,10 +87,10 @@ fn delete_loose_object(repo: &Fixture, sha: &str) {
 #[test]
 fn snapshot_refs_never_appear_in_the_graph_search_or_ref_lists() {
     let repo = repo();
-    let before = graph_page(&repo.path, 0, 50).unwrap();
+    let before = graph_page(&repo.path, 0, 50, &GraphVisibility::All).unwrap();
     plant_foreign_snapshot_ref(&repo, "hidden marker snapshot");
 
-    let after = graph_page(&repo.path, 0, 50).unwrap();
+    let after = graph_page(&repo.path, 0, 50, &GraphVisibility::All).unwrap();
     let snapshot = repo_snapshot(&repo.path).unwrap();
 
     assert_eq!(after.total, before.total);
@@ -102,10 +102,12 @@ fn snapshot_refs_never_appear_in_the_graph_search_or_ref_lists() {
         .rows
         .iter()
         .all(|row| !row.summary.contains("hidden marker")));
-    assert!(search_commits(&repo.path, "hidden marker")
-        .unwrap()
-        .rows
-        .is_empty());
+    assert!(
+        search_commits(&repo.path, "hidden marker", &GraphVisibility::All)
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     assert!(snapshot
         .branches
         .iter()

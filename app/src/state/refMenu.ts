@@ -3,12 +3,13 @@ import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
+import { SHORTCUTS } from "./shortcuts";
 
 export type MenuPart = string | { ref: string };
 
 export type MenuEntry =
   | { kind: "separator" }
-  | { kind: "item"; id: string; label: MenuPart[]; icon?: IconName; danger?: boolean; note?: string; disabledReason?: string };
+  | { kind: "item"; id: string; label: MenuPart[]; icon?: IconName; danger?: boolean; note?: string; shortcut?: string; disabledReason?: string };
 
 export type RefTarget =
   | { kind: "local_branch"; name: string; remoteName: string | undefined; startPoint: string }
@@ -17,7 +18,13 @@ export type RefTarget =
 
 export const NOT_AVAILABLE = "Not available yet";
 
-export type MenuContext = { current: string | undefined; remotes: readonly string[]; operation: Operation | null };
+export type MenuContext = {
+  current: string | undefined;
+  remotes: readonly string[];
+  operation: Operation | null;
+  upstream?: string | null;
+  selection?: readonly string[];
+};
 
 const operationBlockReason: Record<Operation, string> = {
   merge: "Finish or abort the merge first",
@@ -31,6 +38,7 @@ const operationBlockReason: Record<Operation, string> = {
 
 export const operationBlock = (operation: Operation | null): string | undefined => (operation === null ? undefined : operationBlockReason[operation]);
 
+export const SINGLE_COMMIT_REASON = "Select a single commit";
 export const MERGE_COMMIT_REASON = "A merge commit needs a parent choice, which is not available yet";
 export const NO_REMOTE = "This repository has no remote";
 
@@ -51,6 +59,10 @@ const menuIcons: Partial<Record<string, IconName>> = {
   edit_message: "edit",
   delete: "trash",
   delete_remote: "trash",
+  delete_both: "trash",
+  push_to: "push",
+  inspect: "diff",
+  rename_stash: "edit",
   delete_tag: "trash",
   delete_remote_tag: "trash",
   drop: "trash",
@@ -69,6 +81,10 @@ export function shortRefName(target: Pick<RefTarget, "kind" | "name">, remotes: 
   if (target.kind !== "remote_branch") return target.name;
   const remote = remotes.filter((name) => target.name.startsWith(`${name}/`)).sort((left, right) => right.length - left.length)[0];
   return remote === undefined ? target.name : target.name.slice(remote.length + 1);
+}
+
+export function remoteOf(target: Pick<RefTarget, "kind" | "name">, remotes: readonly string[]): string | undefined {
+  return target.kind === "remote_branch" ? remotes.filter((name) => target.name.startsWith(`${name}/`)).sort((left, right) => right.length - left.length)[0] : undefined;
 }
 
 function integrationEntries(other: string, context: MenuContext, sameBranch: boolean): MenuEntry[] {
@@ -118,15 +134,27 @@ export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
   }
   entries.push(separator);
   if (target.kind === "local_branch") {
+    const noRemote = remotes.length === 0 ? { disabledReason: NO_REMOTE } : {};
+    entries.push(item("set_upstream", ["Set upstream of ", ref, "…"], noRemote));
+    if (isCurrent && context.upstream != null) entries.push(item("unset_upstream", ["Unset upstream of ", ref]));
+    if (isCurrent) entries.push(item("push_to", ["Push ", ref, " to…"], noRemote));
     entries.push(
+      separator,
       item("rename", ["Rename ", ref, "…"]),
       item("delete", ["Delete ", ref, "…"], isCurrent ? { danger: true, disabledReason: "Checked out; switch to another branch first" } : { danger: true }),
     );
     if (target.remoteName !== undefined) {
-      entries.push(unavailable("delete_remote", ["Delete ", { ref: target.remoteName }, "…"]));
+      entries.push(
+        item("delete_remote", ["Delete ", { ref: target.remoteName }, "…"], { danger: true }),
+        item(
+          "delete_both",
+          ["Delete ", ref, " and ", { ref: target.remoteName }, "…"],
+          isCurrent ? { danger: true, disabledReason: "Checked out; switch to another branch first" } : { danger: true },
+        ),
+      );
     }
   } else if (target.kind === "remote_branch") {
-    entries.push(unavailable("delete_remote", ["Delete ", ref, "…"]));
+    entries.push(item("delete_remote", ["Delete ", ref, "…"], { danger: true }));
   } else {
     entries.push(
       item("delete_tag", ["Delete ", ref, "…"], { danger: true }),
@@ -191,8 +219,10 @@ export function dropPlan(dragged: RefTarget, dropped: RefTarget, context: MenuCo
 export function stashMenu(stash: Pick<StashEntry, "index">): MenuEntry[] {
   const ref = { ref: `stash@{${stash.index}}` };
   return [
+    item("inspect", ["Inspect ", ref]),
     item("apply", ["Apply ", ref], { note: "keeps the stash" }),
     item("pop", ["Pop ", ref], { note: "applies and drops" }),
+    item("rename_stash", ["Rename ", ref, "…"]),
     separator,
     item("drop", ["Drop ", ref, "…"], { danger: true }),
   ];
@@ -217,15 +247,27 @@ export function commitMenu(context: CommitMenuContext): MenuEntry[] {
   const short = { ref: context.sha.slice(0, 7) };
   const current: MenuPart = { ref: context.current ?? "HEAD" };
   const blocked = operationBlock(context.operation);
-  const applyReason = blocked ?? (context.merge ? MERGE_COMMIT_REASON : undefined);
-  const apply = applyReason === undefined ? {} : { disabledReason: applyReason };
+  const several = (context.selection?.length ?? 0) > 1;
+  const single = (reason: string | undefined) => (several ? SINGLE_COMMIT_REASON : reason);
+  const reasoned = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
+  const applyReason = single(blocked ?? (context.merge ? MERGE_COMMIT_REASON : undefined));
   return [
-    item("cherry_pick", ["Cherry-pick ", short, " onto ", current], apply),
-    item("revert", ["Revert ", short], apply),
+    item("cherry_pick", ["Cherry-pick ", short, " onto ", current], reasoned(applyReason)),
+    item("revert", ["Revert ", short], reasoned(applyReason)),
     separator,
-    item("create_branch", ["Create branch here…"]),
-    item("create_tag", ["Create tag here…"]),
+    item("create_branch", ["Create branch here…"], { shortcut: SHORTCUTS.createBranch, ...reasoned(single(undefined)) }),
+    item("create_tag", ["Create tag here…"], reasoned(single(undefined))),
     separator,
-    item("reset", ["Reset ", current, " to ", short], blocked === undefined ? {} : { disabledReason: blocked }),
+    item("reset", ["Reset ", current, " to ", short], reasoned(single(blocked))),
+  ];
+}
+
+export function branchPickerMenu(branches: readonly string[], current: string | undefined, upstream: string | null, remotes: readonly string[]): MenuEntry[] {
+  const upstreamReason = current === undefined ? "Check out a branch to set its upstream" : remotes.length === 0 ? NO_REMOTE : undefined;
+  return [
+    ...branches.map((name) => item(`checkout:${name}`, [{ ref: name }], name === current ? { icon: "check", disabledReason: "Already checked out" } : { icon: "local" })),
+    separator,
+    item("set_upstream", ["Set upstream…"], upstreamReason === undefined ? {} : { disabledReason: upstreamReason }),
+    ...(current !== undefined && upstream !== null ? [item("unset_upstream", ["Unset upstream"])] : []),
   ];
 }

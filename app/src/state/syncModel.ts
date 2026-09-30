@@ -1,14 +1,15 @@
 import { relativeAge } from "../format";
 import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { NOT_AVAILABLE, type MenuEntry } from "./refMenu";
+import type { MenuEntry } from "./refMenu";
+import { SHORTCUTS } from "./shortcuts";
 
 export const FRESH_SECONDS = 15 * 60;
 
 export type SyncState =
   | { kind: "idle" }
   | { kind: "running"; id: string; label: string; phase: string | undefined; percent: number | null }
-  | { kind: "failed"; message: string; hint: string };
+  | { kind: "failed"; message: string; hint: string; fix: AuthFix };
 
 export type Freshness = { tone: "fresh" | "stale" | "never"; text: string };
 
@@ -33,39 +34,57 @@ export function isDiverged(snapshot: Pick<RepoSnapshot, "upstream">): boolean {
   return counts != null && counts.ahead > 0 && counts.behind > 0;
 }
 
-export function syncMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: PullMode = DEFAULT_PULL_MODE): MenuEntry[] {
+export const OFFLINE_REASON = "You are offline";
+
+export function syncMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: PullMode = DEFAULT_PULL_MODE, offline = false): MenuEntry[] {
   const onBranch = snapshot.head.kind === "branch";
   const operation = snapshot.operation !== null;
   const noRemotes = snapshot.remotes.length === 0;
-  const blocked = (reason: string | undefined) => (busy ? "Another sync is running" : operation ? "Finish the operation in progress first" : reason);
+  const blocked = (reason: string | undefined) => (busy ? "Another sync is running" : operation ? "Finish the operation in progress first" : offline ? OFFLINE_REASON : reason);
   const fetchReason = blocked(noRemotes ? "This repository has no remotes" : undefined);
   const pullReason = blocked(!onBranch ? "Check out a branch to pull" : snapshot.upstream === null ? "No upstream branch to pull from" : undefined);
   const pushReason = blocked(!onBranch ? "Check out a branch to push" : noRemotes ? "This repository has no remotes" : undefined);
+  const upstreamReason = onBranch ? (noRemotes ? "This repository has no remotes" : undefined) : "Check out a branch to set its upstream";
   const withReason = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
   return [
-    { kind: "item", id: "fetch", label: ["Fetch all"], icon: "fetch", ...withReason(fetchReason) },
+    { kind: "item", id: "fetch", label: ["Fetch all"], icon: "fetch", shortcut: SHORTCUTS.fetch, ...withReason(fetchReason) },
+    { kind: "item", id: "fetch_prune", label: ["Fetch all and prune"], icon: "fetch", note: "removes deleted remote branches", ...withReason(fetchReason) },
     { kind: "separator" },
     ...pullModes.map<MenuEntry>((entry) => ({
       kind: "item",
       id: `pull:${entry.mode}`,
       label: [entry.label],
       icon: "pull",
-      ...(entry.mode === defaultMode ? { note: "default" } : {}),
+      ...(entry.mode === defaultMode ? { note: "default", shortcut: SHORTCUTS.pull } : {}),
       ...withReason(pullReason),
     })),
     { kind: "separator" },
-    { kind: "item", id: "push", label: [snapshot.upstream === null && onBranch ? "Push and set upstream" : "Push"], icon: "push", ...withReason(pushReason) },
-    { kind: "item", id: "push_to", label: ["Push to…"], disabledReason: NOT_AVAILABLE },
-    { kind: "item", id: "set_upstream", label: ["Set upstream…"], disabledReason: NOT_AVAILABLE },
+    {
+      kind: "item",
+      id: "push",
+      label: [snapshot.upstream === null && onBranch ? "Push and set upstream" : "Push"],
+      icon: "push",
+      shortcut: SHORTCUTS.push,
+      ...withReason(pushReason),
+    },
+    { kind: "item", id: "push_to", label: ["Push to…"], icon: "push", ...withReason(pushReason) },
+    { kind: "item", id: "set_upstream", label: ["Set upstream…"], ...withReason(upstreamReason) },
   ];
 }
 
 export const AUTH_HINT = "Check the username, token, or SSH key for this remote, then retry. You will be asked for them again.";
 
-export function authFailure(message: string): { text: string; hint: string } {
+export type AuthFix = { section: string; label: string };
+
+export function authFailure(message: string): { text: string; hint: string; remote: string | undefined } {
   const remote = /^Authentication failed for (.+)$/.exec(message)?.[1];
-  return { text: `auth failed for ${remote ?? "the remote"}`, hint: AUTH_HINT };
+  return { text: `auth failed for ${remote ?? "the remote"}`, hint: AUTH_HINT, remote };
 }
+
+export const authFix = (remoteUrl: string | undefined): AuthFix =>
+  remoteUrl !== undefined && (remoteUrl.startsWith("ssh://") || /^[\w.-]+@[\w.-]+:/.test(remoteUrl))
+    ? { section: "git", label: "Choose an SSH key" }
+    : { section: "repository", label: "Check the remote" };
 
 export function runningText(state: Extract<SyncState, { kind: "running" }>): string {
   const phase = state.phase === undefined ? state.label : state.phase.startsWith(state.label) ? state.phase : `${state.label} · ${state.phase}`;

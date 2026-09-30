@@ -7,6 +7,11 @@ export type Geometry = {
   line: number;
   arc: number;
   refColumn: number;
+  refColumnMin: number;
+  refColumnMax: number;
+  authorColumn: number;
+  dateColumn: number;
+  shaColumn: number;
   graphColumn: number;
   laneColors: number;
 };
@@ -27,6 +32,11 @@ export function readGeometry(style: CSSStyleDeclaration): Geometry {
     line: px(style, "--controls-graph-line"),
     arc: px(style, "--controls-graph-arc-radius"),
     refColumn: px(style, "--layout-graph-ref-column"),
+    refColumnMin: px(style, "--layout-graph-ref-column-min"),
+    refColumnMax: px(style, "--layout-graph-ref-column-max"),
+    authorColumn: px(style, "--layout-graph-author-column"),
+    dateColumn: px(style, "--layout-graph-date-column"),
+    shaColumn: px(style, "--layout-graph-sha-column"),
     graphColumn: px(style, "--layout-graph-column"),
     laneColors: 10,
   };

@@ -6,7 +6,9 @@ import {
   clearCrashesCopy,
   clearHistoryCopy,
   clearUsageCopy,
+  deleteBranchAndRemoteCopy,
   deleteBranchCopy,
+  deleteRemoteBranchCopy,
   deleteRemoteTagCopy,
   deleteTagCopy,
   detachCopy,
@@ -16,6 +18,7 @@ import {
   discardLinesCopy,
   dropStashCopy,
   forcePushCopy,
+  pullStashKeptCopy,
   rebaseCopy,
   resetCopy,
   stashAndSwitchCopy,
@@ -95,12 +98,40 @@ describe("branch and stash confirmations", () => {
     expect(clean.neutral).toBe(true);
   });
 
-  it("explains that stash and switch restores the changes and keeps the stash on conflict", () => {
-    const copy = stashAndSwitchCopy("feature/x");
+  it("explains that stash and switch keeps the changes in the stash list and offers them back on return", () => {
+    const copy = stashAndSwitchCopy("feature/x", "main");
 
     expect(copy.title).toBe("Stash your changes and switch to feature/x?");
     expect(copy.confirmLabel).toBe("Stash and switch");
-    expect(copy.consequences.join(" ")).toMatch(/restored/);
+    expect(copy.consequences.join(" ")).toMatch(/stashed first, kept in the stash list, and offered back when you return to main/);
+    expect(stashAndSwitchCopy("feature/x", undefined).consequences.join(" ")).toMatch(/kept in the stash list/);
+  });
+
+  it("names the remote and the undo limit when deleting a remote branch", () => {
+    const copy = deleteRemoteBranchCopy("origin", "feature/x");
+
+    expect(copy.title).toBe("Delete origin/feature/x from origin?");
+    expect(copy.confirmLabel).toBe("Delete from origin");
+    expect(copy.consequences[0]).toMatch(/removed from origin for everyone who fetches from it/);
+    expect(copy.consequences.join(" ")).toMatch(/Undo/);
+  });
+
+  it("lists the commits only the local branch holds when deleting a branch with its remote branch", () => {
+    const copy = deleteBranchAndRemoteCopy("topic", "origin", [{ sha: "0123456789abcdef", summary: "Topic work" }]);
+
+    expect(copy.title).toBe("Delete topic and origin/topic?");
+    expect(copy.confirmLabel).toBe("Delete both");
+    expect(copy.namesHeading).toBe("This commit is only on the local branch");
+    expect(copy.names).toEqual(["0123456 Topic work"]);
+    expect(copy.consequences.join(" ")).toMatch(/local branch is deleted first/);
+    expect(deleteBranchAndRemoteCopy("topic", "origin", []).names).toEqual([]);
+  });
+
+  it("explains why a pull left the changes in the stash", () => {
+    const copy = pullStashKeptCopy("pull_conflicts");
+    expect(copy).toBe("The pull stopped on conflicts, so your changes were not restored.");
+    expect(pullStashKeptCopy("restore_conflicts")).toBe("Restoring them conflicted with the pulled changes.");
+    expect(pullStashKeptCopy("restore_failed")).toBe("Git could not restore them.");
   });
 
   it("names every commit a branch deletion would leave without a name", () => {

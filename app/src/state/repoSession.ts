@@ -1,16 +1,18 @@
 import { createAsyncQueuer } from "@tanstack/solid-pacer";
 import { useMutation, useQuery, type QueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup } from "solid-js";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
 import { dataOf } from "./queryData";
 import { repoKeys } from "./queryKeys";
+import { visibilityKey } from "./repoUiPrefs";
 import { snapshotOptions } from "./workspace";
 
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
-export function createRepoSession(path: string, initial: RepoSnapshot, queryClient: QueryClient) {
+export function createRepoSession(path: string, initial: RepoSnapshot, queryClient: QueryClient, visibility: () => GraphVisibility = () => ({ kind: "all" })) {
   const snapshot = useQuery(() => ({ ...snapshotOptions(path), initialData: initial }), () => queryClient);
   const [revision, setRevision] = createSignal(0);
   const [notice, setNotice] = createSignal<string | undefined>();
@@ -71,8 +73,13 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
     mutate,
     read: <T>(parts: string[], load: () => Promise<T>) =>
       queryClient.fetchQuery({ queryKey: repoKeys.read(path, ...parts), queryFn: load, gcTime: 0 }),
-    searchCommits: (query: string) =>
-      queryClient.fetchQuery({ queryKey: repoKeys.search(path, query), queryFn: () => client.searchCommits(path, query) }),
+    searchCommits: (query: string) => {
+      const chosen = visibility();
+      return queryClient.fetchQuery({
+        queryKey: repoKeys.search(path, query, visibilityKey(chosen)),
+        queryFn: () => client.searchCommits(path, query, chosen.kind === "all" ? undefined : chosen),
+      });
+    },
   };
 }
 

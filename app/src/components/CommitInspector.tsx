@@ -17,7 +17,7 @@ import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 const refIcon = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
 
-function Delta(props: { file: CommitFile }) {
+export function Delta(props: { file: Pick<CommitFile, "additions" | "deletions"> }) {
   return (
     <span class="delta" aria-label={props.file.additions === null ? "binary file" : `${props.file.additions} added, ${props.file.deletions} removed`}>
       <Show when={props.file.additions !== null} fallback={<span>BIN</span>}>

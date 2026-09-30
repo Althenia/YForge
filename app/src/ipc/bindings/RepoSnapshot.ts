@@ -8,4 +8,4 @@ import type { StashEntry } from "./StashEntry";
 import type { Upstream } from "./Upstream";
 import type { Worktree } from "./Worktree";
 
-export type RepoSnapshot = { root: string, head: Head, upstream: Upstream | null, counts: ChangeCounts, files: Array<FileChange>, operation: Operation | null, operation_detail: OperationDetail | null, last_fetch: number | null, worktrees: Array<Worktree>, branches: Array<string>, remote_branches: Array<string>, remotes: Array<string>, tags: Array<string>, stashes: Array<StashEntry>, };
+export type RepoSnapshot = { root: string, main_root: string, head: Head, upstream: Upstream | null, counts: ChangeCounts, files: Array<FileChange>, operation: Operation | null, operation_detail: OperationDetail | null, last_fetch: number | null, worktrees: Array<Worktree>, branches: Array<string>, remote_branches: Array<string>, remotes: Array<string>, tags: Array<string>, stashes: Array<StashEntry>, };

@@ -13,7 +13,7 @@ import { removeRemoteCopy, type ConfirmCopy } from "../state/confirmCopy";
 import { dataOf } from "../state/queryData";
 import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
-import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, sourceLabel } from "../state/settingsModel";
+import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel } from "../state/settingsModel";
 import { pullModes } from "../state/syncModel";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -57,6 +57,36 @@ function TextSetting(props: { label: string; value: string; placeholder?: string
       />
       <Show when={props.suffix}>{(text) => <span class="value-source">{text()}</span>}</Show>
     </span>
+  );
+}
+
+const useSshKeys = () => useQuery(() => ({ queryKey: appKeys.sshKeys, queryFn: () => client.sshKeysList() }));
+
+function SshKeyPicker(props: { label: string; value: string | null | undefined; blankLabel: string; onChange: (path: string | null) => void }) {
+  const keys = useSshKeys();
+  const listed = () => dataOf(keys) ?? [];
+  const chosen = () => props.value ?? "";
+  const custom = () => (chosen() !== "" && !listed().some((key) => key.path === chosen()) ? chosen() : undefined);
+  const failure = () => (keys.error === null || keys.error === undefined ? undefined : message(keys.error));
+  const browse = async () => {
+    const start = listed()[0]?.path;
+    const picked = await client.pickFile("Choose an SSH private key", start === undefined ? undefined : start.slice(0, start.lastIndexOf("/")));
+    if (picked !== undefined) props.onChange(picked);
+  };
+  return (
+    <>
+      <span class="input">
+        <select aria-label={props.label} value={chosen()} onChange={(event) => props.onChange(event.currentTarget.value === "" ? null : event.currentTarget.value)}>
+          <option value="">{props.blankLabel}</option>
+          <For each={listed()}>{(key) => <option value={key.path}>{key.name} · {key.algorithm}</option>}</For>
+          <Show when={custom()}>{(path) => <option value={path()}>{path()}</option>}</Show>
+        </select>
+      </span>
+      <button type="button" class="btn sm" onClick={() => void browse()}>
+        Browse…
+      </button>
+      <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
+    </>
   );
 }
 
@@ -257,8 +287,13 @@ export function SettingsView(props: { section: string }) {
   };
   const setOverride = async (mode: PullMode | null) => {
     const path = repository();
-    if (path !== undefined) setFailure(await app.saveRepoSettings(path, { pull_mode: mode }));
+    if (path !== undefined) setFailure(await app.saveRepoSettings(path, { ...overrideMode(), pull_mode: mode }));
   };
+  const setRepoKey = async (key: string | null) => {
+    const path = repository();
+    if (path !== undefined) setFailure(await app.saveRepoSettings(path, { pull_mode: overrideMode()?.pull_mode ?? null, ssh_key_path: key }));
+  };
+  const sshKeys = useSshKeys();
   const navigation = SETTINGS_SECTIONS.filter((entry) => entry.id !== "repository");
 
   return (
@@ -304,6 +339,15 @@ export function SettingsView(props: { section: string }) {
                     <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
                   </select>
                 </SettingRow>
+                <h3>SSH</h3>
+                <SettingRow title="SSH key" note="Key used to reach this repository's remotes over SSH. It overrides the app-wide key.">
+                  <SshKeyPicker
+                    label="SSH key override"
+                    value={overrideMode()?.ssh_key_path}
+                    blankLabel={`Inherit · ${settings().ssh_key_path === null || settings().ssh_key_path === undefined ? SSH_AGENT_LABEL : sshKeyLabel(settings().ssh_key_path, dataOf(sshKeys) ?? [])}`}
+                    onChange={(key) => void setRepoKey(key)}
+                  />
+                </SettingRow>
               </>
             )}
           </Match>
@@ -336,6 +380,10 @@ export function SettingsView(props: { section: string }) {
                 options={AUTO_FETCH_OPTIONS.map((option) => ({ value: String(option.minutes), label: option.label }))}
                 onChange={(value) => void change({ auto_fetch_minutes: Number(value) })}
               />
+            </SettingRow>
+            <h3>SSH</h3>
+            <SettingRow title="SSH key" note="Key used for every repository that has no key of its own. Leave it on ssh-agent to use the agent and your default keys.">
+              <SshKeyPicker label="SSH key" value={settings().ssh_key_path} blankLabel={SSH_AGENT_LABEL} onChange={(key) => void change({ ssh_key_path: key })} />
             </SettingRow>
           </Match>
           <Match when={section() === "privacy"}>

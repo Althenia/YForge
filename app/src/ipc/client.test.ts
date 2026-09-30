@@ -412,4 +412,93 @@ describe("typed IPC client", () => {
       { cmd: "usage_clear", args: {} },
     ]);
   });
+
+  it("invokes the remote branch, upstream, autostash, switch-stash, SSH key and worktree commands with their arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+
+    await client.checkout("/r", { kind: "local_branch", name: "main" }, true, true);
+    await client.deleteRemoteBranch("/r", "op-1", "origin", "feature/x");
+    await client.setUpstream("/r", "feature", "origin/feature");
+    await client.setUpstream("/r", "feature", null);
+    await client.pushTo("/r", "op-2", { remote: "origin", name: "topic", set_upstream: true });
+    await client.stashRename("/r", 1, "abc", "new name");
+    await client.pullWithAutostash("/r", "op-3", "rebase");
+    await client.switchStashes("/r", "main");
+    await client.switchStashRestore("/r", "main", "abc");
+    await client.switchStashDismiss("/r", "main", "abc");
+    await client.sshKeysList();
+    await client.worktreeList("/r");
+
+    expect(calls).toEqual([
+      { cmd: "checkout", args: { path: "/r", target: { kind: "local_branch", name: "main" }, stash: true, leaveStashed: true } },
+      { cmd: "delete_remote_branch", args: { path: "/r", id: "op-1", remote: "origin", name: "feature/x" } },
+      { cmd: "set_upstream", args: { path: "/r", branch: "feature", upstream: "origin/feature" } },
+      { cmd: "set_upstream", args: { path: "/r", branch: "feature", upstream: null } },
+      { cmd: "push_to", args: { path: "/r", id: "op-2", target: { remote: "origin", name: "topic", set_upstream: true } } },
+      { cmd: "stash_rename", args: { path: "/r", index: 1, sha: "abc", message: "new name" } },
+      { cmd: "pull_with_autostash", args: { path: "/r", id: "op-3", mode: "rebase" } },
+      { cmd: "switch_stashes", args: { path: "/r", branch: "main" } },
+      { cmd: "switch_stash_restore", args: { path: "/r", branch: "main", sha: "abc" } },
+      { cmd: "switch_stash_dismiss", args: { path: "/r", branch: "main", sha: "abc" } },
+      { cmd: "ssh_keys_list", args: {} },
+      { cmd: "worktree_list", args: { path: "/r" } },
+    ]);
+  });
+
+  it("passes the graph visibility only when one is given, and sends stash details, stash diffs, and repository UI preferences", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+    const prefs = { columns: [{ column: "author" as const, visible: true, width: 120 }], collapsed_folders: ["local:feature"], branch_visibility: { kind: "current_and_upstream" as const } };
+
+    await client.repoGraph("/r", 0, 200, { kind: "current_and_upstream" });
+    await client.searchCommits("/r", "fix");
+    await client.searchCommits("/r", "fix", { kind: "current_and_upstream" });
+    await client.stashDetails("/r", 1, "abc");
+    await client.stashFileDiff("/r", 1, "abc", "a.txt", true);
+    await client.stashFileDiff("/r", 1, "abc", "a.txt");
+    await client.repoUiPrefsLoad("/r");
+    await client.repoUiPrefsSave("/r", prefs);
+
+    expect(calls).toEqual([
+      { cmd: "repo_graph", args: { path: "/r", offset: 0, limit: 200, visibility: { kind: "current_and_upstream" } } },
+      { cmd: "search_commits", args: { path: "/r", query: "fix" } },
+      { cmd: "search_commits", args: { path: "/r", query: "fix", visibility: { kind: "current_and_upstream" } } },
+      { cmd: "stash_details", args: { path: "/r", index: 1, sha: "abc" } },
+      { cmd: "stash_file_diff", args: { path: "/r", index: 1, sha: "abc", file: "a.txt", ignoreWhitespace: true } },
+      { cmd: "stash_file_diff", args: { path: "/r", index: 1, sha: "abc", file: "a.txt" } },
+      { cmd: "repo_ui_prefs_load", args: { path: "/r" } },
+      { cmd: "repo_ui_prefs_save", args: { path: "/r", prefs } },
+    ]);
+  });
+
+  it("reads a file at a revision, installs the command, and delivers open-path requests", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC(
+      (cmd, args) => {
+        calls.push({ cmd, args });
+        return cmd === "cli_install" ? { path: "/Users/yui/.local/bin/yforge", replaced: false } : null;
+      },
+      { shouldMockEvents: true },
+    );
+    const requested: string[] = [];
+    const stop = await client.onOpenPathRequested((request) => requested.push(request.path));
+
+    await client.fileAtRevision("/r", "a.txt", "HEAD~1");
+    expect(await client.cliInstall()).toEqual({ path: "/Users/yui/.local/bin/yforge", replaced: false });
+    await emit("open-path-requested", { path: "/other" });
+    stop();
+
+    expect(calls).toEqual([
+      { cmd: "file_at_revision", args: { path: "/r", file: "a.txt", rev: "HEAD~1" } },
+      { cmd: "cli_install", args: {} },
+    ]);
+    expect(requested).toEqual(["/other"]);
+  });
 });

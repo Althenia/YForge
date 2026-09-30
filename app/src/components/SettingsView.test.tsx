@@ -16,6 +16,11 @@ afterEach(() => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
+const keys = [
+  { path: "/Users/yui/.ssh/id_ed25519", name: "id_ed25519", algorithm: "ssh-ed25519" },
+  { path: "/Users/yui/.ssh/work", name: "work", algorithm: "ssh-rsa" },
+];
+
 function install(extra: (call: Call) => unknown = () => undefined) {
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
@@ -35,6 +40,7 @@ function install(extra: (call: Call) => unknown = () => undefined) {
         : { name: { value: "Repo Yui", source: "repository" }, email: { value: "yui@example.test", source: "global" } };
     }
     if (cmd === "remotes_list") return [{ name: "origin", fetch_url: "https://example.test/a.git", push_url: null }];
+    if (cmd === "ssh_keys_list") return keys;
     return null;
   });
   return calls;
@@ -220,5 +226,109 @@ describe("settings view", () => {
       { path: "/r", settings: { pull_mode: null } },
     ]);
     expect(defaultSettings.pull_mode).toBe("fast_forward_or_merge");
+  });
+
+  const sshSelect = (host: ParentNode, label: string) => host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`) as HTMLSelectElement;
+  const choose = async (select: HTMLSelectElement, value: string) => {
+    select.value = value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush();
+  };
+
+  it("lists the keys of ~/.ssh with ssh-agent as the default and saves the chosen key for every repository", async () => {
+    const { host, calls } = await open("git");
+
+    const select = sshSelect(host, "SSH key");
+    expect([...select.options].map((option) => [option.value, option.textContent])).toEqual([
+      ["", "ssh-agent (default)"],
+      ["/Users/yui/.ssh/id_ed25519", "id_ed25519 · ssh-ed25519"],
+      ["/Users/yui/.ssh/work", "work · ssh-rsa"],
+    ]);
+    await choose(select, "/Users/yui/.ssh/work");
+    await choose(sshSelect(host, "SSH key"), "");
+
+    expect(savedSettings(calls).map((settings) => settings.ssh_key_path)).toEqual(["/Users/yui/.ssh/work", null]);
+  });
+
+  it("picks a key file outside ~/.ssh with Browse… starting in the key folder and shows the chosen path", async () => {
+    const calls = install((call) => (call.cmd === "plugin:dialog|open" ? "/keys/deploy" : undefined));
+    const mounted = mountWithApp(() => <SettingsView section="git" />);
+    dispose = mounted.dispose;
+    await flush();
+
+    buttonNamed(mounted.host, "Browse…")?.click();
+    await flush();
+
+    expect(calls.find((call) => call.cmd === "plugin:dialog|open")?.args.options).toMatchObject({ directory: false, defaultPath: "/Users/yui/.ssh" });
+    expect(savedSettings(calls).at(-1)?.ssh_key_path).toBe("/keys/deploy");
+    expect(sshSelect(mounted.host, "SSH key").value).toBe("/keys/deploy");
+    expect([...sshSelect(mounted.host, "SSH key").options].map((option) => option.textContent)).toContain("/keys/deploy");
+  });
+
+  it("keeps the current key when the file picker is cancelled", async () => {
+    const calls = install((call) => (call.cmd === "plugin:dialog|open" ? null : undefined));
+    const mounted = mountWithApp(() => <SettingsView section="git" />);
+    dispose = mounted.dispose;
+    await flush();
+
+    buttonNamed(mounted.host, "Browse…")?.click();
+    await flush();
+
+    expect(savedSettings(calls)).toEqual([]);
+  });
+
+  it("explains why the key list is empty and still lets the user browse", async () => {
+    const calls = install((call) => {
+      if (call.cmd === "ssh_keys_list") throw { kind: "invalid_request", message: "HOME is not set, so ~/.ssh cannot be read", output: null };
+      return undefined;
+    });
+    const mounted = mountWithApp(() => <SettingsView section="git" />);
+    dispose = mounted.dispose;
+    await flush();
+
+    expect(mounted.host.querySelector('[role="alert"]')?.textContent).toContain("HOME is not set");
+    expect(buttonNamed(mounted.host, "Browse…")).toBeDefined();
+    expect(calls.some((call) => call.cmd === "ssh_keys_list")).toBe(true);
+  });
+
+  it("overrides the key for one repository, inherits again with a blank choice, and keeps the pull mode override", async () => {
+    const calls = install((call) => (call.cmd === "repo_settings_load" ? { pull_mode: "rebase", ssh_key_path: "/Users/yui/.ssh/work" } : undefined));
+    const mounted = mountWithApp(() => <SettingsView section="repository" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush();
+
+    const select = sshSelect(mounted.host, "SSH key override");
+    expect(select.value).toBe("/Users/yui/.ssh/work");
+    expect(select.options[0]?.textContent).toBe("Inherit · ssh-agent (default)");
+    await choose(select, "");
+    await choose(sshSelect(mounted.host, "SSH key override"), "/Users/yui/.ssh/id_ed25519");
+    const mode = mounted.host.querySelector<HTMLSelectElement>('select[aria-label="Pull mode override"]') as HTMLSelectElement;
+    await choose(mode, "fast_forward_only");
+
+    expect(calls.filter((call) => call.cmd === "repo_settings_save").map((call) => call.args.settings)).toEqual([
+      { pull_mode: "rebase", ssh_key_path: null },
+      { pull_mode: "rebase", ssh_key_path: "/Users/yui/.ssh/id_ed25519" },
+      { pull_mode: "fast_forward_only", ssh_key_path: "/Users/yui/.ssh/id_ed25519" },
+    ]);
+  });
+
+  it("names the app-wide key in the inherit choice", async () => {
+    const calls = install();
+    const mounted = mountWithApp(() => <SettingsView section="repository" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    mounted.app.saveSettings({ ...defaultSettings, ssh_key_path: "/Users/yui/.ssh/work" });
+    await flush();
+
+    expect(sshSelect(mounted.host, "SSH key override").options[0]?.textContent).toBe("Inherit · work");
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  it("offers Light, Dark, and System themes and both densities", async () => {
+    const { host } = await open("appearance");
+
+    expect([...host.querySelectorAll('[aria-label="Theme"] button')].map((button) => button.textContent)).toEqual(["Light", "Dark", "System"]);
+    expect([...host.querySelectorAll('[aria-label="Density"] button')].map((button) => button.textContent)).toEqual(["Compact", "Default"]);
   });
 });

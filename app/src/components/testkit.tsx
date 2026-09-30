@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { createRoot, type JSX } from "solid-js";
+import { createRoot, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createMemoryHistory } from "@tanstack/solid-router";
@@ -7,6 +7,8 @@ import { createAppRouter } from "../routes";
 import { createQueryClient } from "../state/queryClient";
 import { createRepoSession } from "../state/repoSession";
 import { AppContext, createAppState, type AppState } from "../state/app";
+import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
+import { defaultUiPrefs, type RepoUiPrefsStore } from "../state/repoUiPrefs";
 
 export const flush = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -54,4 +56,9 @@ export function stubLayout(): () => void {
     HTMLElement.prototype.getBoundingClientRect = rect;
     document.documentElement.style.removeProperty("--controls-row-file");
   };
+}
+
+export function testUiPrefs(initial: RepoUiPrefs = defaultUiPrefs): RepoUiPrefsStore {
+  const [prefs, setPrefs] = createSignal(initial);
+  return { prefs, update: (change) => setPrefs(change(prefs())) };
 }

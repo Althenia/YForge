@@ -361,3 +361,42 @@ fn integration_is_refused_while_the_target_worktree_has_an_operation_in_progress
 
     assert_eq!(error.kind(), ErrorKind::OperationInProgress);
 }
+
+#[test]
+fn a_snapshot_names_the_main_repository_root_from_the_main_and_from_every_linked_worktree() {
+    let repo = ready();
+    let first = add(&repo, "first");
+    let second = add(&repo, "second");
+
+    let from_main = repo_snapshot(&repo.path).unwrap();
+    let from_first = repo_snapshot(&first).unwrap();
+    let from_nested = repo_snapshot(&second.join(".")).unwrap();
+
+    let main = repo.path.display().to_string();
+    assert_eq!(from_main.main_root, main);
+    assert_eq!(from_first.main_root, main);
+    assert_eq!(from_nested.main_root, main);
+    assert_ne!(from_first.root, main);
+    let siblings: Vec<(&str, bool)> = from_first
+        .worktrees
+        .iter()
+        .map(|worktree| (worktree.path.as_str(), worktree.current))
+        .collect();
+    assert_eq!(
+        siblings,
+        vec![
+            (main.as_str(), false),
+            (first.to_str().unwrap(), true),
+            (second.to_str().unwrap(), false)
+        ]
+    );
+}
+
+#[test]
+fn a_repository_without_linked_worktrees_is_its_own_main_root() {
+    let repo = ready();
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+
+    assert_eq!(snapshot.main_root, snapshot.root);
+}

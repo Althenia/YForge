@@ -158,6 +158,7 @@ describe("app state", () => {
       snapshot: () =>
         ({
           root: "/a",
+          main_root: "/a",
           head: { kind: "branch", name: "main", sha: "a".repeat(40) },
           upstream: null,
           counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
@@ -176,6 +177,7 @@ describe("app state", () => {
       selectedSha: () => undefined,
       revealCommit: () => undefined,
       revealRef: () => undefined,
+      revealHead: () => undefined,
       openSearch: () => undefined,
       focusComposer: () => undefined,
       loadCommits: async () => [],
@@ -193,5 +195,45 @@ describe("app state", () => {
     input.blur();
     key("z");
     expect(undone).toEqual([7]);
+  });
+
+  it("⌘F opens the commit search, ⌘⇧H reveals HEAD, and ⌘↵ takes the user to the commit message, through the open repository", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+    const calls: string[] = [];
+    app.setBridge({
+      path: "/a",
+      snapshot: () =>
+        ({
+          root: "/a",
+          main_root: "/a",
+          head: { kind: "branch", name: "main", sha: "a".repeat(40) },
+          upstream: null,
+          counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+          files: [],
+          operation: null,
+          operation_detail: null,
+          last_fetch: null,
+          worktrees: [],
+          branches: ["main"],
+          remote_branches: [],
+          remotes: [],
+          tags: [],
+          stashes: [],
+        }) as RepoSnapshot,
+      actions: { sync: () => ({ kind: "idle" }) } as unknown as RepoActions,
+      selectedSha: () => undefined,
+      revealCommit: () => undefined,
+      revealRef: () => undefined,
+      revealHead: () => calls.push("reveal-head"),
+      openSearch: () => calls.push("search"),
+      focusComposer: () => calls.push("composer"),
+      loadCommits: async () => [],
+    });
+
+    key("f");
+    key("H", { shiftKey: true });
+    key("Enter");
+
+    expect(calls).toEqual(["search", "reveal-head", "composer"]);
   });
 });

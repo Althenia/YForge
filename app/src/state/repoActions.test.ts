@@ -6,7 +6,14 @@ import type { StashEntry } from "../ipc/bindings/StashEntry";
 import { autoStashMessage, createRepoActions, restoreMessage } from "./repoActions";
 import { testSession } from "../components/testkit";
 
-afterEach(() => clearMocks());
+let offline = false;
+const inspected: string[] = [];
+
+afterEach(() => {
+  clearMocks();
+  offline = false;
+  inspected.length = 0;
+});
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
 
@@ -40,7 +47,7 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
     return handler(call);
   });
   const session = testSession("/r", initial);
-  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", undoEntry: (id) => entries.find((entry) => entry.id === id) });
+  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", offline: () => offline, inspectStash: (sha) => inspected.push(sha), undoEntry: (id) => entries.find((entry) => entry.id === id) });
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
 
@@ -76,7 +83,7 @@ describe("checkout", () => {
       if (call.cmd !== "checkout") return null;
       attempt += 1;
       if (attempt === 1) throw rejection("local_changes", "Local changes would be overwritten", "error: overwritten");
-      return { auto_stash: "restored" };
+      return { auto_stash: "stashed" };
     });
 
     actions.checkout({ kind: "local_branch", name: "feature" });
@@ -88,7 +95,9 @@ describe("checkout", () => {
     await dialog?.run();
     const checkouts = calls.filter((call) => call.cmd === "checkout");
     expect(checkouts.map((call) => call.args.stash)).toEqual([false, true]);
-    expect(session.notice()).toBe("Switched to feature. Your stashed changes were restored.");
+    expect(checkouts.map((call) => call.args.leaveStashed)).toEqual([undefined, true]);
+    expect(dialog?.copy.consequences.join(" ")).toMatch(/offered back when you return to main/);
+    expect(session.notice()).toBe("Switched to feature. Your changes are stashed and will be offered back when you return to main.");
   });
 
   it("checks out a remote-only branch as a tracking branch and prefers an existing local branch", async () => {
@@ -121,6 +130,8 @@ describe("checkout", () => {
     expect(autoStashMessage("none", "x")).toBeUndefined();
     expect(autoStashMessage("conflicts", "x")).toMatch(/kept in stash@\{0\}/);
     expect(autoStashMessage("kept", "x")).toMatch(/remain in stash@\{0\}/);
+    expect(autoStashMessage("stashed", "x", "main")).toBe("Switched to x. Your changes are stashed and will be offered back when you return to main.");
+    expect(autoStashMessage("stashed", "x", undefined)).toBe("Switched to x. Your changes are stashed in stash@{0}.");
   });
 });
 
@@ -651,7 +662,7 @@ describe("integration actions", () => {
 describe("phase 3b actions", () => {
   it("pulls with the effective default mode", async () => {
     const { actions, calls } = setup(() => null, snapshot(), undefined);
-    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", undoEntry: () => undefined });
+    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
 
     await rebasing.pullDefault();
     await actions.pullDefault();
@@ -764,5 +775,334 @@ describe("phase 3b actions", () => {
     expect(actions.dialog()?.copy.title).toContain("v1");
     actions.deleteTagOnRemote("v1");
     expect(actions.dialog()?.copy.title).toContain("origin");
+  });
+});
+
+const dirty = () => snapshot({ counts: { ...counts, modified: 2 } });
+const later = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("fetch and prune", () => {
+  it("fetches with prune from the sync menu and the plain fetch never prunes", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.menu()?.run("fetch_prune");
+    await later();
+    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.menu()?.run("fetch");
+    await later();
+
+    expect(calls.filter((call) => call.cmd === "fetch").map((call) => call.args.prune)).toEqual([true, false]);
+  });
+
+  it("disables the sync menu while offline and does not auto-fetch", async () => {
+    offline = true;
+    const { actions, calls } = setup(() => null);
+
+    actions.openSyncMenu({ left: 0, top: 0 });
+    const fetch = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "fetch");
+    expect(fetch).toMatchObject({ disabledReason: "You are offline" });
+    expect(await actions.autoFetch()).toBe(true);
+    expect(calls.some((call) => call.cmd === "fetch")).toBe(false);
+  });
+});
+
+describe("pull with a dirty working tree", () => {
+  it("pulls without stashing when the tree is clean", async () => {
+    const { actions, names } = setup(() => "updated");
+
+    await actions.pull("rebase");
+
+    expect(names()).toContain("pull");
+    expect(names()).not.toContain("pull_with_autostash");
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("stashes and restores around the pull and says so until dismissed", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "pull_with_autostash" ? { outcome: "updated", stash: { kind: "restored" } } : null), dirty());
+
+    await actions.pull("rebase");
+
+    expect(calls.find((call) => call.cmd === "pull_with_autostash")?.args).toMatchObject({ path: "/r", mode: "rebase" });
+    expect(calls.some((call) => call.cmd === "pull")).toBe(false);
+    expect(actions.notices()).toMatchObject([{ text: "Your changes were stashed and restored", actions: [] }]);
+    actions.dismissNotice(actions.notices()[0]?.id ?? "");
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("keeps the notice with Apply and Pop when the changes stay in the stash, and each acts on that stash", async () => {
+    const kept = { outcome: "conflicts", stash: { kind: "kept", reference: "stash@{2}", sha: "abc123", reason: "pull_conflicts" } };
+    const { actions, calls } = setup((call) => (call.cmd === "pull_with_autostash" ? kept : "applied"), dirty());
+
+    await actions.pull("fast_forward_or_merge");
+
+    const notice = actions.notices()[0];
+    expect(notice?.text).toBe("Your changes are kept in stash@{2}");
+    expect(notice?.detail).toBe("The pull stopped on conflicts, so your changes were not restored.");
+    expect(notice?.actions.map((action) => action.label)).toEqual(["Apply", "Pop"]);
+    await notice?.actions[1]?.run();
+    expect(calls.find((call) => call.cmd === "stash_pop")?.args).toEqual({ path: "/r", index: 2, sha: "abc123" });
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("still reports a conflicting or up-to-date pull", async () => {
+    const stash = { kind: "none" };
+    const { actions, session } = setup(() => ({ outcome: "up_to_date", stash }), dirty());
+
+    await actions.pull("fast_forward_or_merge");
+
+    expect(session.notice()).toBe("Already up to date.");
+    expect(actions.notices()).toEqual([]);
+  });
+});
+
+describe("stash and switch", () => {
+  it("offers to restore the changes stashed when the user left this branch, and restores them", async () => {
+    const recorded = [{ branch: "main", sha: "s1", message: "On main: wip", created_at: 5, index: 0 }];
+    const { actions, calls } = setup((call) => (call.cmd === "switch_stashes" ? recorded : call.cmd === "switch_stash_restore" ? "applied" : null));
+
+    await actions.offerSwitchStashes();
+
+    const notice = actions.notices()[0];
+    expect(notice?.text).toBe("Restore the changes stashed when you left main?");
+    expect(notice?.detail).toBe("On main: wip");
+    expect(notice?.actions.map((action) => action.label)).toEqual(["Restore", "Keep in stash"]);
+    await notice?.actions[0]?.run();
+    expect(calls.find((call) => call.cmd === "switch_stash_restore")?.args).toEqual({ path: "/r", branch: "main", sha: "s1" });
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("keeps the changes in the stash and forgets the prompt on Keep in stash", async () => {
+    const recorded = [{ branch: "main", sha: "s1", message: "wip", created_at: 5, index: 0 }];
+    const { actions, calls } = setup((call) => (call.cmd === "switch_stashes" ? recorded : null));
+
+    await actions.offerSwitchStashes();
+    await actions.notices()[0]?.actions[1]?.run();
+
+    expect(calls.find((call) => call.cmd === "switch_stash_dismiss")?.args).toEqual({ path: "/r", branch: "main", sha: "s1" });
+    expect(calls.some((call) => call.cmd === "switch_stash_restore")).toBe(false);
+    expect(actions.notices()).toEqual([]);
+  });
+
+  it("reports a conflicting restore and asks once per recorded stash", async () => {
+    const recorded = [{ branch: "main", sha: "s1", message: "wip", created_at: 5, index: 0 }];
+    const { actions, session } = setup((call) => (call.cmd === "switch_stashes" ? recorded : call.cmd === "switch_stash_restore" ? "conflicts" : null));
+
+    await actions.offerSwitchStashes();
+    await actions.offerSwitchStashes();
+    expect(actions.notices()).toHaveLength(1);
+    await actions.notices()[0]?.actions[0]?.run();
+
+    expect(session.notice()).toMatch(/applied with conflicts/);
+  });
+
+  it("asks nothing when no stash was recorded or HEAD is detached", async () => {
+    const { actions, names } = setup(() => []);
+    await actions.offerSwitchStashes();
+    expect(actions.notices()).toEqual([]);
+
+    const detached = setup(() => [], snapshot({ head: { kind: "detached", sha: "a" } as never }));
+    await detached.actions.offerSwitchStashes();
+    expect(detached.names()).not.toContain("switch_stashes");
+    expect(names()).toContain("switch_stashes");
+  });
+});
+
+describe("remote branches", () => {
+  it("confirms before deleting a remote branch, then deletes it through the sync runner", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openRefMenu({ kind: "remote_branch", name: "origin/remote-only", startPoint: "a" }, { left: 0, top: 0 });
+    actions.menu()?.run("delete_remote");
+
+    expect(actions.dialog()?.copy.title).toBe("Delete origin/remote-only from origin?");
+    expect(calls.some((call) => call.cmd === "delete_remote_branch")).toBe(false);
+    await actions.dialog()?.run();
+    expect(calls.find((call) => call.cmd === "delete_remote_branch")?.args).toMatchObject({ path: "/r", remote: "origin", name: "remote-only" });
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("deletes the remote branch of a local branch from the local branch's menu", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openRefMenu({ kind: "local_branch", name: "main", remoteName: "origin/main", startPoint: "a" }, { left: 0, top: 0 });
+    actions.menu()?.run("delete_remote");
+    await actions.dialog()?.run();
+
+    expect(calls.find((call) => call.cmd === "delete_remote_branch")?.args).toMatchObject({ remote: "origin", name: "main" });
+  });
+
+  it("deletes a local branch and its remote branch together after one confirmation naming both", async () => {
+    const lost = [{ sha: "aaaaaaa1234", summary: "Topic work" }];
+    const { actions, names, calls } = setup((call) => (call.cmd === "branch_delete_preview" ? lost : null), snapshot({ remote_branches: ["origin/feature"] }));
+
+    actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "a" }, { left: 0, top: 0 });
+    actions.menu()?.run("delete_both");
+    await later();
+
+    expect(actions.dialog()?.copy.title).toBe("Delete feature and origin/feature?");
+    expect(actions.dialog()?.copy.names).toEqual(["aaaaaaa Topic work"]);
+    await actions.dialog()?.run();
+    const order = names().filter((name) => name === "delete_branch" || name === "delete_remote_branch");
+    expect(order).toEqual(["delete_branch", "delete_remote_branch"]);
+    expect(calls.find((call) => call.cmd === "delete_branch")?.args).toMatchObject({ name: "feature", force: true });
+  });
+
+  it("does not touch the remote when the local deletion fails", async () => {
+    const { actions, names, session } = setup((call) => {
+      if (call.cmd === "delete_branch") throw rejection("invalid_request", "Cannot delete");
+      return call.cmd === "branch_delete_preview" ? [] : null;
+    }, snapshot({ remote_branches: ["origin/feature"] }));
+
+    actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "a" }, { left: 0, top: 0 });
+    actions.menu()?.run("delete_both");
+    await later();
+    await actions.dialog()?.run();
+
+    expect(names()).not.toContain("delete_remote_branch");
+    expect(session.notice()).toBe("Cannot delete");
+  });
+});
+
+describe("upstream and Push to…", () => {
+  it("sets and unsets an upstream through the branch commands", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: undefined, startPoint: "a" }, { left: 1, top: 2 });
+    actions.menu()?.run("set_upstream");
+    expect(actions.popover()).toMatchObject({ kind: "set_upstream", branch: "feature", anchor: { left: 1, top: 2 } });
+    await actions.setUpstream("feature", "origin/remote-only");
+    await actions.unsetUpstream();
+
+    expect(calls.filter((call) => call.cmd === "set_upstream").map((call) => call.args)).toEqual([
+      { path: "/r", branch: "feature", upstream: "origin/remote-only" },
+      { path: "/r", branch: "main", upstream: null },
+    ]);
+    expect(actions.popover()).toBeUndefined();
+  });
+
+  it("opens the upstream form for the checked-out branch from the sync menu", () => {
+    const { actions } = setup(() => null);
+
+    actions.openSyncMenu({ left: 4, top: 5 });
+    actions.menu()?.run("set_upstream");
+
+    expect(actions.popover()).toMatchObject({ kind: "set_upstream", branch: "main" });
+  });
+
+  it("pushes the current branch to a chosen remote and name with the set-upstream choice", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.menu()?.run("push_to");
+    expect(actions.popover()).toMatchObject({ kind: "push_to" });
+    await actions.pushTo({ remote: "origin", name: "topic", set_upstream: true });
+
+    expect(calls.find((call) => call.cmd === "push_to")?.args).toMatchObject({ path: "/r", target: { remote: "origin", name: "topic", set_upstream: true } });
+    expect(actions.popover()).toBeUndefined();
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("explains a rejected Push to… instead of offering a force", async () => {
+    const { actions, session } = setup((call) => {
+      if (call.cmd === "push_to") throw rejection("push_rejected", "The remote rejected the push");
+      return null;
+    });
+
+    await actions.pushTo({ remote: "origin", name: "main", set_upstream: false });
+
+    expect(session.notice()).toBe("origin/main has commits this branch does not. Pull first, or push to another name.");
+    expect(actions.dialog()).toBeUndefined();
+  });
+
+  it("lists every local branch in the branch picker with the checked-out one marked, and switches on selection", async () => {
+    const { actions, calls } = setup(() => ({ auto_stash: "none" }));
+
+    actions.openBranchPicker({ left: 0, top: 0 });
+    const entries = actions.menu()?.entries ?? [];
+    const checkout = entries.filter((entry) => entry.kind === "item" && entry.id.startsWith("checkout:"));
+    expect(checkout.map((entry) => (entry.kind === "item" ? [entry.id, entry.disabledReason, entry.icon] : []))).toEqual([
+      ["checkout:main", "Already checked out", "check"],
+      ["checkout:feature", undefined, "local"],
+    ]);
+    expect(entries.some((entry) => entry.kind === "item" && entry.id === "unset_upstream")).toBe(true);
+    actions.menu()?.run("checkout:feature");
+    await later();
+
+    expect(calls.find((call) => call.cmd === "checkout")?.args).toMatchObject({ target: { kind: "local_branch", name: "feature" } });
+  });
+});
+
+describe("stash rename and inspect", () => {
+  const stash: StashEntry = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: wip", time: 1 };
+
+  it("opens the rename form and renames through the stash command", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openStashMenu(stash, { left: 0, top: 0 });
+    actions.menu()?.run("rename_stash");
+    expect(actions.popover()).toMatchObject({ kind: "rename_stash", stash });
+    await actions.renameStash(stash, "better name");
+
+    expect(calls.find((call) => call.cmd === "stash_rename")?.args).toEqual({ path: "/r", index: 1, sha: "s1", message: "better name" });
+    expect(actions.popover()).toBeUndefined();
+  });
+
+  it("hands the stash to the inspector", () => {
+    const { actions } = setup(() => null);
+
+    actions.openStashMenu(stash, { left: 0, top: 0 });
+    actions.menu()?.run("inspect");
+
+    expect(inspected).toEqual(["s1"]);
+  });
+});
+
+describe("authentication failure fix", () => {
+  const failing = (remoteUrl: string) =>
+    setup((call) => {
+      if (call.cmd === "fetch") throw rejection("auth_failed", "Authentication failed for origin", "fatal");
+      return call.cmd === "remotes_list" ? [{ name: "origin", fetch_url: remoteUrl, push_url: null }] : null;
+    });
+
+  it("points an SSH remote at the SSH key setting", async () => {
+    const { actions } = failing("git@github.com:o/r.git");
+
+    await actions.fetchAll();
+
+    expect(actions.sync()).toMatchObject({ kind: "failed", fix: { section: "git", label: "Choose an SSH key" } });
+  });
+
+  it("points an HTTPS remote at the repository's remotes", async () => {
+    const { actions } = failing("https://github.com/o/r.git");
+
+    await actions.fetchAll();
+
+    expect(actions.sync()).toMatchObject({ kind: "failed", fix: { section: "repository" } });
+  });
+});
+
+describe("commit menu with a multi-selection", () => {
+  it("titles the menu with the selection size and disables single-commit verbs", () => {
+    const { actions } = setup(() => null);
+
+    actions.openCommitMenu("a1", false, { left: 0, top: 0 }, ["a1", "b2", "c3"]);
+
+    expect(actions.menu()?.title).toEqual(["3 commits selected"]);
+    const cherry = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "cherry_pick");
+    expect(cherry).toMatchObject({ disabledReason: "Select a single commit" });
+  });
+});
+
+describe("stale pull notice", () => {
+  it("drops the pull's stash notice when the user switches branch", async () => {
+    const { actions } = setup((call) => (call.cmd === "pull_with_autostash" ? { outcome: "updated", stash: { kind: "restored" } } : { auto_stash: "none" }), dirty());
+
+    await actions.pull("rebase");
+    expect(actions.notices()).toHaveLength(1);
+    actions.checkout({ kind: "local_branch", name: "feature" });
+    await later();
+
+    expect(actions.notices()).toEqual([]);
   });
 });

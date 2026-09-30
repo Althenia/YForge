@@ -63,7 +63,7 @@ const fakeActions = () => {
     (...args: unknown[]) => {
       calls.push([name, ...args]);
     };
-  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll"];
+  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash"];
   const actions = { sync: () => ({ kind: "idle" as const }), ...Object.fromEntries(names.map((name) => [name, record(name)])) };
   return { actions: actions as unknown as RepoActions, calls };
 };
@@ -75,12 +75,14 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     actions: repo === null ? undefined : actions,
     selectedSha: undefined,
     pullMode: "fast_forward_or_merge",
+    offline: false,
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
     anchor: { left: 10, top: 20 },
     app: app(),
     revealCommit: vi.fn(),
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
+    revealHead: vi.fn(),
     loadCommits: async () => [
       { sha: "abcdef1234567", summary: "Add greeting", merge: false },
       { sha: "1234567abcdef", summary: "Merge topic", merge: true },
@@ -208,6 +210,57 @@ describe("command palette registry", () => {
     expect(find(commands, "branch.reset").args[1]?.options()).toHaveLength(3);
   });
 
+  it("runs the remote branch, upstream, Push to…, prune, stash rename, and stash inspect commands through their actions", async () => {
+    const run = context();
+    const commands = buildCommands(run);
+    find(commands, "branch.delete_remote").run(["remote_branch:origin/main"]);
+    find(commands, "branch.delete_both").run(["local_branch:main"]);
+    find(commands, "branch.set_upstream").run(["local_branch:main"]);
+    find(commands, "branch.unset_upstream").run([]);
+    find(commands, "sync.push_to").run([]);
+    find(commands, "sync.fetch_prune").run([]);
+    find(commands, "stash.rename").run(["0"]);
+    find(commands, "stash.inspect").run(["0"]);
+    expect(run.calls.map((call) => call[0])).toEqual([
+      "deleteRemoteBranch",
+      "deleteBranchAndRemote",
+      "openSetUpstream",
+      "unsetUpstream",
+      "openPushTo",
+      "fetchAll",
+      "openRenameStash",
+      "inspectStash",
+    ]);
+    expect(run.calls.find((call) => call[0] === "fetchAll")?.[1]).toBe(true);
+    expect(run.calls.find((call) => call[0] === "openSetUpstream")?.slice(1)).toEqual(["main", { left: 10, top: 20 }]);
+    const options = await find(commands, "branch.delete_remote").args[0]?.options();
+    expect(options?.map((option) => option.label)).toEqual(["main", "origin/main", "origin/remote-only"]);
+  });
+
+  it("unsets an upstream only when the checked-out branch has one, and reveals HEAD with its shortcut", () => {
+    const untracked = buildCommands(context({}, snapshot({ upstream: null })));
+    expect(find(untracked, "branch.unset_upstream").disabledReason).toBe("The checked-out branch has no upstream");
+    expect(find(buildCommands(context()), "branch.unset_upstream").disabledReason).toBeUndefined();
+    const run = context();
+    const reveal = find(buildCommands(run), "head.reveal");
+    expect(reveal.shortcut).toBe("⌘⇧H");
+    reveal.run([]);
+    expect(run.revealHead).toHaveBeenCalledOnce();
+  });
+
+  it("uses the same shortcut in the menus as in the palette for fetch, the default pull, push, and Create branch", () => {
+    const commands = buildCommands(context());
+    const menuShortcut = (id: string) => {
+      const entry = syncMenu(snapshot(), false).find((candidate) => candidate.kind === "item" && candidate.id === id);
+      return entry?.kind === "item" ? entry.shortcut : undefined;
+    };
+    expect(menuShortcut("fetch")).toBe(find(commands, "sync.fetch").shortcut);
+    expect(menuShortcut("pull:fast_forward_or_merge")).toBe(find(commands, "sync.pull").shortcut);
+    expect(menuShortcut("push")).toBe(find(commands, "sync.push").shortcut);
+    const create = commitMenu({ current: "feature", remotes: [], operation: null, sha: "abcdef1", merge: false }).find((entry) => entry.kind === "item" && entry.id === "create_branch");
+    expect(create?.kind === "item" && create.shortcut).toBe(find(commands, "branch.create").shortcut);
+  });
+
   it("creates a branch at the selected commit and opens the flow at the palette anchor", () => {
     const run = context({ selectedSha: "abc1234" });
     find(buildCommands(run), "branch.create").run([]);
@@ -317,12 +370,12 @@ describe("keyboard shortcuts", () => {
     expect(hotkeyOf("⌘↵")).toBe("Mod+Enter");
   });
 
-  it("binds each shown chord once, skipping commit and commands that need arguments", () => {
+  it("binds each shown chord once, including ⌘↵ to go to the commit message, and skipping commands that need arguments", () => {
     const commands = shortcutCommands(buildCommands(context()));
     const shortcuts = commands.map((command) => command.shortcut);
     expect(commands.find((command) => command.shortcut === "⌘B")?.id).toBe("branch.create");
     expect(commands.find((command) => command.shortcut === "⌘⇧F")?.id).toBe("sync.fetch");
-    expect(shortcuts).not.toContain("⌘↵");
+    expect(commands.find((command) => command.shortcut === "⌘↵")?.id).toBe("commit");
     expect(new Set(shortcuts).size).toBe(shortcuts.length);
     expect(commands.every((command) => command.args.length === 0)).toBe(true);
   });

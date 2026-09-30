@@ -8,7 +8,8 @@ export type WorkingArea = ChangeArea;
 
 export type DiffTarget =
   | { source: "working"; area: WorkingArea; file: string }
-  | { source: "commit"; sha: string; file: string };
+  | { source: "commit"; sha: string; file: string }
+  | { source: "stash"; index: number; sha: string; file: string };
 
 export const isConflictTarget = (target: DiffTarget): boolean => target.source === "working" && target.area === "conflicted";
 
@@ -28,14 +29,16 @@ export const sameTarget = (left: DiffTarget | undefined, right: DiffTarget | und
   if (left === undefined || right === undefined) return left === right;
   if (left.source === "working" && right.source === "working") return left.file === right.file && left.area === right.area;
   if (left.source === "commit" && right.source === "commit") return left.file === right.file && left.sha === right.sha;
+  if (left.source === "stash" && right.source === "stash") return left.file === right.file && left.sha === right.sha && left.index === right.index;
   return false;
 };
 
 const areaWord: Record<WorkingArea, string> = { unstaged: "Unstaged", staged: "Staged", untracked: "Untracked", conflicted: "Conflicted" };
 
-export const targetSource = (target: DiffTarget): string => (target.source === "working" ? "Changes" : target.sha.slice(0, 7));
+export const targetSource = (target: DiffTarget): string =>
+  target.source === "working" ? "Changes" : target.source === "stash" ? `stash@{${target.index}}` : target.sha.slice(0, 7);
 
-export const targetMode = (target: DiffTarget): string => (target.source === "working" ? areaWord[target.area] : "Commit");
+export const targetMode = (target: DiffTarget): string => (target.source === "working" ? areaWord[target.area] : target.source === "stash" ? "Stash" : "Commit");
 
 export function hunkActions(target: DiffTarget): HunkAction[] {
   if (target.source !== "working") return [];
@@ -59,7 +62,7 @@ export const lineMarker: Record<DiffLineKind, string> = { context: " ", added: "
 export function diffNotice(diff: FileDiff, target: DiffTarget): string | undefined {
   if (diff.binary) return "Binary file — no text diff";
   if (diff.hunks.length > 0) return undefined;
-  if (target.source === "commit") return "No textual change in this file.";
+  if (target.source !== "working") return "No textual change in this file.";
   if (target.area === "untracked" || target.area === "conflicted") return "This file is empty.";
   return `No ${target.area} changes remain in this file.`;
 }
@@ -67,7 +70,7 @@ export function diffNotice(diff: FileDiff, target: DiffTarget): string | undefin
 const followOrder: readonly WorkingArea[] = ["conflicted", "staged", "unstaged", "untracked"];
 
 export function followTarget(files: readonly FileChange[], target: DiffTarget): DiffTarget | undefined {
-  if (target.source === "commit") return target;
+  if (target.source !== "working") return target;
   if (target.area === "conflicted") {
     if (files.some((file) => file.path === target.file && file.area === "conflicted")) return target;
     const next = files.find((file) => file.area === "conflicted");

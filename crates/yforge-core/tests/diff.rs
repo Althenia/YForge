@@ -148,6 +148,43 @@ fn binary_files_are_detected_untracked_and_tracked() {
 }
 
 #[test]
+fn binary_diffs_carry_the_byte_size_of_each_side_in_every_area() {
+    let repo = ready_repository();
+    repo.write("logo.png", "PNG\0\u{1}\u{2}");
+    let untracked = diff_file(&repo.path, "logo.png", ChangeArea::Untracked, false).unwrap();
+    assert_eq!((untracked.old_size, untracked.new_size), (None, Some(6)));
+
+    repo.git(&["add", "logo.png"]);
+    let added = diff_file(&repo.path, "logo.png", ChangeArea::Staged, false).unwrap();
+    assert_eq!((added.old_size, added.new_size), (None, Some(6)));
+
+    repo.git(&["commit", "-q", "-m", "Add logo"]);
+    repo.write("logo.png", "PNG\0\u{3}\u{4}\u{5}");
+    let unstaged = diff_file(&repo.path, "logo.png", ChangeArea::Unstaged, false).unwrap();
+    assert_eq!((unstaged.old_size, unstaged.new_size), (Some(6), Some(7)));
+
+    repo.git(&["add", "logo.png"]);
+    repo.write("logo.png", "PNG\0");
+    let staged = diff_file(&repo.path, "logo.png", ChangeArea::Staged, false).unwrap();
+    assert_eq!((staged.old_size, staged.new_size), (Some(6), Some(7)));
+
+    std::fs::remove_file(repo.path.join("logo.png")).unwrap();
+    let deleted = diff_file(&repo.path, "logo.png", ChangeArea::Unstaged, false).unwrap();
+    assert_eq!((deleted.old_size, deleted.new_size), (Some(7), None));
+}
+
+#[test]
+fn text_diffs_carry_no_sizes() {
+    let repo = ready_repository();
+    repo.write("a.txt", "one\n2\nthree\n");
+
+    let diff = diff_file(&repo.path, "a.txt", ChangeArea::Unstaged, false).unwrap();
+
+    assert!(!diff.binary);
+    assert_eq!((diff.old_size, diff.new_size), (None, None));
+}
+
+#[test]
 fn marks_lines_without_a_trailing_newline() {
     let repo = ready_repository();
     repo.write("a.txt", "one\ntwo\nthree");

@@ -12,6 +12,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { AppRouter } from "../routes";
 import { viewOf } from "../routes";
 import { createStoreValue } from "./clientStore";
+import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
 import { dataOf } from "./queryData";
 import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
@@ -19,6 +20,7 @@ import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityMod
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
 import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext } from "./palette";
 import type { RepoActions } from "./repoActions";
+import { SHORTCUTS } from "./shortcuts";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
 import { activateTab, closeTab, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabId, type Tab, type TabsState } from "./tabs";
 
@@ -33,13 +35,14 @@ export type RepoBridge = {
   selectedSha: () => string | undefined;
   revealCommit: (sha: string) => void;
   revealRef: (name: string) => void;
+  revealHead: () => void;
   openSearch: () => void;
   focusComposer: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
 };
 
-const PALETTE_SHORTCUT = "⌘K";
-const UNDO_SHORTCUT = "⌘Z";
+const PALETTE_SHORTCUT = SHORTCUTS.palette;
+const UNDO_SHORTCUT = SHORTCUTS.undo;
 
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -57,6 +60,7 @@ export function createAppState(router: AppRouter) {
   const [notice, setNotice] = createSignal<string | undefined>();
   const [bridge, setBridge] = createSignal<RepoBridge | undefined>();
   const queryClient = createQueryClient();
+  const online = createOnline();
   const recentPaths = (): string[] => (queryClient.getQueryData<RecentRepo[]>(appKeys.recents) ?? []).map((recent) => recent.path);
   const location = useRouterState({ router, select: (state) => state.location });
   const view = createMemo(() => viewOf(router.matchRoutes(location())));
@@ -216,11 +220,13 @@ export function createAppState(router: AppRouter) {
       actions: current?.actions,
       selectedSha: current?.selectedSha(),
       pullMode: effectivePullMode(settings(), path === undefined ? undefined : repoSettings(path)).mode,
+      offline: !online(),
       undo: path === undefined ? { kind: "unavailable", reason: "Open a repository first" } : undoState(activity(), path),
       anchor: { left: Math.max(16, window.innerWidth / 2 - 160), top: 140 },
       app: paletteApp(),
       revealCommit: (sha) => current?.revealCommit(sha),
       revealRef: (name) => current?.revealRef(name),
+      revealHead: () => current?.revealHead(),
       focusComposer: () => current?.focusComposer(),
       loadCommits: () => current?.loadCommits() ?? Promise.resolve([]),
     };
@@ -274,6 +280,7 @@ export function createAppState(router: AppRouter) {
 
   return {
     queryClient,
+    online,
     settings,
     tabs,
     ready,

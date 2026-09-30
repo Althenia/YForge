@@ -534,7 +534,8 @@ fn combined_diff(root: &Path, range: &Range) -> Result<Vec<FileEntry>, CoreError
     parse_raw(&raw)?
         .into_iter()
         .map(|(status, path, _)| {
-            let parsed = diff::read_commit_diff(root, &range.base, &range.head, &path, None)?;
+            let parsed =
+                diff::read_commit_diff(root, &range.base, &range.head, &path, None, false)?;
             let whole_file_only = parsed.binary
                 || parsed.hunks.is_empty()
                 || status == FileStatus::TypeChanged

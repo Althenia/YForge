@@ -27,7 +27,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `app_info` | none | `AppInfo { app_version, git_version }` |
 | `launch_path` | none | `string`: `YFORGE_REPO`, else the first CLI argument, else the current directory (empty values are ignored) |
 | `repo_open` | `path: string` | `RepoSnapshot` |
-| `repo_graph` | `path: string`, `offset: number`, `limit: number` | `GraphPage` |
+| `repo_graph` | `path: string`, `offset: number`, `limit: number`, `visibility?: GraphVisibility` (default `{ kind: "all" }`) | `GraphPage` |
 | `diff_file` | `path`, `file: string`, `area: "unstaged" \| "staged" \| "untracked"`, `ignoreWhitespace?: boolean` (default `false`; `true` adds `-w`) | `FileDiff` |
 | `stage_files` | `path`, `files: string[]` | `null` |
 | `unstage_files` | `path`, `files: string[]` | `null` |
@@ -40,7 +40,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `commit` | `path`, `summary: string`, `description: string`, `amend: boolean` | `string`: the new HEAD sha |
 | `amend_info` | `path` | `AmendInfo` |
 | `commit_details` | `path`, `sha: string` | `CommitDetails` |
-| `commit_file_diff` | `path`, `sha: string`, `file: string` | `FileDiff` |
+| `commit_file_diff` | `path`, `sha: string`, `file: string`, `ignoreWhitespace?: boolean` (default `false`; `true` adds `-w`) | `FileDiff` |
 | `repo_watch` | `path` | `null`; starts (or replaces) the repository watcher that emits `repo-changed` |
 | `check_branch_name` | `path`, `name: string` | `string`: the name, if `git check-ref-format --branch` accepts it unchanged; otherwise `invalid_request` |
 | `checkout` | `path`, `target: CheckoutTarget`, `stash: boolean`, `leaveStashed?: boolean` | `CheckoutOutcome { auto_stash }`; `auto_stash` is `stashed` when the stash was left and recorded |
@@ -78,7 +78,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `publish` | `path`, `id: string`, `remote: string` | `null`; `git push --set-upstream <remote> <branch>`; needs a commit and an existing remote |
 | `clone_repo` | `id: string`, `url: string`, `destination: string` (absolute, the full target path) | `string`: the opened repository root. The destination must not exist or be empty; a failed or cancelled clone removes what it created |
 | `init_repo` | `path: string` (absolute; created when missing) | `string`: the root. Uses the default branch from the app settings; `already_a_repository` when `path` is a repository root |
-| `search_commits` | `path`, `query: string` | `SearchResult { total, rows }`: `rows` are graph row indexes of commits (and stashes) whose message, author name or email, or SHA prefix match, case-insensitive; `author:` and `sha:` restrict the field; an empty query matches nothing |
+| `search_commits` | `path`, `query: string`, `visibility?: GraphVisibility` (default `{ kind: "all" }`; rows index the graph that visibility renders) | `SearchResult { total, rows }`: `rows` are graph row indexes of commits (and stashes) whose message, author name or email, or SHA prefix match, case-insensitive; `author:` and `sha:` restrict the field; an empty query matches nothing |
 | `auth_respond` | `id: string` (the prompt id), `reply: AuthReply` | `boolean`: true when a prompt with that id was waiting |
 | `settings_load` | none | `AppSettings` |
 | `settings_save` | `settings: AppSettings` | `AppSettings`: the stored value (default branch trimmed); `invalid_request` for a bad branch name or an interval other than 0, 5, 10, 30 |
@@ -120,6 +120,11 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `snapshot_restore_files` | `path`, `reference`, `files: string[]` | `string`: the ref of the safety snapshot taken first |
 | `snapshot_restore_all` | `path`, `reference`, `force: boolean` | `string`: the ref of the safety snapshot taken first |
 | `snapshot_delete` | `path`, `reference` | `null` |
+| `file_at_revision` | `path`, `file: string`, `rev: string` (a commit id of 4–64 hex characters, `:index`, or `:worktree`) | `FileAtRevision` |
+| `stash_details` | `path`, `index: number`, `sha: string` | `StashDetails { index, sha, message, base_sha, untracked_sha, files: StashFile[] }` |
+| `stash_file_diff` | `path`, `index`, `sha`, `file: string`, `ignoreWhitespace?: boolean` | `FileDiff` |
+| `repo_ui_prefs_load`, `repo_ui_prefs_save` | `path`; `path`, `prefs: RepoUiPrefs` (save) | `RepoUiPrefs` / `null` |
+| `cli_install` | none | `CliInstall { path, replaced }` |
 | `rebase_plan` | `path`, `base: string` | `RebasePlan { base, commits: RebaseTodo[], pushed }`: `commits` run oldest first from `base` (exclusive, a commit id or full ref) to HEAD; `RebaseTodo { sha, summary, author, is_merge, pushed }`; `pushed` is true when the commit is reachable from `@{upstream}`, and on the plan when any commit is. `invalid_request` when `base` is not an ancestor of HEAD or the range is empty |
 | `rebase_interactive` | `path`, `base`, `steps: RebaseStep[]` | `RebaseResult { outcome, pushed, dropped_all }` |
 | `squash_commits` | `path`, `shas: string[]`, `message: string` | `RebaseResult` |
@@ -151,6 +156,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `auth-prompt` | `AuthPromptEvent { operation, prompt: AuthPrompt }` | A network command needs an answer. `operation` is the operation id; `prompt.id` is `<operation>/auth-<n>`; `prompt.kind` is `credentials` (HTTPS username and token; `username` is set when the address already names one), `passphrase` (an SSH key passphrase or another secret; `message` is git's prompt), or `host_key` (`host` and the SHA256 `fingerprint`) |
 | `activity-recorded` | `ActivityEntry` | A command finished. The same `id` is emitted again when its undo status changes, so consumers upsert by `id` |
 | `ai-sign-in` | `AiSignInEvent { operation, provider, stage }` | `ai_sign_in` progress. `stage` is `{ kind: "device_code", url, code }` (device-code method only; emitted once, when the CLI prints both) or `{ kind: "completed", status }` (after the CLI exits with 0 and the status was re-checked). Failures and cancellation reject the call instead |
+| `open-path-requested` | `OpenPathRequested { path }` | A second `yforge [path]` launch reached the running instance; `path` is absolute (a relative argument is resolved against the second process's working directory). The window is unminimized, shown, and focused first. A launch without a path only focuses the window and emits nothing |
 
 The watcher (`crates/yforge-core/src/watch.rs`, the `notify` crate) watches the working tree recursively, plus the git directory and the common git directory when they live outside it (linked worktrees).
 
@@ -363,11 +369,40 @@ These run against the checked-out branch and fail with `invalid_request` while a
 - **Snapshot commands.** `reference` must be a YForge snapshot ref, otherwise `invalid_request`. `snapshots_list` returns `SnapshotInfo { ref, time, action, description, head_sha, branch, files_changed }` newest first (`head_sha` and `branch` are `null` before the first commit or on a detached HEAD). `snapshot_files` returns `SnapshotChange { path, status }` (`added`, `modified`, `deleted`, `type_changed`) against the snapshot's HEAD. `snapshot_restore_files` writes the listed files from the snapshot into the working tree (each must be a file in the snapshot, no `..`, never through a symlink; the index is untouched). `snapshot_restore_all` restores the index and working tree to the snapshot's state; it refuses during a merge, rebase, cherry-pick, revert, or bisect, and refuses when HEAD or the branch moved unless `force` is set, and it never moves HEAD. Both restores first snapshot the current state and return that ref, so a restore is undone by restoring that snapshot. `snapshot_delete` removes only that ref.
 - Not snapshotted: operation abort, pull with auto-stash (the stash itself preserves the changes), the `worktree_integrate` cleanup, `conflict_reset`, and undo.
 
+### File view
+
+- `file_at_revision` reads one file for the Inline full-file view and the file view. `rev` is a commit id (4–64 hex characters), `:index` (the staged blob), or `:worktree`; anything else is `invalid_request`, as are an unsafe path and a file that is not a regular file or blob in that revision.
+- `FileAtRevision` is `{ kind: "text", text, size, eol }` or `{ kind: "binary", size }`. A file with a NUL byte or invalid UTF-8 is binary. `eol` is the majority line ending (`"\r\n"` when CRLF lines outnumber bare LF lines, else `"\n"`); `size` is in bytes.
+- A file larger than 2 MiB (2,097,152 bytes; exactly that size is shown) fails with `file_too_large` before it is read.
+- `:worktree` refuses a symbolic link and a path behind one (`invalid_request`).
+- The untracked files of a `-u` stash are read with `rev` = `StashDetails.untracked_sha`.
+- `FileDiff` carries `old_size` and `new_size`: byte sizes set only when `binary` is true and only for the side that exists (`null` otherwise, and always `null` for text diffs).
+
+### Stash details
+
+- `stash_details` checks that `stash@{index}` is still `sha` (otherwise `invalid_request`). `StashDetails { index, sha, message, base_sha, untracked_sha, files }`: `base_sha` is the first parent, `untracked_sha` the third parent of a `-u` stash (else `null`). `files` are `StashFile { path, original_path, status, additions, deletions, untracked }`: first the tracked changes against the first parent (with rename detection; `additions`/`deletions` are `null` for binaries), then every file of the third parent as `added` with `untracked: true`.
+- `stash_file_diff` makes the same check and returns the `FileDiff` of one listed file (tracked against the first parent, untracked against the empty tree). A path not in `files` is `invalid_request`.
+
+### Graph visibility and the working-tree row
+
+- Row 0 is the working-tree row whenever HEAD exists: kind `changes` when the working tree has any change, else `clean_changes` (summary "Working tree clean"); its parent is HEAD. An unborn repository has a row only while it has changes.
+- `GraphVisibility` is `{ kind: "all" }`, `{ kind: "current_and_upstream" }`, or `{ kind: "refs", refs: { name, kind: "local_branch" | "remote_branch" | "tag" }[] }`. Filtered layouts are computed for the filtered history alone, so lanes, edges, and `total` describe only the rows shown, and `search_commits` with the same `visibility` returns indexes into them. `current_and_upstream` shows the checked-out branch and its upstream (a detached HEAD shows its own history) and labels tags on shown commits; `refs` shows only the listed refs (missing ones are skipped; an empty list shows only the working-tree row). Stash rows stay only when their base commit is shown. The visible tips are part of the graph cache key.
+
+### Interface preferences
+
+- `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or more than 500 refs. A stored blob that does not match is `storage_failed`.
+
+### Command line and single instance
+
+- The app uses `tauri-plugin-single-instance`. Launching the binary again does not start a second instance: the running window is focused and, when the first argument is non-empty, `open-path-requested { path }` is emitted; the UI opens it as a tab. The first launch still uses `launch_path`.
+- `cli_install` (only when the user triggers it) writes `~/.local/bin/yforge`, creating the directory when needed, with no elevated rights. The file is a `/bin/sh` script (mode 0755, second line `# Installed by YForge`) that runs the current YForge executable detached with the arguments, so the terminal is not blocked and a running instance receives the path through the single-instance hand-off. A file or link there without that marker is never touched (`invalid_request`); a marked script is replaced atomically (`replaced: true`); a write failure is `storage_failed` with the operating system's message. Whether `~/.local/bin` is on `PATH` is not checked; the UI says so.
+- `RepoSnapshot.main_root` is the main worktree path (equal to `root` outside linked worktrees); the other `worktrees` entries are the siblings, and the UI groups tabs by `main_root`.
+
 ### `GraphPage`
 
 `{ rows, carried, total }` for the window `[offset, offset + limit)` of the full layout. `total` counts all rows, including the Changes row and stash rows.
 
-- **Order:** `git log --topo-order --exclude=refs/stash --all`, newest first. Stash rows sit before the first commit that is not newer than the stash, and always before their base commit. A Changes row is row 0 when the working tree has any change, and its parent is HEAD.
+- **Order:** `git log --topo-order --exclude=refs/stash --all`, newest first. Stash rows sit before the first commit that is not newer than the stash, and always before their base commit. Row 0 is the working-tree row (see Graph visibility and the working-tree row).
 - **Row:** `sha` (`null` for Changes), `parents`, `summary`, `author { name, initials }` (`null` for Changes), `time` (Unix seconds; `null` for Changes), `refs { name, kind, is_head }` with `kind` of `local_branch`, `remote_branch`, or `tag` (annotated tags are peeled), `kind` of `commit`, `merge`, `stash`, or `changes`, `column`, and `edges`.
 - **Edge:** `{ lane, parent_row, parent_column }`. `lane` is the column the edge runs along. `parent_row` and `parent_column` are global row and column indices, or `null` when the parent is not in the graph. The renderer draws node → lane on the child's row, down the lane, then into the parent's column on the parent's row.
 - **Carried edges:** `carried` holds `{ row, column, kind, edge }` for edges from rows above `offset` whose parent is at or below `offset` (or outside the graph). With them a client can draw any window without loading earlier pages.
@@ -375,7 +410,7 @@ These run against the checked-out branch and fail with `invalid_request` while a
 
 ## Errors
 
-Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `output` is `null` except for `commit_failed`, `auth_failed`, `local_changes`, `push_rejected`, `not_fast_forward`, `ai_auth_required`, and `ai_failed`. The client rethrows it as `IpcError` (`kind`, `message`, `output`); a non-payload rejection becomes `IpcError` with kind `internal`.
+Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `output` is `null` except for `commit_failed`, `auth_failed`, `local_changes`, `push_rejected`, `not_fast_forward`, `ai_auth_required`, `ai_failed`, and `file_too_large`. The client rethrows it as `IpcError` (`kind`, `message`, `output`); a non-payload rejection becomes `IpcError` with kind `internal`.
 
 | `kind` | Cause |
 |---|---|
@@ -403,6 +438,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `not_head` | `edit_head_message` was given a commit that is not HEAD |
 | `merge_commit_in_range` | A history rewrite (`rebase_interactive`, `squash_commits`, `recompose_preview`, `recompose_apply`) found a merge commit in `base..HEAD`; the message names it |
 | `snapshot_failed` | A safety snapshot could not be saved before a destructive action; the action was refused and nothing changed. The message names the action and git's reason |
+| `file_too_large` | `file_at_revision` found a file over 2 MiB; `output` is its size in bytes (decimal) |
 | `ai_not_configured` | No active provider, or an HTTP provider without a model |
 | `ai_provider_unavailable` | The CLI was not found (login shell, then `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or the provider's explicit path), or the endpoint could not be reached; the message carries the reason |
 | `ai_auth_required` | The CLI is signed out or its token was refused, the endpoint answered 401/403, or the OpenRouter key is missing from the Keychain; `output` is the sanitized provider message |
@@ -416,7 +452,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 - Commands are `async`. Git work runs through `tauri::async_runtime::spawn_blocking`, off the main thread.
 - Each call runs its own git processes and returns one response. The shared state is the single repository watcher held by the shell (`repo_watch`) and the core's graph layout cache.
 - Mutating commands take git's own locks; a concurrent git process in the terminal surfaces as `git_failed` with git's message.
-- `repo_graph` and `search_commits` reuse one computed history and layout per repository root. The cache key is every ref and its target (`git for-each-ref`), the HEAD commit, the stash commits, and whether the working tree has changes; any difference recomputes the full layout, and the working-tree summary text is always read fresh. Pages are consistent only while the key does not change between calls. The ignored test `crates/yforge-core/tests/graph_perf.rs` gates the first page at under 1 s for 10k commits and under 3 s for 100k commits (`cargo test --release -p yforge-core -- --ignored`).
+- `repo_graph` and `search_commits` reuse one computed history and layout per repository root. The cache key is every ref and its target (`git for-each-ref`), the HEAD commit, the stash commits, the commit tips of the requested visibility, and whether the working tree has changes; any difference recomputes the full layout, and the working-tree summary text is always read fresh. Pages are consistent only while the key does not change between calls. The ignored test `crates/yforge-core/tests/graph_perf.rs` gates the first page at under 1 s for 10k commits and under 3 s for 100k commits (`cargo test --release -p yforge-core -- --ignored`).
 - `fetch`, `pull`, `push`, `push_force`, `push_tag`, `delete_remote_tag`, `publish`, and `clone_repo` register their `id` in a registry held by the shell (`OperationRegistry`); `operation_cancel` sets the cancel flag of the registered operation, and the id is removed when the call ends.
 - Deferred: cancelling any call other than the network commands, incremental layout, cherry-pick and revert of merge commits (parent choice).
 
@@ -485,7 +521,7 @@ The SolidJS frontend (`app/src`) uses the TanStack Solid adapters, one owner per
 | IPC reads and writes | `@tanstack/solid-query` | ^5.104.0 | One `QueryClient` per app (`createAppState`). Keys are in `app/src/state/queryKeys.ts`, scoped by repository path (`["repo", path, …]`); app-wide reads use `["recents"]`, `["app-info"]`, `["identity"]`; `["repo-settings", path]` and `["conflict", path, file]` sit outside the repository prefix because the watcher must not refetch them. Git writes go through `session.mutate` (a mutation that invalidates `["repo", path]`); `repo-changed` calls the same refresh. Leaving a workspace removes its snapshot and graph pages. Authentication replies never enter the cache. Reads are read through `dataOf` (`state/queryData.ts`) so a pending query never suspends the route. |
 | Shared client state | `@tanstack/solid-store` | ~0.11.2 | Tab list, app settings, workspace selection and diff target, and the commit composer's pending edits (`state/clientStore.ts`). Component-local state (menus, popovers, drafts of one field) stays in Solid signals. |
 | Long lists | `@tanstack/solid-virtual` | ^3.13.40 | The graph rows (`GraphPanel`), the file lists of the Changes, Commit and Operation inspectors, and the lines of each diff hunk (`components/VirtualRows.tsx`). Graph options keep `aria-posinset`/`aria-setsize`; the selected or focused row stays rendered while scrolled away; J/K, Home, End and reveal-by-search scroll through the virtualizer. |
-| Data grid model | `@tanstack/solid-table` | ^9.2.4 | The graph's column definitions and sizing (`graph/columns.ts`); no rows go through the table (the graph pages rows by index). |
+| Data grid model | `@tanstack/solid-table` | ^9.2.4 | The graph's column definitions, visibility, and sizing (`graph/columns.ts`), persisted per repository through `repo_ui_prefs_load/save`; no rows go through the table (the graph pages rows by index). |
 | Multi-field forms | `@tanstack/solid-form` | ^1.33.5 | Remote form in settings, clone and create dialogs, branch-name, stash and tag popovers, authentication dialog (the secret is reset after submit). The merge popover (one choice), the single-field settings inputs and the commit composer (draft state lives in the Store so it survives inspector switches and amend prefill) stay on primitives. |
 | Debounce, coalescing | `@tanstack/solid-pacer` | ~0.23.0 | Commit-search input debounce, refresh coalescing (one running reload plus at most one queued follow-up), tooltip hover delay. No other handler was hand-debounced. |
 | App shortcuts | `@tanstack/solid-hotkeys` | ~0.12.1 | Registry shortcuts (`state/palette.ts` stays the single source; `hotkeyOf` converts a label) plus ⌘K, Escape to leave a diff, and ⌘G / ⇧⌘G. ⌘Z does not fire inside text inputs. Keys scoped to a focused element (graph J/K, file-row S/U, menus, dialogs) remain DOM handlers of that element. Chords use `Mod` (⌘ on macOS). |

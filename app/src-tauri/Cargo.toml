@@ -18,6 +18,7 @@ log = "0.4.34"
 serde = { version = "1.0.229", features = ["derive"] }
 tauri = { version = "2.11.6", features = [] }
 tauri-plugin-dialog = "2.8.0"
+tauri-plugin-single-instance = "2.5.1"
 yforge-ai = { version = "0.1.0", path = "../../crates/yforge-ai" }
 yforge-core = { version = "0.1.0", path = "../../crates/yforge-core" }
 

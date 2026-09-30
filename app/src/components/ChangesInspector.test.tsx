@@ -64,7 +64,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
   const mounted = mountWithApp(() => {
     const session = testSession("/r", current);
     const composer = createComposer();
-    const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", undoEntry: () => undefined }));
+    const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined }));
     return (
       <ChangesInspector
         session={session}
@@ -175,5 +175,50 @@ describe("commit and push", () => {
     await flush(80);
 
     expect(commands()).toEqual([]);
+  });
+});
+
+describe("file keyboard shortcuts", () => {
+  const row = (host: HTMLElement, name: string) => [...host.querySelectorAll<HTMLElement>(".frow")].find((entry) => entry.textContent?.includes(name)) as HTMLElement;
+  const press = (element: HTMLElement, key: string) => element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+
+  it("stages the focused unstaged file with S and unstages the focused staged file with U", async () => {
+    const both = snapshot({
+      counts: { modified: 1, added: 1, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+      files: [
+        { path: "a.txt", original_path: null, area: "staged", status: "added" },
+        { path: "b.txt", original_path: null, area: "unstaged", status: "modified" },
+      ],
+    });
+    const { host } = mount(both);
+    await flush();
+
+    press(row(host, "b.txt"), "s");
+    await flush();
+    press(row(host, "a.txt"), "u");
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "stage_files" || call.cmd === "unstage_files").map((call) => [call.cmd, call.args.files])).toEqual([
+      ["stage_files", ["b.txt"]],
+      ["unstage_files", ["a.txt"]],
+    ]);
+  });
+
+  it("moves between files with J and K", async () => {
+    const both = snapshot({
+      counts: { modified: 2, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+      files: [
+        { path: "a.txt", original_path: null, area: "unstaged", status: "modified" },
+        { path: "b.txt", original_path: null, area: "unstaged", status: "modified" },
+      ],
+    });
+    const { host } = mount(both);
+    await flush();
+    row(host, "a.txt").focus();
+
+    press(row(host, "a.txt"), "j");
+    expect(document.activeElement).toBe(row(host, "b.txt"));
+    press(row(host, "b.txt"), "k");
+    expect(document.activeElement).toBe(row(host, "a.txt"));
   });
 });
