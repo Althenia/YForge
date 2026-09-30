@@ -12,6 +12,11 @@ use yforge_core::{
     RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
 use yforge_core::{
+    AiModel, AiSignInEvent, AiSignInMethod, ApiKeyChange, CommitDraft, ConflictProposal,
+    ProviderConfig, ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate,
+    RecomposeProposal,
+};
+use yforge_core::{
     MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
 };
 use yforge_core::{
@@ -79,6 +84,18 @@ fn export_all(dir: &Path) {
     RecomposeChange::export_all(&config).expect("export RecomposeChange");
     RecomposeGroup::export_all(&config).expect("export RecomposeGroup");
     RecomposeResult::export_all(&config).expect("export RecomposeResult");
+    ProviderConfig::export_all(&config).expect("export ProviderConfig");
+    ProviderInput::export_all(&config).expect("export ProviderInput");
+    ProviderUpdate::export_all(&config).expect("export ProviderUpdate");
+    ApiKeyChange::export_all(&config).expect("export ApiKeyChange");
+    ProviderStatus::export_all(&config).expect("export ProviderStatus");
+    ProviderSummary::export_all(&config).expect("export ProviderSummary");
+    AiModel::export_all(&config).expect("export AiModel");
+    AiSignInMethod::export_all(&config).expect("export AiSignInMethod");
+    AiSignInEvent::export_all(&config).expect("export AiSignInEvent");
+    CommitDraft::export_all(&config).expect("export CommitDraft");
+    RecomposeProposal::export_all(&config).expect("export RecomposeProposal");
+    ConflictProposal::export_all(&config).expect("export ConflictProposal");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

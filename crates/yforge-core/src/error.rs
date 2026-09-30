@@ -29,6 +29,12 @@ pub enum ErrorKind {
     OperationInProgress,
     NotHead,
     MergeCommitInRange,
+    AiNotConfigured,
+    AiProviderUnavailable,
+    AiAuthRequired,
+    AiInvalidResponse,
+    AiFailed,
+    AiTimeout,
     Internal,
 }
 
@@ -123,6 +129,29 @@ pub enum CoreError {
     MergeCommitInRange {
         sha: String,
     },
+    AiNotConfigured {
+        detail: String,
+    },
+    AiProviderUnavailable {
+        provider: String,
+        detail: String,
+    },
+    AiAuthRequired {
+        provider: String,
+        detail: String,
+    },
+    AiInvalidResponse {
+        provider: String,
+        reason: String,
+    },
+    AiFailed {
+        provider: String,
+        output: String,
+    },
+    AiTimeout {
+        provider: String,
+        seconds: u32,
+    },
 }
 
 impl CoreError {
@@ -151,6 +180,12 @@ impl CoreError {
             Self::OperationInProgress { .. } => ErrorKind::OperationInProgress,
             Self::NotHead { .. } => ErrorKind::NotHead,
             Self::MergeCommitInRange { .. } => ErrorKind::MergeCommitInRange,
+            Self::AiNotConfigured { .. } => ErrorKind::AiNotConfigured,
+            Self::AiProviderUnavailable { .. } => ErrorKind::AiProviderUnavailable,
+            Self::AiAuthRequired { .. } => ErrorKind::AiAuthRequired,
+            Self::AiInvalidResponse { .. } => ErrorKind::AiInvalidResponse,
+            Self::AiFailed { .. } => ErrorKind::AiFailed,
+            Self::AiTimeout { .. } => ErrorKind::AiTimeout,
         }
     }
 
@@ -245,6 +280,23 @@ impl fmt::Display for CoreError {
                 "{} is a merge commit; rewriting history that contains merge commits is not supported",
                 sha.chars().take(7).collect::<String>()
             ),
+            Self::AiNotConfigured { detail } => write!(f, "No AI provider is ready: {detail}"),
+            Self::AiProviderUnavailable { provider, detail } => {
+                write!(f, "{provider} is unavailable: {detail}")
+            }
+            Self::AiAuthRequired { provider, .. } => {
+                write!(f, "{provider} needs you to sign in or check its credentials")
+            }
+            Self::AiInvalidResponse { provider, reason } => write!(
+                f,
+                "{provider} returned a response that cannot be used: {reason}"
+            ),
+            Self::AiFailed { provider, .. } => {
+                write!(f, "{provider} failed to produce a response")
+            }
+            Self::AiTimeout { provider, seconds } => {
+                write!(f, "{provider} did not answer within {seconds} seconds")
+            }
         }
     }
 }
@@ -259,6 +311,10 @@ impl From<CoreError> for ErrorPayload {
             | CoreError::LocalChanges { detail }
             | CoreError::PushRejected { detail }
             | CoreError::NotFastForward { detail } => Some(detail.clone()),
+            CoreError::AiAuthRequired { detail, .. } => {
+                Some(detail.clone()).filter(|text| !text.is_empty())
+            }
+            CoreError::AiFailed { output, .. } => Some(output.clone()),
             _ => None,
         };
         Self {

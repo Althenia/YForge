@@ -5,33 +5,41 @@ mod tracking;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
+use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
+use yforge_ai::{Ai, AiError, KeychainStore, Selection};
 use yforge_core::{
-    ActivityEntry, AmendInfo, AppInfo, AppSettings, AuthReply, CancelToken, ChangeArea,
-    CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide,
-    CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
+    ActivityEntry, AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, AmendInfo, AppInfo,
+    AppSettings, AuthReply, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CommitBrief,
+    CommitDetails, CommitDraft, ConflictFile, ConflictProposal, ConflictSide, CoreError,
+    CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
     ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode, MessageEdit,
-    OperationKind, OperationOutcome, OperationProgress, Planned, Progress, PullMode, PullOutcome,
-    PullReport, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
-    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeResult, RemoteInfo, RepoChanged,
-    RepoSettings, RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore,
-    SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
+    OperationKind, OperationOutcome, OperationProgress, Planned, Progress, ProviderInput,
+    ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome, PullReport, PushTarget,
+    RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup,
+    RecomposePreview, RecomposeProposal, RecomposeResult, RemoteInfo, RepoChanged, RepoSettings,
+    RepoSnapshot, RepoWatcher, ResetMode, SearchResult, SshKey, StashRestore, SwitchStash,
+    TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
 use open::OpenWith;
-use tracking::{execute, plain, ActivityLog, Draft, Track};
+use tracking::{execute, plain, unix_now, ActivityLog, AiRun, Draft, Track};
 
 const REPO_ENV: &str = "YFORGE_REPO";
 const DATA_DIR_ENV: &str = "YFORGE_DATA_DIR";
 const REPO_CHANGED_EVENT: &str = "repo-changed";
 const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
+const AI_SIGN_IN_EVENT: &str = "ai-sign-in";
 
 pub struct DataDir(pub PathBuf);
+
+pub struct AiState(pub Ai);
 
 #[derive(Default)]
 struct WatchState(Mutex<Option<RepoWatcher>>);
@@ -2722,8 +2730,333 @@ async fn worktree_integrate<R: Runtime>(
     result
 }
 
+fn ai_payload(error: AiError) -> ErrorPayload {
+    ErrorPayload::from(CoreError::from(error))
+}
+
+fn ai_error_kind(error: &AiError) -> ErrorKind {
+    match error {
+        AiError::NotConfigured { .. } => ErrorKind::AiNotConfigured,
+        AiError::Unavailable { .. } => ErrorKind::AiProviderUnavailable,
+        AiError::AuthRequired { .. } => ErrorKind::AiAuthRequired,
+        AiError::InvalidResponse { .. } => ErrorKind::AiInvalidResponse,
+        AiError::Failed { .. } => ErrorKind::AiFailed,
+        AiError::Timeout { .. } => ErrorKind::AiTimeout,
+        AiError::Cancelled => ErrorKind::Cancelled,
+        AiError::Invalid { .. } => ErrorKind::InvalidRequest,
+        AiError::Keychain { .. } => ErrorKind::StorageFailed,
+        AiError::Core(error) => error.kind(),
+    }
+}
+
+struct AiCall<'a, R: Runtime> {
+    app: &'a AppHandle<R>,
+    log: &'a ActivityLog,
+    registry: &'a OperationRegistry,
+    repo: &'a str,
+    operation: OperationKind,
+    selection: &'a Selection,
+    id: &'a str,
+}
+
+impl<R: Runtime> AiCall<'_, R> {
+    async fn run<T, F, Fut>(&self, run: F) -> Result<T, ErrorPayload>
+    where
+        F: FnOnce(CancelToken) -> Fut,
+        Fut: Future<Output = Result<T, AiError>>,
+    {
+        let token = self.registry.register(self.id, CancelToken::new())?;
+        let started_at = unix_now();
+        let clock = Instant::now();
+        let result = run(token).await;
+        self.registry.finish(self.id);
+        self.log.record(
+            self.app,
+            Draft::ai(AiRun {
+                repo: self.repo.to_owned(),
+                operation: self.operation,
+                provider: self.selection.config.kind,
+                provider_name: self.selection.config.name.clone(),
+                model: self.selection.config.model.clone(),
+                started_at,
+                duration_ms: u32::try_from(clock.elapsed().as_millis()).unwrap_or(u32::MAX),
+                error_kind: result.as_ref().err().map(ai_error_kind),
+            }),
+        );
+        result.map_err(ai_payload)
+    }
+}
+
+#[tauri::command]
+async fn ai_providers_list(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+) -> Result<Vec<ProviderSummary>, ErrorPayload> {
+    let result = ai.0.list(&data_dir(&data)).await.map_err(ai_payload);
+    log_outcome("ai_providers_list", &result, |list| {
+        format!("providers={}", list.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_add(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    input: ProviderInput,
+) -> Result<ProviderSummary, ErrorPayload> {
+    log::debug!("ai_provider_add {input:?}");
+    let result = ai.0.add(&data_dir(&data), input).await.map_err(ai_payload);
+    log_outcome("ai_provider_add", &result, |summary| {
+        format!("id={}", summary.config.id)
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_update(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    update: ProviderUpdate,
+) -> Result<ProviderSummary, ErrorPayload> {
+    log::debug!("ai_provider_update {update:?}");
+    let result =
+        ai.0.update(&data_dir(&data), update)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_provider_update", &result, |summary| {
+        format!("id={}", summary.config.id)
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_remove(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    id: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("ai_provider_remove id={id}");
+    let result = ai.0.remove(&data_dir(&data), &id).await.map_err(ai_payload);
+    log_outcome("ai_provider_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn ai_set_active(
+    data: State<'_, DataDir>,
+    id: Option<String>,
+    model: Option<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!("ai_set_active id={id:?} model={model:?}");
+    let dir = data_dir(&data);
+    let result =
+        blocking(move || yforge_core::ai_choose(&dir, id.as_deref(), model.as_deref())).await;
+    log_outcome("ai_set_active", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_test(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    id: String,
+) -> Result<ProviderStatus, ErrorPayload> {
+    log::debug!("ai_provider_test id={id}");
+    let result = ai.0.test(&data_dir(&data), &id).await.map_err(ai_payload);
+    log_outcome("ai_provider_test", &result, |status| format!("{status:?}"));
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_models(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    id: String,
+) -> Result<Vec<AiModel>, ErrorPayload> {
+    log::debug!("ai_provider_models id={id}");
+    let result = ai.0.models(&data_dir(&data), &id).await.map_err(ai_payload);
+    log_outcome("ai_provider_models", &result, |models| {
+        format!("models={}", models.len())
+    });
+    result
+}
+
+fn stage_name(stage: &AiSignInStage) -> &'static str {
+    match stage {
+        AiSignInStage::DeviceCode { .. } => "device_code",
+        AiSignInStage::Completed { .. } => "completed",
+    }
+}
+
+#[tauri::command]
+async fn ai_sign_in<R: Runtime>(
+    app: AppHandle<R>,
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    operations: State<'_, Operations>,
+    provider: String,
+    id: String,
+    method: AiSignInMethod,
+) -> Result<ProviderStatus, ErrorPayload> {
+    log::debug!("ai_sign_in provider={provider} id={id} method={method:?}");
+    let token = operations.running.register(&id, CancelToken::new())?;
+    let emitter = app.clone();
+    let (operation, target) = (id.clone(), provider.clone());
+    let result =
+        ai.0.sign_in(&data_dir(&data), &provider, method, &token, &move |stage| {
+            log::debug!(
+                "ai-sign-in operation={operation} stage={}",
+                stage_name(&stage)
+            );
+            let event = AiSignInEvent {
+                operation: operation.clone(),
+                provider: target.clone(),
+                stage,
+            };
+            if let Err(error) = emitter.emit(AI_SIGN_IN_EVENT, event) {
+                log::warn!("could not emit {AI_SIGN_IN_EVENT}: {error}");
+            }
+        })
+        .await
+        .map_err(ai_payload);
+    operations.running.finish(&id);
+    log_outcome("ai_sign_in", &result, |status| format!("{status:?}"));
+    result
+}
+
+#[tauri::command]
+async fn ai_generate_commit_message<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<CommitDraft, ErrorPayload> {
+    log::debug!("ai_generate_commit_message path={path} id={id}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let context = blocking(move || yforge_core::commit_context(Path::new(&target))).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiCommitMessage,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, context) = (&ai.0, &selection, &context);
+            async move { ai.commit_message(selection, context, &token).await }
+        })
+        .await;
+    log_outcome("ai_generate_commit_message", &result, |draft| {
+        format!(
+            "summary_chars={} trimmed={} excluded={} truncated={}",
+            draft.summary.chars().count(),
+            draft.summary_trimmed,
+            draft.excluded.len(),
+            draft.truncated.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_propose_recompose<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    base: String,
+) -> Result<RecomposeProposal, ErrorPayload> {
+    log::debug!("ai_propose_recompose path={path} id={id} base={base}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let preview =
+        blocking(move || yforge_core::recompose_preview(Path::new(&target), &base)).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiRecompose,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, preview) = (&ai.0, &selection, &preview);
+            async move { ai.recompose(selection, preview, &token).await }
+        })
+        .await;
+    log_outcome("ai_propose_recompose", &result, |proposal| {
+        format!(
+            "groups={} excluded={}",
+            proposal.groups.len(),
+            proposal.excluded.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_propose_conflict<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    file: String,
+) -> Result<ConflictProposal, ErrorPayload> {
+    log::debug!("ai_propose_conflict path={path} id={id} file={file}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let conflict: ConflictFile =
+        blocking(move || yforge_core::conflict_file(Path::new(&target), &file)).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiConflict,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, conflict) = (&ai.0, &selection, &conflict);
+            async move { ai.conflict(selection, conflict, &token).await }
+        })
+        .await;
+    log_outcome("ai_propose_conflict", &result, |proposal| {
+        format!("regions={}", proposal.regions.len())
+    });
+    result
+}
+
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    register_with(builder, Ai::new(Arc::new(KeychainStore)))
+}
+
+pub fn register_with<R: Runtime>(builder: tauri::Builder<R>, ai: Ai) -> tauri::Builder<R> {
     builder
+        .manage(AiState(ai))
         .manage(WatchState::default())
         .manage(Operations::default())
         .manage(ActivityLog::default())
@@ -2836,7 +3169,18 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             usage_list,
             usage_export,
             usage_clear,
-            undo_last
+            undo_last,
+            ai_providers_list,
+            ai_provider_add,
+            ai_provider_update,
+            ai_provider_remove,
+            ai_set_active,
+            ai_provider_test,
+            ai_provider_models,
+            ai_sign_in,
+            ai_generate_commit_message,
+            ai_propose_recompose,
+            ai_propose_conflict
         ])
 }
 

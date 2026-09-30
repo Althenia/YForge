@@ -6,6 +6,7 @@ use ts_rs::TS;
 
 use super::{open, sql};
 use crate::activity::OperationKind;
+use crate::ai::ProviderKind;
 use crate::error::{CoreError, ErrorKind};
 use crate::sqlite::{failure, page_cursor, page_limit, unix_now, write_json};
 use crate::store::load_settings;
@@ -21,6 +22,8 @@ pub struct UsageEvent {
     pub duration_ms: u32,
     pub count: u32,
     pub correlation_id: u32,
+    pub provider: Option<ProviderKind>,
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -34,6 +37,12 @@ pub struct UsageRecord {
     pub duration_ms: u32,
     pub count: u32,
     pub correlation_id: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub provider: Option<ProviderKind>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub model: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,6 +53,10 @@ struct Attributes {
     duration_ms: u32,
     count: u32,
     correlation_id: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider: Option<ProviderKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
 }
 
 struct Stored {
@@ -65,6 +78,8 @@ pub fn record_usage(dir: &Path, app_version: &str, event: &UsageEvent) -> Result
         duration_ms: event.duration_ms,
         count: event.count,
         correlation_id: event.correlation_id,
+        provider: event.provider,
+        model: event.model.clone(),
     })
     .map_err(|error| failure(dir, error))?;
     let kind = serde_json::to_value(event.kind)
@@ -123,6 +138,8 @@ fn decode(dir: &Path, stored: Stored) -> Result<Option<UsageRecord>, CoreError> 
         duration_ms: attributes.duration_ms,
         count: attributes.count,
         correlation_id: attributes.correlation_id,
+        provider: attributes.provider,
+        model: attributes.model,
     }))
 }
 

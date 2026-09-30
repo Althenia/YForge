@@ -28,6 +28,9 @@ const QUIET: [&str; 14] = [
 pub enum OperationKind {
     Abort,
     AddRemote,
+    AiCommitMessage,
+    AiConflict,
+    AiRecompose,
     Amend,
     ApplyStash,
     Checkout,
@@ -95,6 +98,9 @@ impl OperationKind {
         match self {
             Self::Abort => "Abort",
             Self::AddRemote => "Add remote",
+            Self::AiCommitMessage => "AI commit message",
+            Self::AiConflict => "AI conflict proposal",
+            Self::AiRecompose => "AI recompose proposal",
             Self::Amend => "Amend",
             Self::ApplyStash => "Apply stash",
             Self::Checkout => "Checkout",

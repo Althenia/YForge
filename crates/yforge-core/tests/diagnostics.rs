@@ -2,7 +2,8 @@ use rusqlite::Connection;
 use yforge_core::{
     clear_crashes, delete_usage, export_crashes, export_usage, list_crashes, list_usage,
     record_crash, record_panic, record_usage, save_settings, start_storage, AppSettings,
-    CrashOrigin, CrashReport, ErrorKind, NewCrash, OperationKind, Redactor, UsageEvent,
+    CrashOrigin, CrashReport, ErrorKind, NewCrash, OperationKind, ProviderKind, Redactor,
+    UsageEvent,
 };
 
 const VERSION: &str = "9.9.9";
@@ -44,6 +45,8 @@ fn event(kind: OperationKind) -> UsageEvent {
         duration_ms: 250,
         count: 3,
         correlation_id: 7,
+        provider: None,
+        model: None,
     }
 }
 
@@ -224,6 +227,53 @@ fn usage_is_not_recorded_while_telemetry_is_off() {
     record_usage(dir.path(), VERSION, &event(OperationKind::Push)).unwrap();
 
     assert!(list_usage(dir.path(), None, 10).unwrap().is_empty());
+}
+
+#[test]
+fn ai_usage_stores_the_provider_kind_and_model_id_and_nothing_else() {
+    let dir = tempfile::tempdir().unwrap();
+    opt_in(dir.path(), true);
+    let ai = UsageEvent {
+        kind: OperationKind::AiCommitMessage,
+        ok: true,
+        error_kind: None,
+        duration_ms: 1800,
+        count: 0,
+        correlation_id: 9,
+        provider: Some(ProviderKind::Openrouter),
+        model: Some("openai/gpt-x".to_owned()),
+    };
+
+    record_usage(dir.path(), VERSION, &ai).unwrap();
+
+    let attrs: String = diagnostics(dir.path())
+        .query_row("SELECT attrs FROM events", [], |row| row.get(0))
+        .unwrap();
+    let attrs: serde_json::Value = serde_json::from_str(&attrs).unwrap();
+    let mut keys: Vec<&str> = attrs
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(
+        keys,
+        [
+            "app_version",
+            "correlation_id",
+            "count",
+            "duration_ms",
+            "error_kind",
+            "model",
+            "ok",
+            "provider"
+        ]
+    );
+    let record = &list_usage(dir.path(), None, 10).unwrap()[0];
+    assert_eq!(record.event, OperationKind::AiCommitMessage);
+    assert_eq!(record.provider, Some(ProviderKind::Openrouter));
+    assert_eq!(record.model.as_deref(), Some("openai/gpt-x"));
 }
 
 #[test]

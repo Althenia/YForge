@@ -7,7 +7,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use yforge_core::{
     collect_activity, ActivityEntry, CommandRecord, CoreError, ErrorKind, ErrorPayload,
-    OperationKind, Planned, UndoAction, UndoStatus, UsageEvent,
+    OperationKind, Planned, ProviderKind, UndoAction, UndoStatus, UsageEvent,
 };
 
 use crate::DataDir;
@@ -33,6 +33,56 @@ pub struct Draft {
     error_kind: Option<ErrorKind>,
     commands: Vec<CommandRecord>,
     undo: Planned,
+    ai: Option<(ProviderKind, Option<String>)>,
+}
+
+pub struct AiRun {
+    pub repo: String,
+    pub operation: OperationKind,
+    pub provider: ProviderKind,
+    pub provider_name: String,
+    pub model: Option<String>,
+    pub started_at: i64,
+    pub duration_ms: u32,
+    pub error_kind: Option<ErrorKind>,
+}
+
+impl Draft {
+    pub fn ai(run: AiRun) -> Self {
+        let label = run.operation.label();
+        let failed = run.error_kind;
+        Self {
+            summary: match (&failed, &run.model) {
+                (Some(_), _) => format!("{label} failed"),
+                (None, Some(model)) => format!("{} · {model}", run.provider_name),
+                (None, None) => run.provider_name.clone(),
+            },
+            error: failed.map(error_label),
+            error_kind: failed,
+            commands: Vec::new(),
+            undo: Planned::Unavailable(format!("{label} has no safe undo")),
+            ai: Some((run.provider, run.model)),
+            started_at: run.started_at,
+            duration_ms: run.duration_ms,
+            meta: Track {
+                repo: run.repo,
+                operation: run.operation,
+                local: false,
+                toast: false,
+            },
+        }
+    }
+}
+
+fn error_label(kind: ErrorKind) -> String {
+    let mut label = String::new();
+    for c in format!("{kind:?}").chars() {
+        if c.is_ascii_uppercase() && !label.is_empty() {
+            label.push('_');
+        }
+        label.push(c.to_ascii_lowercase());
+    }
+    label
 }
 
 struct Stored {
@@ -57,7 +107,7 @@ impl Default for Inner {
 #[derive(Clone, Default)]
 pub struct ActivityLog(Arc<Inner>);
 
-fn unix_now() -> i64 {
+pub fn unix_now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
@@ -110,6 +160,7 @@ pub fn execute<T, S>(
         error_kind,
         commands,
         undo,
+        ai: None,
     };
     (result, draft)
 }
@@ -217,6 +268,8 @@ impl ActivityLog {
             duration_ms: entry.duration_ms,
             count: u32::try_from(entry.commands.len()).unwrap_or(u32::MAX),
             correlation_id: entry.id,
+            provider: draft.ai.as_ref().map(|(provider, _)| *provider),
+            model: draft.ai.and_then(|(_, model)| model),
         };
         if let Err(error) = yforge_core::record_usage(&dir, env!("CARGO_PKG_VERSION"), &usage) {
             log::error!("could not record the usage event: {error}");

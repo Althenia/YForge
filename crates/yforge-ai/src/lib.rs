@@ -1,0 +1,21 @@
+mod cli;
+mod commit;
+mod conflict;
+mod discovery;
+mod error;
+mod http;
+mod json;
+mod limits;
+mod login;
+mod process;
+mod prompt;
+mod recompose;
+mod secret;
+mod service;
+mod text;
+
+pub use discovery::Environment;
+pub use error::{AiError, Result};
+pub use limits::Limits;
+pub use secret::{KeychainStore, MemoryStore, SecretError, SecretStore, KEYCHAIN_SERVICE};
+pub use service::{Ai, Selection, OPENROUTER_URL};

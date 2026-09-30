@@ -1,3 +1,4 @@
+mod ai;
 mod history;
 mod legacy;
 mod stashes;
@@ -18,6 +19,10 @@ use crate::model::{AheadBehind, ChangeCounts, Head, PullMode};
 use crate::repo;
 use crate::sqlite::{failure, unix_now, Database};
 
+pub use ai::{
+    ai_active_provider, ai_choose, ai_provider, ai_provider_add, ai_provider_delete,
+    ai_provider_edit, ai_provider_key_flag, ai_providers,
+};
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
 pub(crate) use stashes::record_switch_stash;
 pub use stashes::{dismiss_switch_stash, switch_stashes};
@@ -42,6 +47,7 @@ fn migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(include_str!("schema.sql")),
         M::up(include_str!("switch_stashes.sql")),
+        M::up(include_str!("ai_providers.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];

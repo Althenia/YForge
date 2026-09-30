@@ -1,4 +1,6 @@
 mod activity;
+mod ai;
+mod ai_context;
 mod askpass;
 mod branch;
 mod clone;
@@ -31,6 +33,14 @@ mod worktree;
 
 pub use activity::{
     collect as collect_activity, redact, ActivityEntry, CommandRecord, OperationKind, UndoStatus,
+};
+pub use ai::{
+    AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, ApiKeyChange, CommitDraft,
+    ConflictProposal, ConflictRegionProposal, ProviderConfig, ProviderInput, ProviderKind,
+    ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal,
+};
+pub use ai_context::{
+    commit_context, cut_at_line, is_secret_file, render_hunk, status_word, CommitContext,
 };
 pub use askpass::{AuthHandler, AuthKind, AuthPrompt, AuthReply};
 pub use branch::{
@@ -79,11 +89,12 @@ pub use stage::{
 };
 pub use stash::{stash_apply, stash_drop, stash_pop, stash_push, stash_rename};
 pub use store::{
-    activity_history, add_recent, append_activity, clear_activity, dismiss_switch_stash,
-    load_recents, load_repo_settings, load_session, load_settings, mark_activity_undone,
-    recent_status, remove_recent, save_repo_settings, save_session, save_settings, ssh_key_for,
-    switch_stashes, AppSettings, Density, RecentRepo, RecentStatus, RepoSettings, TabSession,
-    Theme,
+    activity_history, add_recent, ai_active_provider, ai_choose, ai_provider, ai_provider_add,
+    ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers, append_activity,
+    clear_activity, dismiss_switch_stash, load_recents, load_repo_settings, load_session,
+    load_settings, mark_activity_undone, recent_status, remove_recent, save_repo_settings,
+    save_session, save_settings, ssh_key_for, switch_stashes, AppSettings, Density, RecentRepo,
+    RecentStatus, RepoSettings, TabSession, Theme,
 };
 pub use sync::{
     delete_remote_branch, fetch, publish, pull, pull_autostash, push, push_force, push_plan,

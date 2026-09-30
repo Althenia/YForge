@@ -114,6 +114,17 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `squash_commits` | `path`, `shas: string[]`, `message: string` | `RebaseResult` |
 | `recompose_preview` | `path`, `base` | `RecomposePreview { base, head, pushed, files: RecomposeFile[] }` |
 | `recompose_apply` | `path`, `base`, `groups: RecomposeGroup[]` | `RecomposeResult { head, pushed }` |
+| `ai_providers_list` | none | `ProviderSummary[] { config: ProviderConfig, status: ProviderStatus, active }` in creation order |
+| `ai_provider_add` | `input: ProviderInput { kind, name, base_url?, executable_path?, api_key? }` | `ProviderSummary`; `invalid_request` for a bad name (1–80 characters), a `base_url` on anything but `openai_compatible` (required there: https, or http only for loopback hosts; no credentials, query or fragment), a relative `executable_path` or one on an HTTP kind, or an `api_key` on a CLI kind |
+| `ai_provider_update` | `update: ProviderUpdate { id, name, base_url?, executable_path?, api_key: ApiKeyChange }`; `ApiKeyChange` is `{ kind: "keep" }`, `{ kind: "set", key }`, or `{ kind: "clear" }` | `ProviderSummary`; the kind never changes |
+| `ai_provider_remove` | `id` | `null`; deletes the Keychain entry and clears the active choice when it was this provider |
+| `ai_set_active` | `id: string \| null`, `model: string \| null` | `null`; `id` must exist; `null` clears the choice; `model` is trimmed and stored on that provider (blank clears it) |
+| `ai_provider_test` | `id` | `ProviderStatus` |
+| `ai_provider_models` | `id` | `AiModel[] { id, name }` sorted by id (from `GET {base}/models`); `[]` for CLI providers, which take a free-text model id or `default` |
+| `ai_sign_in` | `provider`, `id` (operation id), `method: "browser" \| "device_code"` | `ProviderStatus` after the CLI exits successfully; cancel with `operation_cancel(id)` |
+| `ai_generate_commit_message` | `path`, `id` | `CommitDraft { summary, description, summary_trimmed, excluded, truncated }` |
+| `ai_propose_recompose` | `path`, `id`, `base` | `RecomposeProposal { groups: RecomposeGroup[], excluded }` |
+| `ai_propose_conflict` | `path`, `id`, `file` | `ConflictProposal { regions: { index, text, rationale }[] }` |
 
 `client` also exposes `pickFolder(title)` (the native folder picker, `tauri-plugin-dialog`), `homeDirectory()`, and `onFolderDrop(handler)`, and the phase 3b commands as `publish`, `authRespond`, `searchCommits`, `cloneRepo`, `initRepo`, `settingsLoad`, `settingsSave`, `repoSettingsLoad`, `repoSettingsSave`, `identityRead`, `identityWrite`, `remotesList`, `remoteAdd`, `remoteEdit`, `remoteRemove`, `recentsList`, `recentAdd`, `recentRemove`, `recentStatuses`, `sessionLoad`, `sessionSave`, `openPath`, `activityList`, `activityClear`, `undoLast`, plus `onAuthPrompt(handler)` and `onActivity(handler)`.
 
@@ -128,6 +139,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 
 | `auth-prompt` | `AuthPromptEvent { operation, prompt: AuthPrompt }` | A network command needs an answer. `operation` is the operation id; `prompt.id` is `<operation>/auth-<n>`; `prompt.kind` is `credentials` (HTTPS username and token; `username` is set when the address already names one), `passphrase` (an SSH key passphrase or another secret; `message` is git's prompt), or `host_key` (`host` and the SHA256 `fingerprint`) |
 | `activity-recorded` | `ActivityEntry` | A command finished. The same `id` is emitted again when its undo status changes, so consumers upsert by `id` |
+| `ai-sign-in` | `AiSignInEvent { operation, provider, stage }` | `ai_sign_in` progress. `stage` is `{ kind: "device_code", url, code }` (device-code method only; emitted once, when the CLI prints both) or `{ kind: "completed", status }` (after the CLI exits with 0 and the status was re-checked). Failures and cancellation reject the call instead |
 
 The watcher (`crates/yforge-core/src/watch.rs`, the `notify` crate) watches the working tree recursively, plus the git directory and the common git directory when they live outside it (linked worktrees).
 
@@ -307,6 +319,26 @@ These run against the checked-out branch and fail with `invalid_request` while a
 - `recompose_apply` refuses with `operation_in_progress`, `merge_commit_in_range`, `local_changes` (dirty working tree or index; untracked files are ignored), and `invalid_request` for no groups, a blank message, an empty group, an unknown path, hunk or line, an empty range or diff, and any change of `base..HEAD` not assigned to exactly one group (the message lists the paths). It records HEAD, runs `git reset --mixed <base>`, stages each group's changes cumulatively from base, and commits with its message (hooks run). The final commit's tree must equal the original HEAD tree; any failure, including a rejected commit or a tree mismatch, runs `git reset --hard <recorded HEAD>` and returns the error.
 - Undo (activity `Interactive rebase`, `Squash commits`, `Recompose`): `git reset --hard <recorded HEAD>`, refused when HEAD moved or the tracked working tree is not clean; unavailable when the rewrite stopped on conflicts or for an edit.
 
+### AI assistance
+
+- **Opt-in:** nothing is sent until the user runs an AI command, and only to the active provider. Every Git workflow works without a provider. The three feature commands return drafts only: they never commit, rewrite history, or write files.
+- **Providers** (`yforge.db` migration 3, table `ai_providers(seq, id, kind, name, base_url, model, executable_path, has_api_key, created_at)`; the active id is the settings key `ai.active_provider`):
+  - `chatgpt`: the installed Codex CLI. Status is `codex login status` (exit 0 is `ready`; "Not logged in" is `signed_out`). It cannot detect a revoked token, so that failure surfaces as `ai_auth_required` from the first real call. Sign-in runs `codex login`, or `codex login --device-auth` (the URL and one-time code are read from its output and sent as `ai-sign-in`).
+  - `claude_code`: the installed `claude` CLI. Status is `claude auth status --json`, reading only `loggedIn`. Sign-in runs `claude auth login` (browser only).
+  - `openrouter`: `https://openrouter.ai/api/v1` with an API key. `openai_compatible`: any number of instances with a base URL and an optional key.
+  - YForge never reads, refreshes, or stores CLI tokens.
+- **API keys** live only in the macOS Keychain (`keyring`, service `dev.yforge.desktop.ai`, account = provider id); the database keeps only `has_api_key`. Keys never appear in `yforge.db`, logs, crash records, or activity output.
+- **`ProviderStatus`:** `ready`, `not_installed`, `signed_out`, `key_missing`, `key_rejected`, `unreachable { message }`, `check_failed { message }`. The list makes no network call for HTTP providers (`ready` means configured). `ai_provider_test` calls `GET {base}/models` (401/403 is `key_rejected`, no connection is `unreachable`); OpenRouter's model list is public, so a bad OpenRouter key shows only on the first real call.
+- **CLI runs:** the binary comes from an explicit path, else `$SHELL -lc 'command -v <bin>'` (5 s timeout), else the known folders. Each run uses a private temporary working directory, removed afterwards, with the prompt on stdin. Codex: `exec --json --color never -s read-only --skip-git-repo-check --ephemeral --ignore-user-config --ignore-rules -C <tmp> -o <tmp>/last-message.txt [-m <model>] -`. Claude: `-p --output-format json --tools "" --safe-mode --no-session-persistence --strict-mcp-config --disable-slash-commands --system-prompt <fixed text> [--model <model>]`. A blank or `default` model passes no model flag. Cancel and timeout kill the process.
+- **HTTP runs:** `POST {base}/chat/completions` with `{ model, stream: false, messages: [system, user] }` and `Authorization: Bearer` only when a key exists. TLS is always verified and redirects are not followed.
+- **Privacy filter:** files whose base name matches `.env*`, `*.pem`, `*.key`, `id_rsa*`, or `credentials*` (case-insensitive) are not sent; they are listed in `excluded`, and commit and recompose name them with content withheld. A conflicted file of that kind is refused. Commit diffs are capped at 20 KB per file and 60 KB in total (`truncated` lists cut files); binary files go by name only. Recompose hunk content is capped at 4 KB per hunk and 60 KB in total.
+- **`ai_generate_commit_message`:** sends the staged diff plus the last 10 commit subjects and expects `{ "summary", "description" }`; `summary_trimmed` is true when the summary was cut to its first line or to 72 characters. Nothing staged, or only secret files staged, is `invalid_request`.
+- **`ai_propose_recompose`:** expects groups of `{ "kind": "hunk", "id" }` or `{ "kind": "file", "path" }` changes with messages; every hunk of a splittable file and every whole-file unit must be assigned exactly once. The result is ready for `recompose_apply`.
+- **`ai_propose_conflict`:** sends each region's current, incoming, and base (when present) with 3 lines of context and expects exactly one `{ index, text, rationale }` per region; `index` counts the `conflict` segments of `ConflictFile.segments` from 0. `text` is the replacement lines joined with `\n`; the UI joins with the file's `eol` and puts it in the Result pane. Marking the file resolved stays manual. Secret, binary, and over-60 KB conflicted files are `invalid_request`.
+- **Cancellation:** each feature command registers its operation id; `operation_cancel` stops the request or process with `cancelled`.
+- **Activity and usage:** each feature call that reaches a provider records an activity entry (`AI commit message`, `AI recompose proposal`, `AI conflict proposal`; not local, no commands, no undo) whose summary is `<provider name> · <model>`; on failure `error` holds only the error kind. With `telemetry_opt_in` the usage event adds `provider` (kind) and `model` only, never prompt or response content, paths, or messages.
+- **Tests:** `crates/yforge-ai/tests/` use fake `codex`/`claude` scripts and fake login shells, a `TcpListener` HTTP fake, and an in-memory `SecretStore`; `live.rs` is an ignored smoke test. `app/src-tauri/tests/ai.rs` covers the commands.
+
 ### `GraphPage`
 
 `{ rows, carried, total }` for the window `[offset, offset + limit)` of the full layout. `total` counts all rows, including the Changes row and stash rows.
@@ -319,7 +351,7 @@ These run against the checked-out branch and fail with `invalid_request` while a
 
 ## Errors
 
-Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `output` is `null` except for `commit_failed`, `auth_failed`, `local_changes`, `push_rejected`, and `not_fast_forward`. The client rethrows it as `IpcError` (`kind`, `message`, `output`); a non-payload rejection becomes `IpcError` with kind `internal`.
+Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `output` is `null` except for `commit_failed`, `auth_failed`, `local_changes`, `push_rejected`, `not_fast_forward`, `ai_auth_required`, and `ai_failed`. The client rethrows it as `IpcError` (`kind`, `message`, `output`); a non-payload rejection becomes `IpcError` with kind `internal`.
 
 | `kind` | Cause |
 |---|---|
@@ -346,6 +378,12 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 | `operation_in_progress` | Editing a message or integrating while a merge, rebase, cherry-pick, revert, or bisect is in progress |
 | `not_head` | `edit_head_message` was given a commit that is not HEAD |
 | `merge_commit_in_range` | A history rewrite (`rebase_interactive`, `squash_commits`, `recompose_preview`, `recompose_apply`) found a merge commit in `base..HEAD`; the message names it |
+| `ai_not_configured` | No active provider, or an HTTP provider without a model |
+| `ai_provider_unavailable` | The CLI was not found (login shell, then `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, or the provider's explicit path), or the endpoint could not be reached; the message carries the reason |
+| `ai_auth_required` | The CLI is signed out or its token was refused, the endpoint answered 401/403, or the OpenRouter key is missing from the Keychain; `output` is the sanitized provider message |
+| `ai_invalid_response` | The reply is not one JSON value, fails the schema, or fails validation (recompose: a change unknown, repeated or unassigned, blank message, no groups; conflict: a missing, repeated or unknown region, or conflict markers in a text); nothing is repaired |
+| `ai_failed` | The provider failed in another way; `output` is sanitized (colour codes removed, URL credentials, `Authorization`/`password=` lines, `Bearer` and `sk-` tokens and the stored key masked, at most 2,000 characters) |
+| `ai_timeout` | No answer within 180 s (completion), 20 s (status, models), or 16 min (sign-in) |
 | `internal` | The blocking task failed (for example, a panic) |
 
 ## Threading and cancellation
