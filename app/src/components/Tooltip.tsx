@@ -1,3 +1,4 @@
+import { createDebouncer } from "@tanstack/solid-pacer";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
 
 const HOVER_DELAY_MS = 450;
@@ -18,18 +19,19 @@ export function TooltipHost() {
   const [shown, setShown] = createSignal<Shown | undefined>();
   let element: HTMLDivElement | undefined;
   let owner: HTMLElement | null = null;
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let pointerFocus = false;
-
-  const hide = () => {
-    clearTimeout(timer);
-    owner = null;
-    setShown(undefined);
-  };
 
   const show = (target: HTMLElement) => {
     owner = target;
     setShown({ action: target.dataset.tip ?? "", shortcut: target.dataset.shortcut, anchor: target.getBoundingClientRect() });
+  };
+
+  const hoverDelay = createDebouncer(show, { wait: HOVER_DELAY_MS });
+
+  const hide = () => {
+    hoverDelay.cancel();
+    owner = null;
+    setShown(undefined);
   };
 
   createEffect(() => {
@@ -55,7 +57,7 @@ export function TooltipHost() {
       hide();
       if (target === null) return;
       owner = target;
-      timer = setTimeout(() => show(target), HOVER_DELAY_MS);
+      hoverDelay.maybeExecute(target);
     });
     listen("mouseout", (event) => {
       if (owner !== null && !(event.relatedTarget instanceof Node && owner.contains(event.relatedTarget))) hide();
@@ -78,7 +80,6 @@ export function TooltipHost() {
     window.addEventListener("resize", hide);
     window.addEventListener("blur", hide);
     onCleanup(() => {
-      clearTimeout(timer);
       window.removeEventListener("resize", hide);
       window.removeEventListener("blur", hide);
     });

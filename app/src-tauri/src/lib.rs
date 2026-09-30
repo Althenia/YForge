@@ -1,4 +1,5 @@
 mod auth;
+mod crash;
 mod open;
 mod tracking;
 
@@ -11,13 +12,15 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use yforge_core::{
     ActivityEntry, AmendInfo, AppInfo, AppSettings, AuthReply, CancelToken, ChangeArea,
     CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide,
-    CoreError, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease, ForcePushPlan, GraphPage,
-    Identity, IdentityField, IntegrationPreview, MergeMode, OperationOutcome, OperationProgress,
-    Planned, Progress, PullMode, PullOutcome, RecentRepo, RecentStatus, RemoteInfo, RepoChanged,
-    RepoSettings, RepoSnapshot, RepoWatcher, ResetMode, SearchResult, StashRestore, TabSession,
+    CoreError, CrashRecord, CrashReport, DiffHunk, ErrorKind, ErrorPayload, FileDiff, ForceLease,
+    ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode,
+    OperationKind, OperationOutcome, OperationProgress, Planned, Progress, PullMode, PullOutcome,
+    RecentRepo, RecentStatus, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoWatcher,
+    ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
+pub use crash::{install_panic_hook, note_repository};
 use open::OpenWith;
 use tracking::{execute, plain, ActivityLog, Draft, Track};
 
@@ -101,7 +104,7 @@ impl<R: Runtime> Network<'_, R> {
         T: Send + 'static,
         F: FnOnce(&CancelToken, &mut dyn FnMut(Progress)) -> Result<T, CoreError> + Send + 'static,
     {
-        let operation = meta.operation;
+        let operation = meta.operation.label();
         self.run_planned(
             meta,
             id,
@@ -224,7 +227,7 @@ impl<R: Runtime> Recorder<'_, R> {
     }
 }
 
-fn track(repo: &str, operation: &'static str, local: bool, toast: bool) -> Track {
+fn track(repo: &str, operation: OperationKind, local: bool, toast: bool) -> Track {
     Track {
         repo: repo.to_owned(),
         operation,
@@ -365,6 +368,7 @@ async fn launch_path() -> Result<String, ErrorPayload> {
 #[tauri::command]
 async fn repo_open(path: String) -> Result<RepoSnapshot, ErrorPayload> {
     log::debug!("repo_open path={path}");
+    note_repository(&path);
     let result = blocking(move || yforge_core::repo_snapshot(Path::new(&path))).await;
     log_outcome("repo_open", &result, |snapshot| {
         format!(
@@ -426,7 +430,7 @@ async fn stage_files<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Stage", false, false),
+            track(&path, OperationKind::Stage, false, false),
             move |()| format!("Staged {}", counted(count, "file")),
             move || yforge_core::stage_files(Path::new(&target), &files),
         )
@@ -447,7 +451,7 @@ async fn unstage_files<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Unstage", false, false),
+            track(&path, OperationKind::Unstage, false, false),
             move |()| format!("Unstaged {}", counted(count, "file")),
             move || yforge_core::unstage_files(Path::new(&target), &files),
         )
@@ -466,7 +470,7 @@ async fn stage_all<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Stage all", false, false),
+            track(&path, OperationKind::StageAll, false, false),
             |()| "Staged all changes".to_owned(),
             move || yforge_core::stage_all(Path::new(&target)),
         )
@@ -485,7 +489,7 @@ async fn unstage_all<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Unstage all", false, false),
+            track(&path, OperationKind::UnstageAll, false, false),
             |()| "Unstaged all changes".to_owned(),
             move || yforge_core::unstage_all(Path::new(&target)),
         )
@@ -533,7 +537,7 @@ async fn discard_files<R: Runtime>(
     let listed = files.clone();
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Discard", true, true),
+            track(&path, OperationKind::Discard, true, true),
             move |()| format!("Discarded changes in {}", counted(count, "file")),
             snapshot_of(&path, listed),
             move || yforge_core::discard_files(Path::new(&target), &files),
@@ -560,7 +564,7 @@ async fn stage_hunk<R: Runtime>(
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Stage hunk", false, false),
+            track(&path, OperationKind::StageHunk, false, false),
             move |()| format!("Staged a hunk of {name}"),
             move || yforge_core::stage_hunk(Path::new(&target), &file, &hunk),
         )
@@ -585,7 +589,7 @@ async fn unstage_hunk<R: Runtime>(
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Unstage hunk", false, false),
+            track(&path, OperationKind::UnstageHunk, false, false),
             move |()| format!("Unstaged a hunk of {name}"),
             move || yforge_core::unstage_hunk(Path::new(&target), &file, &hunk),
         )
@@ -611,7 +615,7 @@ async fn discard_hunk<R: Runtime>(
     let listed = vec![file.clone()];
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Discard hunk", true, true),
+            track(&path, OperationKind::DiscardHunk, true, true),
             move |()| format!("Discarded a hunk of {name}"),
             snapshot_of(&path, listed),
             move || yforge_core::discard_hunk(Path::new(&target), &file, &hunk),
@@ -639,7 +643,16 @@ async fn commit<R: Runtime>(
     let planned = path.clone();
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, if amend { "Amend" } else { "Commit" }, true, true),
+            track(
+                &path,
+                if amend {
+                    OperationKind::Amend
+                } else {
+                    OperationKind::Commit
+                },
+                true,
+                true,
+            ),
             move |sha: &String| {
                 format!(
                     "{} {}",
@@ -714,7 +727,7 @@ async fn checkout<R: Runtime>(
     let planned = path.clone();
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Checkout", true, true),
+            track(&path, OperationKind::Checkout, true, true),
             move |_: &CheckoutOutcome| format!("Switched to {label}"),
             {
                 let path = path.clone();
@@ -760,7 +773,7 @@ async fn create_branch<R: Runtime>(
     let (created, label) = (name.clone(), name.clone());
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Create branch", true, true),
+            track(&path, OperationKind::CreateBranch, true, true),
             move |()| format!("Created branch {label}"),
             {
                 let path = path.clone();
@@ -794,7 +807,7 @@ async fn rename_branch<R: Runtime>(
     let label = format!("Renamed branch {from} to {to}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Rename branch", true, true),
+            track(&path, OperationKind::RenameBranch, true, true),
             move |()| label,
             move || yforge_core::rename_branch(Path::new(&target), &from, &to),
         )
@@ -830,7 +843,7 @@ async fn delete_branch<R: Runtime>(
     let (removed, label) = (name.clone(), name.clone());
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Delete branch", true, true),
+            track(&path, OperationKind::DeleteBranch, true, true),
             move |()| format!("Deleted branch {label}"),
             {
                 let (path, name) = (path.clone(), name.clone());
@@ -863,7 +876,7 @@ async fn stash_push<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Stash", true, true),
+            track(&path, OperationKind::Stash, true, true),
             |()| "Stashed changes".to_owned(),
             move || yforge_core::stash_push(Path::new(&target), &message, untracked),
         )
@@ -883,7 +896,11 @@ async fn restore_stash<R: Runtime>(
     let target = path.clone();
     let planned = path.clone();
     let stash = sha.clone();
-    let verb = if pop { "Pop stash" } else { "Apply stash" };
+    let verb = if pop {
+        OperationKind::PopStash
+    } else {
+        OperationKind::ApplyStash
+    };
     recorder(app, log)
         .tracked(
             track(&path, verb, true, true),
@@ -953,7 +970,7 @@ async fn stash_drop<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Drop stash", true, true),
+            track(&path, OperationKind::DropStash, true, true),
             move |()| format!("Dropped stash@{{{index}}}"),
             move || yforge_core::stash_drop(Path::new(&target), index, &sha),
         )
@@ -973,7 +990,7 @@ async fn fetch<R: Runtime>(
     interactive: Option<bool>,
 ) -> Result<(), ErrorPayload> {
     log::debug!("fetch path={path} id={id} prune={prune} interactive={interactive:?}");
-    let meta = track(&path, "Fetch", false, false);
+    let meta = track(&path, OperationKind::Fetch, false, false);
     let result = network(&app, &log, &operations)
         .run(
             meta,
@@ -997,7 +1014,7 @@ async fn pull<R: Runtime>(
     mode: PullMode,
 ) -> Result<PullOutcome, ErrorPayload> {
     log::debug!("pull path={path} id={id} mode={mode:?}");
-    let meta = track(&path, "Pull", false, true);
+    let meta = track(&path, OperationKind::Pull, false, true);
     let result = network(&app, &log, &operations)
         .run(
             meta,
@@ -1020,7 +1037,7 @@ async fn push<R: Runtime>(
     id: String,
 ) -> Result<(), ErrorPayload> {
     log::debug!("push path={path} id={id}");
-    let meta = track(&path, "Push", false, true);
+    let meta = track(&path, OperationKind::Push, false, true);
     let result = network(&app, &log, &operations)
         .run(
             meta,
@@ -1044,7 +1061,7 @@ async fn publish<R: Runtime>(
     remote: String,
 ) -> Result<(), ErrorPayload> {
     log::debug!("publish path={path} id={id} remote={remote}");
-    let meta = track(&path, "Publish", false, true);
+    let meta = track(&path, OperationKind::Publish, false, true);
     let label = format!("Published the branch to {remote}");
     let result = network(&app, &log, &operations)
         .run(
@@ -1086,7 +1103,7 @@ async fn push_force<R: Runtime>(
     lease: ForceLease,
 ) -> Result<(), ErrorPayload> {
     log::debug!("push_force path={path} id={id} lease={lease:?}");
-    let meta = track(&path, "Force push", true, true);
+    let meta = track(&path, OperationKind::ForcePush, true, true);
     let label = format!("Force pushed {}", lease.branch);
     let prepared = (path.clone(), lease.branch.clone());
     let planned = lease.clone();
@@ -1148,7 +1165,7 @@ async fn operation_continue<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Continue", true, true),
+            track(&path, OperationKind::Continue, true, true),
             |outcome: &OperationOutcome| format!("Continue: {outcome:?}"),
             move || yforge_core::operation_continue(Path::new(&target), message.as_deref()),
         )
@@ -1169,7 +1186,7 @@ async fn operation_skip<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Skip", true, true),
+            track(&path, OperationKind::Skip, true, true),
             |outcome: &OperationOutcome| format!("Skip: {outcome:?}"),
             move || yforge_core::operation_skip(Path::new(&target)),
         )
@@ -1188,7 +1205,7 @@ async fn operation_abort<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Abort", true, true),
+            track(&path, OperationKind::Abort, true, true),
             |()| "Aborted the operation".to_owned(),
             move || yforge_core::operation_abort(Path::new(&target)),
         )
@@ -1209,7 +1226,7 @@ async fn mark_resolved<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Mark resolved", false, false),
+            track(&path, OperationKind::MarkResolved, false, false),
             move |()| format!("Marked {} resolved", counted(count, "file")),
             move || yforge_core::mark_resolved(Path::new(&target), &files),
         )
@@ -1251,7 +1268,7 @@ async fn merge<R: Runtime>(
     let label = format!("Merged {source}");
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Merge", true, true),
+            track(&path, OperationKind::Merge, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
             move || yforge_core::merge(Path::new(&target), &source, mode),
@@ -1274,7 +1291,7 @@ async fn rebase<R: Runtime>(
     let label = format!("Rebased onto {onto}");
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Rebase", true, true),
+            track(&path, OperationKind::Rebase, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
             move || yforge_core::rebase(Path::new(&target), &onto),
@@ -1298,7 +1315,7 @@ async fn fast_forward<R: Runtime>(
     let label = format!("Fast-forwarded {branch} to {target}");
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Fast-forward", true, true),
+            track(&path, OperationKind::FastForward, true, true),
             move |()| label,
             state_of(&path),
             move || yforge_core::fast_forward(Path::new(&location), &branch, &target),
@@ -1321,7 +1338,7 @@ async fn cherry_pick<R: Runtime>(
     let label = format!("Cherry-picked {}", short(&sha));
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Cherry-pick", true, true),
+            track(&path, OperationKind::CherryPick, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
             move || yforge_core::cherry_pick(Path::new(&target), &sha),
@@ -1344,7 +1361,7 @@ async fn revert<R: Runtime>(
     let label = format!("Reverted {}", short(&sha));
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Revert", true, true),
+            track(&path, OperationKind::Revert, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
             move || yforge_core::revert(Path::new(&target), &sha),
@@ -1369,7 +1386,7 @@ async fn reset<R: Runtime>(
     let label = format!("Reset ({mode:?}) to {}", short(&target));
     let result = recorder(&app, &log)
         .tracked(
-            track(&path, "Reset", true, true),
+            track(&path, OperationKind::Reset, true, true),
             move |()| label,
             state_of(&path),
             move || yforge_core::reset(Path::new(&location), &target, mode),
@@ -1400,7 +1417,7 @@ async fn create_tag<R: Runtime>(
     let label = format!("Created tag {name}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Create tag", true, true),
+            track(&path, OperationKind::CreateTag, true, true),
             move |()| label,
             move || {
                 yforge_core::create_tag(
@@ -1428,7 +1445,7 @@ async fn delete_tag<R: Runtime>(
     let label = format!("Deleted tag {name}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Delete tag", true, true),
+            track(&path, OperationKind::DeleteTag, true, true),
             move |()| label,
             move || yforge_core::delete_tag(Path::new(&target), &name),
         )
@@ -1448,7 +1465,7 @@ async fn push_tag<R: Runtime>(
     name: String,
 ) -> Result<(), ErrorPayload> {
     log::debug!("push_tag path={path} id={id} remote={remote} name={name}");
-    let meta = track(&path, "Push tag", false, true);
+    let meta = track(&path, OperationKind::PushTag, false, true);
     let label = format!("Pushed tag {name} to {remote}");
     let result = network(&app, &log, &operations)
         .run(
@@ -1476,7 +1493,7 @@ async fn delete_remote_tag<R: Runtime>(
     name: String,
 ) -> Result<(), ErrorPayload> {
     log::debug!("delete_remote_tag path={path} id={id} remote={remote} name={name}");
-    let meta = track(&path, "Delete remote tag", false, true);
+    let meta = track(&path, OperationKind::DeleteRemoteTag, false, true);
     let label = format!("Deleted tag {name} from {remote}");
     let result = network(&app, &log, &operations)
         .run(
@@ -1524,7 +1541,7 @@ async fn conflict_resolve<R: Runtime>(
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Resolve conflict", false, false),
+            track(&path, OperationKind::ResolveConflict, false, false),
             move |()| format!("Resolved {name}"),
             move || yforge_core::conflict_resolve(Path::new(&target), &file, &content),
         )
@@ -1546,7 +1563,7 @@ async fn conflict_take_side<R: Runtime>(
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Take side", false, false),
+            track(&path, OperationKind::TakeSide, false, false),
             move |()| format!("Took a side of {name}"),
             move || yforge_core::conflict_take_side(Path::new(&target), &file, side),
         )
@@ -1567,7 +1584,7 @@ async fn conflict_reset<R: Runtime>(
     let name = file.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Reset conflict", false, false),
+            track(&path, OperationKind::ResetConflict, false, false),
             move |()| format!("Reset {name}"),
             move || yforge_core::conflict_reset(Path::new(&target), &file),
         )
@@ -1615,7 +1632,7 @@ async fn clone_repo<R: Runtime>(
         "clone_repo id={id} url={} destination={destination}",
         yforge_core::redact(&url)
     );
-    let meta = track(&destination, "Clone", false, false);
+    let meta = track(&destination, OperationKind::Clone, false, false);
     let label = format!("Cloned into {destination}");
     let result = network(&app, &log, &operations)
         .run(
@@ -1645,7 +1662,7 @@ async fn init_repo<R: Runtime>(
     let target = path.clone();
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Initialize", false, false),
+            track(&path, OperationKind::Initialize, false, false),
             move |_: &String| label,
             move || {
                 let settings = yforge_core::load_settings(&dir)?;
@@ -1735,7 +1752,7 @@ async fn identity_write<R: Runtime>(
     let repo = path.clone().unwrap_or_default();
     let result = recorder(&app, &log)
         .recorded(
-            track(&repo, "Set identity", false, false),
+            track(&repo, OperationKind::SetIdentity, false, false),
             move |()| format!("Updated {field:?}"),
             move || {
                 yforge_core::write_identity(path.as_deref().map(Path::new), field, value.as_deref())
@@ -1772,7 +1789,7 @@ async fn remote_add<R: Runtime>(
     let label = format!("Added remote {name}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Add remote", true, false),
+            track(&path, OperationKind::AddRemote, true, false),
             move |()| label,
             move || yforge_core::add_remote(Path::new(&target), &name, &url),
         )
@@ -1798,7 +1815,7 @@ async fn remote_edit<R: Runtime>(
     let label = format!("Updated remote {new_name}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Edit remote", true, false),
+            track(&path, OperationKind::EditRemote, true, false),
             move |()| label,
             move || yforge_core::edit_remote(Path::new(&target), &name, &new_name, &url),
         )
@@ -1819,7 +1836,7 @@ async fn remote_remove<R: Runtime>(
     let label = format!("Removed remote {name}");
     let result = recorder(&app, &log)
         .recorded(
-            track(&path, "Remove remote", true, false),
+            track(&path, OperationKind::RemoveRemote, true, false),
             move |()| label,
             move || yforge_core::remove_remote(Path::new(&target), &name),
         )
@@ -1844,6 +1861,7 @@ async fn recent_add(
     path: String,
 ) -> Result<Vec<RecentRepo>, ErrorPayload> {
     log::debug!("recent_add path={path}");
+    note_repository(&path);
     let dir = data_dir(&data);
     blocking(move || yforge_core::add_recent(&dir, &path)).await
 }
@@ -1926,8 +1944,85 @@ fn activity_list(log: State<'_, ActivityLog>) -> Vec<ActivityEntry> {
 }
 
 #[tauri::command]
-fn activity_clear(log: State<'_, ActivityLog>, repo: Option<String>) {
-    log.clear(repo.as_deref());
+async fn activity_history(
+    log: State<'_, ActivityLog>,
+    data: State<'_, DataDir>,
+    repo: String,
+    before: Option<u32>,
+    limit: u32,
+) -> Result<Vec<ActivityEntry>, ErrorPayload> {
+    let log = log.inner().clone();
+    let dir = data_dir(&data);
+    blocking(move || log.history(&dir, &repo, before, limit)).await
+}
+
+#[tauri::command]
+async fn activity_clear(
+    log: State<'_, ActivityLog>,
+    data: State<'_, DataDir>,
+    repo: Option<String>,
+) -> Result<(), ErrorPayload> {
+    let log = log.inner().clone();
+    let dir = data_dir(&data);
+    blocking(move || log.clear(&dir, repo.as_deref())).await
+}
+
+#[tauri::command]
+async fn crash_report(data: State<'_, DataDir>, report: CrashReport) -> Result<(), ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::record_crash(
+            &dir,
+            env!("CARGO_PKG_VERSION"),
+            &crash::redactor(),
+            &report.into(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn crash_list(
+    data: State<'_, DataDir>,
+    before: Option<u32>,
+    limit: u32,
+) -> Result<Vec<CrashRecord>, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::list_crashes(&dir, before, limit)).await
+}
+
+#[tauri::command]
+async fn crash_export(data: State<'_, DataDir>, path: String) -> Result<u32, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::export_crashes(&dir, Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn crash_clear(data: State<'_, DataDir>) -> Result<(), ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::clear_crashes(&dir)).await
+}
+
+#[tauri::command]
+async fn usage_list(
+    data: State<'_, DataDir>,
+    before: Option<u32>,
+    limit: u32,
+) -> Result<Vec<UsageRecord>, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::list_usage(&dir, before, limit)).await
+}
+
+#[tauri::command]
+async fn usage_export(data: State<'_, DataDir>, path: String) -> Result<u32, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::export_usage(&dir, Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn usage_clear(data: State<'_, DataDir>) -> Result<(), ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::delete_usage(&dir)).await
 }
 
 #[tauri::command]
@@ -1944,7 +2039,7 @@ async fn undo_last<R: Runtime>(
     let label = operation.clone();
     let result = network(&app, &log, &operations)
         .run(
-            track(&path, "Undo", false, true),
+            track(&path, OperationKind::Undo, false, true),
             format!("undo-{id}"),
             true,
             move |message: &String| format!("Undid {label}: {message}"),
@@ -2044,7 +2139,15 @@ pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
             session_save,
             open_path,
             activity_list,
+            activity_history,
             activity_clear,
+            crash_report,
+            crash_list,
+            crash_export,
+            crash_clear,
+            usage_list,
+            usage_export,
+            usage_clear,
             undo_last
         ])
 }
@@ -2064,6 +2167,14 @@ pub fn run() {
                 Some(dir) => PathBuf::from(dir),
                 None => app.path().app_data_dir()?,
             };
+            if let Some(moved) = yforge_core::start_storage(&dir)? {
+                log::warn!(
+                    "diagnostics database was unreadable and was moved to {}",
+                    moved.display()
+                );
+            }
+            crash::seed_repositories(&dir);
+            install_panic_hook(dir.clone());
             app.manage(DataDir(dir));
             Ok(())
         })

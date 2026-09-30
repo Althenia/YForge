@@ -2,7 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { amendDraft, amendWarning, commitButton, createCommitAction, createComposer, summaryRemaining } from "./composer";
-import { createRepoSession } from "./repoSession";
+import { testSession } from "../components/testkit";
 
 afterEach(() => clearMocks());
 
@@ -65,7 +65,7 @@ describe("amend", () => {
 
 function commitFixture(staged: number) {
   const composer = createComposer();
-  const session = createRepoSession("/r", { root: "/r" } as RepoSnapshot);
+  const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const committed: string[] = [];
   const action = createCommitAction({ session, composer, staged: () => staged, onCommitted: (sha) => committed.push(sha) });
   return { composer, session, committed, action };

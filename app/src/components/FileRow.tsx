@@ -2,6 +2,7 @@ import { Show, type JSX } from "solid-js";
 import { splitPath } from "../format";
 import type { FileStatus } from "../ipc/bindings/FileStatus";
 import { statusLetter, statusWord } from "../state/changes";
+import type { VirtualRow } from "./VirtualRows";
 
 export function FileRow(props: {
   rowId: string;
@@ -14,6 +15,7 @@ export function FileRow(props: {
   onFocusRow: (rowId: string) => void;
   onOpen?: () => void;
   onKey?: (event: KeyboardEvent) => void;
+  virtual: VirtualRow;
   children?: JSX.Element;
 }) {
   const parts = () => splitPath(props.path);
@@ -41,6 +43,9 @@ export function FileRow(props: {
     <li
       class="frow"
       classList={{ sel: props.selected, openable: props.onOpen !== undefined }}
+      ref={props.virtual.measure}
+      data-index={props.virtual.index}
+      style={props.virtual.style}
       data-row={props.rowId}
       tabindex={props.tabStop ? 0 : -1}
       aria-label={`${statusWord[props.status]} ${label()}${props.partial ? ", partially staged" : ""}`}

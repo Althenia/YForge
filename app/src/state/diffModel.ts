@@ -1,5 +1,6 @@
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
+import type { DiffLine } from "../ipc/bindings/DiffLine";
 import type { DiffLineKind } from "../ipc/bindings/DiffLineKind";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
@@ -68,3 +69,8 @@ export function followTarget(files: readonly FileChange[], target: DiffTarget): 
   const moved = followOrder.find((area) => areas.has(area));
   return moved === undefined ? undefined : { source: "working", area: moved, file: target.file };
 }
+
+export type DiffRow = { kind: "line"; line: DiffLine } | { kind: "note" };
+
+export const hunkRows = (hunk: DiffHunk): DiffRow[] =>
+  hunk.lines.flatMap((line): DiffRow[] => (line.no_newline ? [{ kind: "line", line }, { kind: "note" }] : [{ kind: "line", line }]));

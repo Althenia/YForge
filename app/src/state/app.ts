@@ -1,16 +1,26 @@
-import { createContext, createEffect, createSignal, onCleanup, useContext } from "solid-js";
+import { createHotkeys } from "@tanstack/solid-hotkeys";
+import { useQuery } from "@tanstack/solid-query";
+import { useRouterState } from "@tanstack/solid-router";
+import { createContext, createEffect, createMemo, createSignal, onCleanup, useContext } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { AuthReply } from "../ipc/bindings/AuthReply";
+import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RepoSettings } from "../ipc/bindings/RepoSettings";
 import { client, IpcError } from "../ipc/client";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import type { AppRouter } from "../routes";
+import { viewOf } from "../routes";
+import { createStoreValue } from "./clientStore";
+import { createQueryClient } from "./queryClient";
+import { dataOf } from "./queryData";
+import { appKeys, repoKeys } from "./queryKeys";
 import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
-import { buildCommands, commandForShortcut, shortcutLabel, type CommitChoice, type PaletteApp, type PaletteContext } from "./palette";
+import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext } from "./palette";
 import type { RepoActions } from "./repoActions";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
-import { activateTab, closeTab, openLauncherTab, openRepoTab, restoreTabs, sessionOf, type Tab, type TabsState } from "./tabs";
+import { activateTab, closeTab, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabId, type Tab, type TabsState } from "./tabs";
 
 export type Screen = { kind: "workspace" } | { kind: "settings"; section: string };
 
@@ -28,14 +38,16 @@ export type RepoBridge = {
   loadCommits: () => Promise<CommitChoice[]>;
 };
 
+const PALETTE_SHORTCUT = "⌘K";
+const UNDO_SHORTCUT = "⌘Z";
+
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
-export function createAppState() {
-  const [settings, setSettings] = createSignal<AppSettings>(defaultSettings);
-  const [tabs, setTabs] = createSignal<TabsState>({ tabs: [{ kind: "launcher" }], active: 0 });
+export function createAppState(router: AppRouter) {
+  const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
+  const [tabList, setTabList] = createStoreValue<Tab[]>([{ kind: "launcher" }]);
   const [ready, setReady] = createSignal(false);
   const [fatal, setFatal] = createSignal<string | undefined>();
-  const [screen, setScreen] = createSignal<Screen>({ kind: "workspace" });
   const [activity, setActivity] = createSignal<ActivityEntry[]>([]);
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
@@ -43,19 +55,54 @@ export function createAppState() {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
-  const [repoSettings, setRepoSettings] = createSignal<Record<string, RepoSettings>>({});
   const [bridge, setBridge] = createSignal<RepoBridge | undefined>();
-  const [recentPaths, setRecentPaths] = createSignal<string[]>([]);
+  const queryClient = createQueryClient();
+  const recentPaths = (): string[] => (queryClient.getQueryData<RecentRepo[]>(appKeys.recents) ?? []).map((recent) => recent.path);
+  const location = useRouterState({ router, select: (state) => state.location });
+  const view = createMemo(() => viewOf(router.matchRoutes(location())));
 
+  const activeTabId = (): string | undefined => {
+    const current = view();
+    if (current.kind === "launcher") return LAUNCHER_TAB_ID;
+    return current.kind === "repo" || current.kind === "settings" ? current.tab : undefined;
+  };
+  const tabs = createMemo((): TabsState => ({ tabs: tabList(), active: Math.max(tabList().findIndex((tab) => tabId(tab) === activeTabId()), 0) }));
+  const screen = (): Screen => {
+    const current = view();
+    return current.kind === "settings" ? { kind: "settings", section: current.section } : { kind: "workspace" };
+  };
   const activeTab = (): Tab | undefined => tabs().tabs[tabs().active];
   const activePath = (): string | undefined => {
     const tab = activeTab();
     return tab?.kind === "repo" ? tab.path : undefined;
   };
 
+  const activeRepoSettings = useQuery(
+    () => ({
+      queryKey: repoKeys.settings(activePath() ?? ""),
+      queryFn: () => client.repoSettingsLoad(activePath() as string),
+      enabled: activePath() !== undefined,
+      staleTime: Infinity,
+    }),
+    () => queryClient,
+  );
+  const repoSettings = (path: string): RepoSettings | undefined => (path === activePath() ? dataOf(activeRepoSettings) : undefined);
+  createEffect(() => {
+    if (activeRepoSettings.error != null) setNotice(asMessage(activeRepoSettings.error));
+  });
+
+  function showTab(tab: Tab | undefined): void {
+    if (tab?.kind === "repo") void router.navigate({ to: "/repo", search: { tab: tab.path }, replace: true });
+    else void router.navigate({ to: "/launcher", replace: true });
+  }
+
+  function openSettings(section: string): void {
+    void router.navigate({ to: "/settings/$section", params: { section }, search: { tab: activeTabId() }, replace: true });
+  }
+
   function applyTabs(next: TabsState): void {
-    setTabs(next);
-    setScreen({ kind: "workspace" });
+    setTabList(next.tabs);
+    showTab(next.tabs[next.active]);
     client.sessionSave(sessionOf(next)).catch((failure) => setNotice(asMessage(failure)));
   }
 
@@ -63,7 +110,7 @@ export function createAppState() {
     try {
       const snapshot = await client.repoOpen(path);
       applyTabs(openRepoTab(tabs(), snapshot.root));
-      setRecentPaths((await client.recentAdd(snapshot.root)).map((recent) => recent.path));
+      queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
     } catch (failure) {
       setNotice(failure instanceof IpcError && failure.kind === "not_a_repository" ? `${path} is not a Git repository` : asMessage(failure));
@@ -76,12 +123,14 @@ export function createAppState() {
       const [loaded, session, launch, entries] = await Promise.all([client.settingsLoad(), client.sessionLoad(), client.launchPath(), client.activityList()]);
       setSettings(loaded);
       setActivity(entries);
-      setRecentPaths((await client.recentsList()).map((recent) => recent.path));
+      await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
       const launchRoot = await client.repoOpen(launch).then(
         (snapshot) => snapshot.root,
         () => undefined,
       );
-      setTabs(restoreTabs(session, launchRoot));
+      const restored = restoreTabs(session, launchRoot);
+      setTabList(restored.tabs);
+      showTab(restored.tabs[restored.active]);
       setReady(true);
     } catch (failure) {
       setFatal(asMessage(failure));
@@ -115,19 +164,10 @@ export function createAppState() {
     }
   }
 
-  async function loadRepoSettings(path: string): Promise<void> {
-    try {
-      const loaded = await client.repoSettingsLoad(path);
-      setRepoSettings((current) => ({ ...current, [path]: loaded }));
-    } catch (failure) {
-      setNotice(asMessage(failure));
-    }
-  }
-
   async function saveRepoSettings(path: string, next: RepoSettings): Promise<string | undefined> {
     try {
       await client.repoSettingsSave(path, next);
-      setRepoSettings((current) => ({ ...current, [path]: next }));
+      queryClient.setQueryData(repoKeys.settings(path), next);
       return undefined;
     } catch (failure) {
       return asMessage(failure);
@@ -154,7 +194,7 @@ export function createAppState() {
     openClone: () => setEntryDialog("clone"),
     openCreate: () => setEntryDialog("create"),
     closeTab: () => applyTabs(closeTab(tabs(), tabs().active)),
-    openSettings: (section) => setScreen({ kind: "settings", section }),
+    openSettings,
     toggleDrawer: () => setDrawerOpen((open) => !open),
     openSearch: () => bridge()?.openSearch(),
     openExternal: (with_) => void openExternal(with_),
@@ -175,7 +215,7 @@ export function createAppState() {
       snapshot: current?.snapshot(),
       actions: current?.actions,
       selectedSha: current?.selectedSha(),
-      pullMode: effectivePullMode(settings(), path === undefined ? undefined : repoSettings()[path]).mode,
+      pullMode: effectivePullMode(settings(), path === undefined ? undefined : repoSettings(path)).mode,
       undo: path === undefined ? { kind: "unavailable", reason: "Open a repository first" } : undoState(activity(), path),
       anchor: { left: Math.max(16, window.innerWidth / 2 - 160), top: 140 },
       app: paletteApp(),
@@ -186,26 +226,35 @@ export function createAppState() {
     };
   }
 
-  function onShortcut(event: KeyboardEvent): void {
-    const label = shortcutLabel(event);
-    if (label === undefined || event.defaultPrevented) return;
-    if (label === "⌘K") {
-      event.preventDefault();
-      setPaletteOpen((open) => !open);
-      return;
-    }
-    if (paletteOpen() || prompts().length > 0) return;
-    const editing = event.target instanceof HTMLElement && (event.target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(event.target.tagName));
-    if (label === "⌘Z" && editing) return;
-    const command = commandForShortcut(buildCommands(paletteContext()), label);
-    if (command === undefined) return;
-    event.preventDefault();
-    if (command.disabledReason === undefined) command.run([]);
+  function bindShortcuts(): void {
+    createHotkeys(
+      () => [
+        {
+          hotkey: hotkeyOf(PALETTE_SHORTCUT),
+          callback: (event: KeyboardEvent) => {
+            if (event.defaultPrevented) return;
+            event.preventDefault();
+            setPaletteOpen((open) => !open);
+          },
+        },
+        ...shortcutCommands(buildCommands(paletteContext()))
+          .filter((command) => command.shortcut !== PALETTE_SHORTCUT)
+          .map((command) => ({
+            hotkey: hotkeyOf(command.shortcut as string),
+            options: { ignoreInputs: command.shortcut === UNDO_SHORTCUT },
+            callback: (event: KeyboardEvent) => {
+              if (event.defaultPrevented || paletteOpen() || prompts().length > 0) return;
+              event.preventDefault();
+              if (command.disabledReason === undefined) command.run([]);
+            },
+          })),
+      ],
+      { preventDefault: false, stopPropagation: false },
+    );
   }
 
   function bind(): void {
-    document.addEventListener("keydown", onShortcut);
-    onCleanup(() => document.removeEventListener("keydown", onShortcut));
+    bindShortcuts();
     const colorScheme = window.matchMedia("(prefers-color-scheme: light)");
     const root = document.documentElement;
     const appearance = () => applyAppearance(root, settings(), colorScheme.matches);
@@ -224,12 +273,13 @@ export function createAppState() {
   }
 
   return {
+    queryClient,
     settings,
     tabs,
     ready,
     fatal,
     screen,
-    setScreen,
+    closeSettings: () => showTab(activeTab()),
     activity,
     drawerOpen,
     toggleDrawer: () => setDrawerOpen((open) => !open),
@@ -258,11 +308,10 @@ export function createAppState() {
     closeActiveTab: () => applyTabs(closeTab(tabs(), tabs().active)),
     closeTabAt: (index: number) => applyTabs(closeTab(tabs(), index)),
     activate: (index: number) => applyTabs(activateTab(tabs(), index)),
-    openSettings: (section: string) => setScreen({ kind: "settings", section }),
+    openSettings,
     respondAuth,
     cancelOperationPrompts,
     saveSettings,
-    loadRepoSettings,
     saveRepoSettings,
     setBridge,
     undoEntry: (id: number) => bridge()?.actions.undo(id),

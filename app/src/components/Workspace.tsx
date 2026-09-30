@@ -1,8 +1,10 @@
+import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from "solid-js";
 import type { Geometry } from "../graph/geometry";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import { undoState } from "../state/activityModel";
+import { createStoreValue } from "../state/clientStore";
 import { createComposer } from "../state/composer";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
 import { createRepoActions, type PopoverState } from "../state/repoActions";
@@ -34,16 +36,16 @@ const MINUTE_MS = 60_000;
 
 export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready" }>; geometry: Geometry }) {
   const app = useApp();
-  const session = createRepoSession(props.view.path, props.view.snapshot);
+  const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient);
   const composer = createComposer();
-  const [selection, setSelection] = createSignal<Selection | undefined>();
-  const [diffTarget, setDiffTarget] = createSignal<DiffTarget | undefined>();
+  const [selection, setSelection] = createStoreValue<Selection | undefined>(undefined);
+  const [diffTarget, setDiffTarget] = createStoreValue<DiffTarget | undefined>(undefined);
   const [graphFocus, setGraphFocus] = createSignal<{ nonce: number; index?: number; ref?: string } | undefined>();
   let focusNonce = 0;
   const revealRow = (index: number) => setGraphFocus({ nonce: (focusNonce += 1), index });
-  const search = createSearch(session.path, session.report, revealRow);
+  const search = createSearch(session.searchCommits, session.report, revealRow);
   const matches = createMemo(() => new Set(search.state().rows));
-  const repoSettings = () => app.repoSettings()[session.path];
+  const repoSettings = () => app.repoSettings(session.path);
   const actions = createRepoActions(session, {
     selectedSha: () => {
       const current = selection();
@@ -81,7 +83,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
 
   async function revealSha(sha: string): Promise<void> {
     try {
-      const found = await client.searchCommits(session.path, `sha:${sha}`);
+      const found = await session.searchCommits(`sha:${sha}`);
       const row = found.rows[0];
       if (row !== undefined) revealRow(row);
     } catch (failure) {
@@ -120,8 +122,28 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     onCleanup(() => clearInterval(timer));
   });
 
+  createHotkeys(
+    () => [
+      {
+        hotkey: "Escape",
+        callback: (event: KeyboardEvent) => {
+          if (!event.defaultPrevented && diffTarget() !== undefined) closeDiff();
+        },
+      },
+      ...(["Mod+G", "Mod+Shift+G"] as const).map((hotkey) => ({
+        hotkey,
+        options: { enabled: search.open() },
+        callback: (event: KeyboardEvent) => {
+          event.preventDefault();
+          if (event.shiftKey) search.previous();
+          else search.next();
+        },
+      })),
+    ],
+    { preventDefault: false, stopPropagation: false },
+  );
+
   onMount(() => {
-    void app.loadRepoSettings(session.path);
     app.setBridge({
       path: session.path,
       snapshot: session.snapshot,
@@ -143,17 +165,6 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       loadCommits,
     });
     onCleanup(() => app.setBridge(undefined));
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented && diffTarget() !== undefined) closeDiff();
-      const chord = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "g" && search.open();
-      if (chord) {
-        event.preventDefault();
-        if (event.shiftKey) search.previous();
-        else search.next();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    onCleanup(() => document.removeEventListener("keydown", onKeyDown));
     const unlisten = client.onRepoChanged((change) => {
       if (change.path === session.path) void session.refresh();
     });

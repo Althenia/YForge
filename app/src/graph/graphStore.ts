@@ -1,7 +1,9 @@
+import type { QueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup } from "solid-js";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import { client, IpcError } from "../ipc/client";
+import { repoKeys } from "../state/queryKeys";
 import { edgeKey, placeRowEdges, type PlacedEdge } from "./laneArt";
 
 export const PAGE_SIZE = 200;
@@ -35,9 +37,10 @@ function withPage(layout: Layout, page: number, result: GraphPage): Layout {
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
-const fetchPage = (path: string, page: number) => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE);
+export function createGraphStore(path: string, queryClient: QueryClient) {
+  const fetchPage = (page: number): Promise<GraphPage> =>
+    queryClient.fetchQuery({ queryKey: repoKeys.graph(path, page), queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE), staleTime: Infinity });
 
-export function createGraphStore(path: string) {
   const [layout, setLayout] = createSignal(emptyLayout);
   const [error, setError] = createSignal<IpcError | undefined>();
   const requested = new Set<number>();
@@ -52,7 +55,7 @@ export function createGraphStore(path: string) {
   async function loadPage(page: number): Promise<void> {
     const startedIn = epoch;
     try {
-      const result = await fetchPage(path, page);
+      const result = await fetchPage(page);
       if (disposed || startedIn !== epoch) return;
       setLayout(withPage(layout(), page, result));
       setError(undefined);
@@ -75,13 +78,14 @@ export function createGraphStore(path: string) {
 
   async function rebuild(): Promise<void> {
     epoch += 1;
+    await queryClient.invalidateQueries({ queryKey: repoKeys.graphPages(path), refetchType: "none" });
     let next = emptyLayout;
     const loaded = new Set<number>();
     try {
       for (;;) {
         const pending = [...requested].filter((page) => !loaded.has(page)).sort((left, right) => left - right);
         if (pending.length === 0) break;
-        const results = await Promise.all(pending.map((page) => fetchPage(path, page)));
+        const results = await Promise.all(pending.map((page) => fetchPage(page)));
         pending.forEach((page, position) => {
           next = withPage(next, page, results[position] as GraphPage);
           loaded.add(page);

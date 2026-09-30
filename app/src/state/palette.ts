@@ -1,3 +1,4 @@
+import type { Hotkey } from "@tanstack/solid-hotkeys";
 import type { IconName } from "../iconNames";
 import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -553,15 +554,19 @@ export function rememberCommand(id: string): string[] {
   return next;
 }
 
-const KEY_NAMES: Record<string, string> = { Enter: "↵", ",": "," };
+const HOTKEY_PARTS: Record<string, string> = { "⌘": "Mod", "⇧": "Shift", "↵": "Enter" };
 
-export function shortcutLabel(event: Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">): string | undefined {
-  if (!(event.metaKey || event.ctrlKey) || event.altKey) return undefined;
-  if (["Meta", "Control", "Shift", "Alt"].includes(event.key)) return undefined;
-  const key = KEY_NAMES[event.key] ?? event.key.toUpperCase();
-  return `⌘${event.shiftKey ? "⇧" : ""}${key}`;
+export function hotkeyOf(shortcut: string): Hotkey {
+  const key = [...shortcut].pop() ?? "";
+  const modifiers = [...shortcut].slice(0, -1).map((symbol) => HOTKEY_PARTS[symbol] ?? symbol);
+  return [...modifiers, HOTKEY_PARTS[key] ?? key.toUpperCase()].join("+") as Hotkey;
 }
 
-export function commandForShortcut(commands: readonly PaletteCommand[], label: string): PaletteCommand | undefined {
-  return commands.find((command) => command.shortcut === label && command.id !== "commit" && command.args.length === 0);
+export function shortcutCommands(commands: readonly PaletteCommand[]): PaletteCommand[] {
+  const seen = new Set<string>();
+  return commands.filter((command) => {
+    if (command.shortcut === undefined || command.id === "commit" || command.args.length > 0 || seen.has(command.shortcut)) return false;
+    seen.add(command.shortcut);
+    return true;
+  });
 }

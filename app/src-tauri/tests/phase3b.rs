@@ -117,7 +117,7 @@ fn settings_default_persist_and_reject_invalid_values_with_a_tagged_error() {
         10
     );
     assert_eq!(rejected["kind"], "invalid_request");
-    assert!(h.data.path().join("settings.json").is_file());
+    assert!(h.data.path().join("yforge.db").is_file());
 }
 
 #[test]

@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 const OUTPUT_LIMIT: usize = 64 * 1024;
@@ -22,6 +22,112 @@ const QUIET: [&str; 14] = [
     "credential",
     "config",
 ];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum OperationKind {
+    Abort,
+    AddRemote,
+    ApplyStash,
+    Amend,
+    Checkout,
+    CherryPick,
+    Clone,
+    Commit,
+    Continue,
+    CreateBranch,
+    CreateTag,
+    DeleteBranch,
+    DeleteRemoteTag,
+    DeleteTag,
+    Discard,
+    DiscardHunk,
+    DropStash,
+    EditRemote,
+    FastForward,
+    Fetch,
+    ForcePush,
+    Initialize,
+    MarkResolved,
+    Merge,
+    PopStash,
+    Publish,
+    Pull,
+    Push,
+    PushTag,
+    Rebase,
+    RemoveRemote,
+    RenameBranch,
+    Reset,
+    ResetConflict,
+    ResolveConflict,
+    Revert,
+    SetIdentity,
+    Skip,
+    Stage,
+    StageAll,
+    StageHunk,
+    Stash,
+    TakeSide,
+    Undo,
+    Unstage,
+    UnstageAll,
+    UnstageHunk,
+}
+
+impl OperationKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Abort => "Abort",
+            Self::AddRemote => "Add remote",
+            Self::ApplyStash => "Apply stash",
+            Self::Amend => "Amend",
+            Self::Checkout => "Checkout",
+            Self::CherryPick => "Cherry-pick",
+            Self::Clone => "Clone",
+            Self::Commit => "Commit",
+            Self::Continue => "Continue",
+            Self::CreateBranch => "Create branch",
+            Self::CreateTag => "Create tag",
+            Self::DeleteBranch => "Delete branch",
+            Self::DeleteRemoteTag => "Delete remote tag",
+            Self::DeleteTag => "Delete tag",
+            Self::Discard => "Discard",
+            Self::DiscardHunk => "Discard hunk",
+            Self::DropStash => "Drop stash",
+            Self::EditRemote => "Edit remote",
+            Self::FastForward => "Fast-forward",
+            Self::Fetch => "Fetch",
+            Self::ForcePush => "Force push",
+            Self::Initialize => "Initialize",
+            Self::MarkResolved => "Mark resolved",
+            Self::Merge => "Merge",
+            Self::PopStash => "Pop stash",
+            Self::Publish => "Publish",
+            Self::Pull => "Pull",
+            Self::Push => "Push",
+            Self::PushTag => "Push tag",
+            Self::Rebase => "Rebase",
+            Self::RemoveRemote => "Remove remote",
+            Self::RenameBranch => "Rename branch",
+            Self::Reset => "Reset",
+            Self::ResetConflict => "Reset conflict",
+            Self::ResolveConflict => "Resolve conflict",
+            Self::Revert => "Revert",
+            Self::SetIdentity => "Set identity",
+            Self::Skip => "Skip",
+            Self::Stage => "Stage",
+            Self::StageAll => "Stage all",
+            Self::StageHunk => "Stage hunk",
+            Self::Stash => "Stash",
+            Self::TakeSide => "Take side",
+            Self::Undo => "Undo",
+            Self::Unstage => "Unstage",
+            Self::UnstageAll => "Unstage all",
+            Self::UnstageHunk => "Unstage hunk",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct CommandRecord {
@@ -127,6 +233,23 @@ fn redact_userinfo(text: &str) -> String {
     }
     redacted.push_str(rest);
     redacted
+}
+
+const SECRET_MARKERS: [&str; 3] = ["password=", "authorization:", "extraheader="];
+
+pub(crate) fn redact_embedded(text: &str) -> String {
+    redact_userinfo(text)
+        .lines()
+        .map(|line| {
+            let lowered = line.to_lowercase();
+            if SECRET_MARKERS.iter().any(|marker| lowered.contains(marker)) {
+                "***".to_owned()
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn redact(text: &str) -> String {

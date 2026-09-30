@@ -1,3 +1,4 @@
+import { createForm } from "@tanstack/solid-form";
 import { createSignal, createUniqueId, onCleanup, onMount, Show } from "solid-js";
 import { client, IpcError } from "../ipc/client";
 import { useApp } from "../state/app";
@@ -6,6 +7,8 @@ import { announceOperation } from "../state/operationLabels";
 import { Icon } from "./Icon";
 
 const PARENT_KEY = "yforge.entry.parent";
+
+const parentProblem = (parent: string): string | undefined => (parent.trim() === "" ? "Choose a destination" : undefined);
 
 let sequence = 0;
 const nextId = (): string => `clone-${Date.now()}-${(sequence += 1)}`;
@@ -63,9 +66,13 @@ function ParentField(props: { label: string; value: string; onChange: (value: st
 
 export function CloneDialog(props: { onClose: () => void }) {
   const app = useApp();
-  const [url, setUrl] = createSignal("");
-  const [parent, setParent] = createSignal("");
-  const [openAfter, setOpenAfter] = createSignal(true);
+  const form = createForm(() => ({
+    defaultValues: { url: "", parent: "", openAfter: true },
+    onSubmit: ({ value }) => clone(value),
+  }));
+  const url = form.useSelector((state) => state.values.url);
+  const parent = form.useSelector((state) => state.values.parent);
+  const setParent = (value: string) => form.setFieldValue("parent", value);
   const [running, setRunning] = createSignal<{ id: string; phase: string; percent: number | null } | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
   let urlInput: HTMLInputElement | undefined;
@@ -82,20 +89,20 @@ export function CloneDialog(props: { onClose: () => void }) {
 
   const problem = () => cloneUrlProblem(url());
   const destination = () => cloneDestination(parent(), url());
-  const ready = () => problem() === undefined && parent().trim() !== "" && running() === undefined;
+  const canSubmit = form.useSelector((state) => state.canSubmit);
+  const ready = () => canSubmit() && running() === undefined;
 
-  async function submit(): Promise<void> {
-    if (!ready()) return;
+  async function clone(values: { url: string; parent: string; openAfter: boolean }): Promise<void> {
     const id = nextId();
     announceOperation(id, "clone");
     setFailure(undefined);
     setRunning({ id, phase: "Starting clone", percent: null });
-    window.localStorage.setItem(PARENT_KEY, parent());
+    window.localStorage.setItem(PARENT_KEY, values.parent);
     try {
-      const root = await client.cloneRepo(id, url().trim(), destination());
+      const root = await client.cloneRepo(id, values.url.trim(), cloneDestination(values.parent, values.url));
       setRunning(undefined);
       props.onClose();
-      if (openAfter()) await app.openRepository(root);
+      if (values.openAfter) await app.openRepository(root);
     } catch (error) {
       setRunning(undefined);
       if (error instanceof IpcError && error.kind === "cancelled") setFailure("Clone cancelled. The partial folder was removed.");
@@ -109,34 +116,42 @@ export function CloneDialog(props: { onClose: () => void }) {
         class="entry-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          void form.handleSubmit();
         }}
       >
         <label class="field">
           <span class="field-label">Repository URL</span>
           <span class="input" classList={{ invalid: url() !== "" && problem() !== undefined }}>
-            <input
-              type="text"
-              ref={urlInput}
-              value={url()}
-              placeholder="https://github.com/example/lab-app.git"
-              aria-label="Repository URL"
-              aria-invalid={url() !== "" && problem() !== undefined}
-              disabled={running() !== undefined}
-              onInput={(event) => setUrl(event.currentTarget.value)}
-            />
+            <form.Field name="url" validators={{ onMount: ({ value }) => cloneUrlProblem(value), onChange: ({ value }) => cloneUrlProblem(value) }}>
+              {(field) => (
+                <input
+                  type="text"
+                  ref={urlInput}
+                  value={field().state.value}
+                  placeholder="https://github.com/example/lab-app.git"
+                  aria-label="Repository URL"
+                  aria-invalid={url() !== "" && problem() !== undefined}
+                  disabled={running() !== undefined}
+                  onInput={(event) => field().handleChange(event.currentTarget.value)}
+                />
+              )}
+            </form.Field>
             <Show when={url() !== "" && problem() === undefined}>
               <Icon name="check" />
             </Show>
           </span>
           <Show when={url() !== "" && problem()}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
-        <ParentField label="Destination" value={parent()} onChange={setParent} browse="Choose where to clone" />
+        <form.Field name="parent" validators={{ onMount: ({ value }) => parentProblem(value), onChange: ({ value }) => parentProblem(value) }}>
+          {(field) => <ParentField label="Destination" value={field().state.value} onChange={field().handleChange} browse="Choose where to clone" />}
+        </form.Field>
         <p class="field-note">
           Clones into <span class="ref">{destination()}</span>
         </p>
         <label class="check">
-          <input type="checkbox" checked={openAfter()} onChange={(event) => setOpenAfter(event.currentTarget.checked)} />
+          <form.Field name="openAfter">
+            {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
+          </form.Field>
           Open after clone
         </label>
         <Show when={running()}>
@@ -178,8 +193,13 @@ export function CloneDialog(props: { onClose: () => void }) {
 
 export function CreateDialog(props: { onClose: () => void }) {
   const app = useApp();
-  const [name, setName] = createSignal("");
-  const [parent, setParent] = createSignal("");
+  const form = createForm(() => ({
+    defaultValues: { name: "", parent: "" },
+    onSubmit: ({ value }) => create(value),
+  }));
+  const name = form.useSelector((state) => state.values.name);
+  const parent = form.useSelector((state) => state.values.parent);
+  const setParent = (value: string) => form.setFieldValue("parent", value);
   const [failure, setFailure] = createSignal<{ message: string; existing: string | undefined } | undefined>();
   const [busy, setBusy] = createSignal(false);
   let nameInput: HTMLInputElement | undefined;
@@ -191,20 +211,20 @@ export function CreateDialog(props: { onClose: () => void }) {
 
   const problem = () => createNameProblem(name());
   const path = () => createDestination(parent(), name());
-  const ready = () => problem() === undefined && parent().trim() !== "" && !busy();
+  const canSubmit = form.useSelector((state) => state.canSubmit);
+  const ready = () => canSubmit() && !busy();
 
-  async function submit(): Promise<void> {
-    if (!ready()) return;
+  async function create(values: { name: string; parent: string }): Promise<void> {
     setBusy(true);
     setFailure(undefined);
-    window.localStorage.setItem(PARENT_KEY, parent());
+    window.localStorage.setItem(PARENT_KEY, values.parent);
     try {
-      const root = await client.initRepo(path());
+      const root = await client.initRepo(createDestination(values.parent, values.name));
       props.onClose();
       await app.openRepository(root);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setFailure({ message, existing: error instanceof IpcError && error.kind === "already_a_repository" ? path() : undefined });
+      setFailure({ message, existing: error instanceof IpcError && error.kind === "already_a_repository" ? createDestination(values.parent, values.name) : undefined });
     } finally {
       setBusy(false);
     }
@@ -216,17 +236,30 @@ export function CreateDialog(props: { onClose: () => void }) {
         class="entry-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          void form.handleSubmit();
         }}
       >
         <label class="field">
           <span class="field-label">Name</span>
           <span class="input" classList={{ invalid: name() !== "" && problem() !== undefined }}>
-            <input type="text" ref={nameInput} value={name()} aria-label="Name" aria-invalid={name() !== "" && problem() !== undefined} onInput={(event) => setName(event.currentTarget.value)} />
+            <form.Field name="name" validators={{ onMount: ({ value }) => createNameProblem(value), onChange: ({ value }) => createNameProblem(value) }}>
+              {(field) => (
+                <input
+                  type="text"
+                  ref={nameInput}
+                  value={field().state.value}
+                  aria-label="Name"
+                  aria-invalid={name() !== "" && problem() !== undefined}
+                  onInput={(event) => field().handleChange(event.currentTarget.value)}
+                />
+              )}
+            </form.Field>
           </span>
           <Show when={name() !== "" && problem()}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
-        <ParentField label="Location" value={parent()} onChange={setParent} browse="Choose where to create the repository" />
+        <form.Field name="parent" validators={{ onMount: ({ value }) => parentProblem(value), onChange: ({ value }) => parentProblem(value) }}>
+          {(field) => <ParentField label="Location" value={field().state.value} onChange={field().handleChange} browse="Choose where to create the repository" />}
+        </form.Field>
         <p class="field-note">
           Creates <span class="ref">{path()}</span> with <code>git init</code> on the default branch from Settings.
         </p>

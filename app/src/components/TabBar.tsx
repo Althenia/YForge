@@ -70,7 +70,7 @@ export function TabBar(props: { count?: number }) {
         classList={{ on: settingsOpen() }}
         {...tip("Settings", "⌘,")}
         aria-current={settingsOpen() ? "page" : undefined}
-        onClick={() => (settingsOpen() ? app.setScreen({ kind: "workspace" }) : app.openSettings("general"))}
+        onClick={() => (settingsOpen() ? app.closeSettings() : app.openSettings("general"))}
       >
         <Icon name="settings" />
       </button>

@@ -1,55 +1,67 @@
-import { createSignal } from "solid-js";
+import { createAsyncQueuer } from "@tanstack/solid-pacer";
+import { useMutation, useQuery, type QueryClient } from "@tanstack/solid-query";
+import { createSignal, onCleanup } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
+import { dataOf } from "./queryData";
+import { repoKeys } from "./queryKeys";
+import { snapshotOptions } from "./workspace";
 
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
-export function createRepoSession(path: string, initial: RepoSnapshot) {
-  const [snapshot, setSnapshot] = createSignal(initial);
+export function createRepoSession(path: string, initial: RepoSnapshot, queryClient: QueryClient) {
+  const snapshot = useQuery(() => ({ ...snapshotOptions(path), initialData: initial }), () => queryClient);
   const [revision, setRevision] = createSignal(0);
   const [notice, setNotice] = createSignal<string | undefined>();
-  let running: Promise<void> | undefined;
-  let again = false;
-
-  async function reload(): Promise<void> {
-    do {
-      again = false;
-      try {
-        setSnapshot(await client.repoOpen(path));
-        setRevision((value) => value + 1);
-      } catch (failure) {
-        setNotice(asIpcError(failure).message);
-      }
-    } while (again);
-  }
+  const snapshotHash = queryClient.getQueryCache().find({ queryKey: repoKeys.snapshot(path) })?.queryHash;
+  onCleanup(
+    queryClient.getQueryCache().subscribe((event) => {
+      if (event.type !== "updated" || event.query.queryHash !== snapshotHash) return;
+      if (event.action.type === "success") setRevision((value) => value + 1);
+      else if (event.action.type === "error") setNotice(asIpcError(event.action.error).message);
+    }),
+  );
+  type Reload = { waiters: Array<() => void> };
+  const reloads = createAsyncQueuer(
+    async (_: Reload) => {
+      await queryClient.invalidateQueries({ queryKey: repoKeys.all(path) }, { cancelRefetch: false });
+    },
+    {
+      concurrency: 1,
+      maxSize: 1,
+      onSettled: (reload) => reload.waiters.forEach((resolve) => resolve()),
+    },
+  );
 
   function refresh(): Promise<void> {
-    if (running !== undefined) {
-      again = true;
-      return running;
-    }
-    running = reload().finally(() => {
-      running = undefined;
+    return new Promise((resolve) => {
+      const reload: Reload = { waiters: [resolve] };
+      if (!reloads.addItem(reload)) reloads.peekAllItems().at(-1)?.waiters.push(resolve);
     });
-    return running;
   }
 
+  const mutation = useMutation(
+    () => ({
+      mutationFn: (action: () => Promise<unknown>) => action(),
+      onSettled: refresh,
+    }),
+    () => queryClient,
+  );
+
   async function mutate(action: () => Promise<unknown>): Promise<boolean> {
-    let succeeded = true;
     try {
-      await action();
+      await mutation.mutateAsync(action);
+      return true;
     } catch (failure) {
-      succeeded = false;
       setNotice(asIpcError(failure).message);
+      return false;
     }
-    await refresh();
-    return succeeded;
   }
 
   return {
     path,
-    snapshot,
+    snapshot: () => dataOf(snapshot) as RepoSnapshot,
     revision,
     notice,
     dismissNotice: () => setNotice(undefined),
@@ -57,6 +69,10 @@ export function createRepoSession(path: string, initial: RepoSnapshot) {
     inform: (message: string) => setNotice(message),
     refresh,
     mutate,
+    read: <T>(parts: string[], load: () => Promise<T>) =>
+      queryClient.fetchQuery({ queryKey: repoKeys.read(path, ...parts), queryFn: load, gcTime: 0 }),
+    searchCommits: (query: string) =>
+      queryClient.fetchQuery({ queryKey: repoKeys.search(path, query), queryFn: () => client.searchCommits(path, query) }),
   };
 }
 

@@ -20,6 +20,7 @@ export const defaultSettings: AppSettings = {
   auto_fetch_minutes: 0,
   editor_command: "",
   terminal_command: "",
+  telemetry_opt_in: false,
 };
 
 export const pullModeLabel = (mode: PullMode): string => pullModes.find((entry) => entry.mode === mode)?.label.replace(/^Pull: /, "") ?? mode;

@@ -311,9 +311,47 @@ Every other command records `unavailable { reason: "<operation> has no safe undo
 
 ## Settings and stored data
 
-- App data directory: the platform app-data directory, or `YFORGE_DATA_DIR` when set (used for isolated runs and tests). Files: `settings.json` (`AppSettings`), `recents.json`, `session.json` (open repository tabs and the active one), `repositories.json` (per-repository `RepoSettings`). Writes go through a temporary file and a rename; an unreadable or malformed file is `storage_failed` and is never overwritten.
-- `AppSettings`: `theme` (`light`, `dark`, `system`), `density` (`compact`, `default`), `default_branch`, `pull_mode`, `auto_fetch_minutes` (0, 5, 10, 30), `editor_command`, `terminal_command`. The UI applies theme and density as `data-theme` and `data-density` on the document root; compact density switches the graph geometry to the `-compact` controls.
+- App data directory: the platform app-data directory, or `YFORGE_DATA_DIR` when set (used for isolated runs and tests). App state lives in `yforge.db` and diagnostics in `diagnostics.db`, both SQLite with WAL and foreign keys on, each with embedded forward-only migrations (`rusqlite_migration`) run at startup. Before pending migrations run, a `VACUUM INTO <file>.pre-migration` copy is made and deleted after success.
+- Legacy `settings.json`, `repositories.json`, `recents.json` and `session.json` are imported once on first open in one transaction and deleted after it commits. A JSON file that fails to parse yields `storage_failed` naming that file; the import rolls back and every file stays in place. A corrupt or newer `yforge.db` aborts startup with `storage_failed` naming its path. A corrupt `diagnostics.db` is moved aside as `diagnostics.db.corrupt-<ts>` and recreated. Nothing is sent off the machine.
+- `yforge.db` tables: `settings(key, value)` (namespaced keys, JSON values, defaults for missing keys), `repo_settings(repository, key, value)`, `recents` (at most 30, ordered), `session` and `session_tabs`, `activity` and `activity_commands` (at most 1,000 entries per repository, pruned on insert).
+- `AppSettings`: `theme` (`light`, `dark`, `system`), `density` (`compact`, `default`), `default_branch`, `pull_mode`, `auto_fetch_minutes` (0, 5, 10, 30), `editor_command`, `terminal_command`, `telemetry_opt_in` (default `false`). `settings_load` and `settings_save` carry the full object. Saving `telemetry_opt_in: false` while it was `true` deletes every usage event. The UI applies theme and density as `data-theme` and `data-density` on the document root; compact density switches the graph geometry to the `-compact` controls.
 - Git identity is never stored by YForge: `identity_read` and `identity_write` use `git config --show-scope --get` and `git config --global` or `--local` (`GIT_CONFIG_GLOBAL` is honored). Remotes use `git remote`.
+
+### Activity history
+
+- `activity_list()` -> `ActivityEntry[]`: this session only, oldest first, at most 300.
+- `activity_history({ repo: string, before: number | null, limit: number })` -> `ActivityEntry[]`: persisted entries for one repository, newest first. `before` is an exclusive entry-id cursor (`null` for the newest); `limit` is clamped to 1..200. Entries from earlier sessions report `undo.kind = "unavailable"` with the reason "Undo is only available in the session that ran the operation". Ids are stable across restarts.
+- `activity_clear({ repo: string | null })` -> `void`: deletes persisted and in-memory entries for one repository or all.
+
+### Crash log
+
+- `type CrashOrigin = "rust" | "frontend"`; `type CrashReport = { kind, message, stack: string | null, view: string | null }`; `type CrashRecord = { id, occurred_at, origin, kind, app_version, os, arch, thread: string | null, message, location: string | null, stack: string | null, view: string | null }`.
+- `crash_report({ report })` records a frontend error. `crash_list({ before, limit })` returns records newest first with the same paging as `activity_history`. `crash_export({ path })` writes all records as JSON to an absolute path and returns the count (a relative path is `invalid_request`). `crash_clear()` deletes all records.
+- Rust panics are recorded by a panic hook installed after storage starts (250 ms busy timeout, no retry). If the write fails, the redacted crash goes to stderr, and the previous hook runs either way.
+- Redaction before storage: URL userinfo becomes `***`, lines containing `password=`, `authorization:` or `extraheader=` become `***`, known repository paths become `<repository>`, the home directory becomes `~`, and each field is capped at 64 KiB. At most 500 records and 90 days are kept, pruned at startup.
+
+### Usage events (opt-in, local only)
+
+- Recorded for every tracked Git operation only while `telemetry_opt_in` is true: `UsageRecord { id, occurred_at, app_version, event: OperationKind, ok, error_kind: ErrorKind | null, duration_ms, count, correlation_id }`. `count` is the number of Git commands and `correlation_id` is the activity entry id. No paths, refs, branch names or messages are stored.
+- `usage_list({ before, limit })`, `usage_export({ path })` and `usage_clear()` follow the crash-log rules. At most 10,000 events and 90 days are kept, pruned at startup.
+
+## Frontend architecture
+
+The SolidJS frontend (`app/src`) uses the TanStack Solid adapters, one owner per concern. The IPC surface, events, and this contract do not change to fit a library. The peer check (`npm view <package> peerDependencies`, 2026-09-30) accepts the installed `solid-js` 1.9.15 for every package; the `@tanstack/*` peers agree (`solid-router-devtools` needs `@tanstack/solid-router` ^1.170.34 and `@tanstack/router-core` ^1.171.30, both satisfied by the installed router; `solid-query-devtools` needs `@tanstack/solid-query` ^5.104.0).
+
+| Concern | Package | Pin | Owner |
+|---|---|---|---|
+| Screens, URL state | `@tanstack/solid-router` | ^1.170.37 | Code-based routes (`app/src/routes.tsx`), hash history, no codegen. `/launcher`, `/repo?tab=<path>`, `/settings/$section?tab=<tab id>`. The URL owns which tab and screen is active (`app/src/state/app.ts` derives `activeTab()` and `screen()` from it); only the active repository tab's workspace is mounted (the watcher is single-instance). Tab and settings navigation replaces the history entry. |
+| IPC reads and writes | `@tanstack/solid-query` | ^5.104.0 | One `QueryClient` per app (`createAppState`). Keys are in `app/src/state/queryKeys.ts`, scoped by repository path (`["repo", path, …]`); app-wide reads use `["recents"]`, `["app-info"]`, `["identity"]`; `["repo-settings", path]` and `["conflict", path, file]` sit outside the repository prefix because the watcher must not refetch them. Git writes go through `session.mutate` (a mutation that invalidates `["repo", path]`); `repo-changed` calls the same refresh. Leaving a workspace removes its snapshot and graph pages. Authentication replies never enter the cache. Reads are read through `dataOf` (`state/queryData.ts`) so a pending query never suspends the route. |
+| Shared client state | `@tanstack/solid-store` | ~0.11.2 | Tab list, app settings, workspace selection and diff target, and the commit composer's pending edits (`state/clientStore.ts`). Component-local state (menus, popovers, drafts of one field) stays in Solid signals. |
+| Long lists | `@tanstack/solid-virtual` | ^3.13.40 | The graph rows (`GraphPanel`), the file lists of the Changes, Commit and Operation inspectors, and the lines of each diff hunk (`components/VirtualRows.tsx`). Graph options keep `aria-posinset`/`aria-setsize`; the selected or focused row stays rendered while scrolled away; J/K, Home, End and reveal-by-search scroll through the virtualizer. |
+| Data grid model | `@tanstack/solid-table` | ^9.2.4 | The graph's column definitions and sizing (`graph/columns.ts`); no rows go through the table (the graph pages rows by index). |
+| Multi-field forms | `@tanstack/solid-form` | ^1.33.5 | Remote form in settings, clone and create dialogs, branch-name, stash and tag popovers, authentication dialog (the secret is reset after submit). The merge popover (one choice), the single-field settings inputs and the commit composer (draft state lives in the Store so it survives inspector switches and amend prefill) stay on primitives. |
+| Debounce, coalescing | `@tanstack/solid-pacer` | ~0.23.0 | Commit-search input debounce, refresh coalescing (one running reload plus at most one queued follow-up), tooltip hover delay. No other handler was hand-debounced. |
+| App shortcuts | `@tanstack/solid-hotkeys` | ~0.12.1 | Registry shortcuts (`state/palette.ts` stays the single source; `hotkeyOf` converts a label) plus ⌘K, Escape to leave a diff, and ⌘G / ⇧⌘G. ⌘Z does not fire inside text inputs. Keys scoped to a focused element (graph J/K, file-row S/U, menus, dialogs) remain DOM handlers of that element. Chords use `Mod` (⌘ on macOS). |
+| Debug panels | `@tanstack/solid-devtools`, `@tanstack/solid-query-devtools`, `@tanstack/solid-router-devtools` | ~0.8.13, ^5.104.0, ^1.167.2 | Dev dependencies, loaded by a dynamic import under `import.meta.env.DEV` (`app/src/devtools.tsx`). The release bundle contains no panel or devtools UI; `@tanstack/form-core` and the other libraries still embed their small event-client emitter (strings `tanstack-devtools-global`). |
+
+Graph paging: Query owns each page (`["repo", path, "graph", page]`, fetched with `fetchQuery`); the graph store keeps the lane layout and requested-page set. An infinite query only extends sequentially, while the virtual scroller and reveal-by-search jump to arbitrary pages, so pages are independent keys.
 
 ## Build and run
 

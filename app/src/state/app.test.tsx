@@ -1,15 +1,21 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { emit } from "@tauri-apps/api/event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, mountWithApp } from "../components/testkit";
+import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
+import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import type { RepoActions } from "./repoActions";
 import { defaultSettings } from "./settingsModel";
 
 let dispose: (() => void) | undefined;
 
 beforeEach(() => {
+  vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
   window.matchMedia = (() => ({ matches: true, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
 });
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   dispose?.();
   dispose = undefined;
   await flush();
@@ -142,5 +148,50 @@ describe("app state", () => {
 
     expect(app.paletteOpen()).toBe(true);
     expect(app.activeTab()).toEqual({ kind: "repo", path: "/a" });
+  });
+
+  it("undoes with ⌘Z outside text fields and leaves ⌘Z to a focused text field", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+    const undone: number[] = [];
+    app.setBridge({
+      path: "/a",
+      snapshot: () =>
+        ({
+          root: "/a",
+          head: { kind: "branch", name: "main", sha: "a".repeat(40) },
+          upstream: null,
+          counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+          files: [],
+          operation: null,
+          operation_detail: null,
+          last_fetch: null,
+          worktrees: [],
+          branches: ["main"],
+          remote_branches: [],
+          remotes: [],
+          tags: [],
+          stashes: [],
+        }) as RepoSnapshot,
+      actions: { sync: () => ({ kind: "idle" }), undo: async (id: number) => void undone.push(id) } as unknown as RepoActions,
+      selectedSha: () => undefined,
+      revealCommit: () => undefined,
+      revealRef: () => undefined,
+      openSearch: () => undefined,
+      focusComposer: () => undefined,
+      loadCommits: async () => [],
+    });
+    const entry: ActivityEntry = { id: 7, repo: "/a", operation: "stage", summary: "Staged", started_at: 0, duration_ms: 1, ok: true, local: true, toast: false, error: null, commands: [], undo: { kind: "available", scope: "stage" } };
+    await emit("activity-recorded", entry);
+    await flush();
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+
+    key("z", {}, input);
+    expect(undone).toEqual([]);
+
+    input.blur();
+    key("z");
+    expect(undone).toEqual([7]);
   });
 });

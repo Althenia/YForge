@@ -1,5 +1,9 @@
-import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { useQueryClient } from "@tanstack/solid-query";
+import { createTable } from "@tanstack/solid-table";
+import { createVirtualizer } from "@tanstack/solid-virtual";
+import { createEffect, createMemo, For, on, Show } from "solid-js";
 import { relativeAge } from "../format";
+import { graphColumns, graphColumnSizing, graphFeatures } from "../graph/columns";
 import { createGraphStore, PAGE_SIZE } from "../graph/graphStore";
 import type { Geometry } from "../graph/geometry";
 import { edgePath, laneClass, nodeX, rowY, visibleEdges } from "../graph/laneArt";
@@ -243,52 +247,52 @@ export function GraphPanel(props: {
   focus: { nonce: number; index?: number; ref?: string } | undefined;
   onSelect: (selection: Selection) => void;
 }) {
-  const store = createGraphStore(props.path);
-  const [scrollTop, setScrollTop] = createSignal(0);
-  const [viewportHeight, setViewportHeight] = createSignal(0);
+  const store = createGraphStore(props.path, useQueryClient());
   const now = Math.floor(Date.now() / 1000);
   let scroller: HTMLDivElement | undefined;
 
-  const graphWidth = () => Math.max(props.geometry.graphColumn, props.geometry.gutter + store.lanes() * props.geometry.pitch);
-  const messageLeft = () => props.geometry.refColumn + graphWidth();
-  const range = createMemo(() => {
-    const rowHeight = props.geometry.row;
-    const first = Math.max(0, Math.floor(scrollTop() / rowHeight) - OVERSCAN);
-    const end = Math.min(store.total(), Math.ceil((scrollTop() + viewportHeight()) / rowHeight) + OVERSCAN);
-    return { first, end };
+  const table = createTable({
+    features: graphFeatures,
+    columns: graphColumns,
+    data: [],
+    state: {
+      get columnSizing() {
+        return graphColumnSizing(props.geometry, store.lanes());
+      },
+    },
   });
-  const indices = createMemo(() => Array.from({ length: Math.max(range().end - range().first, 0) }, (_, offset) => range().first + offset));
+  const graphWidth = () => table.getColumn("graph")?.getSize() ?? 0;
+  const messageLeft = () => (table.getColumn("refs")?.getSize() ?? 0) + graphWidth();
+  const virtualizer = createVirtualizer({
+    get count() {
+      return store.total();
+    },
+    getScrollElement: () => scroller ?? null,
+    estimateSize: () => props.geometry.row,
+    overscan: OVERSCAN,
+  });
+  const items = () => virtualizer.getVirtualItems();
+  const range = createMemo(() => {
+    const visible = items();
+    const last = visible.at(-1);
+    return { first: visible[0]?.index ?? 0, end: last === undefined ? 0 : last.index + 1 };
+  });
   const edges = createMemo(() => visibleEdges(store.edges().values(), range().first, range().end));
 
   const selected = createMemo(() => indexOfSelection(store.rows(), props.selection));
 
   createEffect(on(() => props.revision, () => void store.refresh(), { defer: true }));
 
+  createEffect(on(() => props.geometry.row, () => virtualizer.measure(), { defer: true }));
+
   createEffect(() => {
     const { first, end } = range();
-    store.ensure(first, Math.max(end, first + 1, Math.ceil(viewportHeight() / props.geometry.row) + OVERSCAN));
+    store.ensure(first, Math.max(end, first + 1));
   });
-
-  onMount(() => {
-    if (scroller === undefined) return;
-    const observer = new ResizeObserver(() => setViewportHeight(scroller?.clientHeight ?? 0));
-    observer.observe(scroller);
-    setViewportHeight(scroller.clientHeight);
-    onCleanup(() => observer.disconnect());
-  });
-
-  const reveal = (index: number) => {
-    if (scroller === undefined) return;
-    const top = index * props.geometry.row;
-    if (top < scroller.scrollTop) scroller.scrollTop = top;
-    else if (top + props.geometry.row > scroller.scrollTop + scroller.clientHeight) {
-      scroller.scrollTop = top + props.geometry.row - scroller.clientHeight;
-    }
-  };
 
   createEffect(() => {
     const index = selected();
-    if (index !== undefined) reveal(index);
+    if (index !== undefined) virtualizer.scrollToIndex(index, { align: "auto" });
   });
 
   const select = (index: number) => {
@@ -318,7 +322,7 @@ export function GraphPanel(props: {
     store.ensure(index, index + 1);
     if (store.rows().get(index) === undefined) return;
     handledFocus = target.nonce;
-    if (scroller !== undefined) scroller.scrollTop = Math.max(0, index * props.geometry.row - scroller.clientHeight / 2);
+    virtualizer.scrollToIndex(index, { align: "center" });
     select(index);
   });
 
@@ -349,9 +353,7 @@ export function GraphPanel(props: {
   return (
     <section class="panel graph" classList={{ covered: props.covered, searching: props.searching }} inert={props.covered} aria-label="Commit graph" style={{ "--graph-w": `${graphWidth()}px` }}>
       <div class="ghead" aria-hidden="true">
-        <span>Branch / Tag</span>
-        <span>Graph</span>
-        <span>Commit message</span>
+        <For each={table.getHeaderGroups()[0]?.headers}>{(header) => <span>{header.isPlaceholder ? null : <table.FlexRender header={header} />}</span>}</For>
       </div>
       <Show when={store.error()}>{(error) => <div class="graph-error" role="alert">{error().message}</div>}</Show>
       <div
@@ -361,16 +363,15 @@ export function GraphPanel(props: {
         tabindex="0"
         aria-label="Commits"
         aria-activedescendant={selected() === undefined ? undefined : `graph-row-${selected()}`}
-        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
         onKeyDown={onKeyDown}
       >
-        <div class="gspacer" style={{ height: `${store.total() * props.geometry.row}px` }}>
-          <For each={indices()}>
-            {(index) => (
-              <Show when={store.rows().get(index)} fallback={<PlaceholderRow index={index} geometry={props.geometry} />}>
+        <div class="gspacer" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          <For each={items()}>
+            {(item) => (
+              <Show when={store.rows().get(item.index)} fallback={<PlaceholderRow index={item.index} geometry={props.geometry} />}>
                 {(row) => (
                   <RowView
-                    index={index}
+                    index={item.index}
                     row={row()}
                     geometry={props.geometry}
                     messageLeft={messageLeft()}
@@ -378,9 +379,9 @@ export function GraphPanel(props: {
                     remotes={props.snapshot.remotes}
                     actions={props.actions}
                     now={now}
-                    selected={selected() === index}
+                    selected={selected() === item.index}
                     conflicted={props.snapshot.counts.conflicted > 0}
-                    dimmed={props.dimmed(index)}
+                    dimmed={props.dimmed(item.index)}
                     onSelect={select}
                   />
                 )}

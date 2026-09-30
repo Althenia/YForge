@@ -5,11 +5,11 @@ use std::path::{Path, PathBuf};
 use ts_rs::{Config, TS};
 use yforge_core::{
     ActivityEntry, AmendInfo, AppInfo, AppSettings, AuthPromptEvent, AuthReply, CheckoutOutcome,
-    CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide, ErrorPayload, FileDiff,
-    ForceLease, ForcePushPlan, GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode,
-    OperationOutcome, OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus,
-    RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore,
-    TabSession,
+    CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide, CrashRecord,
+    CrashReport, ErrorPayload, FileDiff, ForceLease, ForcePushPlan, GraphPage, Identity,
+    IdentityField, IntegrationPreview, MergeMode, OperationKind, OperationOutcome,
+    OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus, RemoteInfo, RepoChanged,
+    RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
 };
 
 fn committed_dir() -> PathBuf {
@@ -53,6 +53,10 @@ fn export_all(dir: &Path) {
     IdentityField::export_all(&config).expect("export IdentityField");
     RemoteInfo::export_all(&config).expect("export RemoteInfo");
     SearchResult::export_all(&config).expect("export SearchResult");
+    CrashRecord::export_all(&config).expect("export CrashRecord");
+    CrashReport::export_all(&config).expect("export CrashReport");
+    UsageRecord::export_all(&config).expect("export UsageRecord");
+    OperationKind::export_all(&config).expect("export OperationKind");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

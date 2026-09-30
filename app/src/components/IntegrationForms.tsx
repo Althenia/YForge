@@ -1,3 +1,4 @@
+import { createForm } from "@tanstack/solid-form";
 import { createSignal, For, Show } from "solid-js";
 import type { MergeMode } from "../ipc/bindings/MergeMode";
 import { mergeChoices } from "../state/integrationModel";
@@ -66,22 +67,25 @@ export function MergeForm(props: { state: MergePopover; actions: RepoActions }) 
   );
 }
 
-export function TagForm(props: { state: TagPopover; actions: RepoActions }) {
-  const [name, setName] = createSignal("");
-  const [annotated, setAnnotated] = createSignal(false);
-  const [message, setMessage] = createSignal("");
-  const [push, setPush] = createSignal(false);
-  const [problem, setProblem] = createSignal<string | undefined>();
-  const reason = () => {
-    if (name().trim() === "") return "Enter a tag name";
-    if (annotated() && message().trim() === "") return "Enter a message for the annotated tag";
-    return undefined;
-  };
+type TagValues = { name: string; annotated: boolean; message: string; push: boolean };
 
-  const submit = async () => {
-    if (reason() !== undefined) return;
-    setProblem(await props.actions.submitCreateTag({ name: name().trim(), message: annotated() ? message().trim() : null, push: push() }));
-  };
+function tagProblem(value: TagValues): string | undefined {
+  if (value.name.trim() === "") return "Enter a tag name";
+  if (value.annotated && value.message.trim() === "") return "Enter a message for the annotated tag";
+  return undefined;
+}
+
+export function TagForm(props: { state: TagPopover; actions: RepoActions }) {
+  const [problem, setProblem] = createSignal<string | undefined>();
+  const form = createForm(() => ({
+    defaultValues: { name: "", annotated: false, message: "", push: false } as TagValues,
+    validators: { onMount: ({ value }) => tagProblem(value), onChange: ({ value }) => tagProblem(value) },
+    onSubmit: async ({ value }) => {
+      setProblem(await props.actions.submitCreateTag({ name: value.name.trim(), message: value.annotated ? value.message.trim() : null, push: value.push }));
+    },
+  }));
+  const reason = form.useSelector((state) => (state.errors[0] as string | undefined));
+  const annotated = form.useSelector((state) => state.values.annotated);
 
   return (
     <Popover anchor={props.state.anchor} label="Create tag" onClose={props.actions.closePopover}>
@@ -89,43 +93,53 @@ export function TagForm(props: { state: TagPopover; actions: RepoActions }) {
         class="popform"
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          void form.handleSubmit();
         }}
       >
         <h3>Create tag</h3>
         <p class="start-point ref">{startPointText(props.state.at)}</p>
         <label class="input">
-          <input
-            type="text"
-            aria-label="Tag name"
-            placeholder="Tag name"
-            spellcheck={false}
-            autocomplete="off"
-            value={name()}
-            aria-invalid={problem() !== undefined}
-            onInput={(event) => {
-              setName(event.currentTarget.value);
-              setProblem(undefined);
-            }}
-          />
+          <form.Field name="name">
+            {(field) => (
+              <input
+                type="text"
+                aria-label="Tag name"
+                placeholder="Tag name"
+                spellcheck={false}
+                autocomplete="off"
+                value={field().state.value}
+                aria-invalid={problem() !== undefined}
+                onInput={(event) => {
+                  field().handleChange(event.currentTarget.value);
+                  setProblem(undefined);
+                }}
+              />
+            )}
+          </form.Field>
         </label>
         <div class="choices" role="radiogroup" aria-label="Tag type">
           <label class="check">
-            <input type="radio" name="tag-kind" checked={!annotated()} onChange={() => setAnnotated(false)} />
+            <input type="radio" name="tag-kind" checked={!annotated()} onChange={() => form.setFieldValue("annotated", false)} />
             Lightweight
           </label>
           <label class="check">
-            <input type="radio" name="tag-kind" checked={annotated()} onChange={() => setAnnotated(true)} />
+            <input type="radio" name="tag-kind" checked={annotated()} onChange={() => form.setFieldValue("annotated", true)} />
             Annotated
           </label>
         </div>
         <Show when={annotated()}>
           <label class="input area mtext">
-            <textarea aria-label="Tag message" placeholder="Message" value={message()} onInput={(event) => setMessage(event.currentTarget.value)} />
+            <form.Field name="message">
+              {(field) => <textarea aria-label="Tag message" placeholder="Message" value={field().state.value} onInput={(event) => field().handleChange(event.currentTarget.value)} />}
+            </form.Field>
           </label>
         </Show>
         <label class="check">
-          <input type="checkbox" checked={push()} disabled={props.state.remote === undefined} onChange={(event) => setPush(event.currentTarget.checked)} />
+          <form.Field name="push">
+            {(field) => (
+              <input type="checkbox" checked={field().state.value} disabled={props.state.remote === undefined} onChange={(event) => field().handleChange(event.currentTarget.checked)} />
+            )}
+          </form.Field>
           {props.state.remote === undefined ? "Push after creating (no remote)" : `Push to ${props.state.remote} after creating`}
         </label>
         <div class="hrow">

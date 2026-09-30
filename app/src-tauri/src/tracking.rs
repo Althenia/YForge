@@ -1,20 +1,25 @@
+use std::collections::HashSet;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use yforge_core::{
-    collect_activity, ActivityEntry, CommandRecord, CoreError, ErrorKind, ErrorPayload, Planned,
-    UndoAction, UndoStatus,
+    collect_activity, ActivityEntry, CommandRecord, CoreError, ErrorKind, ErrorPayload,
+    OperationKind, Planned, UndoAction, UndoStatus, UsageEvent,
 };
+
+use crate::DataDir;
 
 pub const ACTIVITY_EVENT: &str = "activity-recorded";
 const LOG_LIMIT: usize = 300;
+const PRIOR_SESSION_UNDO: &str = "Undo is only available in the session that ran the operation";
 
 #[derive(Debug, Clone)]
 pub struct Track {
     pub repo: String,
-    pub operation: &'static str,
+    pub operation: OperationKind,
     pub local: bool,
     pub toast: bool,
 }
@@ -25,6 +30,7 @@ pub struct Draft {
     started_at: i64,
     duration_ms: u32,
     error: Option<String>,
+    error_kind: Option<ErrorKind>,
     commands: Vec<CommandRecord>,
     undo: Planned,
 }
@@ -34,10 +40,18 @@ struct Stored {
     action: Option<UndoAction>,
 }
 
-#[derive(Default)]
 struct Inner {
     entries: Mutex<Vec<Stored>>,
-    next: AtomicU32,
+    unsaved: AtomicU32,
+}
+
+impl Default for Inner {
+    fn default() -> Self {
+        Self {
+            entries: Mutex::default(),
+            unsaved: AtomicU32::new(u32::MAX),
+        }
+    }
 }
 
 #[derive(Clone, Default)]
@@ -69,7 +83,8 @@ pub fn execute<T, S>(
         Err(error) => (Err(error), Vec::new()),
     };
     let duration_ms = u32::try_from(clock.elapsed().as_millis()).unwrap_or(u32::MAX);
-    let no_undo = || Planned::Unavailable(format!("{} has no safe undo", meta.operation));
+    let label = meta.operation.label();
+    let no_undo = || Planned::Unavailable(format!("{label} has no safe undo"));
     let (result, summary, error, undo) = match result {
         Ok((state, value)) => {
             let summary = summarize(&value);
@@ -80,17 +95,19 @@ pub fn execute<T, S>(
         }
         Err(error) => (
             Err(error.clone()),
-            format!("{} failed", meta.operation),
+            format!("{label} failed"),
             Some(error.to_string()),
             no_undo(),
         ),
     };
+    let error_kind = result.as_ref().err().map(CoreError::kind);
     let draft = Draft {
         meta: meta.clone(),
         summary,
         started_at,
         duration_ms,
         error,
+        error_kind,
         commands,
         undo,
     };
@@ -110,7 +127,7 @@ pub fn plain<T>(
         |(), _| {
             Ok(Planned::Unavailable(format!(
                 "{} has no safe undo",
-                meta.operation
+                meta.operation.label()
             )))
         },
     )
@@ -131,12 +148,39 @@ impl ActivityLog {
             .collect()
     }
 
-    pub fn clear(&self, repo: Option<&str>) {
+    pub fn history(
+        &self,
+        dir: &Path,
+        repo: &str,
+        before: Option<u32>,
+        limit: u32,
+    ) -> Result<Vec<ActivityEntry>, CoreError> {
+        let mut entries = yforge_core::activity_history(dir, repo, before, limit)?;
+        let live: HashSet<u32> = self
+            .lock()
+            .iter()
+            .filter(|stored| stored.action.is_some())
+            .map(|stored| stored.entry.id)
+            .collect();
+        for entry in &mut entries {
+            if matches!(entry.undo, UndoStatus::Available { .. }) && !live.contains(&entry.id) {
+                entry.undo = UndoStatus::Unavailable {
+                    reason: PRIOR_SESSION_UNDO.to_owned(),
+                };
+            }
+        }
+        Ok(entries)
+    }
+
+    pub fn clear(&self, dir: &Path, repo: Option<&str>) -> Result<(), CoreError> {
+        yforge_core::clear_activity(dir, repo)?;
         self.lock()
             .retain(|stored| repo.is_some_and(|repo| stored.entry.repo != repo));
+        Ok(())
     }
 
     pub fn record<R: Runtime>(&self, app: &AppHandle<R>, draft: Draft) -> ActivityEntry {
+        let dir = app.state::<DataDir>().0.clone();
         let (undo, action) = match draft.undo {
             Planned::Available(plan) => (
                 UndoStatus::Available { scope: plan.scope },
@@ -144,10 +188,11 @@ impl ActivityLog {
             ),
             Planned::Unavailable(reason) => (UndoStatus::Unavailable { reason }, None),
         };
-        let entry = ActivityEntry {
-            id: self.0.next.fetch_add(1, Ordering::SeqCst) + 1,
+        crate::note_repository(&draft.meta.repo);
+        let mut entry = ActivityEntry {
+            id: 0,
             repo: draft.meta.repo,
-            operation: draft.meta.operation.to_owned(),
+            operation: draft.meta.operation.label().to_owned(),
             summary: draft.summary,
             started_at: draft.started_at,
             duration_ms: draft.duration_ms,
@@ -158,6 +203,24 @@ impl ActivityLog {
             commands: draft.commands,
             undo,
         };
+        entry.id = match yforge_core::append_activity(&dir, &entry) {
+            Ok(id) => id,
+            Err(error) => {
+                log::error!("could not persist the activity entry: {error}");
+                self.0.unsaved.fetch_sub(1, Ordering::SeqCst)
+            }
+        };
+        let usage = UsageEvent {
+            kind: draft.meta.operation,
+            ok: entry.ok,
+            error_kind: draft.error_kind,
+            duration_ms: entry.duration_ms,
+            count: u32::try_from(entry.commands.len()).unwrap_or(u32::MAX),
+            correlation_id: entry.id,
+        };
+        if let Err(error) = yforge_core::record_usage(&dir, env!("CARGO_PKG_VERSION"), &usage) {
+            log::error!("could not record the usage event: {error}");
+        }
         {
             let mut entries = self.lock();
             entries.push(Stored {
@@ -203,6 +266,10 @@ impl ActivityLog {
     }
 
     pub fn mark_undone<R: Runtime>(&self, app: &AppHandle<R>, id: u32) {
+        let dir = app.state::<DataDir>().0.clone();
+        if let Err(error) = yforge_core::mark_activity_undone(&dir, id) {
+            log::error!("could not persist the undone status: {error}");
+        }
         let updated = {
             let mut entries = self.lock();
             entries

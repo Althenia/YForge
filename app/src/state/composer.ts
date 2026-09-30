@@ -1,6 +1,6 @@
-import { createSignal } from "solid-js";
 import type { AmendInfo } from "../ipc/bindings/AmendInfo";
 import { client, IpcError } from "../ipc/client";
+import { createStoreFields } from "./clientStore";
 import type { RepoSession } from "./repoSession";
 
 export const SUMMARY_GUIDE = 72;
@@ -30,12 +30,20 @@ export const amendDraft = (current: Draft, info: Pick<AmendInfo, "summary" | "de
     : current;
 
 export function createComposer() {
-  const [summary, setSummary] = createSignal("");
-  const [description, setDescription] = createSignal("");
-  const [amend, setAmend] = createSignal(false);
-  const [pushed, setPushed] = createSignal(false);
-  const [busy, setBusy] = createSignal(false);
-  const [failure, setFailure] = createSignal<IpcError | undefined>();
+  const field = createStoreFields<{ summary: string; description: string; amend: boolean; pushed: boolean; busy: boolean; failure: IpcError | undefined }>({
+    summary: "",
+    description: "",
+    amend: false,
+    pushed: false,
+    busy: false,
+    failure: undefined,
+  });
+  const [summary, setSummary] = field("summary");
+  const [description, setDescription] = field("description");
+  const [amend, setAmend] = field("amend");
+  const [pushed, setPushed] = field("pushed");
+  const [busy, setBusy] = field("busy");
+  const [failure, setFailure] = field("failure");
   return { summary, setSummary, description, setDescription, amend, setAmend, pushed, setPushed, busy, setBusy, failure, setFailure };
 }
 
@@ -83,7 +91,7 @@ export function createCommitAction(deps: {
       return;
     }
     try {
-      const info = await client.amendInfo(session.path);
+      const info = await session.read(["amend"], () => client.amendInfo(session.path));
       const draft = amendDraft({ summary: composer.summary(), description: composer.description() }, info);
       composer.setSummary(draft.summary);
       composer.setDescription(draft.description);

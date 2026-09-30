@@ -3,6 +3,9 @@ import { render } from "solid-js/web";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ConflictFile } from "../ipc/bindings/ConflictFile";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { QueryClientProvider } from "@tanstack/solid-query";
+import { createRoot } from "solid-js";
+import { createQueryClient } from "../state/queryClient";
 import { createRepoSession } from "../state/repoSession";
 import { ConflictResolver } from "./ConflictResolver";
 
@@ -53,10 +56,11 @@ async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = sna
     if (cmd === "repo_open") return initial;
     return null;
   });
-  const session = createRepoSession("/r", initial);
+  const queryClient = createQueryClient();
+  const session = createRoot(() => createRepoSession("/r", initial, queryClient));
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <ConflictResolver session={session} file="README.md" onClose={() => undefined} />, host);
+  dispose = render(() => <QueryClientProvider client={queryClient}><ConflictResolver session={session} file="README.md" onClose={() => undefined} /></QueryClientProvider>, host);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const panel = () => host.querySelector<HTMLElement>('[aria-label="Conflict resolver"]');
   const press = (key: string, init: KeyboardEventInit = {}) => panel()?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));

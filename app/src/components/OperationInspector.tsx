@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import { filesIn } from "../state/changes";
 import type { DiffTarget } from "../state/diffModel";
@@ -8,6 +8,7 @@ import type { RepoSession } from "../state/repoSession";
 import { MenuLabel } from "./ContextMenu";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { fileRowHeight, VirtualRows } from "./VirtualRows";
 import { tip } from "./Tooltip";
 
 export function OperationInspector(props: {
@@ -26,6 +27,7 @@ export function OperationInspector(props: {
   };
   const [message, setMessage] = createSignal(snapshot().operation_detail?.message ?? "");
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
+  let scroller: HTMLDivElement | undefined;
 
   const openConflict = (file: FileChange) => props.onOpenDiff({ source: "working", area: "conflicted", file: file.path });
   const isOpen = (file: FileChange) => props.activeTarget?.source === "working" && props.activeTarget.area === "conflicted" && props.activeTarget.file === file.path;
@@ -40,7 +42,7 @@ export function OperationInspector(props: {
               <MenuLabel parts={operationSummary(snapshot())} />
             </p>
           </div>
-          <div class="ilist" aria-busy={props.actions.operationBusy()}>
+          <div class="ilist" aria-busy={props.actions.operationBusy()} ref={scroller}>
             <section aria-label="Conflicted">
               <div class="lhead">
                 <span class="lhead-title">
@@ -49,18 +51,18 @@ export function OperationInspector(props: {
                 </span>
               </div>
               <Show when={conflicted().length > 0} fallback={<div class="empty">No conflicts left. Continue when you are ready.</div>}>
-                <ul class="flist">
-                  <For each={conflicted()}>
-                    {(file, index) => (
+                <VirtualRows class="flist" items={conflicted()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={conflicted().findIndex((file) => `conflicted:${file.path}` === activeRow())}>
+                  {(file, virtual) => (
                       <FileRow
                         rowId={`conflicted:${file.path}`}
                         path={file.path}
                         originalPath={null}
                         status="conflicted"
                         selected={isOpen(file)}
-                        tabStop={activeRow() === undefined ? index() === 0 : activeRow() === `conflicted:${file.path}`}
+                        tabStop={activeRow() === undefined ? virtual.index === 0 : activeRow() === `conflicted:${file.path}`}
                         onFocusRow={setActiveRow}
                         onOpen={() => openConflict(file)}
+                        virtual={virtual}
                       >
                         <span class="acts">
                           <button
@@ -89,9 +91,8 @@ export function OperationInspector(props: {
                           </button>
                         </span>
                       </FileRow>
-                    )}
-                  </For>
-                </ul>
+                  )}
+                </VirtualRows>
               </Show>
             </section>
             <section aria-label="Resolved">
@@ -102,10 +103,9 @@ export function OperationInspector(props: {
                 </span>
               </div>
               <Show when={resolved().length > 0} fallback={<div class="empty">No files resolved yet.</div>}>
-                <ul class="flist">
-                  <For each={resolved()}>
-                    {(path) => (
-                      <li class="frow static" aria-label={`Resolved ${path}`}>
+                <VirtualRows class="flist" items={resolved()} scroller={() => scroller} estimate={fileRowHeight()}>
+                  {(path, virtual) => (
+                      <li class="frow static" aria-label={`Resolved ${path}`} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
                         <span class="badge st-added" aria-hidden="true">
                           ✓
                         </span>
@@ -115,9 +115,8 @@ export function OperationInspector(props: {
                           </bdi>
                         </span>
                       </li>
-                    )}
-                  </For>
-                </ul>
+                  )}
+                </VirtualRows>
               </Show>
             </section>
           </div>

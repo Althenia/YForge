@@ -1,12 +1,16 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { createSignal, For, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 const refIcon = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
 
@@ -47,14 +51,16 @@ export function CommitInspector(props: {
   onSelectCommit: (sha: string) => void;
   onOpenDiff: (target: DiffTarget) => void;
 }) {
-  const [details] = createResource(
-    () => props.sha,
-    (sha) => client.commitDetails(props.path, sha),
-  );
+  const details = useQuery(() => ({
+    queryKey: repoKeys.commit(props.path, props.sha),
+    queryFn: () => client.commitDetails(props.path, props.sha),
+    placeholderData: keepPreviousData,
+  }));
+  let scroller: HTMLDivElement | undefined;
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const now = Math.floor(Date.now() / 1000);
-  const shown = () => (details.error === undefined ? details.latest : undefined);
-  const failure = () => (details.error instanceof IpcError ? details.error.message : details.error === undefined ? undefined : String(details.error));
+  const shown = () => (details.error == null ? dataOf(details) : undefined);
+  const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const commitTarget = (file: CommitFile): DiffTarget => ({ source: "commit", sha: shown()?.sha ?? props.sha, file: file.path });
   const tabStop = (index: number, key: string) => {
     const files = shown()?.files ?? [];
@@ -62,7 +68,7 @@ export function CommitInspector(props: {
     return active !== undefined && files.some((file) => file.path === active) ? active === key : index === 0;
   };
   return (
-    <aside class="panel inspector" aria-label="Commit" aria-busy={details.loading}>
+    <aside class="panel inspector" aria-label="Commit" aria-busy={details.isFetching}>
       <Show
         when={shown()}
         fallback={
@@ -79,7 +85,7 @@ export function CommitInspector(props: {
               <h2>{commit().summary || "(no message)"}</h2>
               <p>{commit().parents.length > 1 ? "Merge commit" : "Commit"} · {commit().parents.length} {commit().parents.length === 1 ? "parent" : "parents"}</p>
             </div>
-            <div class="ilist commit-body">
+            <div class="ilist commit-body" ref={scroller}>
               <Show when={commit().body}>{(body) => <p class="cbody">{body()}</p>}</Show>
               <div class="cmeta">
                 <div class="mrow">
@@ -125,24 +131,23 @@ export function CommitInspector(props: {
                   </span>
                 </div>
                 <Show when={commit().files.length > 0} fallback={<div class="empty">No file changes in this commit</div>}>
-                  <ul class="flist">
-                    <For each={commit().files}>
-                      {(file, index) => (
-                        <FileRow
-                          rowId={file.path}
-                          path={file.path}
-                          originalPath={file.original_path}
-                          status={file.status}
-                          selected={sameTarget(props.activeTarget, commitTarget(file))}
-                          tabStop={tabStop(index(), file.path)}
-                          onFocusRow={setActiveRow}
-                          onOpen={() => props.onOpenDiff(commitTarget(file))}
-                        >
-                          <Delta file={file} />
-                        </FileRow>
-                      )}
-                    </For>
-                  </ul>
+                  <VirtualRows class="flist" items={commit().files} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={commit().files.findIndex((file) => file.path === activeRow())}>
+                    {(file, virtual) => (
+                      <FileRow
+                        rowId={file.path}
+                        path={file.path}
+                        originalPath={file.original_path}
+                        status={file.status}
+                        selected={sameTarget(props.activeTarget, commitTarget(file))}
+                        tabStop={tabStop(virtual.index, file.path)}
+                        onFocusRow={setActiveRow}
+                        onOpen={() => props.onOpenDiff(commitTarget(file))}
+                        virtual={virtual}
+                      >
+                        <Delta file={file} />
+                      </FileRow>
+                    )}
+                  </VirtualRows>
                 </Show>
               </section>
             </div>

@@ -34,6 +34,10 @@ export function activateTab(state: TabsState, index: number): TabsState {
   return index >= 0 && index < state.tabs.length ? { ...state, active: index } : state;
 }
 
+export const LAUNCHER_TAB_ID = "launcher";
+
+export const tabId = (tab: Tab): string => (tab.kind === "repo" ? tab.path : LAUNCHER_TAB_ID);
+
 export function tabLabel(tab: Tab): string {
   return tab.kind === "launcher" ? "New tab" : basename(tab.path);
 }

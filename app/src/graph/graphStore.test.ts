@@ -3,6 +3,7 @@ import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
+import { createQueryClient } from "../state/queryClient";
 import { createGraphStore } from "./graphStore";
 
 afterEach(() => clearMocks());
@@ -34,7 +35,7 @@ describe("graph store", () => {
   it("loads a requested page once and keeps its rows by index", async () => {
     const calls = install(() => page(row("a"), row("b")));
     await createRoot(async (dispose) => {
-      const store = createGraphStore("/r");
+      const store = createGraphStore("/r", createQueryClient());
       store.ensure(0, 10);
       store.ensure(0, 10);
       await vi.waitFor(() => expect(store.total()).toBe(2));
@@ -48,7 +49,7 @@ describe("graph store", () => {
     let current = page(row(null, "changes"), row("a"), row("b"));
     install(() => current);
     await createRoot(async (dispose) => {
-      const store = createGraphStore("/r");
+      const store = createGraphStore("/r", createQueryClient());
       store.ensure(0, 10);
       await store.refresh();
       expect([...store.rows().values()].map((entry) => entry.sha)).toEqual([null, "a", "b"]);
@@ -72,7 +73,7 @@ describe("graph store", () => {
       return page(row("a"));
     });
     await createRoot(async (dispose) => {
-      const store = createGraphStore("/r");
+      const store = createGraphStore("/r", createQueryClient());
       store.ensure(0, 10);
       await store.refresh();
       fail = true;

@@ -1,11 +1,16 @@
 mod common;
 
 use common::Fixture;
+use rusqlite::Connection;
 use yforge_core::{
     add_recent, load_recents, load_repo_settings, load_session, load_settings, recent_status,
-    remove_recent, save_repo_settings, save_session, save_settings, AppSettings, Density,
-    ErrorKind, PullMode, RepoSettings, TabSession, Theme,
+    remove_recent, save_repo_settings, save_session, save_settings, start_storage, AppSettings,
+    Density, ErrorKind, PullMode, RepoSettings, TabSession, Theme,
 };
+
+fn database(dir: &std::path::Path) -> Connection {
+    Connection::open(dir.join("yforge.db")).unwrap()
+}
 
 #[test]
 fn settings_default_then_persist_across_reloads() {
@@ -20,6 +25,7 @@ fn settings_default_then_persist_across_reloads() {
         auto_fetch_minutes: 30,
         editor_command: "code".to_owned(),
         terminal_command: "open -a iTerm".to_owned(),
+        telemetry_opt_in: true,
     };
     save_settings(dir.path(), &changed).unwrap();
 
@@ -34,7 +40,7 @@ fn settings_default_then_persist_across_reloads() {
 }
 
 #[test]
-fn invalid_settings_are_refused_and_leave_the_stored_file_alone() {
+fn invalid_settings_are_refused_and_leave_the_stored_settings_alone() {
     let dir = tempfile::tempdir().unwrap();
     save_settings(dir.path(), &AppSettings::default()).unwrap();
 
@@ -58,20 +64,6 @@ fn invalid_settings_are_refused_and_leave_the_stored_file_alone() {
     assert_eq!(branch.kind(), ErrorKind::InvalidRequest);
     assert_eq!(interval.kind(), ErrorKind::InvalidRequest);
     assert_eq!(load_settings(dir.path()).unwrap(), AppSettings::default());
-}
-
-#[test]
-fn a_corrupt_settings_file_is_reported_not_replaced() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("settings.json"), "{not json").unwrap();
-
-    let error = load_settings(dir.path()).unwrap_err();
-
-    assert_eq!(error.kind(), ErrorKind::StorageFailed);
-    assert_eq!(
-        std::fs::read_to_string(dir.path().join("settings.json")).unwrap(),
-        "{not json"
-    );
 }
 
 #[test]
@@ -152,4 +144,211 @@ fn recent_status_summarises_a_repository_and_flags_a_missing_path() {
     assert_eq!(status.worktrees, 1);
     assert!(!missing.exists);
     assert_eq!(missing.branch, None);
+}
+
+fn write_legacy_files(dir: &std::path::Path) {
+    std::fs::write(
+        dir.join("settings.json"),
+        r#"{"theme":"dark","density":"compact","default_branch":"trunk","pull_mode":"rebase","auto_fetch_minutes":10,"editor_command":"code","terminal_command":"tmux"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("repositories.json"),
+        r#"{"/a":{"pull_mode":"rebase"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("recents.json"),
+        r#"[{"path":"/b","opened_at":200},{"path":"/a","opened_at":100}]"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("session.json"),
+        r#"{"tabs":["/a","/b"],"active":1}"#,
+    )
+    .unwrap();
+}
+
+const LEGACY_FILES: [&str; 4] = [
+    "settings.json",
+    "repositories.json",
+    "recents.json",
+    "session.json",
+];
+
+#[test]
+fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_files(dir.path());
+
+    let settings = load_settings(dir.path()).unwrap();
+
+    assert_eq!(settings.theme, Theme::Dark);
+    assert_eq!(settings.default_branch, "trunk");
+    assert_eq!(settings.editor_command, "code");
+    assert!(!settings.telemetry_opt_in);
+    let recents = load_recents(dir.path()).unwrap();
+    assert_eq!(
+        recents
+            .iter()
+            .map(|recent| (recent.path.as_str(), recent.opened_at))
+            .collect::<Vec<_>>(),
+        [("/b", 200), ("/a", 100)]
+    );
+    assert_eq!(
+        load_session(dir.path()).unwrap(),
+        TabSession {
+            tabs: vec!["/a".into(), "/b".into()],
+            active: 1
+        }
+    );
+    assert_eq!(
+        load_repo_settings(dir.path(), "/a").unwrap().pull_mode,
+        Some(PullMode::Rebase)
+    );
+    for name in LEGACY_FILES {
+        assert!(!dir.path().join(name).exists(), "{name} should be deleted");
+    }
+    let stored: i64 = database(dir.path())
+        .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(stored, 8);
+}
+
+#[test]
+fn a_corrupt_legacy_file_is_reported_by_name_and_nothing_is_imported_or_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_files(dir.path());
+    std::fs::write(dir.path().join("recents.json"), "{not json").unwrap();
+
+    let error = load_settings(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed);
+    assert!(error.to_string().contains("recents.json"), "{error}");
+    for name in LEGACY_FILES {
+        assert!(dir.path().join(name).exists(), "{name} must stay in place");
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("recents.json")).unwrap(),
+        "{not json"
+    );
+    let imported: i64 = database(dir.path())
+        .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(imported, 0);
+}
+
+#[test]
+fn legacy_files_stay_when_the_database_cannot_be_opened() {
+    let dir = tempfile::tempdir().unwrap();
+    write_legacy_files(dir.path());
+    std::fs::create_dir(dir.path().join("yforge.db")).unwrap();
+
+    let error = load_settings(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed);
+    for name in LEGACY_FILES {
+        assert!(dir.path().join(name).exists(), "{name} must stay in place");
+    }
+}
+
+#[test]
+fn reopening_keeps_the_schema_version_data_and_wal_journal() {
+    let dir = tempfile::tempdir().unwrap();
+    save_settings(
+        dir.path(),
+        &AppSettings {
+            theme: Theme::Dark,
+            ..AppSettings::default()
+        },
+    )
+    .unwrap();
+
+    start_storage(dir.path()).unwrap();
+    start_storage(dir.path()).unwrap();
+
+    assert_eq!(load_settings(dir.path()).unwrap().theme, Theme::Dark);
+    let connection = database(dir.path());
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    let journal: String = connection
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 1);
+    assert_eq!(journal, "wal");
+}
+
+#[test]
+fn an_invalid_stored_setting_is_an_error_naming_its_key_and_unknown_keys_are_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    save_settings(dir.path(), &AppSettings::default()).unwrap();
+    let connection = database(dir.path());
+    connection
+        .execute(
+            "INSERT INTO settings (key, value) VALUES ('future.option', '1')",
+            [],
+        )
+        .unwrap();
+    assert_eq!(load_settings(dir.path()).unwrap(), AppSettings::default());
+
+    connection
+        .execute(
+            "UPDATE settings SET value = '\"neon\"' WHERE key = 'appearance.theme'",
+            [],
+        )
+        .unwrap();
+    let error = load_settings(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed);
+    assert!(error.to_string().contains("appearance.theme"), "{error}");
+}
+
+#[test]
+fn a_database_from_a_newer_version_is_refused_not_recreated() {
+    let dir = tempfile::tempdir().unwrap();
+    save_settings(dir.path(), &AppSettings::default()).unwrap();
+    database(dir.path())
+        .pragma_update(None, "user_version", 99)
+        .unwrap();
+
+    let error = load_settings(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed);
+    assert!(error.to_string().contains("yforge.db"), "{error}");
+}
+
+#[test]
+fn start_storage_stops_on_a_corrupt_state_file_and_leaves_it_untouched() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("yforge.db"), vec![7_u8; 4096]).unwrap();
+
+    let error = start_storage(dir.path()).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed);
+    assert!(error.to_string().contains("yforge.db"), "{error}");
+    assert_eq!(
+        std::fs::read(dir.path().join("yforge.db")).unwrap(),
+        vec![7_u8; 4096]
+    );
+}
+
+#[test]
+fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safety_copy() {
+    let dir = tempfile::tempdir().unwrap();
+    database(dir.path())
+        .execute_batch("CREATE TABLE keepsake (value TEXT); INSERT INTO keepsake VALUES ('kept');")
+        .unwrap();
+
+    start_storage(dir.path()).unwrap();
+
+    let connection = database(dir.path());
+    let kept: String = connection
+        .query_row("SELECT value FROM keepsake", [], |row| row.get(0))
+        .unwrap();
+    let version: i64 = connection
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!((kept.as_str(), version), ("kept", 1));
+    assert!(!dir.path().join("yforge.db.pre-migration").exists());
 }

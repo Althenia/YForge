@@ -6,7 +6,7 @@ use tauri::ipc::{CallbackFn, InvokeBody};
 use tauri::test::MockRuntime;
 use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
-use tauri::{App, Listener, WebviewWindow};
+use tauri::{App, Listener, Manager, WebviewWindow};
 
 fn git(dir: &Path, args: &[&str]) {
     let status = Command::new("git")
@@ -38,10 +38,15 @@ fn fixture_repository() -> tempfile::TempDir {
     dir
 }
 
+struct DataGuard(#[allow(dead_code)] tempfile::TempDir);
+
 fn app() -> (App<MockRuntime>, WebviewWindow<MockRuntime>) {
     let app = yforge_lib::register(mock_builder())
         .build(mock_context(noop_assets()))
         .expect("build app");
+    let data = tempfile::tempdir().expect("tempdir");
+    app.manage(yforge_lib::DataDir(data.path().to_path_buf()));
+    app.manage(DataGuard(data));
     let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
         .build()
         .expect("build window");

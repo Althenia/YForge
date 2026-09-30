@@ -1,13 +1,19 @@
-import { createResource, createSignal, For, Show } from "solid-js";
+import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { createSignal, For, Show } from "solid-js";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
 import { client, IpcError } from "../ipc/client";
 import { discardHunkCopy, type ConfirmCopy } from "../state/confirmCopy";
-import { diffNotice, hunkActions, hunkHeader, hunkLabel, lineMarker, targetMode, targetSource, type DiffTarget, type HunkAction } from "../state/diffModel";
+import { diffNotice, hunkActions, hunkHeader, hunkLabel, hunkRows, lineMarker, targetMode, targetSource, type DiffTarget, type HunkAction } from "../state/diffModel";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
+import { VirtualRows } from "./VirtualRows";
+
+const LINE_ESTIMATE = 20;
 
 const actionLabel: Record<HunkAction, string> = { stage: "Stage hunk", unstage: "Unstage hunk", discard: "Discard hunk" };
 const actionShortcut = { stage: "S", unstage: "U" } as const;
@@ -18,14 +24,15 @@ function load(path: string, target: DiffTarget): Promise<FileDiff> {
 
 export function DiffView(props: { session: RepoSession; target: DiffTarget; onClose: () => void }) {
   const path = props.session.path;
-  const [diff] = createResource(
-    () => ({ target: props.target, revision: props.session.revision() }),
-    ({ target }) => load(path, target),
-  );
+  const diff = useQuery(() => ({
+    queryKey: repoKeys.diff(path, props.target),
+    queryFn: () => load(path, props.target),
+    placeholderData: keepPreviousData,
+  }));
   const [pendingDiscard, setPendingDiscard] = createSignal<{ hunk: DiffHunk; copy: ConfirmCopy } | undefined>();
   const actions = () => hunkActions(props.target);
-  const shown = () => (diff.error === undefined ? diff.latest : undefined);
-  const failure = () => (diff.error instanceof IpcError ? diff.error.message : diff.error === undefined ? undefined : String(diff.error));
+  const shown = () => (diff.error == null ? dataOf(diff) : undefined);
+  const failure = () => (diff.error instanceof IpcError ? diff.error.message : diff.error == null ? undefined : String(diff.error));
 
   const run = (action: HunkAction, hunk: DiffHunk) => {
     const target = props.target;
@@ -46,6 +53,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
   };
 
   let panel: HTMLElement | undefined;
+  let body: HTMLDivElement | undefined;
 
   const stepHunk = (delta: 1 | -1) => {
     const hunks = [...(panel?.querySelectorAll<HTMLElement>(".hunk") ?? [])];
@@ -71,7 +79,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
   };
 
   return (
-    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.loading} ref={panel}>
+    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.isFetching} ref={panel}>
       <div class="dhead">
         <nav class="crumbs" aria-label="Breadcrumb">
           <button type="button" class="link" onClick={props.onClose}>
@@ -116,7 +124,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
           </button>
         </span>
       </div>
-      <div class="dbody">
+      <div class="dbody" ref={body}>
         <Show when={failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
         <Show when={shown()}>
           {(current) => (
@@ -157,26 +165,32 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; onCl
                         </For>
                       </span>
                     </div>
-                    <For each={hunk.lines}>
-                      {(line) => (
-                        <>
-                          <div class="dline" classList={{ add: line.kind === "added", del: line.kind === "removed" }}>
-                            <span class="ln" aria-hidden="true">{line.old_number}</span>
-                            <span class="ln" aria-hidden="true">{line.new_number}</span>
-                            <span class="mk" aria-hidden="true">{lineMarker[line.kind]}</span>
-                            <span class="code">{line.text}</span>
-                          </div>
-                          <Show when={line.no_newline}>
-                            <div class="dline note">
-                              <span class="ln" />
-                              <span class="ln" />
-                              <span class="mk" />
-                              <span class="code">No newline at end of file</span>
-                            </div>
+                    <VirtualRows as="div" items={hunkRows(hunk)} scroller={() => body} estimate={LINE_ESTIMATE}>
+                      {(row, virtual) => (
+                        <div class="dline" classList={{ add: row.kind === "line" && row.line.kind === "added", del: row.kind === "line" && row.line.kind === "removed", note: row.kind === "note" }} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
+                          <Show
+                            when={row.kind === "line" && row.line}
+                            fallback={
+                              <>
+                                <span class="ln" />
+                                <span class="ln" />
+                                <span class="mk" />
+                                <span class="code">No newline at end of file</span>
+                              </>
+                            }
+                          >
+                            {(line) => (
+                              <>
+                                <span class="ln" aria-hidden="true">{line().old_number}</span>
+                                <span class="ln" aria-hidden="true">{line().new_number}</span>
+                                <span class="mk" aria-hidden="true">{lineMarker[line().kind]}</span>
+                                <span class="code">{line().text}</span>
+                              </>
+                            )}
                           </Show>
-                        </>
+                        </div>
                       )}
-                    </For>
+                    </VirtualRows>
                   </section>
                 )}
               </For>

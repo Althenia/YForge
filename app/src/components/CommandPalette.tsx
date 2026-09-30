@@ -1,4 +1,5 @@
-import { createEffect, createMemo, createResource, createSignal, createUniqueId, For, onCleanup, onMount, Show } from "solid-js";
+import { useQuery } from "@tanstack/solid-query";
+import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, onMount, Show } from "solid-js";
 import type { IconName } from "../iconNames";
 import {
   buildCommands,
@@ -13,6 +14,8 @@ import {
   type PaletteContext,
   type PickerOption,
 } from "../state/palette";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
 
 type Item = { key: string; label: string; icon?: IconName; note?: string; group?: string; shortcut?: string; disabledReason?: string; positions: number[]; choose: () => void };
@@ -44,12 +47,20 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   const commands = createMemo(() => buildCommands(props.context));
   const parsed = createMemo(() => parseQuery(query()));
   const wantsCommits = () => pending() === undefined && parsed().mode === "#";
-  const [choices] = createResource(wantsCommits, (wanted) => (wanted ? props.context.loadCommits() : Promise.resolve([])));
+  const scope = () => props.context.snapshot?.root ?? "";
+  const choices = useQuery(() => ({
+    queryKey: repoKeys.commitChoices(scope()),
+    queryFn: () => props.context.loadCommits(),
+    enabled: wantsCommits(),
+    gcTime: 0,
+  }));
   const step = () => pending()?.command.args[pending()?.values.length ?? 0];
-  const [options] = createResource(
-    () => (step() === undefined ? undefined : `${pending()?.command.id}:${pending()?.values.length}`),
-    async () => (await step()?.options()) ?? [],
-  );
+  const options = useQuery(() => ({
+    queryKey: repoKeys.paletteOptions(scope(), pending()?.command.id ?? "", pending()?.values.length ?? 0),
+    queryFn: async () => (await step()?.options()) ?? [],
+    enabled: step() !== undefined,
+    gcTime: 0,
+  }));
 
   const finish = (command: PaletteCommand, values: string[]) => {
     setRecent(rememberCommand(command.id));
@@ -80,7 +91,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   const items = createMemo<Item[]>(() => {
     const current = pending();
     if (current !== undefined) {
-      return rank(options() ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({
+      return rank(dataOf(options) ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({
         key: item.value,
         label: item.label,
         ...(item.note === undefined ? {} : { note: item.note }),
@@ -90,7 +101,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
       }));
     }
     const { mode, text } = parsed();
-    const targets = navigationTargets(props.context, choices() ?? []);
+    const targets = navigationTargets(props.context, dataOf(choices) ?? []);
     const asItem = (command: PaletteCommand, positions: number[]): Item => {
       const icon = commandIcon(command.id);
       return {
@@ -196,7 +207,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
           />
         </div>
         <ul class="pal-list" id={listId} role="listbox">
-          <For each={items()} fallback={<li class="pal-empty">{options.loading || choices.loading ? "Loading…" : "No matches"}</li>}>
+          <For each={items()} fallback={<li class="pal-empty">{options.isLoading || choices.isLoading ? "Loading…" : "No matches"}</li>}>
             {(item, index) => (
               <li
                 id={`${listId}-${index()}`}

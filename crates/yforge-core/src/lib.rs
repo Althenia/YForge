@@ -5,6 +5,7 @@ mod clone;
 mod commit;
 mod config;
 mod conflict;
+mod diagnostics;
 mod diff;
 mod error;
 mod git;
@@ -15,6 +16,7 @@ mod model;
 mod operation;
 mod refs;
 mod repo;
+mod sqlite;
 mod stage;
 mod stash;
 mod status;
@@ -24,7 +26,9 @@ mod tag;
 mod undo;
 mod watch;
 
-pub use activity::{collect as collect_activity, redact, ActivityEntry, CommandRecord, UndoStatus};
+pub use activity::{
+    collect as collect_activity, redact, ActivityEntry, CommandRecord, OperationKind, UndoStatus,
+};
 pub use askpass::{AuthHandler, AuthKind, AuthPrompt, AuthReply};
 pub use branch::{
     branch_delete_preview, check_branch_name, checkout, create_branch, delete_branch, rename_branch,
@@ -36,6 +40,11 @@ pub use config::{
     ConfigSource, ConfigValue, Identity, IdentityField, RemoteInfo,
 };
 pub use conflict::{conflict_file, conflict_reset, conflict_resolve, conflict_take_side};
+pub use diagnostics::{
+    clear_crashes, delete_usage, export_crashes, export_usage, list_crashes, list_usage,
+    record_crash, record_panic, record_usage, CrashOrigin, CrashRecord, CrashReport, NewCrash,
+    Redactor, UsageEvent, UsageRecord,
+};
 pub use diff::diff_file;
 pub use error::{CoreError, ErrorKind, ErrorPayload};
 pub use git::{ensure_supported, git_version, CancelToken, GitVersion};
@@ -59,7 +68,8 @@ pub use stage::{
 };
 pub use stash::{stash_apply, stash_drop, stash_pop, stash_push};
 pub use store::{
-    add_recent, load_recents, load_repo_settings, load_session, load_settings, recent_status,
+    activity_history, add_recent, append_activity, clear_activity, load_recents,
+    load_repo_settings, load_session, load_settings, mark_activity_undone, recent_status,
     remove_recent, save_repo_settings, save_session, save_settings, AppSettings, Density,
     RecentRepo, RecentStatus, RepoSettings, TabSession, Theme,
 };
@@ -78,4 +88,9 @@ pub fn app_info(app_version: &str) -> Result<AppInfo, CoreError> {
         app_version: app_version.to_owned(),
         git_version: ensure_supported()?.text,
     })
+}
+
+pub fn start_storage(dir: &std::path::Path) -> Result<Option<std::path::PathBuf>, CoreError> {
+    store::prepare(dir)?;
+    diagnostics::prepare(dir)
 }

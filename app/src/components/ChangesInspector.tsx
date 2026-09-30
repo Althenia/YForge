@@ -13,9 +13,8 @@ import { Composer } from "./Composer";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { fileRowHeight, VirtualRows, type VirtualRow } from "./VirtualRows";
 import { tip } from "./Tooltip";
-
-const MAX_ROWS = 500;
 
 const sectionIcon = { conflicted: "warning", unstaged: "changes", untracked: "plus", staged: "check" } as const;
 
@@ -35,6 +34,7 @@ export function ChangesInspector(props: {
   const [menuFor, setMenuFor] = createSignal<string | undefined>();
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   let summary: HTMLInputElement | undefined;
+  let scroller: HTMLDivElement | undefined;
 
   const action = createCommitAction({
     session: props.session,
@@ -85,7 +85,7 @@ export function ChangesInspector(props: {
     }
   };
 
-  function Row(rowProps: { file: FileChange; index: number; keys: string[] }) {
+  function Row(rowProps: { file: FileChange; index: number; keys: string[]; virtual: VirtualRow }) {
     const file = () => rowProps.file;
     const key = () => rowKey(file());
     const target = () => targetOf(file());
@@ -106,6 +106,7 @@ export function ChangesInspector(props: {
         onFocusRow={setActiveRow}
         onOpen={() => props.onOpenDiff(target())}
         onKey={(event) => onRowKey(file(), event)}
+        virtual={rowProps.virtual}
       >
         <Show
           when={file().area !== "conflicted"}
@@ -214,12 +215,9 @@ export function ChangesInspector(props: {
             </Show>
           </div>
           <Show when={files().length > 0} fallback={<div class="empty">{section.empty}</div>}>
-            <ul class="flist">
-              <For each={files().slice(0, MAX_ROWS)}>{(file, index) => <Row file={file} index={index()} keys={keys()} />}</For>
-            </ul>
-            <Show when={files().length > MAX_ROWS}>
-              <div class="empty">{files().length - MAX_ROWS} more files not shown.</div>
-            </Show>
+            <VirtualRows class="flist" items={files()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={keys().indexOf(activeRow() ?? "")}>
+              {(file, virtual) => <Row file={file} index={virtual.index} keys={keys()} virtual={virtual} />}
+            </VirtualRows>
           </Show>
         </section>
       </Show>
@@ -246,7 +244,7 @@ export function ChangesInspector(props: {
           on <span class="ref">{head()}</span> · {total()} {total() === 1 ? "file" : "files"}
         </p>
       </div>
-      <div class="ilist" aria-busy={props.composer.busy()}>
+      <div class="ilist" aria-busy={props.composer.busy()} ref={scroller}>
         <Show
           when={total() > 0}
           fallback={

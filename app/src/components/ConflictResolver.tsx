@@ -1,7 +1,10 @@
-import { createEffect, createResource, createSignal, For, on, Show } from "solid-js";
+import { keepPreviousData, useQuery } from "@tanstack/solid-query";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import type { ConflictSide } from "../ipc/bindings/ConflictSide";
 import { client, IpcError } from "../ipc/client";
 import { conflictDescription, conflictSides } from "../state/operationModel";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import {
   choiceLabel,
@@ -42,17 +45,19 @@ function PaneText(props: { lines: string[] }) {
 
 export function ConflictResolver(props: { session: RepoSession; file: string; onClose: () => void }) {
   const path = props.session.path;
-  const [conflict, { refetch }] = createResource(
-    () => props.file,
-    (file) => client.conflictFile(path, file),
-  );
+  const conflict = useQuery(() => ({
+    queryKey: repoKeys.conflict(path, props.file),
+    queryFn: () => client.conflictFile(path, props.file),
+    placeholderData: keepPreviousData,
+    gcTime: 0,
+  }));
   const [state, setState] = createSignal<ResolverState>({ choices: [], active: 0 });
   const [draft, setDraft] = createSignal<string | undefined>();
   let root: HTMLElement | undefined;
 
   const sides = () => conflictSides(props.session.snapshot());
-  const loaded = () => (conflict.error === undefined ? conflict.latest : undefined);
-  const failure = () => (conflict.error instanceof IpcError ? conflict.error.message : conflict.error === undefined ? undefined : String(conflict.error));
+  const loaded = () => (conflict.error == null ? dataOf(conflict) : undefined);
+  const failure = () => (conflict.error instanceof IpcError ? conflict.error.message : conflict.error == null ? undefined : String(conflict.error));
   const regions = () => {
     const file = loaded();
     return file === undefined ? [] : regionsOf(file);
@@ -116,8 +121,8 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
 
   const resetFile = async () => {
     if (!(await props.session.mutate(() => client.conflictReset(path, props.file)))) return;
-    const file = await refetch();
-    if (file !== undefined && file !== null) {
+    const { data: file } = await conflict.refetch();
+    if (file !== undefined) {
       setState(initialState(file));
       setDraft(undefined);
     }
@@ -151,7 +156,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   };
 
   return (
-    <section class="panel rpanel" aria-label="Conflict resolver" aria-busy={conflict.loading} tabindex="-1" ref={(element) => {
+    <section class="panel rpanel" aria-label="Conflict resolver" aria-busy={conflict.isFetching} tabindex="-1" ref={(element) => {
       root = element;
       queueMicrotask(() => element.focus());
     }} onKeyDown={onKeyDown}>

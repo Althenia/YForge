@@ -209,7 +209,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     const sha = deps.selectedSha();
     if (sha === undefined) return;
     try {
-      if ((await client.searchCommits(path, `sha:${sha}`)).rows.length === 0) deps.onSelectionGone();
+      if ((await session.searchCommits(`sha:${sha}`)).rows.length === 0) deps.onSelectionGone();
     } catch (failure) {
       fail(failure);
     }
@@ -217,7 +217,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   async function openForcePush(): Promise<void> {
     try {
-      const plan = await client.pushPlan(path);
+      const plan = await session.read(["push-plan"], () => client.pushPlan(path));
       confirm(forcePushCopy(plan), () => confirmForcePush(plan));
     } catch (failure) {
       fail(failure);
@@ -291,7 +291,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function deleteBranch(name: string): Promise<void> {
     let lost;
     try {
-      lost = await client.branchDeletePreview(path, name);
+      lost = await session.read(["delete-preview", name], () => client.branchDeletePreview(path, name));
     } catch (failure) {
       fail(failure);
       return;
@@ -317,7 +317,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   async function previewOf(base: string | null, other: string): Promise<IntegrationPreview | undefined> {
     try {
-      return await client.integrationPreview(path, base, other);
+      return await session.read(["integration-preview", base ?? "", other], () => client.integrationPreview(path, base, other));
     } catch (failure) {
       fail(failure);
       return undefined;

@@ -1,13 +1,13 @@
+import { createDebouncer } from "@tanstack/solid-pacer";
 import { createSignal } from "solid-js";
-import { client } from "../ipc/client";
+import type { SearchResult } from "../ipc/bindings/SearchResult";
 import { idleSearch, stepMatch, type SearchState } from "./searchModel";
 
 export const SEARCH_DELAY_MS = 200;
 
-export function createSearch(path: string, onFailure: (failure: unknown) => void, onReveal: (row: number) => void) {
+export function createSearch(find: (query: string) => Promise<SearchResult>, onFailure: (failure: unknown) => void, onReveal: (row: number) => void) {
   const [state, setState] = createSignal<SearchState>(idleSearch);
   const [open, setOpen] = createSignal(false);
-  let timer: ReturnType<typeof setTimeout> | undefined;
   let latest = 0;
 
   const reveal = () => {
@@ -18,7 +18,7 @@ export function createSearch(path: string, onFailure: (failure: unknown) => void
   async function run(query: string): Promise<void> {
     const mine = (latest += 1);
     try {
-      const found = await client.searchCommits(path, query);
+      const found = await find(query);
       if (mine !== latest) return;
       setState({ query, rows: found.rows, total: found.total, position: 0, status: "done" });
       reveal();
@@ -28,15 +28,17 @@ export function createSearch(path: string, onFailure: (failure: unknown) => void
     }
   }
 
+  const pause = createDebouncer((query: string) => void run(query), { wait: SEARCH_DELAY_MS });
+
   function setQuery(query: string): void {
-    clearTimeout(timer);
+    pause.cancel();
     latest += 1;
     if (query.trim() === "") {
       setState({ ...idleSearch, query });
       return;
     }
     setState({ ...idleSearch, query, status: "searching" });
-    timer = setTimeout(() => void run(query), SEARCH_DELAY_MS);
+    pause.maybeExecute(query);
   }
 
   function move(direction: 1 | -1): void {
@@ -47,7 +49,7 @@ export function createSearch(path: string, onFailure: (failure: unknown) => void
   }
 
   function close(): void {
-    clearTimeout(timer);
+    pause.cancel();
     latest += 1;
     setState(idleSearch);
     setOpen(false);

@@ -1,6 +1,10 @@
-import { createResource, createSignal, Show } from "solid-js";
+import { createForm } from "@tanstack/solid-form";
+import { useQuery } from "@tanstack/solid-query";
+import { createEffect, Show } from "solid-js";
 import { client } from "../ipc/client";
-import { createBranchNameField } from "../state/branchName";
+import { branchNameProblem } from "../state/branchName";
+import { dataOf } from "../state/queryData";
+import { repoKeys } from "../state/queryKeys";
 import { changeTotal } from "../state/changes";
 import { startPointText } from "../state/refMenu";
 import type { PopoverState, RepoActions } from "../state/repoActions";
@@ -12,24 +16,42 @@ type StashPopover = Extract<PopoverState, { kind: "stash" }>;
 
 export function BranchNameForm(props: { state: BranchPopover; session: RepoSession; actions: RepoActions }) {
   const renaming = () => (props.state.kind === "rename_branch" ? props.state.name : undefined);
-  const field = createBranchNameField(props.session.path, props.session.snapshot().branches, renaming() ?? "", renaming());
-  const [checkOut, setCheckOut] = createSignal(true);
+  const existing = props.session.snapshot().branches;
   const startSha = () => (props.state.kind === "create_branch" && /^[0-9a-f]{4,64}$/.test(props.state.at ?? "") ? props.state.at : null);
-  const [summary] = createResource(startSha, (sha) => client.commitDetails(props.session.path, sha).then((details) => details.summary, () => undefined));
-  const startText = () => (props.state.kind === "create_branch" ? startPointText(props.state.at, summary()) : undefined);
+  const summary = useQuery(() => ({
+    queryKey: repoKeys.commit(props.session.path, startSha() ?? ""),
+    queryFn: () => client.commitDetails(props.session.path, startSha() as string),
+    enabled: startSha() !== null,
+  }));
+  const startText = () => (props.state.kind === "create_branch" ? startPointText(props.state.at, dataOf(summary)?.summary) : undefined);
   const title = () => (props.state.kind === "rename_branch" ? `Rename ${props.state.name}` : "Create branch");
-  const reason = () => {
-    if (field.value() === "") return "Enter a branch name";
-    return field.problem() ?? (field.valid() ? undefined : "Checking the name…");
-  };
 
-  const submit = () => {
-    if (!field.valid()) return;
-    const state = props.state;
-    if (state.kind === "rename_branch") {
-      props.actions.closePopover();
-      void props.actions.renameBranch(state.name, field.value());
-    } else void props.actions.submitCreateBranch(field.value(), checkOut());
+  const form = createForm(() => ({
+    defaultValues: { name: renaming() ?? "", checkOut: true },
+    onSubmit: ({ value }) => {
+      const state = props.state;
+      if (state.kind === "rename_branch") {
+        props.actions.closePopover();
+        void props.actions.renameBranch(state.name, value.name);
+      } else void props.actions.submitCreateBranch(value.name, value.checkOut);
+    },
+  }));
+  const nameState = form.useSelector((state) => state.fieldMeta.name);
+  const name = form.useSelector((state) => state.values.name);
+  const problem = () => nameState()?.errors.find((error): error is string => typeof error === "string");
+  const valid = () => name() !== "" && nameState()?.isValidating !== true && problem() === undefined;
+  const reason = () => {
+    if (name() === "") return "Enter a branch name";
+    return problem() ?? (valid() ? undefined : "Checking the name…");
+  };
+  const checkName = async (value: string): Promise<string | undefined> => {
+    if (value === "") return undefined;
+    try {
+      await props.session.read(["branch-name", value], () => client.checkBranchName(props.session.path, value));
+      return undefined;
+    } catch {
+      return `${value} is not a valid branch name`;
+    }
   };
 
   return (
@@ -38,38 +60,51 @@ export function BranchNameForm(props: { state: BranchPopover; session: RepoSessi
         class="popform"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          if (valid()) void form.handleSubmit();
         }}
       >
         <h3>{title()}</h3>
         <Show when={startText()}>{(text) => <p class="start-point ref">{text()}</p>}</Show>
         <label class="input">
-          <input
-            type="text"
-            aria-label="Branch name"
-            placeholder="Branch name"
-            spellcheck={false}
-            autocomplete="off"
-            value={field.value()}
-            aria-invalid={field.problem() !== undefined}
-            onInput={(event) => void field.setValue(event.currentTarget.value)}
-            ref={(element) => queueMicrotask(() => element.select())}
-          />
+          <form.Field
+            name="name"
+            validators={{
+              onMount: ({ value }) => branchNameProblem(value, existing, renaming()),
+              onChange: ({ value }) => branchNameProblem(value, existing, renaming()),
+              onChangeAsync: ({ value }) => checkName(value),
+            }}
+          >
+            {(field) => (
+              <input
+                type="text"
+                aria-label="Branch name"
+                placeholder="Branch name"
+                spellcheck={false}
+                autocomplete="off"
+                value={field().state.value}
+                aria-invalid={problem() !== undefined}
+                onInput={(event) => field().handleChange(event.currentTarget.value)}
+                ref={(element) => queueMicrotask(() => element.select())}
+              />
+            )}
+          </form.Field>
         </label>
         <Show when={props.state.kind === "create_branch"}>
           <label class="check">
-            <input type="checkbox" checked={checkOut()} onChange={(event) => setCheckOut(event.currentTarget.checked)} />
+            <form.Field name="checkOut">
+              {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
+            </form.Field>
             Check out the new branch
           </label>
         </Show>
         <div class="hrow">
-          <button type="submit" class="btn primary" disabled={!field.valid()}>
+          <button type="submit" class="btn primary" disabled={!valid()}>
             {props.state.kind === "rename_branch" ? "Rename" : "Create"}
           </button>
           <button type="button" class="btn" onClick={props.actions.closePopover}>
             Cancel
           </button>
-          <Show when={reason()}>{(text) => <span class="reason" role={field.problem() === undefined ? undefined : "alert"}>{text()}</span>}</Show>
+          <Show when={reason()}>{(text) => <span class="reason" role={problem() === undefined ? undefined : "alert"}>{text()}</span>}</Show>
         </div>
       </form>
     </Popover>
@@ -77,20 +112,25 @@ export function BranchNameForm(props: { state: BranchPopover; session: RepoSessi
 }
 
 export function StashForm(props: { state: StashPopover; session: RepoSession; actions: RepoActions }) {
-  const [message, setMessage] = createSignal("");
-  const [untracked, setUntracked] = createSignal(false);
   const counts = () => props.session.snapshot().counts;
-  const reason = () => {
+  const stashProblem = (untracked: boolean): string | undefined => {
     if (changeTotal(counts()) === 0) return "No local changes to stash";
-    if (changeTotal(counts()) === counts().untracked && !untracked()) return "Only untracked files changed; include them to stash";
+    if (changeTotal(counts()) === counts().untracked && !untracked) return "Only untracked files changed; include them to stash";
     return undefined;
   };
-
-  const submit = () => {
-    if (reason() !== undefined) return;
-    props.actions.closePopover();
-    void props.actions.stashChanges(message(), untracked());
-  };
+  const form = createForm(() => ({
+    defaultValues: { message: "", untracked: false },
+    validators: { onMount: ({ value }) => stashProblem(value.untracked), onChange: ({ value }) => stashProblem(value.untracked) },
+    onSubmit: ({ value }) => {
+      props.actions.closePopover();
+      void props.actions.stashChanges(value.message, value.untracked);
+    },
+  }));
+  createEffect(() => {
+    counts();
+    void form.validate("change");
+  });
+  const reason = form.useSelector((state) => state.errors[0] as string | undefined);
 
   return (
     <Popover anchor={props.state.anchor} label="Stash changes" onClose={props.actions.closePopover}>
@@ -98,22 +138,28 @@ export function StashForm(props: { state: StashPopover; session: RepoSession; ac
         class="popform"
         onSubmit={(event) => {
           event.preventDefault();
-          submit();
+          void form.handleSubmit();
         }}
       >
         <h3>Stash changes</h3>
         <label class="input">
-          <input
-            type="text"
-            aria-label="Stash message"
-            placeholder="Message (optional)"
-            autocomplete="off"
-            value={message()}
-            onInput={(event) => setMessage(event.currentTarget.value)}
-          />
+          <form.Field name="message">
+            {(field) => (
+              <input
+                type="text"
+                aria-label="Stash message"
+                placeholder="Message (optional)"
+                autocomplete="off"
+                value={field().state.value}
+                onInput={(event) => field().handleChange(event.currentTarget.value)}
+              />
+            )}
+          </form.Field>
         </label>
         <label class="check">
-          <input type="checkbox" checked={untracked()} onChange={(event) => setUntracked(event.currentTarget.checked)} />
+          <form.Field name="untracked">
+            {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
+          </form.Field>
           Include untracked files
         </label>
         <div class="hrow">

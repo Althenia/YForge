@@ -59,6 +59,20 @@ describe("authentication dialog", () => {
     expect(replies).toEqual([{ id: "op-1/auth-1", reply: { kind: "credentials", username: "yforge-lab", secret: "s3cret", save: true } }]);
   });
 
+  it("drops the typed secret from the form once the answer is sent", async () => {
+    const { host, replies } = mount();
+    await flush();
+    type(host.querySelector('input[aria-label="Username"]'), "yforge-lab");
+    type(host.querySelector('input[aria-label="Token"]'), "s3cret");
+    await flush();
+
+    buttonNamed(host, "Fetch")?.click();
+    await flush();
+
+    expect(replies).toHaveLength(1);
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Token"]')?.value).toBe("");
+  });
+
   it("uses the username already in the address and does not let it be edited", async () => {
     const { host } = mount({ username: "yui" });
     await flush();

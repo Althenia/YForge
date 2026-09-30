@@ -1,5 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { client } from "../ipc/client";
 import { createSearch, SEARCH_DELAY_MS } from "./search";
 
 beforeEach(() => vi.useFakeTimers());
@@ -26,7 +27,7 @@ beforeEach(() => {
 describe("search store", () => {
   it("waits for a pause in typing, searches once, and lands on the first match", async () => {
     const queries = install([3, 8, 21]);
-    const search = createSearch("/r", () => undefined, (row) => revealed.push(row));
+    const search = createSearch((query) => client.searchCommits("/r", query), () => undefined, (row) => revealed.push(row));
 
     search.setQuery("f");
     search.setQuery("fi");
@@ -41,7 +42,7 @@ describe("search store", () => {
 
   it("steps forward and backward through the matches with wraparound and asks the graph to reveal each", async () => {
     install([3, 8, 21]);
-    const search = createSearch("/r", () => undefined, (row) => revealed.push(row));
+    const search = createSearch((query) => client.searchCommits("/r", query), () => undefined, (row) => revealed.push(row));
     search.setQuery("fix");
     await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
 
@@ -56,7 +57,7 @@ describe("search store", () => {
 
   it("ignores stepping while nothing matches and clears the state when the query is emptied", async () => {
     install([]);
-    const search = createSearch("/r", () => undefined, (row) => revealed.push(row));
+    const search = createSearch((query) => client.searchCommits("/r", query), () => undefined, (row) => revealed.push(row));
     search.setQuery("zzz");
     await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
 
@@ -74,7 +75,7 @@ describe("search store", () => {
       const query = (args as { query: string }).query;
       return query === "old" ? new Promise((resolve) => (release = resolve)) : { rows: [1], total: 5 };
     });
-    const search = createSearch("/r", () => undefined, (row) => revealed.push(row));
+    const search = createSearch((query) => client.searchCommits("/r", query), () => undefined, (row) => revealed.push(row));
     search.setQuery("old");
     await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
     search.setQuery("new");
@@ -90,7 +91,7 @@ describe("search store", () => {
     mockIPC(() => {
       throw { kind: "git_failed", message: "boom", output: null };
     });
-    const search = createSearch("/r", (failure) => failures.push(failure), (row) => revealed.push(row));
+    const search = createSearch((query) => client.searchCommits("/r", query), (failure) => failures.push(failure), (row) => revealed.push(row));
     search.show();
     search.setQuery("x");
     await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);

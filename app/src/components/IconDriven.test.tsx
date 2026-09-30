@@ -10,9 +10,10 @@ import { Launcher } from "./Launcher";
 import { SettingsView } from "./SettingsView";
 import { TooltipHost } from "./Tooltip";
 import { Workspace } from "./Workspace";
-import { flush, mountWithApp } from "./testkit";
+import { flush, mountWithApp, stubLayout } from "./testkit";
 
 let dispose: (() => void) | undefined;
+let restoreLayout: (() => void) | undefined;
 
 class ResizeObserverStub {
   observe = () => undefined;
@@ -22,6 +23,7 @@ class ResizeObserverStub {
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
+  restoreLayout = stubLayout();
   mockWindows("main");
   window.localStorage.clear();
   Element.prototype.scrollIntoView = () => undefined;
@@ -30,6 +32,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  restoreLayout?.();
   dispose?.();
   dispose = undefined;
   await flush();

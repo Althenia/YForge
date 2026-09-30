@@ -1,4 +1,6 @@
-import { createResource, createSignal, For, Match, Show, Switch } from "solid-js";
+import { createForm } from "@tanstack/solid-form";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/solid-query";
+import { createSignal, For, Match, Show, Switch } from "solid-js";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { ConfigValue } from "../ipc/bindings/ConfigValue";
 import type { IdentityField } from "../ipc/bindings/IdentityField";
@@ -8,6 +10,8 @@ import { client } from "../ipc/client";
 import { basename } from "../format";
 import { useApp } from "../state/app";
 import { removeRemoteCopy, type ConfirmCopy } from "../state/confirmCopy";
+import { dataOf } from "../state/queryData";
+import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
 import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, sourceLabel } from "../state/settingsModel";
 import { pullModes } from "../state/syncModel";
@@ -67,13 +71,18 @@ function TextSetting(props: { label: string; value: string; placeholder?: string
 }
 
 function Identity(props: { path: string | null }) {
-  const [identity, { refetch }] = createResource(() => ({ path: props.path }), ({ path }) => client.identityRead(path));
+  const queryClient = useQueryClient();
+  const key = () => (props.path === null ? appKeys.identity : repoKeys.identity(props.path));
+  const identity = useQuery(() => ({ queryKey: key(), queryFn: () => client.identityRead(props.path) }));
   const [failure, setFailure] = createSignal<string | undefined>();
+  const saveIdentity = useMutation(() => ({
+    mutationFn: (change: { field: IdentityField; value: string | null }) => client.identityWrite(props.path, change.field, change.value),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: key() }),
+  }));
   const write = async (field: IdentityField, value: string | null) => {
     setFailure(undefined);
     try {
-      await client.identityWrite(props.path, field, value);
-      await refetch();
+      await saveIdentity.mutateAsync({ field, value });
     } catch (error) {
       setFailure(message(error));
     }
@@ -97,8 +106,8 @@ function Identity(props: { path: string | null }) {
   return (
     <>
       <h3>Identity</h3>
-      {field("Name", "name", () => identity()?.name)}
-      {field("Email", "email", () => identity()?.email)}
+      {field("Name", "name", () => dataOf(identity)?.name)}
+      {field("Email", "email", () => dataOf(identity)?.email)}
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={props.path === null}>
         <p class="field-note">Saved with <code>git config --global</code>.</p>
@@ -112,21 +121,72 @@ function Identity(props: { path: string | null }) {
   );
 }
 
+function RemoteForm(props: { initial: { original: string | undefined; name: string; url: string }; onSubmit: (values: { name: string; url: string }) => Promise<void>; onCancel: () => void }) {
+  const form = createForm(() => ({
+    defaultValues: { name: props.initial.name, url: props.initial.url },
+    validators: { onMount: ({ value }) => remoteProblem(value.name, value.url), onChange: ({ value }) => remoteProblem(value.name, value.url) },
+    onSubmit: ({ value }) => props.onSubmit(value),
+  }));
+  const problem = form.useSelector((state) => state.errors[0] as string | undefined);
+  const url = form.useSelector((state) => state.values.url);
+  const name = form.useSelector((state) => state.values.name);
+  return (
+    <form
+      class="remote-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void form.handleSubmit();
+      }}
+    >
+      <span class="input">
+        <form.Field name="name">
+          {(field) => <input type="text" aria-label="Remote name" placeholder="origin" value={field().state.value} onInput={(event) => field().handleChange(event.currentTarget.value)} />}
+        </form.Field>
+      </span>
+      <span class="input">
+        <form.Field name="url">
+          {(field) => (
+            <input
+              type="text"
+              aria-label="Remote address"
+              placeholder="https://github.com/example/repo.git"
+              value={field().state.value}
+              onInput={(event) => field().handleChange(event.currentTarget.value)}
+            />
+          )}
+        </form.Field>
+      </span>
+      <button type="submit" class="btn primary" disabled={problem() !== undefined}>
+        {props.initial.original === undefined ? "Add" : "Save"}
+      </button>
+      <button type="button" class="btn" onClick={props.onCancel}>
+        Cancel
+      </button>
+      <Show when={url() !== "" && remoteProblem(name() || "x", url())}>{(text) => <span class="field-note error">{text()}</span>}</Show>
+    </form>
+  );
+}
+
 function Remotes(props: { path: string }) {
-  const [remotes, { refetch }] = createResource(() => props.path, (path) => client.remotesList(path));
+  const queryClient = useQueryClient();
+  const remotes = useQuery(() => ({ queryKey: repoKeys.remotes(props.path), queryFn: () => client.remotesList(props.path) }));
+  const change = useMutation(() => ({
+    mutationFn: (run: () => Promise<unknown>) => run(),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: repoKeys.remotes(props.path) }),
+  }));
   const [editing, setEditing] = createSignal<{ original: string | undefined; name: string; url: string } | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
   const [pendingRemoval, setPendingRemoval] = createSignal<RemoteInfo | undefined>();
 
-  const save = async () => {
+  const save = async (values: { name: string; url: string }) => {
     const draft = editing();
-    if (draft === undefined || remoteProblem(draft.name, draft.url) !== undefined) return;
+    if (draft === undefined) return;
     setFailure(undefined);
     try {
-      if (draft.original === undefined) await client.remoteAdd(props.path, draft.name, draft.url);
-      else await client.remoteEdit(props.path, draft.original, draft.name, draft.url);
+      await change.mutateAsync(() =>
+        draft.original === undefined ? client.remoteAdd(props.path, values.name, values.url) : client.remoteEdit(props.path, draft.original, values.name, values.url),
+      );
       setEditing(undefined);
-      await refetch();
     } catch (error) {
       setFailure(message(error));
     }
@@ -140,8 +200,7 @@ function Remotes(props: { path: string }) {
     setPendingRemoval(undefined);
     if (remote === undefined) return;
     try {
-      await client.remoteRemove(props.path, remote.name);
-      await refetch();
+      await change.mutateAsync(() => client.remoteRemove(props.path, remote.name));
     } catch (error) {
       setFailure(message(error));
     }
@@ -152,7 +211,7 @@ function Remotes(props: { path: string }) {
       <h3>Remotes</h3>
       <p class="setting-note">Where this repository fetches from and pushes to.</p>
       <ul class="remotes">
-        <For each={remotes() ?? []} fallback={<li class="setting-note">No remotes configured.</li>}>
+        <For each={dataOf(remotes) ?? []} fallback={<li class="setting-note">No remotes configured.</li>}>
           {(remote) => (
             <li>
               <span class="ref">{remote.name}</span>
@@ -174,35 +233,14 @@ function Remotes(props: { path: string }) {
       </ul>
       <Show
         when={editing()}
+        keyed
         fallback={
           <button type="button" class="btn" onClick={() => setEditing({ original: undefined, name: "", url: "" })}>
             Add remote…
           </button>
         }
       >
-        {(draft) => (
-          <form
-            class="remote-form"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void save();
-            }}
-          >
-            <span class="input">
-              <input type="text" aria-label="Remote name" placeholder="origin" value={draft().name} onInput={(event) => setEditing({ ...draft(), name: event.currentTarget.value })} />
-            </span>
-            <span class="input">
-              <input type="text" aria-label="Remote address" placeholder="https://github.com/example/repo.git" value={draft().url} onInput={(event) => setEditing({ ...draft(), url: event.currentTarget.value })} />
-            </span>
-            <button type="submit" class="btn primary" disabled={remoteProblem(draft().name, draft().url) !== undefined}>
-              {draft().original === undefined ? "Add" : "Save"}
-            </button>
-            <button type="button" class="btn" onClick={() => setEditing(undefined)}>
-              Cancel
-            </button>
-            <Show when={draft().url !== "" && remoteProblem(draft().name || "x", draft().url)}>{(text) => <span class="field-note error">{text()}</span>}</Show>
-          </form>
-        )}
+        {(draft) => <RemoteForm initial={draft} onSubmit={save} onCancel={() => setEditing(undefined)} />}
       </Show>
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={copy()}>{(value) => <ConfirmDialog copy={value()} onConfirm={() => void confirmRemoval()} onCancel={() => setPendingRemoval(undefined)} />}</Show>
@@ -225,7 +263,7 @@ export function SettingsView(props: { section: string }) {
   };
   const overrideMode = () => {
     const path = repository();
-    return path === undefined ? undefined : app.repoSettings()[path];
+    return path === undefined ? undefined : app.repoSettings(path);
   };
   const setOverride = async (mode: PullMode | null) => {
     const path = repository();

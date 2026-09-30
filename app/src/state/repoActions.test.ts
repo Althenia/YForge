@@ -4,7 +4,7 @@ import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import { autoStashMessage, createRepoActions, restoreMessage } from "./repoActions";
-import { createRepoSession } from "./repoSession";
+import { testSession } from "../components/testkit";
 
 afterEach(() => clearMocks());
 
@@ -39,7 +39,7 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
     if (cmd === "repo_open") return initial;
     return handler(call);
   });
-  const session = createRepoSession("/r", initial);
+  const session = testSession("/r", initial);
   const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", undoEntry: (id) => entries.find((entry) => entry.id === id) });
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
@@ -651,7 +651,7 @@ describe("integration actions", () => {
 describe("phase 3b actions", () => {
   it("pulls with the effective default mode", async () => {
     const { actions, calls } = setup(() => null, snapshot(), undefined);
-    const rebasing = createRepoActions(createRepoSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", undoEntry: () => undefined });
+    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", undoEntry: () => undefined });
 
     await rebasing.pullDefault();
     await actions.pullDefault();

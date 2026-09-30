@@ -262,6 +262,7 @@ describe("typed IPC client", () => {
       auto_fetch_minutes: 5,
       editor_command: "",
       terminal_command: "",
+      telemetry_opt_in: false,
     } as const;
 
     await client.fetch("/r", "op-1", false, false);

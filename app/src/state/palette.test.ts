@@ -4,8 +4,8 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { NOTHING_TO_UNDO } from "./activityModel";
 import {
   buildCommands,
-  commandForShortcut,
-  shortcutLabel,
+  hotkeyOf,
+  shortcutCommands,
   fuzzyMatch,
   loadRecentCommands,
   navigationTargets,
@@ -310,28 +310,20 @@ describe("fuzzy search and modes", () => {
 });
 
 describe("keyboard shortcuts", () => {
-  const press = (key: string, extra: Partial<KeyboardEvent> = {}) => shortcutLabel({ key, metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...extra });
-
-  it("labels command-key chords the way the palette shows them", () => {
-    expect(press("k")).toBe("⌘K");
-    expect(press("f", { shiftKey: true })).toBe("⌘⇧F");
-    expect(press(",")).toBe("⌘,");
-    expect(press("Enter")).toBe("⌘↵");
-    expect(press("z", { metaKey: false, ctrlKey: true })).toBe("⌘Z");
+  it("turns the chord the palette shows into a hotkey", () => {
+    expect(hotkeyOf("⌘K")).toBe("Mod+K");
+    expect(hotkeyOf("⌘⇧F")).toBe("Mod+Shift+F");
+    expect(hotkeyOf("⌘,")).toBe("Mod+,");
+    expect(hotkeyOf("⌘↵")).toBe("Mod+Enter");
   });
 
-  it("ignores bare keys, option chords, and lone modifier presses", () => {
-    expect(press("k", { metaKey: false })).toBeUndefined();
-    expect(press("k", { altKey: true })).toBeUndefined();
-    expect(press("Meta")).toBeUndefined();
-    expect(press("Shift", { shiftKey: true })).toBeUndefined();
-  });
-
-  it("maps a chord to the command that shows it, skipping commit and commands that need arguments", () => {
-    const commands = buildCommands(context());
-    expect(commandForShortcut(commands, "⌘B")?.id).toBe("branch.create");
-    expect(commandForShortcut(commands, "⌘⇧F")?.id).toBe("sync.fetch");
-    expect(commandForShortcut(commands, "⌘↵")).toBeUndefined();
-    expect(commandForShortcut(commands, "⌘⇧Q")).toBeUndefined();
+  it("binds each shown chord once, skipping commit and commands that need arguments", () => {
+    const commands = shortcutCommands(buildCommands(context()));
+    const shortcuts = commands.map((command) => command.shortcut);
+    expect(commands.find((command) => command.shortcut === "⌘B")?.id).toBe("branch.create");
+    expect(commands.find((command) => command.shortcut === "⌘⇧F")?.id).toBe("sync.fetch");
+    expect(shortcuts).not.toContain("⌘↵");
+    expect(new Set(shortcuts).size).toBe(shortcuts.length);
+    expect(commands.every((command) => command.args.length === 0)).toBe(true);
   });
 });
