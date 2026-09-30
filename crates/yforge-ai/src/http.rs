@@ -1,29 +1,93 @@
 use std::time::Duration;
 
-use reqwest::{redirect, Client, Response, StatusCode, Url};
-use serde_json::{json, Value};
-use yforge_core::{AiModel, CancelToken, ProviderStatus};
+use reqwest::{redirect, Client, Method, StatusCode, Url};
+use serde_json::Value;
+use yforge_core::{CancelToken, ProviderStatus};
 
 use crate::error::{AiError, Result};
-use crate::limits::{seconds, Limits};
-use crate::prompt::Prompt;
+use crate::limits::seconds;
 use crate::text::sanitize;
 
 const CANCEL_POLL: Duration = Duration::from_millis(50);
+const CREDENTIAL_HEADERS: [&str; 3] = ["authorization", "x-api-key", "chatgpt-account-id"];
 
-pub struct Endpoint<'a> {
-    pub label: &'a str,
-    pub base_url: &'a str,
-    pub api_key: Option<&'a str>,
+pub enum Body {
+    Json(String),
+    Form(Vec<(&'static str, String)>),
 }
 
-impl Endpoint<'_> {
-    fn secrets(&self) -> Vec<&str> {
-        self.api_key.into_iter().collect()
+pub struct Request {
+    pub label: String,
+    pub method: Method,
+    pub url: String,
+    pub headers: Vec<(&'static str, String)>,
+    pub body: Option<Body>,
+}
+
+impl Request {
+    pub fn get(label: &str, url: String) -> Self {
+        Self {
+            label: label.to_owned(),
+            method: Method::GET,
+            url,
+            headers: Vec::new(),
+            body: None,
+        }
     }
 
-    fn url(&self, path: &str) -> String {
-        format!("{}/{path}", self.base_url.trim_end_matches('/'))
+    pub fn post(label: &str, url: String, body: Body) -> Self {
+        Self {
+            label: label.to_owned(),
+            method: Method::POST,
+            url,
+            headers: Vec::new(),
+            body: Some(body),
+        }
+    }
+
+    pub fn headers(mut self, headers: Vec<(&'static str, String)>) -> Self {
+        self.headers = headers;
+        self
+    }
+
+    fn secrets(&self) -> Vec<&str> {
+        self.headers
+            .iter()
+            .filter(|(name, _)| CREDENTIAL_HEADERS.contains(name))
+            .flat_map(|(_, value)| [value.as_str(), value.strip_prefix("Bearer ").unwrap_or("")])
+            .filter(|secret| !secret.is_empty())
+            .collect()
+    }
+}
+
+pub struct Reply {
+    pub status: StatusCode,
+    pub text: String,
+    label: String,
+    secrets: Vec<String>,
+}
+
+impl Reply {
+    pub fn success(self) -> Result<String> {
+        if self.status.is_success() {
+            return Ok(self.text);
+        }
+        Err(self.rejection())
+    }
+
+    pub fn rejection(&self) -> AiError {
+        let secrets: Vec<&str> = self.secrets.iter().map(String::as_str).collect();
+        let detail = sanitize(&error_message(&self.text), &secrets);
+        match self.status {
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => AiError::AuthRequired {
+                provider: self.label.clone(),
+                detail,
+            },
+            _ => AiError::Failed {
+                provider: self.label.clone(),
+                output: format!("HTTP {}: {detail}", self.status.as_u16()),
+            },
+        }
     }
 }
 
@@ -80,6 +144,19 @@ pub fn validate_base_url(text: &str) -> Result<String> {
     Ok(trimmed.to_owned())
 }
 
+pub fn form_encode(pairs: &[(&str, &str)]) -> String {
+    let mut url = Url::parse("http://form.invalid/").expect("static URL parses");
+    url.query_pairs_mut().extend_pairs(pairs);
+    url.query().unwrap_or_default().to_owned()
+}
+
+pub fn with_query(base: &str, pairs: &[(&str, &str)]) -> Result<String> {
+    let mut url = Url::parse(base)
+        .map_err(|error| AiError::invalid(format!("`{base}` is not a valid URL: {error}")))?;
+    url.query_pairs_mut().extend_pairs(pairs);
+    Ok(url.into())
+}
+
 async fn cancelled(cancel: Option<&CancelToken>) {
     match cancel {
         Some(token) => {
@@ -91,10 +168,10 @@ async fn cancelled(cancel: Option<&CancelToken>) {
     }
 }
 
-fn transport(endpoint: &Endpoint<'_>, error: &reqwest::Error, limit: Duration) -> AiError {
+fn transport(label: &str, error: &reqwest::Error, limit: Duration) -> AiError {
     if error.is_timeout() {
         return AiError::Timeout {
-            provider: endpoint.label.to_owned(),
+            provider: label.to_owned(),
             seconds: seconds(limit),
         };
     }
@@ -104,43 +181,56 @@ fn transport(endpoint: &Endpoint<'_>, error: &reqwest::Error, limit: Duration) -
         "the request failed"
     };
     AiError::Unavailable {
-        provider: endpoint.label.to_owned(),
+        provider: label.to_owned(),
         detail: reason.to_owned(),
     }
 }
 
-async fn send(
-    endpoint: &Endpoint<'_>,
-    method: reqwest::Method,
-    path: &str,
-    body: Option<String>,
+pub async fn send(
+    request: Request,
     limit: Duration,
     cancel: Option<&CancelToken>,
-) -> Result<(StatusCode, String)> {
-    let client = client()?;
-    let mut request = client
-        .request(method, endpoint.url(path))
+) -> Result<Reply> {
+    let label = request.label.clone();
+    let secrets: Vec<String> = request.secrets().into_iter().map(str::to_owned).collect();
+    let mut builder = client()?
+        .request(request.method, request.url)
         .timeout(limit)
         .header("Accept", "application/json");
-    if let Some(key) = endpoint.api_key {
-        request = request.bearer_auth(key);
+    for (name, value) in request.headers {
+        builder = builder.header(name, value);
     }
-    if let Some(body) = body {
-        request = request
+    builder = match request.body {
+        Some(Body::Json(text)) => builder
             .header("Content-Type", "application/json")
-            .body(body);
-    }
+            .body(text),
+        Some(Body::Form(pairs)) => {
+            let pairs: Vec<(&str, &str)> = pairs
+                .iter()
+                .map(|(name, value)| (*name, value.as_str()))
+                .collect();
+            builder
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .body(form_encode(&pairs))
+        }
+        None => builder,
+    };
     let exchange = async {
-        let response: Response = request
+        let response = builder
             .send()
             .await
-            .map_err(|error| transport(endpoint, &error, limit))?;
+            .map_err(|error| transport(&label, &error, limit))?;
         let status = response.status();
         let text = response
             .text()
             .await
-            .map_err(|error| transport(endpoint, &error, limit))?;
-        Ok((status, text))
+            .map_err(|error| transport(&label, &error, limit))?;
+        Ok(Reply {
+            status,
+            text,
+            label: label.clone(),
+            secrets,
+        })
     };
     tokio::select! {
         biased;
@@ -163,61 +253,8 @@ fn error_message(text: &str) -> String {
         .map_or_else(|| text.to_owned(), str::to_owned)
 }
 
-fn rejected(endpoint: &Endpoint<'_>, status: StatusCode, text: &str) -> AiError {
-    let detail = sanitize(&error_message(text), &endpoint.secrets());
-    match status {
-        StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => AiError::AuthRequired {
-            provider: endpoint.label.to_owned(),
-            detail,
-        },
-        _ => AiError::Failed {
-            provider: endpoint.label.to_owned(),
-            output: format!("HTTP {}: {detail}", status.as_u16()),
-        },
-    }
-}
-
-pub async fn models(endpoint: &Endpoint<'_>, limits: &Limits) -> Result<Vec<AiModel>> {
-    let (status, text) = send(
-        endpoint,
-        reqwest::Method::GET,
-        "models",
-        None,
-        limits.status,
-        None,
-    )
-    .await?;
-    if !status.is_success() {
-        return Err(rejected(endpoint, status, &text));
-    }
-    let invalid = |reason: &str| AiError::InvalidResponse {
-        provider: endpoint.label.to_owned(),
-        reason: reason.to_owned(),
-    };
-    let value: Value =
-        serde_json::from_str(&text).map_err(|_| invalid("the model list is not JSON"))?;
-    let entries = value
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or_else(|| invalid("the model list has no `data` array"))?;
-    let mut models: Vec<AiModel> = entries
-        .iter()
-        .filter_map(|entry| {
-            let id = entry.get("id")?.as_str()?.to_owned();
-            let name = entry
-                .get("name")
-                .and_then(Value::as_str)
-                .filter(|name| *name != id)
-                .map(str::to_owned);
-            Some(AiModel { id, name })
-        })
-        .collect();
-    models.sort_by(|a, b| a.id.cmp(&b.id));
-    Ok(models)
-}
-
-pub async fn check(endpoint: &Endpoint<'_>, limits: &Limits) -> ProviderStatus {
-    match models(endpoint, limits).await {
+pub fn status_of<T>(result: Result<T>) -> ProviderStatus {
+    match result {
         Ok(_) => ProviderStatus::Ready,
         Err(AiError::AuthRequired { .. }) => ProviderStatus::KeyRejected,
         Err(AiError::Unavailable { detail, .. }) => ProviderStatus::Unreachable { message: detail },
@@ -234,45 +271,27 @@ pub async fn check(endpoint: &Endpoint<'_>, limits: &Limits) -> ProviderStatus {
     }
 }
 
-pub async fn complete(
-    endpoint: &Endpoint<'_>,
-    model: &str,
-    prompt: &Prompt,
-    limits: &Limits,
-    cancel: &CancelToken,
-) -> Result<String> {
-    let body = json!({
-        "model": model,
-        "stream": false,
-        "messages": [
-            {"role": "system", "content": prompt.system},
-            {"role": "user", "content": prompt.user},
-        ],
-    })
-    .to_string();
-    let (status, text) = send(
-        endpoint,
-        reqwest::Method::POST,
-        "chat/completions",
-        Some(body),
-        limits.completion,
-        Some(cancel),
-    )
-    .await?;
-    if !status.is_success() {
-        return Err(rejected(endpoint, status, &text));
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn form_bodies_escape_reserved_characters() {
+        assert_eq!(
+            form_encode(&[
+                ("redirect_uri", "http://localhost:1/a b"),
+                ("code", "x&y=z")
+            ]),
+            "redirect_uri=http%3A%2F%2Flocalhost%3A1%2Fa+b&code=x%26y%3Dz"
+        );
     }
-    let invalid = |reason: &str| AiError::InvalidResponse {
-        provider: endpoint.label.to_owned(),
-        reason: reason.to_owned(),
-    };
-    let value: Value = serde_json::from_str(&text).map_err(|_| invalid("the reply is not JSON"))?;
-    let content = value
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("the reply has no message content"))?;
-    if content.trim().is_empty() {
-        return Err(invalid("the reply has empty message content"));
+
+    #[test]
+    fn credential_headers_are_redacted_from_error_details() {
+        let request = Request::get("P", "http://x/".to_owned()).headers(vec![
+            ("authorization", "Bearer tok-123".to_owned()),
+            ("x-app", "cli".to_owned()),
+        ]);
+        assert_eq!(request.secrets(), ["Bearer tok-123", "tok-123"]);
     }
-    Ok(content.to_owned())
 }

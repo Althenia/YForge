@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
 import { createMemo, createSignal, createUniqueId, For, Show } from "solid-js";
 import type { ApiKeyChange } from "../ipc/bindings/ApiKeyChange";
+import type { AuthMode } from "../ipc/bindings/AuthMode";
 import type { ProviderKind } from "../ipc/bindings/ProviderKind";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { client } from "../ipc/client";
@@ -11,7 +12,7 @@ import { modelsOptions, providersOptions } from "../state/aiProviders";
 import { aiKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
 import { ProviderLogo } from "./ProviderLogo";
-import { CopyField, SignInPanel } from "./SignInPanel";
+import { SignInPanel } from "./SignInPanel";
 import { tip } from "./Tooltip";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
@@ -50,21 +51,22 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
     defaultValues: {
       name: config()?.name ?? props.card.title,
       baseUrl: config()?.base_url ?? "",
-      executablePath: config()?.executable_path ?? "",
       apiKey: "",
+      authMode: (config()?.auth_mode ?? (props.card.subscription ? "subscription" : "api_key")) as AuthMode,
       keyMode: (config()?.has_api_key === true ? "keep" : "set") as KeyMode,
     },
     onSubmit: ({ value }) =>
       props.onSubmit(
-        { kind: props.card.kind, name: value.name, baseUrl: value.baseUrl, executablePath: value.executablePath, apiKey: value.apiKey },
+        { kind: props.card.kind, name: value.name, baseUrl: value.baseUrl, apiKey: value.apiKey, authMode: value.authMode },
         value.keyMode === "keep" ? { kind: "keep" } : value.keyMode === "clear" ? { kind: "clear" } : { kind: "set", key: value.apiKey },
       ),
   }));
   const values = form.useSelector((state) => state.values);
   const draft = (): ProviderDraft => ({ kind: props.card.kind, ...values() });
+  const usesKey = () => values().authMode === "api_key";
   const problems = createMemo(() => {
     const result = providerProblems({ ...draft(), apiKey: values().keyMode === "keep" ? "kept" : values().keyMode === "clear" ? "" : values().apiKey });
-    if (values().keyMode === "clear" && props.card.key === "required") return { ...result, apiKey: `${props.card.title} needs an API key` };
+    if (usesKey() && values().keyMode === "clear" && props.card.key === "required") return { ...result, apiKey: `${props.card.title} needs an API key` };
     return result;
   });
   const [touched, setTouched] = createSignal(false);
@@ -87,6 +89,26 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
         </span>
         <Show when={shown("name")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
       </label>
+      <Show when={props.card.subscription}>
+        <div class="field">
+          <span class="field-label">Sign-in</span>
+          <span class="radio-row" role="radiogroup" aria-label="Sign-in">
+            <button type="button" class="btn sm" classList={{ primary: usesKey() }} role="radio" aria-checked={usesKey()} onClick={() => form.setFieldValue("authMode", "api_key")}>
+              API key
+            </button>
+            <button type="button" class="btn sm" classList={{ primary: !usesKey() }} role="radio" aria-checked={!usesKey()} onClick={() => form.setFieldValue("authMode", "subscription")}>
+              Subscription
+            </button>
+          </span>
+          <span class="field-note">
+            {usesKey()
+              ? "YForge calls the provider API with a key you paste here."
+              : props.card.kind === "claude"
+                ? "YForge uses your Claude Code sign-in. It never copies or stores it."
+                : "YForge signs in directly, in your browser or with a code."}
+          </span>
+        </div>
+      </Show>
       <Show when={props.card.baseUrl}>
         <label class="field">
           <span class="field-label">Base URL</span>
@@ -102,7 +124,7 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
           </Show>
         </label>
       </Show>
-      <Show when={props.card.key !== "none"}>
+      <Show when={usesKey()}>
         <div class="field">
           <span class="field-label">API key</span>
           <Show
@@ -155,26 +177,6 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
           </Show>
         </div>
       </Show>
-      <Show when={props.card.cli}>
-        <label class="field">
-          <span class="field-label">Executable path (optional)</span>
-          <span class="input" classList={{ invalid: shown("executablePath") !== undefined }}>
-            <form.Field name="executablePath">
-              {(field) => (
-                <input
-                  type="text"
-                  aria-label="Executable path"
-                  placeholder={`Found automatically: ${props.card.binary}`}
-                  value={field().state.value}
-                  aria-invalid={shown("executablePath") !== undefined}
-                  onInput={(event) => field().handleChange(event.currentTarget.value)}
-                />
-              )}
-            </form.Field>
-          </span>
-          <Show when={shown("executablePath")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
-        </label>
-      </Show>
       <div class="foot">
         <button type="submit" class="btn" classList={{ primary: props.provider === undefined }} disabled={form.state.isSubmitting}>
           {props.submitLabel}
@@ -197,9 +199,9 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
       const card = cardOf(input.draft.kind);
       return client.aiProviderUpdate({
         id: props.id,
+        auth_mode: input.draft.authMode,
         name: input.draft.name.trim(),
         ...(card.baseUrl ? { base_url: input.draft.baseUrl.trim() } : {}),
-        ...(card.cli ? { executable_path: input.draft.executablePath.trim() === "" ? null : input.draft.executablePath.trim() } : {}),
         api_key: input.key,
       });
     },
@@ -229,29 +231,17 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
               <StatusBadge summary={current()} />
               <button type="button" class="btn sm" aria-busy={test.isPending} disabled={test.isPending} onClick={() => test.mutate()}>
                 <Icon name="sync" size={14} />
-                {card().cli ? "Check again" : "Test connection"}
+                Test connection
               </button>
             </div>
             <Show when={view().detail}>{(detail) => <p class="field-note error">{detail()}</p>}</Show>
-            <Show when={card().cli}>
-              <Show
-                when={current().status.kind === "not_installed"}
-                fallback={
-                  <p class="field-note">
-                    <Icon name="check" /> {card().binary} is installed
-                  </p>
-                }
-              >
-                <section class="install-hint" aria-label="Install">
-                  <p class="field-note">
-                    <Icon name="warning" /> The <code>{card().binary}</code> command was not found. Install it, then choose Check again. Or set its path below.
-                  </p>
-                  <CopyField label="Install command" value={card().installCommand ?? ""} />
-                </section>
-              </Show>
-              <Show when={current().status.kind === "signed_out"}>
-                <SignInPanel provider={current()} deviceCode={current().config.kind === "chatgpt"} />
-              </Show>
+            <Show when={current().status.kind === "signed_out"}>
+              <SignInPanel provider={current()} deviceCode={current().config.kind === "chatgpt"} />
+            </Show>
+            <Show when={current().config.auth_mode === "subscription" && current().config.kind === "claude"}>
+              <p class="field-note">
+                <Icon name="lock" size={14} /> YForge reads your Claude Code sign-in from the macOS Keychain. Run <code>claude</code> and sign in if this says signed out.
+              </p>
             </Show>
             <ProviderFields
               card={card()}
@@ -271,17 +261,17 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
                 <span class="field-label">Model</span>
                 <span class="field-row">
                   <span class="input">
-                    <input type="text" aria-label="Model" class="mono" placeholder={card().cli ? "default" : "Model id"} value={chosenModel()} onInput={(event) => setModel(event.currentTarget.value)} />
+                    <input type="text" aria-label="Model" class="mono" placeholder="Model id" value={chosenModel()} onInput={(event) => setModel(event.currentTarget.value)} />
                   </span>
-                  <Show when={!card().cli}>
-                    <button type="button" class="btn sm" aria-busy={models.isFetching} disabled={models.isFetching || !ready()} onClick={() => void models.refetch()}>
-                      Load models
-                    </button>
-                  </Show>
+                  <button type="button" class="btn sm" aria-busy={models.isFetching} disabled={models.isFetching || !ready()} onClick={() => void models.refetch()}>
+                    Load models
+                  </button>
                 </span>
-                <span class="field-note">
-                  {card().cli ? "Leave empty or type default to let the CLI choose its model." : "Type a model id, or load the list from the endpoint."}
-                </span>
+                <span class="field-note">Type a model id, or load the list from the provider.</span>
+                <Show when={models.error}>{(error) => <span class="field-note error">{message(error())}</span>}</Show>
+                <Show when={models.isSuccess && (models.data ?? []).length === 0}>
+                  <span class="field-note">The provider listed no models. You can still type an id.</span>
+                </Show>
               </label>
               <Show when={(models.data ?? []).length > 0}>
                 <label class="field">
@@ -289,12 +279,11 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
                   <span class="input">
                     <select aria-label="Available models" value={chosenModel()} onChange={(event) => setModel(event.currentTarget.value)}>
                       <option value="">Choose…</option>
-                      <For each={models.data ?? []}>{(entry) => <option value={entry.id}>{entry.name ?? entry.id}</option>}</For>
+                      <For each={models.data ?? []}>{(entry) => <option value={entry.id}>{entry.display_name}</option>}</For>
                     </select>
                   </span>
                 </label>
               </Show>
-              <Show when={models.error}>{(error) => <p class="field-note error">{message(error())}</p>}</Show>
               <div class="hrow">
                 <button
                   type="button"
@@ -352,10 +341,10 @@ export function ProviderDialog(props: { start: ProviderDialogStart; onClose: () 
       const card = cardOf(draft.kind);
       return client.aiProviderAdd({
         kind: draft.kind,
+        auth_mode: draft.authMode,
         name: draft.name.trim(),
         ...(card.baseUrl ? { base_url: draft.baseUrl.trim() } : {}),
-        ...(card.cli && draft.executablePath.trim() !== "" ? { executable_path: draft.executablePath.trim() } : {}),
-        ...(card.key !== "none" && draft.apiKey.trim() !== "" ? { api_key: draft.apiKey.trim() } : {}),
+        ...(draft.authMode === "api_key" && draft.apiKey.trim() !== "" ? { api_key: draft.apiKey.trim() } : {}),
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: aiKeys.providers }),
@@ -402,7 +391,7 @@ export function ProviderDialog(props: { start: ProviderDialogStart; onClose: () 
               <ProviderFields
                 card={cardOf(chosen())}
                 provider={undefined}
-                submitLabel={cardOf(chosen()).cli ? "Add and detect" : "Add provider"}
+                submitLabel="Add provider"
                 onSubmit={async (draft) => {
                   setFailure(undefined);
                   try {

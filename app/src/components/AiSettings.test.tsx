@@ -1,6 +1,7 @@
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
+import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { AiSettings } from "./AiSettings";
@@ -17,21 +18,31 @@ afterEach(async () => {
 });
 
 const summary = (id: string, overrides: Partial<ProviderSummary["config"]> = {}, status: ProviderStatus = { kind: "ready" }, active = false): ProviderSummary => ({
-  config: { id, kind: "claude_code", name: "Claude Code", base_url: null, model: null, executable_path: null, has_api_key: false, created_at: 1, ...overrides },
+  config: { id, kind: "claude", auth_mode: "api_key", name: "Claude", base_url: null, model: null, has_api_key: false, created_at: 1, ...overrides },
   status,
   active,
 });
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
+const featureList = (overrides: Partial<AiFeatureSummary>[] = []): AiFeatureSummary[] =>
+  (["generate_commit", "recompose", "conflict_fix"] as const).map((feature, index) => ({
+    feature,
+    config: null,
+    default_prompt_template: `Default ${feature} prompt with {context}`,
+    ...overrides[index],
+  }));
+
 async function mount(initial: ProviderSummary[], respond: (call: Call) => unknown = () => undefined) {
   const calls: Call[] = [];
   let list = initial;
+  const features = featureList();
   mockIPC(
     (cmd, args) => {
       const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
       calls.push(call);
       if (cmd === "ai_providers_list") return list;
+      if (cmd === "ai_feature_config_list") return features;
       const custom = respond(call);
       if (custom !== undefined) {
         if (cmd === "ai_provider_add") list = [...list, custom as ProviderSummary];
@@ -81,7 +92,7 @@ describe("AI providers", () => {
     await flush();
 
     const cards = [...(dialog()?.querySelectorAll(".provider-card") ?? [])].map((card) => card.querySelector(".provider-card-title")?.textContent);
-    expect(cards).toEqual(["ChatGPT", "Claude Code", "OpenRouter", "OpenAI-compatible"]);
+    expect(cards).toEqual(["ChatGPT", "Claude", "OpenRouter", "OpenAI-compatible"]);
   });
 
   it("validates an OpenAI-compatible endpoint, then adds it with the trimmed key and moves to its panel", async () => {
@@ -104,7 +115,7 @@ describe("AI providers", () => {
     buttonNamed(dialog() as HTMLElement, "Add provider")?.click();
     await flush(60);
 
-    expect(calls.find((call) => call.cmd === "ai_provider_add")?.args).toEqual({ input: { kind: "openai_compatible", name: "Local", base_url: "http://localhost:11434/v1", api_key: "sk-test" } });
+    expect(calls.find((call) => call.cmd === "ai_provider_add")?.args).toEqual({ input: { kind: "openai_compatible", auth_mode: "api_key", name: "Local", base_url: "http://localhost:11434/v1", api_key: "sk-test" } });
     expect(dialog()?.textContent).toContain("Key saved in the macOS Keychain");
     expect(dialog()?.querySelector('input[aria-label="API key"]')).toBeNull();
   });
@@ -131,17 +142,17 @@ describe("AI providers", () => {
     type(dialog()?.querySelector('input[aria-label="Name"]'), "OR main");
     buttonNamed(dialog() as HTMLElement, "Save changes")?.click();
     await flush(60);
-    expect(calls.find((call) => call.cmd === "ai_provider_update")?.args).toEqual({ update: { id: "p2", name: "OR main", api_key: { kind: "keep" } } });
+    expect(calls.find((call) => call.cmd === "ai_provider_update")?.args).toEqual({ update: { id: "p2", auth_mode: "api_key", name: "OR main", api_key: { kind: "keep" } } });
   });
 
-  it("shows detection and the install command when the CLI is missing", async () => {
-    const { host } = await mount([summary("p3", { kind: "chatgpt", name: "ChatGPT" }, { kind: "not_installed" })]);
-    host.querySelector<HTMLElement>('[aria-label="Edit ChatGPT"]')?.click();
+  it("offers a key or a subscription for the two subscription kinds, and shows the Claude Code sign-in note", async () => {
+    const { host } = await mount([summary("p3", { kind: "claude", name: "Claude", auth_mode: "subscription" }, { kind: "ready" })]);
+    host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
-    expect(dialog()?.textContent).toContain("The codex command was not found");
-    expect(dialog()?.textContent).toContain("npm install -g @openai/codex");
-    expect(dialog()?.textContent).not.toContain("Sign in with browser");
+    expect(dialog()?.textContent).toContain("YForge reads your Claude Code sign-in");
+    expect(buttonNamed(dialog() as HTMLElement, "API key")).toBeTruthy();
+    expect(buttonNamed(dialog() as HTMLElement, "Subscription")).toBeTruthy();
   });
 
   it("signs a ChatGPT provider in by device code, showing the URL and code of its own operation, and cancels through the operation id", async () => {
@@ -170,18 +181,28 @@ describe("AI providers", () => {
     release({ kind: "signed_out" });
   });
 
-  it("offers browser sign-in only for Claude Code", async () => {
-    const { host } = await mount([summary("p1", {}, { kind: "signed_out" })]);
-    host.querySelector<HTMLElement>('[aria-label="Edit Claude Code"]')?.click();
+  it("offers a browser sign-in but no device code for Claude, and both for ChatGPT", async () => {
+    const claude = await mount([summary("p1", { kind: "claude", name: "Claude" }, { kind: "signed_out" })]);
+    claude.host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
     expect(buttonNamed(dialog() as HTMLElement, "Sign in with browser")).toBeDefined();
     expect(buttonNamed(dialog() as HTMLElement, "No browser? Use a code")).toBeUndefined();
+    claude.dispose();
+    await flush();
+
+    const chatgpt = await mount([summary("p1", { kind: "chatgpt", name: "ChatGPT" }, { kind: "signed_out" })]);
+    chatgpt.host.querySelector<HTMLElement>('[aria-label="Edit ChatGPT"]')?.click();
+    await flush(60);
+
+    expect(buttonNamed(dialog() as HTMLElement, "Sign in with browser")).toBeDefined();
+    expect(buttonNamed(dialog() as HTMLElement, "No browser? Use a code")).toBeDefined();
+    chatgpt.dispose();
   });
 
-  it("uses a ready provider with the typed model, and lets the CLI choose its model when it is left empty", async () => {
-    const { host, calls } = await mount([summary("p1", {}, { kind: "ready" })]);
-    host.querySelector<HTMLElement>('[aria-label="Edit Claude Code"]')?.click();
+  it("uses a ready provider with the typed model, and clears the model when it is left empty", async () => {
+    const { host, calls } = await mount([summary("p1", { name: "Claude" }, { kind: "ready" })]);
+    host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
     type(dialog()?.querySelector('input[aria-label="Model"]'), " sonnet ");

@@ -1,19 +1,18 @@
 #![allow(dead_code)]
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use yforge_ai::{Ai, Environment, Limits, MemoryStore};
-use yforge_core::{ProviderInput, ProviderKind};
+use yforge_ai::{Ai, Endpoints, Limits, MemoryStore, CLAUDE_CODE_SERVICE};
+use yforge_core::{AuthMode, ProviderInput, ProviderKind};
 
 pub struct Harness {
     pub data: tempfile::TempDir,
-    pub bin: tempfile::TempDir,
     pub secrets: Arc<MemoryStore>,
+    pub claude_code: Arc<MemoryStore>,
 }
 
 impl Harness {
@@ -22,8 +21,8 @@ impl Harness {
         yforge_core::start_storage(data.path()).unwrap();
         Self {
             data,
-            bin: tempfile::tempdir().unwrap(),
             secrets: Arc::new(MemoryStore::default()),
+            claude_code: Arc::new(MemoryStore::default()),
         }
     }
 
@@ -31,57 +30,57 @@ impl Harness {
         self.data.path()
     }
 
-    pub fn script(&self, name: &str, body: &str) -> PathBuf {
-        let path = self.bin.path().join(name);
-        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-        path
-    }
-
-    pub fn log(&self, name: &str) -> String {
-        std::fs::read_to_string(self.bin.path().join(name)).unwrap_or_default()
-    }
-
-    pub fn log_path(&self, name: &str) -> String {
-        self.bin.path().join(name).display().to_string()
-    }
-
     pub fn ai(&self) -> Ai {
-        self.ai_with(Limits {
-            completion: Duration::from_secs(20),
-            status: Duration::from_secs(10),
-            discovery: Duration::from_secs(5),
-            sign_in: Duration::from_secs(20),
-        })
+        self.ai_with(test_limits(), Endpoints::default())
     }
 
-    pub fn ai_with(&self, limits: Limits) -> Ai {
+    pub fn ai_at(&self, endpoints: Endpoints) -> Ai {
+        self.ai_with(test_limits(), endpoints)
+    }
+
+    pub fn ai_with(&self, limits: Limits, endpoints: Endpoints) -> Ai {
         Ai::new(self.secrets.clone())
-            .with_environment(Environment {
-                shell: None,
-                known_dirs: vec![self.bin.path().to_owned()],
-            })
+            .with_claude_code_store(self.claude_code.clone())
             .with_limits(limits)
+            .with_endpoints(endpoints)
+    }
+
+    pub fn claude_code_signs_in(&self, json: &str) {
+        yforge_ai::SecretStore::set(&*self.claude_code, CLAUDE_CODE_SERVICE, json).unwrap();
     }
 }
 
-pub fn cli_input(kind: ProviderKind, name: &str) -> ProviderInput {
+pub fn test_limits() -> Limits {
+    Limits {
+        completion: Duration::from_secs(20),
+        status: Duration::from_secs(10),
+        sign_in: Duration::from_secs(20),
+        poll_margin: Duration::ZERO,
+    }
+}
+
+pub fn provider_input(kind: ProviderKind, auth_mode: AuthMode, name: &str) -> ProviderInput {
     ProviderInput {
         kind,
+        auth_mode,
         name: name.to_owned(),
         base_url: None,
-        executable_path: None,
         api_key: None,
+    }
+}
+
+pub fn keyed_input(kind: ProviderKind, name: &str, key: &str) -> ProviderInput {
+    ProviderInput {
+        api_key: Some(key.to_owned()),
+        ..provider_input(kind, AuthMode::ApiKey, name)
     }
 }
 
 pub fn http_input(name: &str, base_url: &str, key: Option<&str>) -> ProviderInput {
     ProviderInput {
-        kind: ProviderKind::OpenaiCompatible,
-        name: name.to_owned(),
         base_url: Some(base_url.to_owned()),
-        executable_path: None,
         api_key: key.map(str::to_owned),
+        ..provider_input(ProviderKind::OpenaiCompatible, AuthMode::ApiKey, name)
     }
 }
 
@@ -133,6 +132,7 @@ impl Reply {
 
 pub struct HttpFake {
     pub url: String,
+    pub root: String,
     requests: Arc<Mutex<Vec<Recorded>>>,
     stop: Arc<AtomicBool>,
     port: u16,
@@ -215,6 +215,7 @@ impl HttpFake {
         });
         Self {
             url: format!("http://127.0.0.1:{port}/v1"),
+            root: format!("http://127.0.0.1:{port}"),
             requests,
             stop,
             port,
@@ -240,26 +241,27 @@ pub fn closed_port_url() -> String {
     format!("http://127.0.0.1:{port}/v1")
 }
 
+pub fn sse(events: &[serde_json::Value]) -> String {
+    events
+        .iter()
+        .map(|event| format!("event: x\ndata: {event}\n\n"))
+        .collect()
+}
+
+pub fn responses_reply(text: &str) -> String {
+    sse(&[
+        serde_json::json!({"type": "response.output_text.delta", "delta": text}),
+        serde_json::json!({"type": "response.completed", "response": {"output": []}}),
+    ])
+}
+
+pub fn messages_reply(text: &str) -> String {
+    serde_json::json!({"content": [{"type": "text", "text": text}]}).to_string()
+}
+
 pub fn chat_reply(content: &str) -> String {
     serde_json::json!({"choices": [{"message": {"role": "assistant", "content": content}}]})
         .to_string()
-}
-
-pub async fn assert_stopped(pid: &str) {
-    let pid = pid.trim();
-    assert!(!pid.is_empty(), "the fake CLI never started");
-    for _ in 0..50 {
-        let listing = std::process::Command::new("ps")
-            .args(["-o", "stat=", "-p", pid])
-            .output()
-            .unwrap();
-        let state = String::from_utf8_lossy(&listing.stdout).trim().to_owned();
-        if state.is_empty() || state.starts_with('Z') {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("process {pid} is still running");
 }
 
 pub struct Repo {
@@ -327,6 +329,65 @@ impl Repo {
     }
 }
 
+pub fn jwt(claims: &serde_json::Value) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut payload = String::new();
+    for chunk in claims.to_string().as_bytes().chunks(3) {
+        let value = chunk.iter().enumerate().fold(0_u32, |acc, (i, byte)| {
+            acc | (u32::from(*byte) << (16 - 8 * i))
+        });
+        for i in 0..=chunk.len() {
+            payload.push(char::from(
+                ALPHABET[((value >> (18 - 6 * i)) & 63) as usize],
+            ));
+        }
+    }
+    format!("header.{payload}.signature")
+}
+
+pub const FAR_FUTURE: i64 = 4_102_444_800_000;
+
+pub fn chatgpt_tokens(access: &str, expires_at: i64, account: Option<&str>) -> String {
+    serde_json::json!({
+        "access": access,
+        "refresh": "refresh-1",
+        "expires_at": expires_at,
+        "account_id": account,
+    })
+    .to_string()
+}
+
+pub fn claude_blob(access: &str, refresh: &str, expires_at: i64) -> String {
+    serde_json::json!({"claudeAiOauth": {
+        "accessToken": access,
+        "refreshToken": refresh,
+        "expiresAt": expires_at,
+        "subscriptionType": "max",
+    }})
+    .to_string()
+}
+
+pub async fn add_active(h: &Harness, ai: &Ai, input: ProviderInput, model: &str) -> String {
+    let added = ai.add(h.dir(), input).await.unwrap();
+    yforge_core::ai_choose(h.dir(), Some(&added.config.id), Some(model)).unwrap();
+    added.config.id
+}
+
+pub fn store_tokens(h: &Harness, id: &str, json: &str) {
+    yforge_ai::SecretStore::set(&*h.secrets, &format!("{id}:oauth"), json).unwrap();
+}
+
+pub fn commit_context() -> yforge_core::CommitContext {
+    yforge_core::CommitContext {
+        diff: "=== a.txt (modified) ===\n+DIFF-MARKER\n".to_owned(),
+        recent_subjects: vec!["Earlier".to_owned()],
+        excluded: Vec::new(),
+        truncated: Vec::new(),
+    }
+}
+
+pub const GOOD: &str = r#"{"summary":"Add thing","description":"Because."}"#;
+
 pub async fn use_provider(h: &Harness, ai: &Ai, reply: Reply) -> (HttpFake, yforge_ai::Selection) {
     let fake = HttpFake::start(move |_| Reply {
         status: reply.status,
@@ -338,6 +399,9 @@ pub async fn use_provider(h: &Harness, ai: &Ai, reply: Reply) -> (HttpFake, yfor
         .await
         .unwrap();
     yforge_core::ai_choose(h.dir(), Some(&added.config.id), Some("model-x")).unwrap();
-    let selection = ai.resolve(h.dir()).await.unwrap();
+    let selection = ai
+        .resolve(h.dir(), yforge_core::AiFeature::GenerateCommit)
+        .await
+        .unwrap();
     (fake, selection)
 }

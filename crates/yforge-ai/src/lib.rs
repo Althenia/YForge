@@ -1,21 +1,25 @@
-mod cli;
+mod chatgpt;
+mod claude_code;
 mod commit;
 mod conflict;
-mod discovery;
+mod encoding;
+mod endpoints;
 mod error;
 mod http;
 mod json;
 mod limits;
-mod login;
-mod process;
 mod prompt;
+mod providers;
 mod recompose;
 mod secret;
 mod service;
 mod text;
 
-pub use discovery::Environment;
+pub use endpoints::Endpoints;
 pub use error::{AiError, Result};
 pub use limits::Limits;
-pub use secret::{KeychainStore, MemoryStore, SecretError, SecretStore, KEYCHAIN_SERVICE};
-pub use service::{Ai, Selection, OPENROUTER_URL};
+pub use secret::{
+    ClaudeCodeKeychain, KeychainStore, MemoryStore, SecretError, SecretStore, CLAUDE_CODE_SERVICE,
+    KEYCHAIN_SERVICE,
+};
+pub use service::{Ai, Selection};

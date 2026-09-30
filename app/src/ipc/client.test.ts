@@ -1,10 +1,13 @@
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GraphPage } from "./bindings/GraphPage";
 import { client, IpcError } from "./client";
 
-afterEach(() => clearMocks());
+afterEach(() => {
+  clearMocks();
+  vi.restoreAllMocks();
+});
 
 describe("typed IPC client", () => {
   it("invokes each command by name with its arguments and returns the typed result", async () => {
@@ -519,12 +522,15 @@ describe("typed IPC client", () => {
     await client.recomposePreview("/r", "abc");
     await client.recomposeApply("/r", "abc", [{ message: "m", changes: [{ kind: "file", path: "a" }] }]);
     await client.aiProvidersList();
-    await client.aiProviderAdd({ kind: "openrouter", name: "OR", api_key: "k" });
-    await client.aiProviderUpdate({ id: "p1", name: "OR", api_key: { kind: "keep" } });
+    await client.aiProviderAdd({ kind: "openrouter", auth_mode: "api_key", name: "OR", api_key: "k" });
+    await client.aiProviderUpdate({ id: "p1", auth_mode: "api_key", name: "OR", api_key: { kind: "keep" } });
     await client.aiProviderRemove("p1");
     await client.aiSetActive("p1", "m");
     await client.aiProviderTest("p1");
     await client.aiProviderModels("p1");
+    await client.aiFeatureConfigList();
+    await client.aiFeatureConfigSet("generate_commit", "p1", "m", "{context}");
+    await client.aiFeatureConfigReset("recompose");
     await client.aiSignIn("p1", "op-1", "device_code");
     await client.aiGenerateCommitMessage("/r", "op-2");
     await client.aiProposeRecompose("/r", "op-3", "abc");
@@ -539,12 +545,15 @@ describe("typed IPC client", () => {
       { cmd: "recompose_preview", args: { path: "/r", base: "abc" } },
       { cmd: "recompose_apply", args: { path: "/r", base: "abc", groups: [{ message: "m", changes: [{ kind: "file", path: "a" }] }] } },
       { cmd: "ai_providers_list", args: {} },
-      { cmd: "ai_provider_add", args: { input: { kind: "openrouter", name: "OR", api_key: "k" } } },
-      { cmd: "ai_provider_update", args: { update: { id: "p1", name: "OR", api_key: { kind: "keep" } } } },
+      { cmd: "ai_provider_add", args: { input: { kind: "openrouter", auth_mode: "api_key", name: "OR", api_key: "k" } } },
+      { cmd: "ai_provider_update", args: { update: { id: "p1", auth_mode: "api_key", name: "OR", api_key: { kind: "keep" } } } },
       { cmd: "ai_provider_remove", args: { id: "p1" } },
       { cmd: "ai_set_active", args: { id: "p1", model: "m" } },
       { cmd: "ai_provider_test", args: { id: "p1" } },
-      { cmd: "ai_provider_models", args: { id: "p1" } },
+      { cmd: "ai_models", args: { providerId: "p1" } },
+      { cmd: "ai_feature_config_list", args: {} },
+      { cmd: "ai_feature_config_set", args: { feature: "generate_commit", providerId: "p1", modelId: "m", promptTemplate: "{context}" } },
+      { cmd: "ai_feature_config_reset", args: { feature: "recompose" } },
       { cmd: "ai_sign_in", args: { provider: "p1", id: "op-1", method: "device_code" } },
       { cmd: "ai_generate_commit_message", args: { path: "/r", id: "op-2" } },
       { cmd: "ai_propose_recompose", args: { path: "/r", id: "op-3", base: "abc" } },
@@ -601,5 +610,63 @@ describe("typed IPC client", () => {
       { cmd: "snapshot_restore_all", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard", force: false } },
       { cmd: "snapshot_delete", args: { path: "/r", reference: "refs/yforge/snapshots/1-discard" } },
     ]);
+  });
+});
+
+describe("platform integration commands", () => {
+  it("invokes each platform command by name with camelCase arguments and returns the typed result", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    const connection = { id: "c1", kind: "gitlab", host: "git.example.com:8443", name: "Work", insecure_tls: true, created_at: 1 };
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      if (cmd === "platform_connections_list") return [connection];
+      if (cmd === "platform_connection_add") return connection;
+      if (cmd === "platform_connection_test") return "yui";
+      if (cmd === "platform_repo_match") return { connection, remote: "origin", repo: { owner: "team", repo: "app" } };
+      return null;
+    });
+    const input = { source_ref: "feature/x", target_ref: "main", title: "Add x", body: "" };
+
+    expect(await client.platformConnectionsList()).toEqual([connection]);
+    expect(await client.platformConnectionAdd("gitlab", "git.example.com:8443", "Work", "glpat-1", true)).toEqual(connection);
+    expect(await client.platformConnectionRemove("c1")).toBeNull();
+    expect(await client.platformConnectionTest("c1")).toBe("yui");
+    expect((await client.platformRepoMatch("/r"))?.repo).toEqual({ owner: "team", repo: "app" });
+    await client.platformPrsList("/r", "open");
+    await client.platformPrsList("/r", "all");
+    await client.platformPrDetail("/r", 7);
+    await client.platformPrCreate("/r", input);
+    await client.platformPrMerge("/r", 7);
+
+    expect(calls).toEqual([
+      { cmd: "platform_connections_list", args: {} },
+      { cmd: "platform_connection_add", args: { kind: "gitlab", host: "git.example.com:8443", name: "Work", token: "glpat-1", insecureTls: true } },
+      { cmd: "platform_connection_remove", args: { id: "c1" } },
+      { cmd: "platform_connection_test", args: { id: "c1" } },
+      { cmd: "platform_repo_match", args: { path: "/r" } },
+      { cmd: "platform_prs_list", args: { path: "/r", state: "open" } },
+      { cmd: "platform_prs_list", args: { path: "/r", state: "all" } },
+      { cmd: "platform_pr_detail", args: { path: "/r", number: 7 } },
+      { cmd: "platform_pr_create", args: { path: "/r", input } },
+      { cmd: "platform_pr_merge", args: { path: "/r", number: 7 } },
+    ]);
+  });
+
+  it("raises an IpcError carrying the platform error kind and message", async () => {
+    mockIPC(() => {
+      throw { kind: "auth_failed", message: "Authentication failed for github.com", output: null };
+    });
+
+    await expect(client.platformConnectionTest("c1")).rejects.toMatchObject({ name: "IpcError", kind: "auth_failed", message: "Authentication failed for github.com" });
+  });
+
+  it("opens only http and https addresses in a new browsing context without opener access", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+    client.openUrl("https://github.com/team/app/pull/7");
+
+    expect(open).toHaveBeenCalledWith("https://github.com/team/app/pull/7", "_blank", "noopener,noreferrer");
+    expect(() => client.openUrl("javascript:alert(1)")).toThrow("is not an http or https address");
+    expect(open).toHaveBeenCalledTimes(1);
   });
 });

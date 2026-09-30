@@ -1,6 +1,5 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +12,8 @@ use tauri::test::MockRuntime;
 use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, Manager, WebviewWindow};
-use yforge_ai::{Ai, Environment, MemoryStore};
+use yforge_ai::{Ai, Endpoints, Limits, MemoryStore};
+use yforge_platform::PlatformService;
 
 fn git(dir: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -76,6 +76,7 @@ fn repository() -> Repo {
 
 struct Fake {
     url: String,
+    root: String,
     bodies: Arc<Mutex<Vec<String>>>,
     stop: Arc<AtomicBool>,
     port: u16,
@@ -83,6 +84,10 @@ struct Fake {
 
 impl Fake {
     fn start(reply: impl Fn() -> (u16, String, Duration) + Send + Sync + 'static) -> Self {
+        Self::routed(move |_| reply())
+    }
+
+    fn routed(reply: impl Fn(&str) -> (u16, String, Duration) + Send + Sync + 'static) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let bodies = Arc::new(Mutex::new(Vec::new()));
@@ -97,11 +102,11 @@ impl Fake {
                 let Ok(mut stream) = stream else { continue };
                 let (seen, reply) = (seen.clone(), reply.clone());
                 std::thread::spawn(move || {
-                    let Some(body) = read_body(&mut stream) else {
+                    let Some((path, body)) = read_body(&mut stream) else {
                         return;
                     };
                     seen.lock().unwrap().push(body);
-                    let (status, payload, delay) = reply();
+                    let (status, payload, delay) = reply(&path);
                     std::thread::sleep(delay);
                     let _ = stream.write_all(
                         format!(
@@ -115,6 +120,7 @@ impl Fake {
         });
         Self {
             url: format!("http://127.0.0.1:{port}/v1"),
+            root: format!("http://127.0.0.1:{port}"),
             bodies,
             stop,
             port,
@@ -139,7 +145,7 @@ impl Drop for Fake {
     }
 }
 
-fn read_body(stream: &mut TcpStream) -> Option<String> {
+fn read_body(stream: &mut TcpStream) -> Option<(String, String)> {
     let mut data = Vec::new();
     let mut chunk = [0_u8; 4096];
     let end = loop {
@@ -153,6 +159,12 @@ fn read_body(stream: &mut TcpStream) -> Option<String> {
         }
     };
     let head = String::from_utf8_lossy(&data[..end]).to_lowercase();
+    let path = head
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .unwrap_or_default()
+        .to_owned();
     let length: usize = head
         .lines()
         .find_map(|line| line.strip_prefix("content-length:"))
@@ -165,25 +177,32 @@ fn read_body(stream: &mut TcpStream) -> Option<String> {
         }
         data.extend_from_slice(&chunk[..read]);
     }
-    Some(String::from_utf8_lossy(&data[end..]).into_owned())
+    Some((path, String::from_utf8_lossy(&data[end..]).into_owned()))
 }
 
 struct Harness {
     app: App<MockRuntime>,
     window: WebviewWindow<MockRuntime>,
     data: tempfile::TempDir,
-    bin: tempfile::TempDir,
     secrets: Arc<MemoryStore>,
+    claude_code: Arc<MemoryStore>,
 }
 
 fn harness() -> Harness {
+    harness_at(Endpoints::default())
+}
+
+fn harness_at(endpoints: Endpoints) -> Harness {
     let secrets = Arc::new(MemoryStore::default());
-    let bin = tempfile::tempdir().unwrap();
-    let ai = Ai::new(secrets.clone()).with_environment(Environment {
-        shell: None,
-        known_dirs: vec![bin.path().to_owned()],
-    });
-    let app = yforge_lib::register_with(mock_builder(), ai)
+    let claude_code = Arc::new(MemoryStore::default());
+    let ai = Ai::new(secrets.clone())
+        .with_claude_code_store(claude_code.clone())
+        .with_limits(Limits {
+            poll_margin: Duration::ZERO,
+            ..Limits::default()
+        })
+        .with_endpoints(endpoints);
+    let app = yforge_lib::register_with(mock_builder(), ai, PlatformService::new(secrets.clone()))
         .build(mock_context(noop_assets()))
         .expect("build app");
     let data = tempfile::tempdir().expect("tempdir");
@@ -195,8 +214,8 @@ fn harness() -> Harness {
         app,
         window,
         data,
-        bin,
         secrets,
+        claude_code,
     }
 }
 
@@ -214,12 +233,6 @@ fn invoke(window: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result
         },
     )
     .map(|response| response.deserialize::<Value>().expect("json response"))
-}
-
-fn script(h: &Harness, name: &str, body: &str) {
-    let path = h.bin.path().join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
 fn add_endpoint(h: &Harness, url: &str, key: Option<&str>) -> String {
@@ -265,6 +278,7 @@ fn providers_are_managed_over_ipc_with_the_key_only_in_the_secret_store() {
     let listed = invoke(&h.window, "ai_providers_list", json!({})).unwrap();
     assert_eq!(listed[0]["config"]["id"], id);
     assert_eq!(listed[0]["config"]["kind"], "openai_compatible");
+    assert_eq!(listed[0]["config"]["auth_mode"], "api_key");
     assert_eq!(listed[0]["config"]["model"], "model-x");
     assert_eq!(listed[0]["config"]["has_api_key"], true);
     assert_eq!(listed[0]["active"], true);
@@ -275,7 +289,7 @@ fn providers_are_managed_over_ipc_with_the_key_only_in_the_secret_store() {
     let updated = invoke(
         &h.window,
         "ai_provider_update",
-        json!({"update": {"id": id, "name": "Renamed", "base_url": "http://127.0.0.1:9/v1", "api_key": {"kind": "clear"}}}),
+        json!({"update": {"id": id, "auth_mode": "api_key", "name": "Renamed", "base_url": "http://127.0.0.1:9/v1", "api_key": {"kind": "clear"}}}),
     )
     .unwrap();
     assert_eq!(updated["config"]["name"], "Renamed");
@@ -303,12 +317,15 @@ fn models_and_the_connection_test_go_through_the_chosen_endpoint() {
     });
     let id = add_endpoint(&h, &fake.url, None);
 
-    let models = invoke(&h.window, "ai_provider_models", json!({"id": id})).unwrap();
+    let models = invoke(&h.window, "ai_models", json!({"providerId": id})).unwrap();
     let status = invoke(&h.window, "ai_provider_test", json!({"id": id})).unwrap();
 
     assert_eq!(
         models,
-        json!([{"id": "a", "name": "Model A"}, {"id": "b", "name": null}])
+        json!([
+            {"id": "a", "display_name": "Model A", "context_window": null},
+            {"id": "b", "display_name": "b", "context_window": null}
+        ])
     );
     assert_eq!(status, json!({"kind": "ready"}));
 }
@@ -407,7 +424,7 @@ fn ai_failures_are_tagged_and_recorded_by_kind_only() {
     invoke(
         &h.window,
         "ai_provider_update",
-        json!({"update": {"id": id, "name": "Endpoint", "base_url": chatty.url, "api_key": {"kind": "keep"}}}),
+        json!({"update": {"id": id, "auth_mode": "api_key", "name": "Endpoint", "base_url": chatty.url, "api_key": {"kind": "keep"}}}),
     )
     .unwrap();
     assert_eq!(call("n-3")["kind"], "ai_invalid_response");
@@ -520,7 +537,7 @@ fn a_recompose_proposal_over_ipc_feeds_recompose_apply() {
     invoke(
         &h.window,
         "ai_provider_update",
-        json!({"update": {"id": id, "name": "Endpoint", "base_url": bad.url, "api_key": {"kind": "keep"}}}),
+        json!({"update": {"id": id, "auth_mode": "api_key", "name": "Endpoint", "base_url": bad.url, "api_key": {"kind": "keep"}}}),
     )
     .unwrap();
     let rejected = invoke(
@@ -591,32 +608,47 @@ fn a_conflict_proposal_over_ipc_answers_each_region_and_leaves_the_file_alone() 
     );
 }
 
-const DEVICE_OUTPUT: &str =
-    r#"printf '1. Open\n   https://auth.example.test/device\n2. Code\n   WXYZ-12345\n'"#;
-
-#[test]
-fn a_device_code_sign_in_emits_the_code_then_completion_and_can_be_cancelled() {
-    let h = harness();
-    let gate = h.bin.path().join("go");
-    script(
-        &h,
-        "codex",
-        &format!(
-            r#"if [ "$1 $2" = "login status" ]; then exit 0; fi
-{DEVICE_OUTPUT}
-while [ ! -f '{}' ]; do sleep 0.1; done
-exit 0"#,
-            gate.display()
-        ),
-    );
+fn add_subscription(h: &Harness, kind: &str) -> String {
     let added = invoke(
         &h.window,
         "ai_provider_add",
-        json!({"input": {"kind": "chatgpt", "name": "ChatGPT"}}),
+        json!({"input": {"kind": kind, "auth_mode": "subscription", "name": "Subscription"}}),
     )
     .unwrap();
-    assert_eq!(added["status"], json!({"kind": "ready"}));
-    let provider = added["config"]["id"].as_str().unwrap().to_owned();
+    assert_eq!(added["config"]["auth_mode"], "subscription");
+    assert_eq!(added["status"], json!({"kind": "signed_out"}));
+    added["config"]["id"].as_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_headless_chatgpt_sign_in_emits_the_code_then_completion_and_can_be_cancelled() {
+    let approved = Arc::new(AtomicBool::new(false));
+    let gate = approved.clone();
+    let fake = Fake::routed(move |path| match path {
+        "/api/accounts/deviceauth/usercode" => (
+            200,
+            json!({"device_auth_id": "dev-1", "user_code": "WXYZ-12345", "interval": "0"})
+                .to_string(),
+            Duration::ZERO,
+        ),
+        "/api/accounts/deviceauth/token" if gate.load(Ordering::SeqCst) => (
+            200,
+            json!({"authorization_code": "auth-1", "code_verifier": "ver-1"}).to_string(),
+            Duration::ZERO,
+        ),
+        "/api/accounts/deviceauth/token" => (403, "pending".to_owned(), Duration::ZERO),
+        "/oauth/token" => (
+            200,
+            json!({"access_token": "acc", "refresh_token": "ref", "expires_in": 3600}).to_string(),
+            Duration::ZERO,
+        ),
+        other => panic!("unexpected {other}"),
+    });
+    let h = harness_at(Endpoints {
+        openai_auth: fake.root.clone(),
+        ..Endpoints::default()
+    });
+    let provider = add_subscription(&h, "chatgpt");
     let (sender, events) = mpsc::channel();
     h.app.listen("ai-sign-in", move |event| {
         let _ = sender.send(serde_json::from_str::<Value>(event.payload()).unwrap());
@@ -636,9 +668,9 @@ exit 0"#,
     assert_eq!(code["provider"], provider);
     assert_eq!(
         code["stage"],
-        json!({"kind": "device_code", "url": "https://auth.example.test/device", "code": "WXYZ-12345"})
+        json!({"kind": "device_code", "url": format!("{}/codex/device", fake.root), "code": "WXYZ-12345"})
     );
-    std::fs::write(&gate, "").unwrap();
+    approved.store(true, Ordering::SeqCst);
     let status = handle.join().unwrap().unwrap();
     let done = events.recv_timeout(Duration::from_secs(10)).unwrap();
 
@@ -647,8 +679,11 @@ exit 0"#,
         done["stage"],
         json!({"kind": "completed", "status": {"kind": "ready"}})
     );
+    assert_eq!(h.secrets.accounts(), [format!("{provider}:oauth")]);
+    let listed = invoke(&h.window, "ai_providers_list", json!({})).unwrap();
+    assert_eq!(listed[0]["status"], json!({"kind": "ready"}));
 
-    std::fs::remove_file(&gate).unwrap();
+    approved.store(false, Ordering::SeqCst);
     let worker = h.window.clone();
     let target = provider.clone();
     let handle = std::thread::spawn(move || {
@@ -665,6 +700,172 @@ exit 0"#,
     );
     let error = handle.join().unwrap().unwrap_err();
     assert_eq!(error["kind"], "cancelled");
+}
+
+#[test]
+fn claude_code_sign_in_needs_its_credentials_and_reads_them_without_writing() {
+    let h = harness();
+    let provider = add_subscription(&h, "claude");
+    let sign_in = |operation: &str| {
+        invoke(
+            &h.window,
+            "ai_sign_in",
+            json!({"provider": provider, "id": operation, "method": "browser"}),
+        )
+    };
+
+    let missing = sign_in("cc-1").unwrap_err();
+    assert_eq!(missing["kind"], "ai_auth_required");
+    assert_eq!(missing["output"], "Sign in to Claude Code first");
+
+    let blob = json!({"claudeAiOauth": {
+        "accessToken": "cc-access", "refreshToken": "cc-refresh", "expiresAt": 4_102_444_800_000_i64
+    }})
+    .to_string();
+    yforge_ai::SecretStore::set(&*h.claude_code, yforge_ai::CLAUDE_CODE_SERVICE, &blob).unwrap();
+    let ready = sign_in("cc-2").unwrap();
+
+    assert_eq!(ready, json!({"kind": "ready"}));
+    assert_eq!(
+        yforge_ai::SecretStore::get(&*h.claude_code, yforge_ai::CLAUDE_CODE_SERVICE)
+            .unwrap()
+            .as_deref(),
+        Some(blob.as_str())
+    );
+    assert!(h.secrets.accounts().is_empty());
+}
+
+fn models_fake() -> Fake {
+    Fake::routed(|path| {
+        if path.ends_with("/models") {
+            (
+                200,
+                json!({"data": [{"id": "listed-model", "name": "Listed"}]}).to_string(),
+                Duration::ZERO,
+            )
+        } else {
+            (
+                200,
+                json!({"choices": [{"message": {"role": "assistant", "content": DRAFT}}]})
+                    .to_string(),
+                Duration::ZERO,
+            )
+        }
+    })
+}
+
+#[test]
+fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
+    let h = harness();
+    let fake = models_fake();
+    let id = add_endpoint(&h, &fake.url, None);
+
+    let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
+    assert_eq!(
+        listed
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| s["feature"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["generate_commit", "recompose", "conflict_fix"]
+    );
+    assert!(listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["config"].is_null()
+            && s["default_prompt_template"]
+                .as_str()
+                .unwrap()
+                .contains("{context}")));
+
+    let refused = invoke(
+        &h.window,
+        "ai_feature_config_set",
+        json!({"feature": "recompose", "providerId": id, "modelId": "invented", "promptTemplate": "x {context}"}),
+    )
+    .unwrap_err();
+    assert_eq!(refused["kind"], "invalid_request");
+    let no_placeholder = invoke(
+        &h.window,
+        "ai_feature_config_set",
+        json!({"feature": "recompose", "providerId": id, "modelId": "listed-model", "promptTemplate": "x"}),
+    )
+    .unwrap_err();
+    assert_eq!(no_placeholder["kind"], "invalid_request");
+
+    let saved = invoke(
+        &h.window,
+        "ai_feature_config_set",
+        json!({"feature": "recompose", "providerId": id, "modelId": "listed-model", "promptTemplate": "Regroup.\n{context}"}),
+    )
+    .unwrap();
+    assert_eq!(
+        saved["config"],
+        json!({"feature": "recompose", "provider_id": id, "model_id": "listed-model", "prompt_template": "Regroup.\n{context}"})
+    );
+    let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
+    assert_eq!(listed[1]["config"]["model_id"], "listed-model");
+    assert!(listed[0]["config"].is_null());
+
+    let reset = invoke(
+        &h.window,
+        "ai_feature_config_reset",
+        json!({"feature": "recompose"}),
+    )
+    .unwrap();
+    assert!(reset["config"].is_null());
+    let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
+    assert!(listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|s| s["config"].is_null()));
+}
+
+#[test]
+fn a_commit_draft_runs_on_the_provider_model_and_prompt_saved_for_that_feature() {
+    let h = harness();
+    let repo = repository();
+    repo.write("a.txt", "1\nUNIQUE-STAGED-LINE\n");
+    repo.git(&["add", "a.txt"]);
+    let unused = Fake::replying("{}");
+    add_endpoint(&h, &unused.url, None);
+    let chosen = models_fake();
+    let chosen_id = invoke(
+        &h.window,
+        "ai_provider_add",
+        json!({"input": {"kind": "openai_compatible", "name": "Chosen", "base_url": chosen.url}}),
+    )
+    .unwrap()["config"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    invoke(
+        &h.window,
+        "ai_feature_config_set",
+        json!({"feature": "generate_commit", "providerId": chosen_id, "modelId": "listed-model", "promptTemplate": "Custom rules.\n{context}"}),
+    )
+    .unwrap();
+
+    let draft = invoke(
+        &h.window,
+        "ai_generate_commit_message",
+        json!({"path": repo.path(), "id": "ai-feature"}),
+    )
+    .unwrap();
+
+    assert_eq!(draft["summary"], "Describe the change");
+    let sent: Vec<String> = chosen
+        .bodies()
+        .into_iter()
+        .filter(|body| body.contains("chat") || body.contains("messages"))
+        .collect();
+    assert_eq!(sent.len(), 1);
+    assert!(sent[0].contains("listed-model") && sent[0].contains("Custom rules."));
+    assert!(sent[0].contains("UNIQUE-STAGED-LINE"));
+    assert!(unused.bodies().is_empty());
 }
 
 #[test]

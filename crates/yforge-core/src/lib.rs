@@ -19,6 +19,7 @@ mod integrate;
 mod layout;
 mod model;
 mod operation;
+mod platform;
 mod recovery;
 mod refs;
 mod repo;
@@ -39,9 +40,10 @@ pub use activity::{
     collect as collect_activity, redact, ActivityEntry, CommandRecord, OperationKind, UndoStatus,
 };
 pub use ai::{
-    AiModel, AiSignInEvent, AiSignInMethod, AiSignInStage, ApiKeyChange, CommitDraft,
-    ConflictProposal, ConflictRegionProposal, ProviderConfig, ProviderInput, ProviderKind,
-    ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal,
+    AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod, AiSignInStage,
+    ApiKeyChange, AuthMode, CommitDraft, ConflictProposal, ConflictRegionProposal, ModelInfo,
+    ProviderConfig, ProviderInput, ProviderKind, ProviderStatus, ProviderSummary, ProviderUpdate,
+    RecomposeProposal,
 };
 pub use ai_context::{
     commit_context, cut_at_line, is_secret_file, render_hunk, status_word, CommitContext,
@@ -89,6 +91,10 @@ pub use model::{
 };
 pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
+pub use platform::{
+    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
+    PullRequest, RepoRef,
+};
 pub use recovery::{lost_commits, reflog_list, reflog_refs};
 pub use repo::repo_snapshot;
 pub use snapshots::{
@@ -104,10 +110,12 @@ pub use stash::{
     stash_apply, stash_details, stash_drop, stash_file_diff, stash_pop, stash_push, stash_rename,
 };
 pub use store::{
-    activity_history, add_recent, ai_active_provider, ai_choose, ai_provider, ai_provider_add,
-    ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers, app_ui_prefs_load,
-    app_ui_prefs_save, append_activity, clear_activity, dismiss_switch_stash, load_recents,
-    load_repo_settings, load_session, load_settings, mark_activity_undone, recent_status,
+    activity_history, add_recent, ai_active_provider, ai_choose, ai_feature_config,
+    ai_feature_config_reset, ai_feature_config_set, ai_feature_configs, ai_provider,
+    ai_provider_add, ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers,
+    app_ui_prefs_load, app_ui_prefs_save, append_activity, clear_activity, dismiss_switch_stash,
+    load_recents, load_repo_settings, load_session, load_settings, mark_activity_undone,
+    platform_connection_add, platform_connection_remove, platform_connections_list, recent_status,
     remove_recent, repo_ui_prefs_load, repo_ui_prefs_save, save_repo_settings, save_session,
     save_settings, ssh_key_for, switch_stashes, AppSettings, AppUiPrefs, ColumnPref, Density,
     GraphColumn, RecentRepo, RecentStatus, RepoSettings, RepoUiPrefs, TabSession, Theme,

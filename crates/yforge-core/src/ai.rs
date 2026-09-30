@@ -9,7 +9,7 @@ use crate::model::RecomposeGroup;
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     Chatgpt,
-    ClaudeCode,
+    Claude,
     Openrouter,
     OpenaiCompatible,
 }
@@ -18,7 +18,7 @@ impl ProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Chatgpt => "chatgpt",
-            Self::ClaudeCode => "claude_code",
+            Self::Claude => "claude",
             Self::Openrouter => "openrouter",
             Self::OpenaiCompatible => "openai_compatible",
         }
@@ -27,7 +27,7 @@ impl ProviderKind {
     pub fn parse(text: &str) -> Option<Self> {
         [
             Self::Chatgpt,
-            Self::ClaudeCode,
+            Self::Claude,
             Self::Openrouter,
             Self::OpenaiCompatible,
         ]
@@ -38,18 +38,37 @@ impl ProviderKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::Chatgpt => "ChatGPT",
-            Self::ClaudeCode => "Claude Code",
+            Self::Claude => "Claude",
             Self::Openrouter => "OpenRouter",
             Self::OpenaiCompatible => "OpenAI-compatible",
         }
     }
 
-    pub fn is_cli(self) -> bool {
-        matches!(self, Self::Chatgpt | Self::ClaudeCode)
+    pub fn supports_subscription(self) -> bool {
+        matches!(self, Self::Chatgpt | Self::Claude)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMode {
+    #[default]
+    ApiKey,
+    Subscription,
+}
+
+impl AuthMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ApiKey => "api_key",
+            Self::Subscription => "subscription",
+        }
     }
 
-    pub fn takes_api_key(self) -> bool {
-        !self.is_cli()
+    pub fn parse(text: &str) -> Option<Self> {
+        [Self::ApiKey, Self::Subscription]
+            .into_iter()
+            .find(|mode| mode.as_str() == text)
     }
 }
 
@@ -57,13 +76,12 @@ impl ProviderKind {
 pub struct ProviderConfig {
     pub id: String,
     pub kind: ProviderKind,
+    pub auth_mode: AuthMode,
     pub name: String,
     #[ts(optional = nullable)]
     pub base_url: Option<String>,
     #[ts(optional = nullable)]
     pub model: Option<String>,
-    #[ts(optional = nullable)]
-    pub executable_path: Option<String>,
     pub has_api_key: bool,
     pub created_at: i64,
 }
@@ -71,13 +89,12 @@ pub struct ProviderConfig {
 #[derive(Clone, PartialEq, Eq, Deserialize, TS)]
 pub struct ProviderInput {
     pub kind: ProviderKind,
+    #[serde(default)]
+    pub auth_mode: AuthMode,
     pub name: String,
     #[serde(default)]
     #[ts(optional = nullable)]
     pub base_url: Option<String>,
-    #[serde(default)]
-    #[ts(optional = nullable)]
-    pub executable_path: Option<String>,
     #[serde(default)]
     #[ts(optional = nullable)]
     pub api_key: Option<String>,
@@ -87,9 +104,9 @@ impl fmt::Debug for ProviderInput {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ProviderInput")
             .field("kind", &self.kind)
+            .field("auth_mode", &self.auth_mode)
             .field("name", &self.name)
             .field("base_url", &self.base_url)
-            .field("executable_path", &self.executable_path)
             .field("api_key", &self.api_key.as_ref().map(|_| "<set>"))
             .finish()
     }
@@ -116,13 +133,11 @@ impl fmt::Debug for ApiKeyChange {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
 pub struct ProviderUpdate {
     pub id: String,
+    pub auth_mode: AuthMode,
     pub name: String,
     #[serde(default)]
     #[ts(optional = nullable)]
     pub base_url: Option<String>,
-    #[serde(default)]
-    #[ts(optional = nullable)]
-    pub executable_path: Option<String>,
     pub api_key: ApiKeyChange,
 }
 
@@ -130,7 +145,6 @@ pub struct ProviderUpdate {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ProviderStatus {
     Ready,
-    NotInstalled,
     SignedOut,
     KeyMissing,
     KeyRejected,
@@ -146,9 +160,53 @@ pub struct ProviderSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-pub struct AiModel {
+pub struct ModelInfo {
     pub id: String,
-    pub name: Option<String>,
+    pub display_name: String,
+    #[ts(optional = nullable)]
+    pub context_window: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum AiFeature {
+    GenerateCommit,
+    Recompose,
+    ConflictFix,
+}
+
+impl AiFeature {
+    pub const ALL: [Self; 3] = [Self::GenerateCommit, Self::Recompose, Self::ConflictFix];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GenerateCommit => "generate_commit",
+            Self::Recompose => "recompose",
+            Self::ConflictFix => "conflict_fix",
+        }
+    }
+
+    pub fn parse(text: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|feature| feature.as_str() == text)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct AiFeatureConfig {
+    pub feature: AiFeature,
+    pub provider_id: String,
+    pub model_id: String,
+    pub prompt_template: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct AiFeatureSummary {
+    pub feature: AiFeature,
+    #[ts(optional = nullable)]
+    pub config: Option<AiFeatureConfig>,
+    pub default_prompt_template: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -161,6 +219,7 @@ pub enum AiSignInMethod {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AiSignInStage {
+    Browser { url: String },
     DeviceCode { url: String, code: String },
     Completed { status: ProviderStatus },
 }

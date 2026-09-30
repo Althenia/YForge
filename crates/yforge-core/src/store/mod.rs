@@ -1,6 +1,7 @@
 mod ai;
 mod history;
 mod legacy;
+mod platform;
 mod stashes;
 mod ui_prefs;
 
@@ -21,10 +22,14 @@ use crate::repo;
 use crate::sqlite::{failure, unix_now, Database};
 
 pub use ai::{
-    ai_active_provider, ai_choose, ai_provider, ai_provider_add, ai_provider_delete,
+    ai_active_provider, ai_choose, ai_feature_config, ai_feature_config_reset,
+    ai_feature_config_set, ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete,
     ai_provider_edit, ai_provider_key_flag, ai_providers,
 };
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
+pub use platform::{
+    platform_connection_add, platform_connection_remove, platform_connections_list,
+};
 pub(crate) use stashes::record_switch_stash;
 pub use stashes::{dismiss_switch_stash, switch_stashes};
 pub use ui_prefs::{
@@ -54,6 +59,8 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("switch_stashes.sql")),
         M::up(include_str!("ai_providers.sql")),
         M::up(include_str!("repo_ui_prefs.sql")),
+        M::up(include_str!("platform_connections.sql")),
+        M::up(include_str!("ai_v2.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];

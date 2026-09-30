@@ -1,9 +1,9 @@
 mod common;
 
-use common::{cli_input, closed_port_url, http_input, Harness, HttpFake, Reply};
+use common::{closed_port_url, http_input, keyed_input, provider_input, Harness, HttpFake, Reply};
 use yforge_core::{
-    ai_active_provider, ai_choose, ai_provider, ApiKeyChange, CoreError, ErrorKind, ProviderInput,
-    ProviderKind, ProviderStatus, ProviderUpdate,
+    ai_active_provider, ai_choose, ai_provider, AiFeature, ApiKeyChange, AuthMode, CoreError,
+    ErrorKind, ProviderInput, ProviderKind, ProviderStatus, ProviderUpdate,
 };
 
 fn kind_of(error: yforge_ai::AiError) -> ErrorKind {
@@ -55,9 +55,9 @@ async fn updating_changes_fields_and_the_key_and_clearing_removes_it() {
     assert!(!added.config.has_api_key && h.secrets.accounts().is_empty());
     let update = |key| ProviderUpdate {
         id: added.config.id.clone(),
+        auth_mode: AuthMode::ApiKey,
         name: "Renamed".to_owned(),
         base_url: Some("https://example.test/v1".to_owned()),
-        executable_path: None,
         api_key: key,
     };
 
@@ -132,23 +132,20 @@ async fn invalid_provider_input_is_refused_before_anything_is_stored() {
         http_input("   ", "https://example.test/v1", None),
         ProviderInput {
             base_url: Some("https://example.test".to_owned()),
-            ..cli_input(ProviderKind::Chatgpt, "x")
-        },
-        ProviderInput {
-            api_key: Some("k".to_owned()),
-            ..cli_input(ProviderKind::ClaudeCode, "x")
-        },
-        ProviderInput {
-            executable_path: Some("codex".to_owned()),
-            ..cli_input(ProviderKind::Chatgpt, "x")
-        },
-        ProviderInput {
-            executable_path: Some("/bin/x".to_owned()),
-            ..http_input("x", "https://example.test/v1", None)
+            ..provider_input(ProviderKind::Chatgpt, AuthMode::ApiKey, "x")
         },
         ProviderInput {
             base_url: Some("https://example.test".to_owned()),
-            ..cli_input(ProviderKind::Openrouter, "x")
+            ..provider_input(ProviderKind::Openrouter, AuthMode::ApiKey, "x")
+        },
+        ProviderInput {
+            api_key: Some("k".to_owned()),
+            ..provider_input(ProviderKind::Claude, AuthMode::Subscription, "x")
+        },
+        provider_input(ProviderKind::Openrouter, AuthMode::Subscription, "x"),
+        ProviderInput {
+            auth_mode: AuthMode::Subscription,
+            ..http_input("x", "https://example.test/v1", None)
         },
     ];
 
@@ -181,7 +178,10 @@ async fn openrouter_without_a_key_reports_key_missing_and_cannot_be_used() {
     let h = Harness::new();
     let ai = h.ai();
     let added = ai
-        .add(h.dir(), cli_input(ProviderKind::Openrouter, "OpenRouter"))
+        .add(
+            h.dir(),
+            provider_input(ProviderKind::Openrouter, AuthMode::ApiKey, "OpenRouter"),
+        )
         .await
         .unwrap();
     assert_eq!(added.status, ProviderStatus::KeyMissing);
@@ -191,7 +191,10 @@ async fn openrouter_without_a_key_reports_key_missing_and_cannot_be_used() {
     );
     ai_choose(h.dir(), Some(&added.config.id), Some("m/x")).unwrap();
 
-    let error = ai.resolve(h.dir()).await.unwrap_err();
+    let error = ai
+        .resolve(h.dir(), AiFeature::GenerateCommit)
+        .await
+        .unwrap_err();
 
     assert_eq!(kind_of(error), ErrorKind::AiAuthRequired);
 }
@@ -201,7 +204,11 @@ async fn resolving_needs_an_active_provider_and_for_http_a_model() {
     let h = Harness::new();
     let ai = h.ai();
     assert_eq!(
-        kind_of(ai.resolve(h.dir()).await.unwrap_err()),
+        kind_of(
+            ai.resolve(h.dir(), AiFeature::GenerateCommit)
+                .await
+                .unwrap_err()
+        ),
         ErrorKind::AiNotConfigured
     );
     let added = ai
@@ -213,28 +220,22 @@ async fn resolving_needs_an_active_provider_and_for_http_a_model() {
         .unwrap();
     ai_choose(h.dir(), Some(&added.config.id), None).unwrap();
     assert_eq!(
-        kind_of(ai.resolve(h.dir()).await.unwrap_err()),
+        kind_of(
+            ai.resolve(h.dir(), AiFeature::GenerateCommit)
+                .await
+                .unwrap_err()
+        ),
         ErrorKind::AiNotConfigured
     );
 
     ai_choose(h.dir(), Some(&added.config.id), Some("llama")).unwrap();
 
-    let selection = ai.resolve(h.dir()).await.unwrap();
-    assert_eq!(selection.config.model.as_deref(), Some("llama"));
-    assert!(!format!("{selection:?}").contains("k-never-printed"));
-}
-
-#[tokio::test]
-async fn a_cli_provider_needs_no_model_to_be_resolved() {
-    let h = Harness::new();
-    let ai = h.ai();
-    let added = ai
-        .add(h.dir(), cli_input(ProviderKind::ClaudeCode, "Claude"))
+    let selection = ai
+        .resolve(h.dir(), AiFeature::GenerateCommit)
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&added.config.id), None).unwrap();
-
-    assert!(ai.resolve(h.dir()).await.is_ok());
+    assert_eq!(selection.config.model.as_deref(), Some("llama"));
+    assert!(!format!("{selection:?}").contains("k-never-printed"));
 }
 
 #[tokio::test]
@@ -281,12 +282,12 @@ async fn models_come_from_the_models_endpoint_sorted_with_the_bearer_key() {
     assert_eq!(
         models
             .iter()
-            .map(|m| (m.id.as_str(), m.name.as_deref()))
+            .map(|m| (m.id.as_str(), m.display_name.as_str(), m.context_window))
             .collect::<Vec<_>>(),
         [
-            ("alpha", Some("Alpha Model")),
-            ("beta", None),
-            ("zeta", None)
+            ("alpha", "Alpha Model", None),
+            ("beta", "beta", None),
+            ("zeta", "zeta", None)
         ]
     );
     let requests = fake.requests();
@@ -308,22 +309,6 @@ async fn an_endpoint_without_a_key_gets_no_authorization_header() {
     ai.models(h.dir(), &added.config.id).await.unwrap();
 
     assert_eq!(fake.requests()[0].header("authorization"), None);
-}
-
-#[tokio::test]
-async fn cli_providers_list_no_models() {
-    let h = Harness::new();
-    let ai = h.ai();
-    let added = ai
-        .add(h.dir(), cli_input(ProviderKind::Chatgpt, "ChatGPT"))
-        .await
-        .unwrap();
-
-    assert!(ai
-        .models(h.dir(), &added.config.id)
-        .await
-        .unwrap()
-        .is_empty());
 }
 
 #[tokio::test]
@@ -373,96 +358,107 @@ async fn testing_a_connection_maps_each_outcome_to_a_status() {
 }
 
 #[tokio::test]
-async fn codex_status_follows_its_login_status_command() {
+async fn keyless_chatgpt_and_claude_report_key_missing_and_signed_out_in_subscription_mode() {
     let h = Harness::new();
     let ai = h.ai();
-    let added = ai
-        .add(h.dir(), cli_input(ProviderKind::Chatgpt, "ChatGPT"))
-        .await
-        .unwrap();
-    assert_eq!(added.status, ProviderStatus::NotInstalled);
-
-    h.script(
-        "codex",
-        r#"[ "$1 $2" = "login status" ] && { echo "Logged in using ChatGPT"; exit 0; }; exit 9"#,
-    );
-    assert_eq!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::Ready
-    );
-
-    h.script("codex", r#"echo "Not logged in" >&2; exit 1"#);
-    assert_eq!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::SignedOut
-    );
-
-    h.script("codex", r#"echo "boom: config broken" >&2; exit 2"#);
-    match ai.test(h.dir(), &added.config.id).await.unwrap() {
-        ProviderStatus::CheckFailed { message } => assert!(message.contains("config broken")),
-        other => panic!("{other:?}"),
+    let mut seen = Vec::new();
+    for (kind, mode) in [
+        (ProviderKind::Chatgpt, AuthMode::ApiKey),
+        (ProviderKind::Claude, AuthMode::ApiKey),
+        (ProviderKind::Chatgpt, AuthMode::Subscription),
+        (ProviderKind::Claude, AuthMode::Subscription),
+    ] {
+        let added = ai
+            .add(h.dir(), provider_input(kind, mode, kind.label()))
+            .await
+            .unwrap();
+        seen.push((
+            added.status.clone(),
+            ai.test(h.dir(), &added.config.id).await.unwrap(),
+        ));
     }
+
+    assert_eq!(
+        seen,
+        [
+            (ProviderStatus::KeyMissing, ProviderStatus::KeyMissing),
+            (ProviderStatus::KeyMissing, ProviderStatus::KeyMissing),
+            (ProviderStatus::SignedOut, ProviderStatus::SignedOut),
+            (ProviderStatus::SignedOut, ProviderStatus::SignedOut),
+        ]
+    );
 }
 
 #[tokio::test]
-async fn claude_status_reads_only_the_logged_in_flag() {
+async fn a_key_in_the_keychain_makes_a_hosted_provider_ready_without_a_network_call() {
     let h = Harness::new();
     let ai = h.ai();
-    let added = ai
-        .add(h.dir(), cli_input(ProviderKind::ClaudeCode, "Claude"))
-        .await
-        .unwrap();
-    let args = h.log_path("status-args");
 
-    h.script(
-        "claude",
-        &format!(
-            r#"echo "$@" > '{args}'; echo '{{"loggedIn": true, "email": "someone@example.test"}}'"#
-        ),
-    );
-    assert_eq!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::Ready
-    );
-    assert_eq!(h.log("status-args").trim(), "auth status --json");
-
-    h.script("claude", r#"echo '{"loggedIn": false}'; exit 1"#);
-    assert_eq!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::SignedOut
-    );
-
-    h.script("claude", r#"echo "garbled"; exit 3"#);
-    assert!(matches!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::CheckFailed { .. }
-    ));
-}
-
-#[tokio::test]
-async fn an_explicit_executable_path_overrides_discovery_and_a_bad_one_is_reported() {
-    let h = Harness::new();
-    let ai = h.ai();
-    let other = tempfile::tempdir().unwrap();
-    let custom = other.path().join("my-codex");
-    std::fs::write(&custom, "#!/bin/sh\necho Logged in\nexit 0\n").unwrap();
-    std::fs::set_permissions(&custom, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
     let added = ai
         .add(
             h.dir(),
-            ProviderInput {
-                executable_path: Some(custom.display().to_string()),
-                ..cli_input(ProviderKind::Chatgpt, "ChatGPT")
-            },
+            keyed_input(ProviderKind::Claude, "Claude", "sk-ant-1"),
         )
         .await
         .unwrap();
+
     assert_eq!(added.status, ProviderStatus::Ready);
+    assert_eq!(added.config.auth_mode, AuthMode::ApiKey);
+}
 
-    std::fs::remove_file(&custom).unwrap();
+#[tokio::test]
+async fn switching_a_provider_to_subscription_mode_is_an_update_and_refuses_a_key() {
+    let h = Harness::new();
+    let ai = h.ai();
+    let added = ai
+        .add(
+            h.dir(),
+            keyed_input(ProviderKind::Chatgpt, "ChatGPT", "sk-1"),
+        )
+        .await
+        .unwrap();
+    let update = |api_key| ProviderUpdate {
+        id: added.config.id.clone(),
+        auth_mode: AuthMode::Subscription,
+        name: "ChatGPT".to_owned(),
+        base_url: None,
+        api_key,
+    };
 
-    assert!(matches!(
-        ai.test(h.dir(), &added.config.id).await.unwrap(),
-        ProviderStatus::CheckFailed { .. }
-    ));
+    let refused = ai
+        .update(
+            h.dir(),
+            update(ApiKeyChange::Set {
+                key: "sk-2".to_owned(),
+            }),
+        )
+        .await
+        .unwrap_err();
+    let switched = ai
+        .update(h.dir(), update(ApiKeyChange::Keep))
+        .await
+        .unwrap();
+
+    assert_eq!(kind_of(refused), ErrorKind::InvalidRequest);
+    assert_eq!(switched.config.auth_mode, AuthMode::Subscription);
+    assert_eq!(switched.status, ProviderStatus::SignedOut);
+}
+
+#[tokio::test]
+async fn removing_a_provider_also_deletes_its_oauth_tokens() {
+    let h = Harness::new();
+    let ai = h.ai();
+    let added = ai
+        .add(
+            h.dir(),
+            provider_input(ProviderKind::Chatgpt, AuthMode::Subscription, "ChatGPT"),
+        )
+        .await
+        .unwrap();
+    let account = format!("{}:oauth", added.config.id);
+    yforge_ai::SecretStore::set(&*h.secrets, &account, "{}").unwrap();
+
+    ai.remove(h.dir(), &added.config.id).await.unwrap();
+
+    assert!(h.secrets.accounts().is_empty());
 }

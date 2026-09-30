@@ -8,14 +8,13 @@ use yforge_core::{
 
 use crate::error::{AiError, Result};
 use crate::json::{cap, parse_reply};
-use crate::prompt::{Prompt, RECOMPOSE_SYSTEM};
 
 const TOTAL_BUDGET: usize = 60 * 1024;
 const HUNK_BUDGET: usize = 4 * 1024;
 const MIN_USEFUL_BUDGET: usize = 256;
 
-pub struct RecomposePrompt {
-    pub prompt: Prompt,
+pub struct RecomposeContext {
+    pub text: String,
     pub excluded: Vec<String>,
 }
 
@@ -27,7 +26,7 @@ fn unit(value: serde_json::Value) -> String {
     value.to_string()
 }
 
-pub fn prompt(preview: &RecomposePreview) -> RecomposePrompt {
+pub fn context_text(preview: &RecomposePreview) -> RecomposeContext {
     let mut text = String::new();
     let mut excluded = Vec::new();
     let mut spent = 0_usize;
@@ -77,11 +76,8 @@ pub fn prompt(preview: &RecomposePreview) -> RecomposePrompt {
             }
         }
     }
-    RecomposePrompt {
-        prompt: Prompt {
-            system: RECOMPOSE_SYSTEM,
-            user: format!("Regroup these changes. Copy each unit object exactly.\n\n{text}"),
-        },
+    RecomposeContext {
+        text: format!("Regroup these changes. Copy each unit object exactly.\n\n{text}"),
         excluded,
     }
 }
@@ -351,27 +347,19 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_shows_unit_objects_and_withholds_secret_content() {
-        let built = prompt(&preview());
+    fn the_context_shows_unit_objects_and_withholds_secret_content() {
+        let built = context_text(&preview());
         assert_eq!(built.excluded, [".env"]);
         assert!(built
-            .prompt
-            .user
+            .text
             .contains(r#"UNIT {"id":"a.rs@1,1+1,2","kind":"hunk"}"#));
         assert!(built
-            .prompt
-            .user
+            .text
             .contains(r#"UNIT {"kind":"file","path":"logo.png"}"#));
-        assert!(built.prompt.user.contains("+fn a()"));
-        assert!(!built.prompt.user.contains("hunter2"));
-        assert!(built
-            .prompt
-            .user
-            .contains("[content withheld: secret file]"));
-        assert!(built
-            .prompt
-            .user
-            .contains("logo.png (modified, whole file only)"));
+        assert!(built.text.contains("+fn a()"));
+        assert!(!built.text.contains("hunter2"));
+        assert!(built.text.contains("[content withheld: secret file]"));
+        assert!(built.text.contains("logo.png (modified, whole file only)"));
     }
 
     #[test]
@@ -393,12 +381,11 @@ mod tests {
             pushed: false,
             files: vec![file("big.rs", false, hunks)],
         };
-        let built = prompt(&preview);
-        assert!(built.prompt.user.len() < 100 * 1024);
+        let built = context_text(&preview);
+        assert!(built.text.len() < 100 * 1024);
         assert!(built
-            .prompt
-            .user
+            .text
             .contains("[content omitted: size budget reached]"));
-        assert!(built.prompt.user.contains("big.rs@399,1+399,2"));
+        assert!(built.text.contains("big.rs@399,1+399,2"));
     }
 }

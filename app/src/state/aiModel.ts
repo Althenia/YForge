@@ -1,5 +1,6 @@
 import type { IconName } from "../iconNames";
 import { IpcError } from "../ipc/client";
+import type { AuthMode } from "../ipc/bindings/AuthMode";
 import type { ProviderKind } from "../ipc/bindings/ProviderKind";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 
@@ -9,58 +10,48 @@ export type ProviderCard = {
   kind: ProviderKind;
   title: string;
   blurb: string;
-  cli: boolean;
   baseUrl: boolean;
   key: "required" | "optional" | "none";
+  subscription: boolean;
   logo: LogoKey;
-  installCommand: string | undefined;
-  binary: string | undefined;
 };
 
 export const PROVIDER_CARDS: readonly ProviderCard[] = [
   {
     kind: "chatgpt",
     title: "ChatGPT",
-    blurb: "Your ChatGPT subscription, through the installed Codex CLI and its own sign-in.",
-    cli: true,
+    blurb: "OpenAI models with your API key, or your ChatGPT subscription through YForge's own browser or headless sign-in.",
     baseUrl: false,
-    key: "none",
+    key: "required",
+    subscription: true,
     logo: "openai",
-    installCommand: "npm install -g @openai/codex",
-    binary: "codex",
   },
   {
-    kind: "claude_code",
-    title: "Claude Code",
-    blurb: "Your signed-in Claude Code profile, through the installed claude CLI.",
-    cli: true,
+    kind: "claude",
+    title: "Claude",
+    blurb: "Anthropic models with your API key, or your Claude Code subscription, which YForge reads from your Claude Code sign-in.",
     baseUrl: false,
-    key: "none",
+    key: "required",
+    subscription: true,
     logo: "neutral-cli",
-    installCommand: "npm install -g @anthropic-ai/claude-code",
-    binary: "claude",
   },
   {
     kind: "openrouter",
     title: "OpenRouter",
     blurb: "Any model on OpenRouter, with your API key.",
-    cli: false,
     baseUrl: false,
     key: "required",
+    subscription: false,
     logo: "openrouter",
-    installCommand: undefined,
-    binary: undefined,
   },
   {
     kind: "openai_compatible",
     title: "OpenAI-compatible",
     blurb: "Any endpoint that speaks the OpenAI chat API. Add as many as you need.",
-    cli: false,
     baseUrl: true,
     key: "optional",
+    subscription: false,
     logo: "neutral-api",
-    installCommand: undefined,
-    binary: undefined,
   },
 ];
 
@@ -72,8 +63,6 @@ export function statusView(status: ProviderStatus): StatusView {
   switch (status.kind) {
     case "ready":
       return { label: "Ready", tone: "ok", icon: "check" };
-    case "not_installed":
-      return { label: "Not installed", tone: "attention", icon: "warning" };
     case "signed_out":
       return { label: "Signed out", tone: "attention", icon: "warning" };
     case "key_missing":
@@ -87,9 +76,9 @@ export function statusView(status: ProviderStatus): StatusView {
   }
 }
 
-export type ProviderDraft = { kind: ProviderKind; name: string; baseUrl: string; executablePath: string; apiKey: string };
+export type ProviderDraft = { kind: ProviderKind; name: string; baseUrl: string; apiKey: string; authMode: AuthMode };
 
-export type ProviderProblems = { name?: string; baseUrl?: string; executablePath?: string; apiKey?: string };
+export type ProviderProblems = { name?: string; baseUrl?: string; apiKey?: string };
 
 const NAME_LIMIT = 80;
 
@@ -121,10 +110,9 @@ export function providerProblems(draft: ProviderDraft): ProviderProblems {
     const problem = baseUrlProblem(draft.baseUrl);
     if (problem !== undefined) problems.baseUrl = problem;
   }
-  if (card.cli && draft.executablePath.trim() !== "" && !draft.executablePath.trim().startsWith("/")) {
-    problems.executablePath = `Use an absolute path such as /usr/local/bin/${card.binary}`;
+  if (draft.authMode === "api_key" && card.key === "required" && draft.apiKey.trim() === "") {
+    problems.apiKey = `Paste your ${card.title} API key`;
   }
-  if (card.key === "required" && draft.apiKey.trim() === "") problems.apiKey = `Paste your ${card.title} API key`;
   return problems;
 }
 

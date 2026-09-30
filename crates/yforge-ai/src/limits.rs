@@ -4,8 +4,8 @@ use std::time::Duration;
 pub struct Limits {
     pub completion: Duration,
     pub status: Duration,
-    pub discovery: Duration,
     pub sign_in: Duration,
+    pub poll_margin: Duration,
 }
 
 impl Default for Limits {
@@ -13,8 +13,8 @@ impl Default for Limits {
         Self {
             completion: Duration::from_secs(180),
             status: Duration::from_secs(20),
-            discovery: Duration::from_secs(5),
             sign_in: Duration::from_secs(16 * 60),
+            poll_margin: Duration::from_secs(3),
         }
     }
 }

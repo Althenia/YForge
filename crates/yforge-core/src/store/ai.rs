@@ -4,31 +4,34 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::{open, parse, put_setting, sql, state_path, stored_values};
-use crate::ai::{ProviderConfig, ProviderKind};
+use crate::ai::{AiFeature, AiFeatureConfig, AuthMode, ProviderConfig, ProviderKind};
 use crate::error::CoreError;
 use crate::sqlite::{failure, unix_now};
 
 const ACTIVE_PROVIDER: &str = "ai.active_provider";
-const COLUMNS: &str = "id, kind, name, base_url, model, executable_path, has_api_key, created_at";
+const COLUMNS: &str = "id, kind, auth_mode, name, base_url, model, has_api_key, created_at";
 
-fn read_row(row: &Row<'_>) -> rusqlite::Result<(String, ProviderConfig)> {
+type StoredProvider = (String, String, ProviderConfig);
+
+fn read_row(row: &Row<'_>) -> rusqlite::Result<StoredProvider> {
     let kind: String = row.get(1)?;
+    let auth_mode: String = row.get(2)?;
     let config = ProviderConfig {
         id: row.get(0)?,
         kind: ProviderKind::Chatgpt,
-        name: row.get(2)?,
-        base_url: row.get(3)?,
-        model: row.get(4)?,
-        executable_path: row.get(5)?,
+        auth_mode: AuthMode::ApiKey,
+        name: row.get(3)?,
+        base_url: row.get(4)?,
+        model: row.get(5)?,
         has_api_key: row.get(6)?,
         created_at: row.get(7)?,
     };
-    Ok((kind, config))
+    Ok((kind, auth_mode, config))
 }
 
 fn decode(
     dir: &Path,
-    (kind, mut config): (String, ProviderConfig),
+    (kind, auth_mode, mut config): StoredProvider,
 ) -> Result<ProviderConfig, CoreError> {
     config.kind = ProviderKind::parse(&kind).ok_or_else(|| {
         failure(
@@ -36,10 +39,29 @@ fn decode(
             format!("AI provider {} has an unknown kind `{kind}`", config.id),
         )
     })?;
+    config.auth_mode = AuthMode::parse(&auth_mode).ok_or_else(|| {
+        failure(
+            &state_path(dir),
+            format!(
+                "AI provider {} has an unknown auth mode `{auth_mode}`",
+                config.id
+            ),
+        )
+    })?;
     Ok(config)
 }
 
-fn find(conn: &Connection, id: &str) -> rusqlite::Result<Option<(String, ProviderConfig)>> {
+fn check_mode(kind: ProviderKind, auth_mode: AuthMode) -> Result<(), CoreError> {
+    if auth_mode == AuthMode::Subscription && !kind.supports_subscription() {
+        return Err(CoreError::invalid_request(format!(
+            "{} takes an API key only",
+            kind.label()
+        )));
+    }
+    Ok(())
+}
+
+fn find(conn: &Connection, id: &str) -> rusqlite::Result<Option<StoredProvider>> {
     conn.query_row(
         &format!("SELECT {COLUMNS} FROM ai_providers WHERE id = ?1"),
         [id],
@@ -89,26 +111,27 @@ pub fn ai_provider(dir: &Path, id: &str) -> Result<ProviderConfig, CoreError> {
 pub fn ai_provider_add(
     dir: &Path,
     kind: ProviderKind,
+    auth_mode: AuthMode,
     name: &str,
     base_url: Option<&str>,
-    executable_path: Option<&str>,
 ) -> Result<ProviderConfig, CoreError> {
+    check_mode(kind, auth_mode)?;
     let conn = open(dir)?;
     let id = fresh_id(&conn, kind).map_err(sql(dir))?;
     let created_at = unix_now();
     conn.execute(
-        "INSERT INTO ai_providers (id, kind, name, base_url, model, executable_path, has_api_key, created_at)
-         VALUES (?1, ?2, ?3, ?4, NULL, ?5, 0, ?6)",
-        params![id, kind.as_str(), name, base_url, executable_path, created_at],
+        "INSERT INTO ai_providers (id, kind, auth_mode, name, base_url, model, has_api_key, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, NULL, 0, ?6)",
+        params![id, kind.as_str(), auth_mode.as_str(), name, base_url, created_at],
     )
     .map_err(sql(dir))?;
     Ok(ProviderConfig {
         id,
         kind,
+        auth_mode,
         name: name.to_owned(),
         base_url: base_url.map(str::to_owned),
         model: None,
-        executable_path: executable_path.map(str::to_owned),
         has_api_key: false,
         created_at,
     })
@@ -117,15 +140,16 @@ pub fn ai_provider_add(
 pub fn ai_provider_edit(
     dir: &Path,
     id: &str,
+    auth_mode: AuthMode,
     name: &str,
     base_url: Option<&str>,
-    executable_path: Option<&str>,
 ) -> Result<ProviderConfig, CoreError> {
+    check_mode(ai_provider(dir, id)?.kind, auth_mode)?;
     let conn = open(dir)?;
     let changed = conn
         .execute(
-            "UPDATE ai_providers SET name = ?2, base_url = ?3, executable_path = ?4 WHERE id = ?1",
-            params![id, name, base_url, executable_path],
+            "UPDATE ai_providers SET auth_mode = ?2, name = ?3, base_url = ?4 WHERE id = ?1",
+            params![id, auth_mode.as_str(), name, base_url],
         )
         .map_err(sql(dir))?;
     if changed == 0 {
@@ -200,4 +224,96 @@ pub fn ai_choose(dir: &Path, id: Option<&str>, model: Option<&str>) -> Result<()
         }
     }
     tx.commit().map_err(sql(dir))
+}
+
+fn feature_row(row: &Row<'_>) -> rusqlite::Result<(String, AiFeatureConfigFields)> {
+    Ok((row.get(0)?, (row.get(1)?, row.get(2)?, row.get(3)?)))
+}
+
+type AiFeatureConfigFields = (String, String, String);
+
+fn feature_decode(
+    dir: &Path,
+    (feature, (provider_id, model_id, prompt_template)): (String, AiFeatureConfigFields),
+) -> Result<AiFeatureConfig, CoreError> {
+    let feature = AiFeature::parse(&feature).ok_or_else(|| {
+        failure(
+            &state_path(dir),
+            format!("AI feature config has an unknown feature `{feature}`"),
+        )
+    })?;
+    Ok(AiFeatureConfig {
+        feature,
+        provider_id,
+        model_id,
+        prompt_template,
+    })
+}
+
+pub fn ai_feature_configs(dir: &Path) -> Result<Vec<AiFeatureConfig>, CoreError> {
+    let conn = open(dir)?;
+    let rows = conn
+        .prepare(
+            "SELECT feature, provider_id, model_id, prompt_template FROM ai_feature_config ORDER BY rowid",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([], feature_row)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(sql(dir))?;
+    rows.into_iter()
+        .map(|row| feature_decode(dir, row))
+        .collect()
+}
+
+pub fn ai_feature_config(
+    dir: &Path,
+    feature: AiFeature,
+) -> Result<Option<AiFeatureConfig>, CoreError> {
+    let row = open(dir)?
+        .query_row(
+            "SELECT feature, provider_id, model_id, prompt_template FROM ai_feature_config WHERE feature = ?1",
+            [feature.as_str()],
+            feature_row,
+        )
+        .optional()
+        .map_err(sql(dir))?;
+    row.map(|row| feature_decode(dir, row)).transpose()
+}
+
+pub fn ai_feature_config_set(dir: &Path, config: &AiFeatureConfig) -> Result<(), CoreError> {
+    let conn = open(dir)?;
+    if find(&conn, &config.provider_id)
+        .map_err(sql(dir))?
+        .is_none()
+    {
+        return Err(missing(&config.provider_id));
+    }
+    conn.execute(
+        "INSERT INTO ai_feature_config (feature, provider_id, model_id, prompt_template)
+         VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT (feature) DO UPDATE SET
+             provider_id = excluded.provider_id,
+             model_id = excluded.model_id,
+             prompt_template = excluded.prompt_template",
+        params![
+            config.feature.as_str(),
+            config.provider_id,
+            config.model_id,
+            config.prompt_template
+        ],
+    )
+    .map(drop)
+    .map_err(sql(dir))
+}
+
+pub fn ai_feature_config_reset(dir: &Path, feature: AiFeature) -> Result<(), CoreError> {
+    open(dir)?
+        .execute(
+            "DELETE FROM ai_feature_config WHERE feature = ?1",
+            [feature.as_str()],
+        )
+        .map(drop)
+        .map_err(sql(dir))
 }

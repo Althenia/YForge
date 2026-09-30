@@ -3,11 +3,10 @@ use yforge_core::{CommitContext, CommitDraft};
 
 use crate::error::{AiError, Result};
 use crate::json::parse_reply;
-use crate::prompt::{Prompt, COMMIT_SYSTEM};
 
 const SUMMARY_LIMIT: usize = 72;
 
-pub fn prompt(context: &CommitContext) -> Prompt {
+pub fn context_text(context: &CommitContext) -> String {
     let subjects = if context.recent_subjects.is_empty() {
         "(none: this repository has no commits yet)".to_owned()
     } else {
@@ -18,13 +17,10 @@ pub fn prompt(context: &CommitContext) -> Prompt {
             .collect::<Vec<_>>()
             .join("\n")
     };
-    Prompt {
-        system: COMMIT_SYSTEM,
-        user: format!(
-            "Recent commit subjects, newest first:\n{subjects}\n\nStaged changes (files marked as withheld, binary, truncated or omitted are incomplete):\n{}",
-            context.diff
-        ),
-    }
+    format!(
+        "Recent commit subjects, newest first:\n{subjects}\n\nStaged changes (files marked as withheld, binary, truncated or omitted are incomplete):\n{}",
+        context.diff
+    )
 }
 
 pub fn fit_summary(summary: &str) -> (String, bool) {
@@ -86,11 +82,10 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_lists_recent_subjects_and_the_diff() {
-        let prompt = prompt(&context());
-        assert!(prompt.user.contains("- Fix parser\n- Add cache"));
-        assert!(prompt.user.contains("=== a.txt (modified) ==="));
-        assert_eq!(prompt.system, COMMIT_SYSTEM);
+    fn the_context_lists_recent_subjects_and_the_diff() {
+        let text = context_text(&context());
+        assert!(text.contains("- Fix parser\n- Add cache"));
+        assert!(text.contains("=== a.txt (modified) ==="));
     }
 
     #[test]

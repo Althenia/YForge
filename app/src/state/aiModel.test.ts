@@ -2,22 +2,21 @@ import { describe, expect, it } from "vitest";
 import { IpcError } from "../ipc/client";
 import { aiFailure, baseUrlProblem, cardOf, PROVIDER_CARDS, providerProblems, statusView, type ProviderDraft } from "./aiModel";
 
-const draft = (overrides: Partial<ProviderDraft> = {}): ProviderDraft => ({ kind: "openai_compatible", name: "Local", baseUrl: "http://localhost:11434/v1", executablePath: "", apiKey: "", ...overrides });
+const draft = (overrides: Partial<ProviderDraft> = {}): ProviderDraft => ({ kind: "openai_compatible", name: "Local", baseUrl: "http://localhost:11434/v1", apiKey: "", authMode: "api_key", ...overrides });
 
 describe("provider cards", () => {
-  it("offers the four provider kinds in dialog order, the CLI kinds flagged, and only the compatible kind repeatable with a base URL", () => {
-    expect(PROVIDER_CARDS.map((card) => card.kind)).toEqual(["chatgpt", "claude_code", "openrouter", "openai_compatible"]);
-    expect(PROVIDER_CARDS.filter((card) => card.cli).map((card) => card.kind)).toEqual(["chatgpt", "claude_code"]);
+  it("offers the four provider kinds in dialog order, marks the two subscription kinds, and only the compatible kind with a base URL", () => {
+    expect(PROVIDER_CARDS.map((card) => card.kind)).toEqual(["chatgpt", "claude", "openrouter", "openai_compatible"]);
+    expect(PROVIDER_CARDS.filter((card) => card.subscription).map((card) => card.kind)).toEqual(["chatgpt", "claude"]);
     expect(PROVIDER_CARDS.filter((card) => card.baseUrl).map((card) => card.kind)).toEqual(["openai_compatible"]);
     expect(cardOf("chatgpt").title).toBe("ChatGPT");
-    expect(cardOf("chatgpt").blurb).toMatch(/subscription.*Codex CLI/);
+    expect(cardOf("chatgpt").blurb).toMatch(/subscription/);
   });
 });
 
 describe("status view", () => {
   it("pairs every status with a text label, a glyph, and a tone (never color alone)", () => {
     expect(statusView({ kind: "ready" })).toMatchObject({ label: "Ready", tone: "ok", icon: "check" });
-    expect(statusView({ kind: "not_installed" })).toMatchObject({ label: "Not installed", tone: "attention", icon: "warning" });
     expect(statusView({ kind: "signed_out" })).toMatchObject({ label: "Signed out", tone: "attention" });
     expect(statusView({ kind: "key_missing" })).toMatchObject({ label: "Key missing", tone: "attention" });
     expect(statusView({ kind: "key_rejected" })).toMatchObject({ label: "Key rejected", tone: "danger", icon: "warning" });
@@ -58,10 +57,9 @@ describe("provider form problems", () => {
     expect(providerProblems(draft({ apiKey: "" })).apiKey).toBeUndefined();
   });
 
-  it("accepts a CLI executable override only as an absolute path", () => {
-    expect(providerProblems(draft({ kind: "claude_code", baseUrl: "", executablePath: "claude" })).executablePath).toBe("Use an absolute path such as /usr/local/bin/claude");
-    expect(providerProblems(draft({ kind: "claude_code", baseUrl: "", executablePath: "/usr/local/bin/claude" })).executablePath).toBeUndefined();
-    expect(providerProblems(draft({ kind: "claude_code", baseUrl: "", executablePath: "" }))).toEqual({});
+  it("does not ask for a key when the provider uses a subscription sign-in", () => {
+    expect(providerProblems(draft({ kind: "claude", baseUrl: "", authMode: "subscription", apiKey: "" })).apiKey).toBeUndefined();
+    expect(providerProblems(draft({ kind: "claude", baseUrl: "", authMode: "api_key", apiKey: "" })).apiKey).toBe("Paste your Claude API key");
   });
 });
 

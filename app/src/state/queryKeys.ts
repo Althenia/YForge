@@ -11,7 +11,18 @@ export const appKeys = {
 
 export const aiKeys = {
   providers: ["ai", "providers"] as const,
+  features: ["ai", "features"] as const,
   models: (id: string) => ["ai", "models", id] as const,
+};
+
+export const platformKeys = {
+  all: ["platform"] as const,
+  connections: ["platform", "connections"] as const,
+  match: (path: string) => ["platform", "match", path] as const,
+  prs: (path: string, state: string) => ["platform", "prs", path, state] as const,
+  prsOf: (path: string) => ["platform", "prs", path] as const,
+  pr: (path: string, number: number) => ["platform", "pr", path, number] as const,
+  prsDetailOf: (path: string) => ["platform", "pr", path] as const,
 };
 
 export const diagnosticsKeys = {

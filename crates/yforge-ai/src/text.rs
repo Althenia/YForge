@@ -64,34 +64,6 @@ pub fn sanitize(text: &str, secrets: &[&str]) -> String {
     cut
 }
 
-pub fn tail(text: &str, lines: usize) -> String {
-    let all: Vec<&str> = text
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .collect();
-    all[all.len().saturating_sub(lines)..].join("\n")
-}
-
-pub fn mentions_sign_in(text: &str) -> bool {
-    let lowered = text.to_lowercase();
-    [
-        "not logged in",
-        "log in",
-        "login",
-        "sign in",
-        "signed in",
-        "unauthorized",
-        "authentication",
-        "refresh token",
-        "token expired",
-        "invalid api key",
-        "credentials",
-        "401",
-    ]
-    .iter()
-    .any(|marker| lowered.contains(marker))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,10 +93,5 @@ mod tests {
         );
         let long = "x ".repeat(5000);
         assert!(sanitize(&long, &[]).chars().count() <= LIMIT + 1);
-    }
-
-    #[test]
-    fn tail_keeps_the_last_non_empty_lines() {
-        assert_eq!(tail("a\n\nb\nc\n", 2), "b\nc");
     }
 }

@@ -62,7 +62,9 @@ import type { SnapshotInfo } from "./bindings/SnapshotInfo";
 import type { SnapshotChange } from "./bindings/SnapshotChange";
 import type { ReflogEntry } from "./bindings/ReflogEntry";
 import type { LostCommit } from "./bindings/LostCommit";
-import type { AiModel } from "./bindings/AiModel";
+import type { ModelInfo } from "./bindings/ModelInfo";
+import type { AiFeature } from "./bindings/AiFeature";
+import type { AiFeatureSummary } from "./bindings/AiFeatureSummary";
 import type { AiSignInEvent } from "./bindings/AiSignInEvent";
 import type { AiSignInMethod } from "./bindings/AiSignInMethod";
 import type { CommitDraft } from "./bindings/CommitDraft";
@@ -78,6 +80,12 @@ import type { RecomposeGroup } from "./bindings/RecomposeGroup";
 import type { RecomposePreview } from "./bindings/RecomposePreview";
 import type { RecomposeProposal } from "./bindings/RecomposeProposal";
 import type { RecomposeResult } from "./bindings/RecomposeResult";
+import type { CreatePull } from "./bindings/CreatePull";
+import type { MatchedRepo } from "./bindings/MatchedRepo";
+import type { PlatformConnection } from "./bindings/PlatformConnection";
+import type { PlatformKind } from "./bindings/PlatformKind";
+import type { PrDetail } from "./bindings/PrDetail";
+import type { PullRequest } from "./bindings/PullRequest";
 
 export const REPO_CHANGED_EVENT = "repo-changed";
 export const OPERATION_PROGRESS_EVENT = "operation-progress";
@@ -87,6 +95,8 @@ export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
 export const AI_SIGN_IN_EVENT = "ai-sign-in";
 
 export type OpenWith = "editor" | "terminal" | "finder";
+
+export type PrListState = "open" | "all";
 
 export class IpcError extends Error {
   readonly kind: ErrorKind;
@@ -228,11 +238,25 @@ export const client = {
   aiProviderRemove: (id: string) => call<null>("ai_provider_remove", { id }),
   aiSetActive: (id: string | null, model: string | null) => call<null>("ai_set_active", { id, model }),
   aiProviderTest: (id: string) => call<ProviderStatus>("ai_provider_test", { id }),
-  aiProviderModels: (id: string) => call<AiModel[]>("ai_provider_models", { id }),
+  aiProviderModels: (id: string) => call<ModelInfo[]>("ai_models", { providerId: id }),
+  aiFeatureConfigList: () => call<AiFeatureSummary[]>("ai_feature_config_list"),
+  aiFeatureConfigSet: (feature: AiFeature, providerId: string, modelId: string, promptTemplate: string) =>
+    call<AiFeatureSummary>("ai_feature_config_set", { feature, providerId, modelId, promptTemplate }),
+  aiFeatureConfigReset: (feature: AiFeature) => call<AiFeatureSummary>("ai_feature_config_reset", { feature }),
   aiSignIn: (provider: string, id: string, method: AiSignInMethod) => call<ProviderStatus>("ai_sign_in", { provider, id, method }),
   aiGenerateCommitMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_commit_message", { path, id }),
   aiProposeRecompose: (path: string, id: string, base: string) => call<RecomposeProposal>("ai_propose_recompose", { path, id, base }),
   aiProposeConflict: (path: string, id: string, file: string) => call<ConflictProposal>("ai_propose_conflict", { path, id, file }),
+  platformConnectionsList: () => call<PlatformConnection[]>("platform_connections_list"),
+  platformConnectionAdd: (kind: PlatformKind, host: string, name: string, token: string, insecureTls: boolean) =>
+    call<PlatformConnection>("platform_connection_add", { kind, host, name, token, insecureTls }),
+  platformConnectionRemove: (id: string) => call<null>("platform_connection_remove", { id }),
+  platformConnectionTest: (id: string) => call<string>("platform_connection_test", { id }),
+  platformRepoMatch: (path: string) => call<MatchedRepo | null>("platform_repo_match", { path }),
+  platformPrsList: (path: string, state: PrListState) => call<PullRequest[]>("platform_prs_list", { path, state }),
+  platformPrDetail: (path: string, number: number) => call<PrDetail>("platform_pr_detail", { path, number }),
+  platformPrCreate: (path: string, input: CreatePull) => call<PullRequest>("platform_pr_create", { path, input }),
+  platformPrMerge: (path: string, number: number) => call<PullRequest>("platform_pr_merge", { path, number }),
   searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
     call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
   fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
@@ -265,6 +289,10 @@ export const client = {
   sessionLoad: () => call<TabSession>("session_load"),
   sessionSave: (session: TabSession) => call<null>("session_save", { session }),
   openPath: (path: string, with_: OpenWith) => call<null>("open_path", { path, with: with_ }),
+  openUrl: (url: string): void => {
+    if (!/^https?:\/\//i.test(url)) throw new IpcError({ kind: "invalid_request", message: `${url} is not an http or https address` });
+    window.open(url, "_blank", "noopener,noreferrer");
+  },
   activityList: () => call<ActivityEntry[]>("activity_list"),
   activityClear: (repo: string | null) => call<null>("activity_clear", { repo }),
   activityHistory: (repo: string, before: number | null, limit: number) => call<ActivityEntry[]>("activity_history", { repo, before, limit }),

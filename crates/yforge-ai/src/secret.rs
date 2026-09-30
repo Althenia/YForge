@@ -4,6 +4,9 @@ use std::sync::{Mutex, PoisonError};
 use thiserror::Error;
 
 pub const KEYCHAIN_SERVICE: &str = "dev.yforge.desktop.ai";
+pub const CLAUDE_CODE_SERVICE: &str = "Claude Code-credentials";
+const SECURITY_TOOL: &str = "/usr/bin/security";
+const SECURITY_NOT_FOUND: i32 = 44;
 
 #[derive(Debug, Error)]
 #[error("{0}")]
@@ -42,6 +45,41 @@ impl SecretStore for KeychainStore {
             Err(error) => Err(SecretError(error.to_string())),
         }
     }
+}
+
+pub struct ClaudeCodeKeychain;
+
+impl SecretStore for ClaudeCodeKeychain {
+    fn get(&self, service: &str) -> Result<Option<String>, SecretError> {
+        let output = std::process::Command::new(SECURITY_TOOL)
+            .args(["find-generic-password", "-s", service, "-w"])
+            .output()
+            .map_err(|error| SecretError(format!("could not run {SECURITY_TOOL}: {error}")))?;
+        if output.status.success() {
+            return Ok(Some(
+                String::from_utf8_lossy(&output.stdout).trim().to_owned(),
+            ));
+        }
+        if output.status.code() == Some(SECURITY_NOT_FOUND) {
+            return Ok(None);
+        }
+        Err(SecretError(format!(
+            "the Keychain refused to read {service}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        )))
+    }
+
+    fn set(&self, service: &str, _secret: &str) -> Result<(), SecretError> {
+        Err(SecretError(format!("{service} is read-only")))
+    }
+
+    fn delete(&self, service: &str) -> Result<(), SecretError> {
+        Err(SecretError(format!("{service} is read-only")))
+    }
+}
+
+pub fn oauth_account(provider_id: &str) -> String {
+    format!("{provider_id}:oauth")
 }
 
 #[derive(Default)]

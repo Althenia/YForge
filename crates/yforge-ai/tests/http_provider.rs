@@ -3,9 +3,9 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{chat_reply, closed_port_url, http_input, Harness, HttpFake, Reply};
-use yforge_ai::{Ai, AiError, Limits, Selection};
+use yforge_ai::{Ai, AiError, Endpoints, Limits, Selection};
 use yforge_core::{
-    ai_choose, CancelToken, CommitContext, CoreError, ErrorKind, ProviderInput, ProviderKind,
+    ai_choose, AiFeature, CancelToken, CommitContext, CoreError, ErrorKind, ProviderKind,
 };
 
 fn context() -> CommitContext {
@@ -23,7 +23,9 @@ async fn select(h: &Harness, ai: &Ai, url: &str, key: Option<&str>) -> Selection
         .await
         .unwrap();
     ai_choose(h.dir(), Some(&added.config.id), Some("model-x")).unwrap();
-    ai.resolve(h.dir()).await.unwrap()
+    ai.resolve(h.dir(), AiFeature::GenerateCommit)
+        .await
+        .unwrap()
 }
 
 fn kind_of(error: AiError) -> ErrorKind {
@@ -70,19 +72,22 @@ async fn a_completion_posts_the_fixed_prompt_with_the_bearer_key_and_parses_the_
 async fn openrouter_uses_its_own_endpoint_and_the_stored_key() {
     let h = Harness::new();
     let fake = HttpFake::start(|_| Reply::ok(&chat_reply(GOOD)));
-    let ai = h.ai().with_openrouter_url(&fake.url);
+    let ai = h.ai_at(Endpoints {
+        openrouter_api: fake.url.clone(),
+        ..Endpoints::default()
+    });
     let added = ai
         .add(
             h.dir(),
-            ProviderInput {
-                api_key: Some("or-key".to_owned()),
-                ..common::cli_input(ProviderKind::Openrouter, "OpenRouter")
-            },
+            common::keyed_input(ProviderKind::Openrouter, "OpenRouter", "or-key"),
         )
         .await
         .unwrap();
     ai_choose(h.dir(), Some(&added.config.id), Some("vendor/model")).unwrap();
-    let selection = ai.resolve(h.dir()).await.unwrap();
+    let selection = ai
+        .resolve(h.dir(), AiFeature::GenerateCommit)
+        .await
+        .unwrap();
 
     ai.commit_message(&selection, &context(), &CancelToken::new())
         .await
@@ -177,10 +182,13 @@ async fn a_server_error_body_is_reported_in_the_output() {
 async fn a_slow_endpoint_times_out() {
     let h = Harness::new();
     let fake = HttpFake::start(|_| Reply::ok(&chat_reply(GOOD)).delayed(Duration::from_secs(4)));
-    let ai = h.ai_with(Limits {
-        completion: Duration::from_millis(500),
-        ..Limits::default()
-    });
+    let ai = h.ai_with(
+        Limits {
+            completion: Duration::from_millis(500),
+            ..common::test_limits()
+        },
+        Endpoints::default(),
+    );
     let selection = select(&h, &ai, &fake.url, None).await;
 
     let started = Instant::now();

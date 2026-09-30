@@ -5,7 +5,6 @@ use yforge_core::{
 
 use crate::error::{AiError, Result};
 use crate::json::{cap, parse_reply};
-use crate::prompt::{Prompt, CONFLICT_SYSTEM};
 
 const TOTAL_BUDGET: usize = 60 * 1024;
 const CONTEXT_LINES: usize = 3;
@@ -22,7 +21,7 @@ fn block(title: &str, lines: &[String]) -> String {
     format!("{title}:\n{body}")
 }
 
-pub fn prompt(file: &ConflictFile) -> Result<Prompt> {
+pub fn context_text(file: &ConflictFile) -> Result<String> {
     if is_secret_file(&file.file) {
         return Err(AiError::invalid(format!(
             "{} is withheld from AI as a secret file",
@@ -78,10 +77,7 @@ pub fn prompt(file: &ConflictFile) -> Result<Prompt> {
             TOTAL_BUDGET / 1024
         )));
     }
-    Ok(Prompt {
-        system: CONFLICT_SYSTEM,
-        user: text,
-    })
+    Ok(text)
 }
 
 #[derive(Deserialize)]
@@ -182,9 +178,8 @@ mod tests {
     }
 
     #[test]
-    fn the_prompt_numbers_regions_with_both_sides_base_and_nearby_context() {
-        let prompt = prompt(&file("src/lib.rs")).unwrap();
-        let text = &prompt.user;
+    fn the_context_numbers_regions_with_both_sides_base_and_nearby_context() {
+        let text = &context_text(&file("src/lib.rs")).unwrap();
         assert!(text.contains("### Region 0"));
         assert!(text.contains("CONTEXT BEFORE:\nb\nc\nd\n"));
         assert!(text.contains("CURRENT:\nmine\n"));
@@ -199,22 +194,25 @@ mod tests {
     #[test]
     fn secret_binary_empty_and_oversized_files_are_refused() {
         assert!(matches!(
-            prompt(&file(".env")),
+            context_text(&file(".env")),
             Err(AiError::Invalid { .. })
         ));
         let mut binary = file("a.bin");
         binary.binary = true;
-        assert!(matches!(prompt(&binary), Err(AiError::Invalid { .. })));
+        assert!(matches!(
+            context_text(&binary),
+            Err(AiError::Invalid { .. })
+        ));
         let mut plain = file("a.txt");
         plain.segments.truncate(1);
-        assert!(matches!(prompt(&plain), Err(AiError::Invalid { .. })));
+        assert!(matches!(context_text(&plain), Err(AiError::Invalid { .. })));
         let mut big = file("big.txt");
         big.segments[1] = ConflictSegment::Conflict {
             current: vec!["x".repeat(70 * 1024)],
             incoming: vec![],
             base: None,
         };
-        assert!(matches!(prompt(&big), Err(AiError::Invalid { .. })));
+        assert!(matches!(context_text(&big), Err(AiError::Invalid { .. })));
     }
 
     const VALID: &str = r#"{"regions":[

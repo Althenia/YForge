@@ -8,6 +8,7 @@ import { providersOptions } from "../state/aiProviders";
 import { removeProviderCopy } from "../state/confirmCopy";
 import { aiKeys } from "../state/queryKeys";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { AiFeatures } from "./AiFeatures";
 import { Icon } from "./Icon";
 import { ProviderDialog, StatusBadge, type ProviderDialogStart } from "./ProviderDialog";
 import { ProviderLogo } from "./ProviderLogo";
@@ -106,6 +107,7 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
         )}
       </Show>
       <p class="field-note">OpenAI and the OpenAI Blossom are trademarks of OpenAI; OpenRouter and its mark belong to OpenRouter. They identify the providers here and do not imply endorsement.</p>
+      <AiFeatures />
       <Show when={dialog()} keyed>
         {(start) => <ProviderDialog start={start} onClose={() => setDialog(undefined)} onRemove={setRemoval} />}
       </Show>
