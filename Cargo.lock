@@ -6003,7 +6003,7 @@ dependencies = [
 
 [[package]]
 name = "yforge"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "env_logger",
  "log",
@@ -6022,7 +6022,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-ai"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "keyring",
  "reqwest",
@@ -6036,7 +6036,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "keyring",
  "notify",
@@ -6050,7 +6050,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-platform"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "reqwest",
  "serde",

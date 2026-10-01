@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/yforge-core", "crates/yforge-ai", "crates/yforge-platform", "app/src-tauri"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "UNLICENSED"
 publish = false

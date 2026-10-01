@@ -116,7 +116,7 @@ pnpm tauri build
 The build bundles the `app` and `dmg` targets for the host architecture. On an Apple-silicon Mac it produced:
 
 - `target/release/bundle/macos/YForge.app`
-- `target/release/bundle/dmg/YForge_0.1.0_aarch64.dmg`
+- `target/release/bundle/dmg/YForge_0.1.1_aarch64.dmg`
 
 The bundle is unsigned and not notarized: no signing identity is configured, so the binary carries only the linker's ad-hoc signature. A build made on your own Mac launches directly. A copy that macOS has quarantined (for example, a downloaded DMG) may be blocked by Gatekeeper. Allow it in System Settings > Privacy & Security, or clear the quarantine flag:
 
