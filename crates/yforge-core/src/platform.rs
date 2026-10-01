@@ -86,6 +86,15 @@ pub struct PrFile {
 pub struct PrDetail {
     pub pull: PullRequest,
     pub files: Vec<PrFile>,
+    pub files_total: Option<u32>,
+    pub files_capped: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PullList {
+    pub pulls: Vec<PullRequest>,
+    pub total: Option<u32>,
+    pub capped: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

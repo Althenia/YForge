@@ -15,6 +15,7 @@ export function TextArea(props: {
   placeholder?: string;
   invalid?: boolean;
   onInput: (value: string) => void;
+  onBlur?: () => void;
 }) {
   const [rows, setRows] = createSignal(props.minRows ?? MIN_ROWS);
   const lineHeight = 20;
@@ -42,6 +43,7 @@ export function TextArea(props: {
           props.onInput(event.currentTarget.value);
           measure(event.currentTarget);
         }}
+        onBlur={() => props.onBlur?.()}
         ref={(element) => queueMicrotask(() => measure(element))}
       />
       <Show when={limit()}>{(cap) => (

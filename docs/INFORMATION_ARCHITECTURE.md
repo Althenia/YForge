@@ -16,7 +16,6 @@ YForge
 │   │   └── Palette · Search
 │   ├── State strip  (always visible; see §3)
 │   ├── Sidebar  (left; collapsible; filterable)
-│   │   ├── Changes            (working tree summary → Changes inspector)
 │   │   ├── Branches           (local; prefix folders; ahead/behind)
 │   │   ├── Remotes            (per remote; remote branches; tracking)
 │   │   ├── Tags
@@ -51,7 +50,7 @@ YForge
 | Hypothesis | Change | Reason |
 |---|---|---|
 | Repository Switcher as a separate top-level node | A Launcher plus repository tabs, with worktrees grouped per repository | Tabs were effective in GitKraken [H]; worktree lanes need grouping per repository (P7) |
-| Sidebar sections Workspace · Branches · Remotes · Tags · Stashes · Worktrees | Added **Changes** as the first section; "Workspace" removed | "Workspace" is ambiguous. Changes gives a permanent entry point to staging (F1) |
+| Sidebar sections Workspace · Branches · Remotes · Tags · Stashes · Worktrees | "Workspace" removed; a sidebar **Changes** section was added and later removed at the owner's request (2026-10-01) | "Workspace" is ambiguous. The state strip's Changes chip and the graph's working-tree row are the entry points to staging (F1) |
 | Working Tree / Commit Panel as a bottom dock | Changes live in the **right inspector** | The dock would take graph height on 720–900px screens. GitKraken's right-side composer beside the graph kept context [H] |
 | Diff Viewer and Conflict Resolver as separate top-level nodes | They are **center views** inside the repository tab | Keeps the state strip and inspector visible during review |
 | No state or operation surface | A **state strip** plus an **Activity drawer** | Core UX principle (§3); undo and command transparency |
@@ -132,7 +131,7 @@ Height rules:
 
 | Object | Appears in | Primary actions | Surfaces |
 |---|---|---|---|
-| Working tree | Graph top row, sidebar Changes, state strip | Stage/unstage file · hunk · line, discard, stash, commit | Inspector, diff, menu, palette, keys S/U/⌘↵ |
+| Working tree | Graph top row, state strip | Stage/unstage file · hunk · line, discard, stash, commit | Inspector, diff, menu, palette, keys S/U/⌘↵ |
 | Commit | Graph row, search | Checkout (detached), branch here, cherry-pick, revert, reset ▸, tag here, copy SHA | Menu, palette, inspector header |
 | Commit range | Multi-select | Cherry-pick N; squash/drop N (Post-MVP); compare | Menu, palette, multi inspector |
 | Local branch | Graph ref label, sidebar | Checkout, merge into current, rebase onto, push, pull, rename, delete, set upstream, create worktree | Menu, drag-drop, palette |

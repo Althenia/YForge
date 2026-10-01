@@ -1,0 +1,57 @@
+{
+  "axes": [
+    {
+      "key": "screen",
+      "label": "Screen",
+      "values": [
+        "launchpad",
+        "jira-settings",
+        "jira-sidebar",
+        "git-hosts",
+        "clone",
+        "tab-groups",
+        "changes-clean",
+        "ai-feature",
+        "tab-menu",
+        "app-menu"
+      ]
+    },
+    {
+      "key": "state",
+      "label": "State",
+      "values": [
+        "empty",
+        "loading",
+        "success",
+        "error"
+      ]
+    },
+    {
+      "key": "size",
+      "label": "Size",
+      "values": [
+        "1440",
+        "1280",
+        "1024"
+      ]
+    }
+  ],
+  "sizes": {
+    "1024": [
+      1024,
+      640
+    ],
+    "1280": [
+      1280,
+      800
+    ],
+    "1440": [
+      1440,
+      900
+    ]
+  },
+  "frame": [
+    1440,
+    900
+  ]
+}

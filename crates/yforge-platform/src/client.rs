@@ -1,4 +1,7 @@
-use yforge_core::{CreatePull, PlatformConnection, PlatformKind, PrDetail, PullRequest, RepoRef};
+use yforge_core::{
+    CreatePull, LaunchpadPull, LaunchpadPulls, PlatformConnection, PlatformKind, PrDetail,
+    PullList, PullRequest, RepoRef,
+};
 
 use crate::adapter::{Adapter, PrFilter};
 use crate::bitbucket_cloud::{self, BitbucketCloud};
@@ -7,6 +10,7 @@ use crate::error::Result;
 use crate::github::GitHub;
 use crate::gitlab::GitLab;
 use crate::http::{scheme_for, Http};
+use crate::paging::LIST_CAP;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Api {
@@ -60,6 +64,7 @@ fn base_url(api: Api, connection: &PlatformConnection) -> String {
 pub struct Client {
     api: Api,
     http: Http,
+    connection_id: String,
 }
 
 impl Client {
@@ -67,15 +72,25 @@ impl Client {
         let api = Api::of(connection);
         let accept = with_adapter!(api, adapter => adapter.accept());
         let http = Http::new(connection, token, base_url(api, connection), accept)?;
-        Ok(Self { api, http })
+        Ok(Self {
+            api,
+            http,
+            connection_id: connection.id.clone(),
+        })
     }
 
     pub async fn verify(&self) -> Result<String> {
         with_adapter!(self.api, adapter => adapter.verify(&self.http).await)
     }
 
-    pub async fn list(&self, repo: &RepoRef, filter: PrFilter) -> Result<Vec<PullRequest>> {
-        with_adapter!(self.api, adapter => adapter.list(&self.http, repo, filter).await)
+    pub async fn list(&self, repo: &RepoRef, filter: PrFilter) -> Result<PullList> {
+        let listing =
+            with_adapter!(self.api, adapter => adapter.list(&self.http, repo, filter).await)?;
+        Ok(PullList {
+            pulls: listing.items,
+            total: listing.total,
+            capped: listing.capped,
+        })
     }
 
     pub async fn detail(&self, repo: &RepoRef, number: i64) -> Result<PrDetail> {
@@ -84,6 +99,43 @@ impl Client {
 
     pub async fn create(&self, repo: &RepoRef, input: &CreatePull) -> Result<PullRequest> {
         with_adapter!(self.api, adapter => adapter.create(&self.http, repo, input).await)
+    }
+
+    /// The user's open pull requests (authored first, then review requests), a pull request
+    /// that is both listed once as authored, the most recently updated first, at most
+    /// `LIST_CAP` of them. `total` adds up the totals of the roles, so a capped list counts a
+    /// pull request that is in both roles twice.
+    pub async fn mine(&self) -> Result<LaunchpadPulls> {
+        let roles = with_adapter!(self.api, adapter => adapter.mine(&self.http).await)?;
+        let total: Option<u32> = roles.iter().map(|role| role.total).sum::<Option<u32>>();
+        let mut capped = roles.iter().any(|role| role.capped);
+        let mut pulls: Vec<LaunchpadPull> = Vec::new();
+        for mut pull in roles.into_iter().flat_map(|role| role.items) {
+            pull.connection_id = self.connection_id.clone();
+            let same = |other: &LaunchpadPull| {
+                other.repo.owner.eq_ignore_ascii_case(&pull.repo.owner)
+                    && other.repo.repo.eq_ignore_ascii_case(&pull.repo.repo)
+                    && other.pull.number == pull.pull.number
+            };
+            if !pulls.iter().any(same) {
+                pulls.push(pull);
+            }
+        }
+        pulls.sort_by(|a, b| b.pull.updated_at.cmp(&a.pull.updated_at));
+        if pulls.len() > LIST_CAP {
+            pulls.truncate(LIST_CAP);
+            capped = true;
+        }
+        let total = if capped {
+            total
+        } else {
+            u32::try_from(pulls.len()).ok()
+        };
+        Ok(LaunchpadPulls {
+            pulls,
+            total,
+            capped,
+        })
     }
 
     pub async fn merge(&self, repo: &RepoRef, number: i64) -> Result<PullRequest> {

@@ -8,12 +8,10 @@ import type { ProviderKind } from "../ipc/bindings/ProviderKind";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { client } from "../ipc/client";
 import { cardOf, PROVIDER_CARDS, providerProblems, statusView, type ProviderCard, type ProviderDraft } from "../state/aiModel";
-import { modelsOptions, providersOptions } from "../state/aiProviders";
-import { aiKeys } from "../state/queryKeys";
+import { providersOptions, refreshProviders } from "../state/aiProviders";
 import { Icon } from "./Icon";
 import { ProviderLogo } from "./ProviderLogo";
 import { SignInPanel } from "./SignInPanel";
-import { Select } from "./Select";
 import { tip } from "./Tooltip";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
@@ -192,9 +190,7 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
   const providers = useQuery(providersOptions);
   const summary = () => (providers.data ?? []).find((entry) => entry.config.id === props.id);
   const [failure, setFailure] = createSignal<string | undefined>();
-  const [model, setModel] = createSignal<string | undefined>();
-  const models = useQuery(() => modelsOptions(props.id));
-  const refresh = () => queryClient.invalidateQueries({ queryKey: aiKeys.providers });
+  const refresh = () => refreshProviders(queryClient);
   const save = useMutation(() => ({
     mutationFn: (input: { draft: ProviderDraft; key: ApiKeyChange }) => {
       const card = cardOf(input.draft.kind);
@@ -209,17 +205,11 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
     onSuccess: refresh,
   }));
   const test = useMutation(() => ({ mutationFn: () => client.aiProviderTest(props.id), onSuccess: refresh }));
-  const activate = useMutation(() => ({
-    mutationFn: (chosen: string | null) => client.aiSetActive(props.id, chosen),
-    onSuccess: refresh,
-  }));
-  const chosenModel = () => model() ?? summary()?.config.model ?? "";
 
   return (
     <Show when={summary()} fallback={<p class="setting-note">This provider no longer exists.</p>}>
       {(current) => {
         const card = () => cardOf(current().config.kind);
-        const ready = () => current().status.kind === "ready";
         const view = () => statusView(current().status);
         return (
           <div class="provider-panel">
@@ -257,55 +247,7 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
                 }
               }}
             />
-            <section class="model-pick" aria-label="Model">
-              <label class="field">
-                <span class="field-label">Model</span>
-                <span class="field-row">
-                  <Select
-                    label="Model"
-                    value={chosenModel()}
-                    options={(models.data ?? []).map((entry) => ({
-                      value: entry.id,
-                      label: entry.display_name,
-                      hint: entry.context_window === null || entry.context_window === undefined ? undefined : `${Math.round(entry.context_window / 1000)}k`,
-                    }))}
-                    placeholder={models.isFetching ? "Loading…" : "Choose a model…"}
-                    disabled={!ready()}
-                    disabledReason="Ready status is required: sign in or check the key first"
-                    onChange={(value) => setModel(value)}
-                  />
-                  <button type="button" class="btn sm" aria-busy={models.isFetching} disabled={models.isFetching || !ready()} onClick={() => void models.refetch()}>
-                    Load models
-                  </button>
-                </span>
-                <span class="field-note">Load the list from the provider, then choose the model this provider should use.</span>
-                <Show when={models.error}>{(error) => <span class="field-note error">{message(error())}</span>}</Show>
-                <Show when={models.isSuccess && (models.data ?? []).length === 0}>
-                  <span class="field-note">The provider listed no models. Check the provider account, then load again.</span>
-                </Show>
-              </label>
-              <div class="hrow">
-                <button
-                  type="button"
-                  class="btn primary"
-                  disabled={!ready() || activate.isPending}
-                  onClick={() => activate.mutate(chosenModel().trim() === "" ? null : chosenModel().trim())}
-                >
-                  <Icon name="check" />
-                  {current().active ? "Save model" : "Use this provider"}
-                </button>
-                <Show when={!ready()}>
-                  <span class="reason">Ready status is required: {view().label.toLowerCase()}</span>
-                </Show>
-                <Show when={current().active}>
-                  <span class="chip chip-success">
-                    <Icon name="check" size={14} />
-                    Active
-                  </span>
-                </Show>
-              </div>
-            </section>
-            <Show when={failure() ?? (save.error ? message(save.error) : undefined) ?? (activate.error ? message(activate.error) : undefined)}>
+            <Show when={failure() ?? (save.error ? message(save.error) : undefined)}>
               {(text) => (
                 <p class="field-note error" role="alert">
                   {text()}
@@ -347,7 +289,7 @@ export function ProviderDialog(props: { start: ProviderDialogStart; onClose: () 
         ...(draft.authMode === "api_key" && draft.apiKey.trim() !== "" ? { api_key: draft.apiKey.trim() } : {}),
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: aiKeys.providers }),
+    onSuccess: () => refreshProviders(queryClient),
   }));
   const step = () => (providerId() !== undefined ? "panel" : kind() !== undefined ? "form" : "choose");
   const title = () => (step() === "choose" ? "Add an AI provider" : step() === "form" ? `Add ${cardOf(kind() as ProviderKind).title}` : "AI provider");
@@ -376,7 +318,7 @@ export function ProviderDialog(props: { start: ProviderDialogStart; onClose: () 
           {title()}
         </h3>
         <Show when={step() === "choose"}>
-          <p class="setting-note">Nothing is sent to a provider until you run an AI action. You can add several and choose one to use.</p>
+          <p class="setting-note">Nothing is sent to a provider until you run an AI action. Each feature picks its own provider and model in its card.</p>
           <CardGrid onChoose={setKind} />
           <div class="foot">
             <button type="button" class="btn" onClick={props.onClose}>

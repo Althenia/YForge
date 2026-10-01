@@ -1,16 +1,23 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RebasePlan } from "../ipc/bindings/RebasePlan";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { RebaseEditor } from "./RebaseEditor";
 import { buttonNamed, flush, mountWithApp, testSession, type, choose } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubScrollLayout({ viewport: 600, row: 40, total: 10_000 });
+});
 
 afterEach(async () => {
   dispose?.();
   dispose = undefined;
+  restoreLayout?.();
   await flush();
   document.body.innerHTML = "";
   clearMocks();
@@ -165,14 +172,15 @@ describe("interactive rebase editor", () => {
     await flush();
     expect(order()).toEqual(["bbbbbbb2", "ccccccc3", "aaaaaaa1"]);
 
-    const row = host.querySelector<HTMLElement>('.rrow[data-sha="bbbbbbb2"]') as HTMLElement;
-    row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true, cancelable: true }));
+    const rowOf = (sha: string) => host.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`) as HTMLElement;
+    rowOf("bbbbbbb2").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true, cancelable: true }));
     await flush();
     expect(order()).toEqual(["ccccccc3", "bbbbbbb2", "aaaaaaa1"]);
     expect(document.activeElement?.getAttribute("data-sha")).toBe("bbbbbbb2");
 
-    row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true, cancelable: true }));
+    rowOf("bbbbbbb2").dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true, cancelable: true }));
     await flush();
+    expect(document.activeElement?.getAttribute("data-sha")).toBe("bbbbbbb2");
     apply()?.click();
     await flush(60);
     expect((stepsSent()?.steps as Array<{ sha: string }>).map((step) => step.sha)).toEqual(["aaaaaaa1", "ccccccc3", "bbbbbbb2"]);
@@ -272,5 +280,99 @@ describe("interactive rebase editor", () => {
     await flush(60);
 
     expect(mounted.host.querySelector('[role="alert"]')?.textContent).toContain("abc is not an ancestor of HEAD");
+  });
+});
+
+describe("interactive rebase editor keyboard", () => {
+  it("moves the focus between rows with ↑ and ↓ and keeps one row in the tab order", async () => {
+    const { host } = await mount();
+    const rowOf = (sha: string) => host.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`) as HTMLElement;
+    const press = (sha: string, key: string) => rowOf(sha).dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(rowOf("ccccccc3"));
+
+    press("ccccccc3", "ArrowDown");
+    await flush();
+    expect(document.activeElement).toBe(rowOf("bbbbbbb2"));
+    press("bbbbbbb2", "ArrowUp");
+    await flush();
+
+    expect(document.activeElement).toBe(rowOf("ccccccc3"));
+    expect([...host.querySelectorAll<HTMLElement>(".rrow")].filter((row) => row.tabIndex === 0)).toHaveLength(1);
+  });
+});
+
+describe("interactive rebase editor drag", () => {
+  it("reorders a commit by dragging its handle below another row, marking the drop position on the way", async () => {
+    const { host, order, apply, stepsSent } = await mount();
+    const rowOf = (sha: string) => host.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`) as HTMLElement;
+    const target = rowOf("aaaaaaa1");
+    const original = document.elementFromPoint;
+    document.elementFromPoint = () => target;
+    try {
+      rowOf("ccccccc3").querySelector<HTMLElement>(".rgrip")?.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 0, clientY: 0 }));
+      window.dispatchEvent(new MouseEvent("pointermove", { clientX: 40, clientY: 40 }));
+      await flush();
+      expect(target.classList.contains("drop-after")).toBe(true);
+      window.dispatchEvent(new MouseEvent("pointerup", { clientX: 40, clientY: 40 }));
+      await flush();
+    } finally {
+      document.elementFromPoint = original;
+    }
+
+    expect(order()).toEqual(["bbbbbbb2", "aaaaaaa1", "ccccccc3"]);
+    apply()?.click();
+    await flush(60);
+    expect((stepsSent()?.steps as Array<{ sha: string }>).map((step) => step.sha)).toEqual(["ccccccc3", "aaaaaaa1", "bbbbbbb2"]);
+  });
+});
+
+describe("interactive rebase editor with 5,000 commits", () => {
+  const TOTAL = 5000;
+  const shaOf = (index: number) => `c${String(index).padStart(7, "0")}`;
+  const commits = Array.from({ length: TOTAL }, (_, index) => todo(shaOf(index), `Commit ${index}`));
+  const newest = shaOf(TOTAL - 1);
+  const oldest = shaOf(0);
+
+  it("renders only the rows in view for the list and for the resulting history", async () => {
+    const { host, rows } = await mount({ plan: plan({ commits }) });
+
+    expect(rows().length).toBeGreaterThan(0);
+    expect(rows().length).toBeLessThan(60);
+    expect(rows()[0]?.dataset.sha).toBe(newest);
+    const previewRows = host.querySelectorAll('[aria-label="Resulting history"] li');
+    expect(previewRows.length).toBeGreaterThan(0);
+    expect(previewRows.length).toBeLessThan(60);
+    expect(host.querySelector('[aria-label="Resulting history"]')?.textContent).toContain(`Resulting history · ${TOTAL} commits`);
+  });
+
+  it("reaches the oldest commit with ↓ and keeps the focus on the row it reached", async () => {
+    const { host, rows } = await mount({ plan: plan({ commits }) });
+    const focusedSha = () => document.activeElement?.getAttribute("data-sha");
+    expect(focusedSha()).toBe(newest);
+
+    for (let step = 0; step < TOTAL - 1; step += 1) {
+      const current = document.activeElement as HTMLElement;
+      current.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+      for (let wait = 0; wait < 40 && document.activeElement === current; wait += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(focusedSha()).toBe(oldest);
+    expect(host.querySelector(`.rrow[data-sha="${oldest}"]`)).toBe(document.activeElement);
+    expect(rows().length).toBeLessThan(60);
+  }, 120_000);
+
+  it("sets an action on a row far from the top without rendering the rows between", async () => {
+    const { host, rows } = await mount({ plan: plan({ commits }) });
+    (host.querySelector(".rbody") as HTMLElement).scrollTop = 1_000_000;
+    await flush(80);
+    await flush(80);
+
+    const last = host.querySelector<HTMLElement>(`.rrow[data-sha="${oldest}"]`);
+    expect(last).not.toBeNull();
+    last?.dispatchEvent(new KeyboardEvent("keydown", { key: "d", bubbles: true, cancelable: true }));
+    await flush();
+
+    expect(last?.querySelector('button[aria-haspopup="listbox"]')?.textContent?.replace(/\s+/g, " ").trim()).toBe("Drop");
+    expect(rows().length).toBeLessThan(60);
   });
 });

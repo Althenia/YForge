@@ -1,10 +1,11 @@
 import { createUniqueId, type JSX } from "solid-js";
 
-export function DialogFrame(props: { title: string; children: JSX.Element; onEscape: () => void }) {
+export function DialogFrame(props: { title: string; children: JSX.Element; onEscape: () => void; ref?: (dialog: HTMLDivElement) => void }) {
   const titleId = createUniqueId();
   return (
     <div class="scrim" onPointerDown={(event) => event.target === event.currentTarget && props.onEscape()}>
       <div
+        ref={props.ref}
         class="dialog entry-dialog"
         role="dialog"
         aria-modal="true"

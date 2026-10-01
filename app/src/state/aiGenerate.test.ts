@@ -37,6 +37,14 @@ describe("draft notes", () => {
       "The summary was shortened to fit the 72 character guide.",
     ]);
   });
+
+  it("counts a long file list and names only its first three files", () => {
+    const paths = Array.from({ length: 245 }, (_, index) => `src/file${index}.ts`);
+    expect(draftNotes(draft({ excluded: paths.slice(0, 4), truncated: paths }))).toEqual([
+      "Withheld from the provider because they look like secrets: 4 files: src/file0.ts, src/file1.ts, src/file2.ts and 1 more",
+      "Cut to fit the size limit: 245 files: src/file0.ts, src/file1.ts, src/file2.ts and 242 more",
+    ]);
+  });
 });
 
 describe("generate commit message", () => {
@@ -91,11 +99,11 @@ describe("generate commit message", () => {
   });
 
   it("maps a missing provider to an actionable message that opens the AI settings", async () => {
-    const { composer, action } = setup(() => Promise.reject({ kind: "ai_not_configured", message: "no provider" }));
+    const { composer, action } = setup(() => Promise.reject({ kind: "ai_not_configured", message: "Choose a provider and model for Generate commit message in Settings → AI" }));
 
     await action.run();
 
-    expect(action.failure()).toEqual({ message: "No AI provider is set up. Choose one in Settings → AI.", action: "open_settings" });
+    expect(action.failure()).toEqual({ message: "Choose a provider and model for Generate commit message in Settings → AI. Nothing was changed.", action: "open_settings" });
     expect(composer.summary()).toBe("");
   });
 

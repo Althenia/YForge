@@ -2,6 +2,7 @@ import { createForm } from "@tanstack/solid-form";
 import { useInfiniteQuery, useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
+import { useNow } from "../state/clock";
 import type { IconName } from "../iconNames";
 import type { LostCommit } from "../ipc/bindings/LostCommit";
 import type { ReflogEntry } from "../ipc/bindings/ReflogEntry";
@@ -40,9 +41,10 @@ const anchorOf = (element: HTMLElement): Anchor => {
 };
 
 function Age(props: { time: number }) {
+  const now = useNow();
   return (
     <span class="dim" title={formatAbsolute(props.time)}>
-      {relativeAge(props.time, Math.floor(Date.now() / 1000))} ago
+      {relativeAge(props.time, now())} ago
     </span>
   );
 }

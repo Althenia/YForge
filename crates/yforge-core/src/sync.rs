@@ -1,14 +1,19 @@
+use std::fs;
+use std::io;
 use std::path::Path;
+use std::time::SystemTime;
 
 use crate::activity::redact;
 use crate::branch;
-use crate::commit::{parse_briefs, validate_sha, BRIEF_FORMAT};
+use crate::commit::validate_sha;
 use crate::error::CoreError;
 use crate::git::{self, CancelToken, Completed};
+use crate::integrate;
 use crate::model::{
     ForceLease, ForcePushPlan, Operation, PullMode, PullOutcome, PullReport, PullStash,
     StashKeptReason, StashRestore,
 };
+use crate::recovery::git_path;
 use crate::refs;
 use crate::repo;
 use crate::stash;
@@ -106,6 +111,31 @@ pub(crate) fn run_network(
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
+    let mut lookup = vec!["remote", "get-url"];
+    if args.first() == Some(&"push") {
+        lookup.push("--push");
+    }
+    lookup.push(remote);
+    let url = git::run_unchecked(root, &lookup, None)
+        .ok()
+        .filter(Completed::succeeded)
+        .map(|completed| completed.stdout.trim().to_owned());
+    run_routed(
+        root,
+        args,
+        remote,
+        &cancel.toward(url.as_deref()),
+        on_progress,
+    )
+}
+
+pub(crate) fn run_routed(
+    root: &Path,
+    args: &[&str],
+    remote: &str,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
     let mut last: Option<(String, u32)> = None;
     let completed = git::run_streaming(root, args, cancel, |line| {
         if let Some(update) = git::parse_progress(line) {
@@ -140,19 +170,65 @@ pub fn fetch(
     if remotes.is_empty() {
         return Err(CoreError::invalid_request("this repository has no remotes"));
     }
-    for remote in &remotes {
-        on_progress(Progress {
-            phase: format!("Fetching {remote}"),
-            percent: None,
-        });
-        let mut args = vec!["fetch", "--progress"];
-        if prune {
-            args.push("--prune");
+    keeping_fetch_head(&root, || {
+        for remote in &remotes {
+            on_progress(Progress {
+                phase: format!("Fetching {remote}"),
+                percent: None,
+            });
+            let mut args = vec!["fetch", "--progress"];
+            if prune {
+                args.push("--prune");
+            }
+            args.push(remote);
+            run_network(&root, &args, remote, cancel, on_progress)?;
         }
-        args.push(remote);
-        run_network(&root, &args, remote, cancel, on_progress)?;
+        Ok(())
+    })
+}
+
+fn keeping_fetch_head(
+    root: &Path,
+    fetch: impl FnOnce() -> Result<(), CoreError>,
+) -> Result<(), CoreError> {
+    let path = git_path(root, "FETCH_HEAD")?;
+    let Ok(saved) = saved_fetch_head(&path) else {
+        return fetch();
+    };
+    let result = fetch();
+    let Err(error) = result else {
+        return Ok(());
+    };
+    restore_fetch_head(&path, saved).map_err(|restore| CoreError::GitFailed {
+        command: "git fetch".to_owned(),
+        status: None,
+        stderr: format!("{error}; FETCH_HEAD could not be restored: {restore}"),
+    })?;
+    Err(error)
+}
+
+fn saved_fetch_head(path: &Path) -> io::Result<Option<(Vec<u8>, SystemTime)>> {
+    match fs::read(path) {
+        Ok(content) => Ok(Some((content, fs::metadata(path)?.modified()?))),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
     }
-    Ok(())
+}
+
+fn restore_fetch_head(path: &Path, saved: Option<(Vec<u8>, SystemTime)>) -> io::Result<()> {
+    match saved {
+        Some((content, modified)) => {
+            fs::write(path, content)?;
+            fs::File::options()
+                .write(true)
+                .open(path)?
+                .set_modified(modified)
+        }
+        None => match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => Err(error),
+            _ => Ok(()),
+        },
+    }
 }
 
 fn head_sha(root: &Path) -> Result<String, CoreError> {
@@ -166,13 +242,15 @@ fn fetch_upstream(
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
     if upstream.remote != "." {
-        run_network(
-            root,
-            &["fetch", "--progress", &upstream.remote],
-            &upstream.remote,
-            cancel,
-            on_progress,
-        )?;
+        keeping_fetch_head(root, || {
+            run_network(
+                root,
+                &["fetch", "--progress", &upstream.remote],
+                &upstream.remote,
+                cancel,
+                on_progress,
+            )
+        })?;
     }
     if cancel.is_cancelled() {
         return Err(CoreError::Cancelled);
@@ -420,9 +498,8 @@ pub fn push_plan(path: &Path) -> Result<ForcePushPlan, CoreError> {
         )));
     }
     let range = format!("HEAD..{}", upstream.ref_name);
-    let output = git::run(&root, &["log", "--no-show-signature", BRIEF_FORMAT, &range])?;
-    let replaced = parse_briefs(&output)?;
-    if replaced.is_empty() {
+    let replaced = integrate::range(&root, &[&range])?;
+    if replaced.count == 0 {
         return Err(CoreError::invalid_request(format!(
             "{} has no commits that a force push would replace",
             upstream.short

@@ -3,8 +3,8 @@ use std::sync::Arc;
 
 use yforge_ai::{Ai, MemoryStore, SecretStore};
 use yforge_core::{
-    ai_choose, commit_context, AiFeature, AuthMode, CancelToken, CoreError, ProviderInput,
-    ProviderKind,
+    ai_feature_config_set, commit_context, AiFeature, AiFeatureConfig, AuthMode, CancelToken,
+    CoreError, ProviderInput, ProviderKind,
 };
 
 const SAMPLE: &str = "/tmp/yforge-gk-lab/sample";
@@ -59,7 +59,15 @@ async fn try_provider(kind: ProviderKind, model: &str, copy: &Path) {
         println!("ChatGPT: no ~/.codex/auth.json tokens to seed");
         return;
     }
-    ai_choose(data.path(), Some(&added.config.id), Some(model)).unwrap();
+    for summary in ai.feature_configs(data.path()).await.unwrap() {
+        let config = AiFeatureConfig {
+            feature: summary.feature,
+            provider_id: added.config.id.clone(),
+            model_id: model.to_owned(),
+            prompt_template: summary.default_prompt_template,
+        };
+        ai_feature_config_set(data.path(), &config).unwrap();
+    }
     let selection = ai
         .resolve(data.path(), AiFeature::GenerateCommit)
         .await

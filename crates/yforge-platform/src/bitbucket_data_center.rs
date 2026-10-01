@@ -1,11 +1,15 @@
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::json;
-use yforge_core::{CreatePull, PlatformKind, PrDetail, PrFile, PrState, PullRequest, RepoRef};
+use yforge_core::{
+    CreatePull, LaunchpadPull, PlatformKind, PrDetail, PrFile, PrState, PullRequest, PullRole,
+    RepoRef,
+};
 
-use crate::adapter::{pull_missing, repo_missing, Adapter, PrFilter};
+use crate::adapter::{pull_missing, repo_missing, Adapter, PrFilter, PAGE_SIZE};
 use crate::error::{PlatformError, Result};
 use crate::http::{encode, Http};
+use crate::paging::{collect, Chunk, Listing, LIST_CAP};
 use crate::timestamp::rfc3339_from_millis;
 
 const LABEL: &str = PlatformKind::Bitbucket.label();
@@ -18,6 +22,18 @@ pub(crate) struct BitbucketDataCenter;
 struct Ref {
     #[serde(rename = "displayId")]
     display_id: String,
+    repository: Option<Repository>,
+}
+
+#[derive(Deserialize)]
+struct Repository {
+    slug: String,
+    project: ProjectKey,
+}
+
+#[derive(Deserialize)]
+struct ProjectKey {
+    key: String,
 }
 
 #[derive(Deserialize)]
@@ -44,6 +60,24 @@ struct Links {
 #[derive(Deserialize)]
 struct Page<T> {
     values: Vec<T>,
+    #[serde(rename = "isLastPage", default = "last_by_default")]
+    is_last_page: bool,
+    #[serde(rename = "nextPageStart")]
+    next_page_start: Option<u32>,
+}
+
+fn last_by_default() -> bool {
+    true
+}
+
+impl<T> Page<T> {
+    fn next(&self) -> Option<u32> {
+        if self.is_last_page {
+            None
+        } else {
+            self.next_page_start
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -63,6 +97,8 @@ struct Pull {
     #[serde(rename = "updatedDate")]
     updated_date: i64,
     links: Links,
+    #[serde(default)]
+    draft: bool,
 }
 
 #[derive(Deserialize, PartialEq)]
@@ -95,6 +131,8 @@ struct FileDiff {
 #[derive(Deserialize)]
 struct Diff {
     diffs: Vec<FileDiff>,
+    #[serde(default)]
+    truncated: bool,
 }
 
 impl From<Pull> for PullRequest {
@@ -172,6 +210,46 @@ fn branch(repo: &RepoRef, name: &str) -> serde_json::Value {
     })
 }
 
+async fn mine_role(http: &Http, role: PullRole, name: &str) -> Result<Listing<LaunchpadPull>> {
+    let missing = format!("No {LABEL} API found at {}", http.host());
+    collect(0_u32, |start| {
+        let path = format!(
+            "/dashboard/pull-requests?state=OPEN&role={name}&limit={PAGE_SIZE}&start={start}"
+        );
+        let missing = missing.clone();
+        async move {
+            let page: Page<Pull> =
+                http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+            let next = page.next();
+            Ok(Chunk {
+                items: page
+                    .values
+                    .into_iter()
+                    .filter_map(|pull| {
+                        let repository = pull.to_ref.repository.as_ref()?;
+                        let repo = RepoRef {
+                            owner: repository.project.key.clone(),
+                            repo: repository.slug.clone(),
+                        };
+                        let draft = pull.draft;
+                        Some(LaunchpadPull {
+                            connection_id: String::new(),
+                            repo,
+                            role,
+                            draft,
+                            pull: pull.into(),
+                            local_path: None,
+                        })
+                    })
+                    .collect(),
+                total: None,
+                next,
+            })
+        }
+    })
+    .await
+}
+
 impl Adapter for BitbucketDataCenter {
     fn accept(&self) -> &'static str {
         "application/json"
@@ -197,17 +275,30 @@ impl Adapter for BitbucketDataCenter {
         http: &Http,
         repo: &RepoRef,
         filter: PrFilter,
-    ) -> Result<Vec<PullRequest>> {
+    ) -> Result<Listing<PullRequest>> {
         let state = match filter {
             PrFilter::Open => "OPEN",
             PrFilter::All => "ALL",
         };
-        let path = format!("{}?state={state}&limit=100", pulls_path(repo));
-        let value = http
-            .call(Method::GET, &path, None, &repo_missing(LABEL, repo))
-            .await?;
-        let page: Page<Pull> = http.decode(value)?;
-        Ok(page.values.into_iter().map(PullRequest::from).collect())
+        let missing = repo_missing(LABEL, repo);
+        collect(0_u32, |start| {
+            let path = format!(
+                "{}?state={state}&limit={PAGE_SIZE}&start={start}",
+                pulls_path(repo)
+            );
+            let missing = missing.clone();
+            async move {
+                let page: Page<Pull> =
+                    http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+                let next = page.next();
+                Ok(Chunk {
+                    items: page.values.into_iter().map(PullRequest::from).collect(),
+                    total: None,
+                    next,
+                })
+            }
+        })
+        .await
     }
 
     async fn detail(&self, http: &Http, repo: &RepoRef, number: i64) -> Result<PrDetail> {
@@ -218,9 +309,22 @@ impl Adapter for BitbucketDataCenter {
             .call(Method::GET, &format!("{path}/diff"), None, &missing)
             .await?;
         let diff: Diff = http.decode(diff)?;
+        let capped = diff.truncated || diff.diffs.len() > LIST_CAP;
+        let files: Vec<PrFile> = diff
+            .diffs
+            .into_iter()
+            .take(LIST_CAP)
+            .map(PrFile::from)
+            .collect();
         Ok(PrDetail {
             pull: http.decode::<Pull>(pull)?.into(),
-            files: diff.diffs.into_iter().map(PrFile::from).collect(),
+            files_total: if capped {
+                None
+            } else {
+                u32::try_from(files.len()).ok()
+            },
+            files_capped: capped,
+            files,
         })
     }
 
@@ -256,5 +360,12 @@ impl Adapter for BitbucketDataCenter {
             )
             .await?;
         Ok(http.decode::<Pull>(merged)?.into())
+    }
+
+    async fn mine(&self, http: &Http) -> Result<Vec<Listing<LaunchpadPull>>> {
+        Ok(vec![
+            mine_role(http, PullRole::Authored, "AUTHOR").await?,
+            mine_role(http, PullRole::ReviewRequested, "REVIEWER").await?,
+        ])
     }
 }

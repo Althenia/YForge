@@ -1,13 +1,14 @@
 import { basename, relativeAge } from "../format";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RecentStatus } from "../ipc/bindings/RecentStatus";
+import { repoName, type Aliases } from "./tabs";
 
 export type RecentRow = { recent: RecentRepo; status: RecentStatus | undefined };
 
-export function filterRecents(rows: readonly RecentRow[], query: string): RecentRow[] {
+export function filterRecents(rows: readonly RecentRow[], query: string, aliases: Aliases = {}): RecentRow[] {
   const needle = query.trim().toLowerCase();
   if (needle === "") return [...rows];
-  return rows.filter(({ recent }) => basename(recent.path).toLowerCase().includes(needle) || recent.path.toLowerCase().includes(needle));
+  return rows.filter(({ recent }) => [repoName(recent.path, aliases), basename(recent.path), recent.path].some((name) => name.toLowerCase().includes(needle)));
 }
 
 export function displayPath(path: string, home: string | undefined): string {
@@ -25,13 +26,14 @@ const countLetters = [
   ["conflicted", "!"],
 ] as const;
 
-export type StatusChips = { missing: boolean; branch: string; sync: string; changes: string; worktrees: string };
+export type StatusChips = { missing: boolean; branch: string; sync: string; changes: string; worktrees: string; problem: string };
 
 const pending = "…";
 
 export function statusChips(status: RecentStatus | undefined): StatusChips {
-  if (status === undefined) return { missing: false, branch: pending, sync: "", changes: pending, worktrees: "" };
-  if (!status.exists) return { missing: true, branch: "Not found", sync: "", changes: "", worktrees: "" };
+  if (status === undefined) return { missing: false, branch: pending, sync: "", changes: pending, worktrees: "", problem: "" };
+  if (!status.exists) return { missing: true, branch: "Not found", sync: "", changes: "", worktrees: "", problem: "" };
+  if (status.unreadable !== null) return { missing: false, branch: "—", sync: "", changes: "", worktrees: "", problem: `Could not read status: ${status.unreadable}` };
   const counts = status.counts;
   const parts = counts === null ? [] : countLetters.filter(([key]) => counts[key] > 0).map(([key, letter]) => `${letter} ${counts[key]}`);
   const { ahead_behind: ahead } = status;
@@ -42,6 +44,7 @@ export function statusChips(status: RecentStatus | undefined): StatusChips {
     sync,
     changes: parts.length === 0 ? (status.unborn ? "no commits yet" : "clean") : parts.join(" "),
     worktrees: status.worktrees > 1 ? `${status.worktrees} worktrees` : "",
+    problem: "",
   };
 }
 

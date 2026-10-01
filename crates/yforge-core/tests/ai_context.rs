@@ -150,3 +150,18 @@ fn oversized_diffs_are_cut_per_file_and_in_total_and_each_cut_or_omitted_file_is
     assert!(context.diff.contains("[diff omitted: size budget reached]"));
     assert!(context.diff.contains("=== small.txt (added) ==="));
 }
+
+#[test]
+fn a_staged_diff_over_the_diff_view_limit_is_still_cut_to_the_context_budget() {
+    let repo = staged_fixture();
+    let huge: String = (0..40_000)
+        .map(|line| format!("line {line:05} {}\n", "x".repeat(50)))
+        .collect();
+    repo.write("huge.txt", &huge);
+    repo.git(&["add", "huge.txt"]);
+
+    let context = commit_context(&repo.path).unwrap();
+
+    assert_eq!(context.truncated, ["huge.txt"]);
+    assert!(context.diff.contains("[diff truncated:"));
+}

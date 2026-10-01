@@ -1,8 +1,11 @@
 import { createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { branchPickerMenu } from "../state/refMenu";
 import type { MenuState } from "../state/repoActions";
 import { ContextMenu } from "./ContextMenu";
+import { flush } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
 
@@ -99,5 +102,60 @@ describe("context menu", () => {
     expect(fetch?.querySelector(".kbd")?.textContent).toBe("⌘⇧F");
     expect(push?.textContent).toBe("Pushdefault⌘⇧P");
     expect(plain?.querySelector(".kbd")).toBeNull();
+  });
+});
+
+describe("context menu with thousands of branches", () => {
+  const TOTAL = 5000;
+  const branches = Array.from({ length: TOTAL }, (_, index) => `branch-${index}`);
+  const current = "branch-1";
+  let restoreLayout: (() => void) | undefined;
+
+  beforeEach(() => {
+    restoreLayout = stubScrollLayout({ viewport: 400, row: 28, total: TOTAL + 10 });
+  });
+
+  afterEach(() => restoreLayout?.());
+
+  const menuItems = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+  const press = (key: string) => (document.activeElement as HTMLElement).dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  const focusedLabel = () => document.activeElement?.querySelector(".label-text")?.textContent;
+
+  it("renders only the entries in view and focuses the first branch that can be checked out", async () => {
+    const { host } = mount(branchPickerMenu(branches, current, "origin/branch-1", ["origin"]));
+    await flush(60);
+
+    expect(menuItems(host).length).toBeGreaterThan(0);
+    expect(menuItems(host).length).toBeLessThan(60);
+    expect(menuItems(host)[0]?.textContent).toContain("branch-0");
+    expect(focusedLabel()).toBe("branch-0");
+  });
+
+  it("reaches the last entry with End, wraps back with ↓, and runs the focused entry", async () => {
+    const { host, chosen } = mount(branchPickerMenu(branches, current, null, ["origin"]));
+    await flush(60);
+
+    press("End");
+    await flush(60);
+    expect(focusedLabel()).toBe("Set upstream…");
+    press("ArrowUp");
+    await flush(60);
+    expect(focusedLabel()).toBe(`branch-${TOTAL - 1}`);
+    expect(menuItems(host).length).toBeLessThan(60);
+    (document.activeElement as HTMLElement).click();
+
+    expect(chosen).toEqual([`checkout:branch-${TOTAL - 1}`]);
+  });
+
+  it("steps through the rows with ↓ past the first window", async () => {
+    mount(branchPickerMenu(branches, current, null, ["origin"]));
+    await flush(60);
+
+    for (let step = 0; step < 80; step += 1) {
+      press("ArrowDown");
+      await flush(0);
+    }
+
+    expect(focusedLabel()).toBe("branch-80");
   });
 });

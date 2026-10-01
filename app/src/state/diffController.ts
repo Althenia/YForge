@@ -3,11 +3,12 @@ import { useQuery } from "./query";
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileDiff } from "../ipc/bindings/FileDiff";
-import { client, IpcError } from "../ipc/client";
+import { client } from "../ipc/client";
 import { discardHunkCopy, discardLinesCopy, type ConfirmCopy } from "./confirmCopy";
 import { highlightHunk, markSegments, type MarkedSegment } from "./diffHighlight";
 import { hunkActions, WHITESPACE_REASON, type DiffTarget, type HunkAction } from "./diffModel";
 import type { DiffPrefs } from "./diffPrefs";
+import { fileViewError } from "./fileView";
 import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, wordMarks, type LineRef } from "./diffRows";
 import { extendSelection, isSelected, nextSelectable, toggleLine, type LineSelection } from "./lineSelection";
 import { repoKeys } from "./queryKeys";
@@ -36,7 +37,7 @@ export function createDiffController(deps: { session: RepoSession; target: () =>
     placeholderData: keepPreviousData,
   }));
   const shown = () => (diff.error == null ? diff.data : undefined);
-  const failure = () => (diff.error instanceof IpcError ? diff.error.message : diff.error == null ? undefined : String(diff.error));
+  const failure = () => (diff.error == null ? undefined : fileViewError(diff.error, "diff"));
   const hunks = (): DiffHunk[] => shown()?.hunks ?? [];
 
   const actions = (): HunkAction[] => hunkActions(deps.target());

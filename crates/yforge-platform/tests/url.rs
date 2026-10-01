@@ -12,15 +12,15 @@ fn expected(host: &str, owner: &str, repo: &str) -> Option<(String, String, Stri
 #[test]
 fn every_url_form_resolves_to_host_owner_and_repo() {
     for url in [
-        "https://github.com/acme/widget.git",
-        "http://github.com/acme/widget.git",
-        "git@github.com:acme/widget.git",
-        "ssh://git@github.com/acme/widget.git",
-        "git://github.com/acme/widget.git",
+        "https://github.com/owner/widget.git",
+        "http://github.com/owner/widget.git",
+        "git@github.com:owner/widget.git",
+        "ssh://git@github.com/owner/widget.git",
+        "git://github.com/owner/widget.git",
     ] {
         assert_eq!(
             parsed(url),
-            expected("github.com", "acme", "widget"),
+            expected("github.com", "owner", "widget"),
             "{url}"
         );
     }
@@ -29,24 +29,24 @@ fn every_url_form_resolves_to_host_owner_and_repo() {
 #[test]
 fn the_git_suffix_is_optional_and_the_host_is_lowercased() {
     assert_eq!(
-        parsed("https://GitHub.COM/acme/widget"),
-        expected("github.com", "acme", "widget")
+        parsed("https://GitHub.COM/owner/widget"),
+        expected("github.com", "owner", "widget")
     );
     assert_eq!(
-        parsed("GIT@GitLab.Example.com:acme/widget.git"),
-        expected("gitlab.example.com", "acme", "widget")
+        parsed("GIT@GitLab.Example.com:owner/widget.git"),
+        expected("gitlab.example.com", "owner", "widget")
     );
 }
 
 #[test]
 fn credentials_and_ports_are_handled_per_transport() {
     assert_eq!(
-        parsed("https://user:secret@host.example:8443/acme/widget.git"),
-        expected("host.example:8443", "acme", "widget")
+        parsed("https://user:secret@host.example:8443/owner/widget.git"),
+        expected("host.example:8443", "owner", "widget")
     );
     assert_eq!(
-        parsed("ssh://git@host.example:2222/acme/widget.git"),
-        expected("host.example", "acme", "widget")
+        parsed("ssh://git@host.example:2222/owner/widget.git"),
+        expected("host.example", "owner", "widget")
     );
 }
 
@@ -112,7 +112,7 @@ fn local_and_malformed_remotes_are_rejected() {
         "file:///srv/git/widget.git",
         "https://github.com/widget.git",
         "https://github.com/",
-        "https:///acme/widget.git",
+        "https:///owner/widget.git",
         "git@github.com:widget.git",
         "https://bitbucket.example.com/scm/repo.git",
         "https://bitbucket.example.com/scm/",

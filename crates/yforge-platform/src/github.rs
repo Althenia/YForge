@@ -1,11 +1,15 @@
 use reqwest::Method;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use yforge_core::{CreatePull, PlatformKind, PrDetail, PrFile, PrState, PullRequest, RepoRef};
+use yforge_core::{
+    CreatePull, LaunchpadPull, PlatformKind, PrDetail, PrFile, PrState, PullRequest, PullRole,
+    RepoRef,
+};
 
-use crate::adapter::{pull_missing, repo_missing, Adapter, PrFilter};
+use crate::adapter::{pull_missing, repo_missing, Adapter, PrFilter, PAGE_SIZE};
 use crate::error::Result;
 use crate::http::{encode, Http};
+use crate::paging::{collect, Chunk, Listing};
 
 const LABEL: &str = PlatformKind::GitHub.label();
 const CLOUD_HOST: &str = "github.com";
@@ -37,6 +41,21 @@ struct Pull {
     updated_at: String,
     mergeable: Option<bool>,
     html_url: String,
+    #[serde(default)]
+    draft: bool,
+    changed_files: Option<u32>,
+}
+
+#[derive(Deserialize)]
+struct SearchItem {
+    number: i64,
+    repository_url: String,
+}
+
+#[derive(Deserialize)]
+struct SearchPage {
+    items: Vec<SearchItem>,
+    total_count: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -95,6 +114,56 @@ fn pulls_path(repo: &RepoRef) -> String {
     )
 }
 
+fn repo_of(repository_url: &str) -> Option<RepoRef> {
+    let mut segments = repository_url.rsplit('/');
+    let repo = segments.next().filter(|name| !name.is_empty())?;
+    let owner = segments.next().filter(|name| !name.is_empty())?;
+    Some(RepoRef {
+        owner: owner.to_owned(),
+        repo: repo.to_owned(),
+    })
+}
+
+async fn mine_role(http: &Http, query: &str, role: PullRole) -> Result<Listing<LaunchpadPull>> {
+    let missing = format!("No {LABEL} API found at {}", http.host());
+    collect(1_u32, |page| {
+        let path = format!(
+            "/search/issues?q={}&per_page={PAGE_SIZE}&sort=updated&page={page}",
+            encode(query)
+        );
+        let missing = missing.clone();
+        async move {
+            let found: SearchPage =
+                http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+            let full = found.items.len() == PAGE_SIZE;
+            let mut pulls = Vec::new();
+            for item in found.items {
+                let Some(repo) = repo_of(&item.repository_url) else {
+                    continue;
+                };
+                let path = format!("{}/{}", pulls_path(&repo), item.number);
+                let missing = pull_missing(LABEL, &repo, item.number);
+                let pull: Pull =
+                    http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+                pulls.push(LaunchpadPull {
+                    connection_id: String::new(),
+                    repo,
+                    role,
+                    draft: pull.draft,
+                    pull: pull.into(),
+                    local_path: None,
+                });
+            }
+            Ok(Chunk {
+                items: pulls,
+                total: found.total_count,
+                next: full.then_some(page + 1),
+            })
+        }
+    })
+    .await
+}
+
 impl Adapter for GitHub {
     fn accept(&self) -> &'static str {
         "application/vnd.github+json"
@@ -119,35 +188,57 @@ impl Adapter for GitHub {
         http: &Http,
         repo: &RepoRef,
         filter: PrFilter,
-    ) -> Result<Vec<PullRequest>> {
+    ) -> Result<Listing<PullRequest>> {
         let state = match filter {
             PrFilter::Open => "open",
             PrFilter::All => "all",
         };
-        let path = format!("{}?state={state}&per_page=100", pulls_path(repo));
-        let value = http
-            .call(Method::GET, &path, None, &repo_missing(LABEL, repo))
-            .await?;
-        let pulls: Vec<Pull> = http.decode(value)?;
-        Ok(pulls.into_iter().map(PullRequest::from).collect())
+        let missing = repo_missing(LABEL, repo);
+        collect(1_u32, |page| {
+            let path = format!(
+                "{}?state={state}&per_page={PAGE_SIZE}&page={page}",
+                pulls_path(repo)
+            );
+            let missing = missing.clone();
+            async move {
+                let pulls: Vec<Pull> =
+                    http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+                let full = pulls.len() == PAGE_SIZE;
+                Ok(Chunk {
+                    items: pulls.into_iter().map(PullRequest::from).collect(),
+                    total: None,
+                    next: full.then_some(page + 1),
+                })
+            }
+        })
+        .await
     }
 
     async fn detail(&self, http: &Http, repo: &RepoRef, number: i64) -> Result<PrDetail> {
         let path = format!("{}/{number}", pulls_path(repo));
         let missing = pull_missing(LABEL, repo, number);
-        let pull = http.call(Method::GET, &path, None, &missing).await?;
-        let files = http
-            .call(
-                Method::GET,
-                &format!("{path}/files?per_page=100"),
-                None,
-                &missing,
-            )
-            .await?;
-        let files: Vec<File> = http.decode(files)?;
+        let pull: Pull = http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+        let changed = pull.changed_files;
+        let files = collect(1_u32, |page| {
+            let path = format!("{path}/files?per_page={PAGE_SIZE}&page={page}");
+            let missing = missing.clone();
+            async move {
+                let files: Vec<File> =
+                    http.decode(http.call(Method::GET, &path, None, &missing).await?)?;
+                let full = files.len() == PAGE_SIZE;
+                Ok(Chunk {
+                    items: files.into_iter().map(PrFile::from).collect(),
+                    total: changed,
+                    next: full.then_some(page + 1),
+                })
+            }
+        })
+        .await?;
         Ok(PrDetail {
-            pull: http.decode::<Pull>(pull)?.into(),
-            files: files.into_iter().map(PrFile::from).collect(),
+            pull: pull.into(),
+            files: files.items,
+            files_total: files.total,
+            files_capped: files.capped,
         })
     }
 
@@ -181,5 +272,17 @@ impl Adapter for GitHub {
         .await?;
         let value = http.call(Method::GET, &path, None, &missing).await?;
         Ok(http.decode::<Pull>(value)?.into())
+    }
+
+    async fn mine(&self, http: &Http) -> Result<Vec<Listing<LaunchpadPull>>> {
+        Ok(vec![
+            mine_role(http, "is:pr is:open author:@me", PullRole::Authored).await?,
+            mine_role(
+                http,
+                "is:pr is:open review-requested:@me",
+                PullRole::ReviewRequested,
+            )
+            .await?,
+        ])
     }
 }

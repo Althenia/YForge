@@ -1,0 +1,78 @@
+<div class="screen" data-screen="ai-feature" hidden>
+  <header class="screen-head"><h2>Settings → AI · feature card</h2><p class="muted">S34, S35 · No Save button: provider and model save when both are chosen, the prompt when you leave it. Lists are at least as wide as their field, searchable past 8 options, and the prompt wraps inside the card.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span aria-current="page"><svg class="glyph"><use href="#i-wand"/></svg>AI</span><span>Platforms</span><span>Jira</span><span>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="card">
+          <div class="card-head"><div class="yf" style="gap:2px;flex:1"><strong>Generate commit message</strong><span class="sub">Writes a commit message from your staged diff and the subjects of your last commits.</span></div><span class="row"><span class="switch" role="switch" aria-checked="false" aria-disabled="true" aria-label="Use AI for Generate commit message" title="Choose a provider and model first"></span><span>Off</span></span></div>
+          <p class="sub">Choose a provider and model to turn this on.</p>
+          <div class="grid2">
+            <label class="field"><span>Provider</span><span class="input placeholder"><span class="grow">Choose a provider…</span><svg class="glyph"><use href="#i-chevron"/></svg></span></label>
+            <label class="field"><span>Model</span><span class="row"><span class="input placeholder" style="flex:1"><span class="grow">Choose a provider first</span><svg class="glyph"><use href="#i-chevron"/></svg></span><button type="button" class="icon-btn boxed" aria-label="Reload models" title="Reload models" aria-disabled="true"><svg class="glyph"><use href="#i-sync"/></svg></button></span></label>
+          </div>
+          <label class="field"><span>Prompt</span><span class="input area">You write Git commit messages. Reply with one JSON object and nothing else, in exactly this shape: {"summary": string, "description": string}. The summary is at most 72 characters and follows the style of the recent commit subjects you are given.
+
+{context}</span></label>
+          <div class="row"><span class="sub">Keep <span class="mono">{context}</span> where YForge inserts the repository content.</span><span class="spacer"></span><button type="button" class="btn sm">Reset to default</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span aria-current="page"><svg class="glyph"><use href="#i-wand"/></svg>AI</span><span>Platforms</span><span>Jira</span><span>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="card">
+          <div class="card-head"><div class="yf" style="gap:2px;flex:1"><strong>Generate commit message</strong><span class="sub">Writes a commit message from your staged diff.</span></div><span class="row"><span class="switch" role="switch" aria-checked="false" aria-disabled="true" aria-label="Use AI for Generate commit message"></span><span>Off</span></span></div>
+          <div class="grid2">
+            <label class="field"><span>Provider</span><span class="input"><span class="grow">OpenRouter</span><svg class="glyph"><use href="#i-chevron"/></svg></span></label>
+            <label class="field"><span>Model</span><span class="row"><span class="input placeholder" style="flex:1" role="status" aria-busy="true"><span class="grow">Loading models…</span><svg class="glyph"><use href="#i-chevron"/></svg></span><button type="button" class="icon-btn boxed" aria-label="Reload models" title="Reload models" aria-disabled="true"><svg class="glyph"><use href="#i-sync"/></svg></button></span></label>
+          </div>
+          <span class="sub">Models load as soon as a provider is chosen; no Load button.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span aria-current="page"><svg class="glyph"><use href="#i-wand"/></svg>AI</span><span>Platforms</span><span>Jira</span><span>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="card">
+          <div class="card-head"><div class="yf" style="gap:2px;flex:1"><strong>Generate commit message</strong><span class="sub">Writes a commit message from your staged diff.</span></div><span class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Use AI for Generate commit message"></span><span>On</span></span></div>
+          <div class="grid2">
+            <label class="field"><span>Provider</span><span class="input"><span class="grow">OpenRouter</span><svg class="glyph"><use href="#i-chevron"/></svg></span></label>
+            <div class="field anchor"><span>Model</span><span class="row"><span class="input focus" style="flex:1"><span class="grow">Anthropic: Claude Sonnet 4.6</span><svg class="glyph"><use href="#i-chevron"/></svg></span><button type="button" class="icon-btn boxed" aria-label="Reload models" title="Reload models"><svg class="glyph"><use href="#i-sync"/></svg></button></span>
+              <div class="select-list" role="listbox" aria-label="Generate commit message model">
+                <span class="input"><svg class="glyph"><use href="#i-search"/></svg><span class="grow">sonnet</span></span>
+                <span class="opt" role="option" aria-selected="true"><span>Anthropic: Claude Sonnet 4.6</span><span class="hint">1000k</span><svg class="glyph"><use href="#i-check"/></svg></span>
+                <span class="opt" role="option" aria-selected="false"><span>Anthropic: Claude Sonnet 4.5</span><span class="hint">1000k</span></span>
+                <span class="opt" role="option" aria-selected="false"><span>Anthropic: Claude 3.7 Sonnet</span><span class="hint">200k</span></span>
+              </div>
+            </div>
+          </div>
+          <label class="field"><span>Prompt</span><span class="input area">You write Git commit messages. Reply with one JSON object and nothing else, in exactly this shape: {"summary": string, "description": string}. The summary is at most 72 characters and follows the style of the recent commit subjects you are given. The description explains what changed and why in plain paragraphs, using only the changes provided.
+
+{context}</span></label>
+          <div class="row"><span class="sub" role="status"><svg class="glyph"><use href="#i-check"/></svg> Saved</span><span class="spacer"></span><button type="button" class="btn sm">Reset to default</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span aria-current="page"><svg class="glyph"><use href="#i-wand"/></svg>AI</span><span>Platforms</span><span>Jira</span><span>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="card">
+          <div class="card-head"><div class="yf" style="gap:2px;flex:1"><strong>Generate commit message</strong><span class="sub">Writes a commit message from your staged diff.</span></div><span class="row"><span class="switch" role="switch" aria-checked="true" aria-label="Use AI for Generate commit message"></span><span>On</span></span></div>
+          <div class="grid2">
+            <label class="field"><span>Provider</span><span class="input"><span class="grow">OpenRouter</span><svg class="glyph"><use href="#i-chevron"/></svg></span></label>
+            <label class="field"><span>Model</span><span class="row"><span class="input" style="flex:1"><span class="grow">Anthropic: Claude Sonnet 4.6</span><svg class="glyph"><use href="#i-chevron"/></svg></span><button type="button" class="icon-btn boxed" aria-label="Reload models" title="Reload models"><svg class="glyph"><use href="#i-sync"/></svg></button></span></label>
+          </div>
+          <label class="field"><span>Prompt</span><span class="input area invalid">Write a short commit message for these changes.</span></label>
+          <div class="alert" role="alert"><strong>Not saved</strong><p>Keep <span class="mono">{context}</span> where the content goes. The previous prompt is still in use.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

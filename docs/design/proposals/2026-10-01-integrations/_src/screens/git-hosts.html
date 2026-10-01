@@ -1,0 +1,71 @@
+<div class="screen" data-screen="git-hosts" hidden>
+  <header class="screen-head"><h2>Settings → Git hosts</h2><p class="muted">S40 · One identity per host (corp A, corp B, github.com). YForge picks it from the URL for clone, fetch, pull, and push. Passwords and tokens stay in Git's credential helper (the macOS Keychain).</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span>AI</span><span>Platforms</span><span>Jira</span><span aria-current="page"><svg class="glyph"><use href="#i-identity"/></svg>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="row"><h3>Git hosts</h3><span class="spacer"></span><button type="button" class="btn primary"><svg class="glyph"><use href="#i-plus"/></svg>Add host</button></div>
+        <p class="muted">No host identities yet. Today every remote uses your SSH agent and <span class="mono">~/.ssh/config</span>, plus the app-wide key from General when one is set. Add a host to use a different key or HTTPS user name per server.</p>
+        <div class="card"><h4>How YForge chooses an identity</h4><ol class="order"><li>The repository's own SSH key (Repository settings)</li><li>The identity whose host matches the remote URL</li><li>The app-wide SSH key (General)</li><li>Your SSH agent and <span class="mono">~/.ssh/config</span></li></ol></div>
+      </div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span>AI</span><span>Platforms</span><span>Jira</span><span aria-current="page"><svg class="glyph"><use href="#i-identity"/></svg>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <h3>Add host</h3>
+        <div class="card">
+          <div class="grid2"><label class="field"><span>Host</span><span class="input"><span class="grow mono">gitlab.corp-b.com:2222</span></span></label><label class="field"><span>HTTPS user name (optional)</span><span class="input"><span class="grow">you</span></span></label></div>
+          <div class="field"><span>SSH key</span><div class="row wrap"><button type="button" class="btn">Choose key file…</button><button type="button" class="btn" aria-disabled="true">Generating ed25519 key…</button></div></div>
+          <div class="status-line" role="status" aria-busy="true"><svg class="glyph"><use href="#i-key"/></svg>Writing <span class="mono">~/.ssh/yforge_gitlab.corp-b.com</span> and its <span class="mono">.pub</span>…</div>
+          <label class="field"><span>Passphrase (optional)</span><span class="input"><svg class="glyph"><use href="#i-lock"/></svg><span class="grow">••••••••••</span></span></label>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span>AI</span><span>Platforms</span><span>Jira</span><span aria-current="page"><svg class="glyph"><use href="#i-identity"/></svg>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <div class="row"><h3>Git hosts</h3><span class="spacer"></span><button type="button" class="btn"><svg class="glyph"><use href="#i-plus"/></svg>Add host</button></div>
+        <div class="card">
+          <div class="card-head"><span class="tile"><svg class="glyph"><use href="#i-identity"/></svg></span><div class="yf" style="gap:2px;flex:1"><strong class="mono">gitlab.corp-a.com</strong><span class="sub">Corp A · 6 open repositories use it</span></div>
+            <button type="button" class="icon-btn" aria-label="Copy public key for gitlab.corp-a.com" title="Copy public key"><svg class="glyph"><use href="#i-copy"/></svg></button>
+            <button type="button" class="icon-btn" aria-label="Edit gitlab.corp-a.com" title="Edit"><svg class="glyph"><use href="#i-edit"/></svg></button>
+            <button type="button" class="icon-btn" aria-label="Remove gitlab.corp-a.com" title="Remove"><svg class="glyph"><use href="#i-trash"/></svg></button></div>
+          <dl class="kv"><dt>SSH key</dt><dd><span class="mono">~/.ssh/yforge_gitlab.corp-a.com</span> · ed25519 · <span class="mono">SHA256:q4Vd…T1o</span></dd><dt>HTTPS user</dt><dd>you</dd></dl>
+          <p class="sub" role="status"><svg class="glyph"><use href="#i-check"/></svg> Copied the public key. Add it in GitLab → Preferences → SSH Keys.</p>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="tile"><svg class="glyph"><use href="#i-identity"/></svg></span><div class="yf" style="gap:2px;flex:1"><strong class="mono">gitlab.corp-b.com:2222</strong><span class="sub">Corp B · 2 open repositories use it</span></div>
+            <button type="button" class="icon-btn" aria-label="Copy public key for gitlab.corp-b.com" title="Copy public key"><svg class="glyph"><use href="#i-copy"/></svg></button>
+            <button type="button" class="icon-btn" aria-label="Edit gitlab.corp-b.com" title="Edit"><svg class="glyph"><use href="#i-edit"/></svg></button>
+            <button type="button" class="icon-btn" aria-label="Remove gitlab.corp-b.com" title="Remove"><svg class="glyph"><use href="#i-trash"/></svg></button></div>
+          <dl class="kv"><dt>SSH key</dt><dd><span class="mono">~/.ssh/id_corp_b</span> · ed25519, passphrase in the Keychain</dd><dt>HTTPS user</dt><dd>you</dd></dl>
+        </div>
+        <div class="card">
+          <div class="card-head"><span class="tile"><svg class="glyph"><use href="#i-identity"/></svg></span><div class="yf" style="gap:2px;flex:1"><strong class="mono">github.com</strong><span class="sub">Personal</span></div>
+            <button type="button" class="icon-btn" aria-label="Edit github.com" title="Edit"><svg class="glyph"><use href="#i-edit"/></svg></button>
+            <button type="button" class="icon-btn" aria-label="Remove github.com" title="Remove"><svg class="glyph"><use href="#i-trash"/></svg></button></div>
+          <dl class="kv"><dt>SSH key</dt><dd>None: uses your SSH agent and <span class="mono">~/.ssh/config</span></dd><dt>HTTPS user</dt><dd>you</dd></dl>
+        </div>
+        <p class="sub">HTTPS passwords and tokens are kept by Git's credential helper (osxkeychain on this Mac), one entry per host, so corp A and corp B never share one.</p>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="settings">
+      <nav class="snav" aria-label="Settings sections"><span>General</span><span>AI</span><span>Platforms</span><span>Jira</span><span aria-current="page"><svg class="glyph"><use href="#i-identity"/></svg>Git hosts</span><span>Privacy &amp; diagnostics</span></nav>
+      <div class="sbody">
+        <h3>Edit host</h3>
+        <div class="card">
+          <label class="field"><span>Host</span><span class="input"><span class="grow mono">gitlab.corp-b.com:2222</span></span></label>
+          <label class="field"><span>SSH key</span><span class="input invalid"><span class="grow mono">~/.ssh/id_corp_b.pub</span></span></label>
+          <div class="alert" role="alert"><strong>That is a public key</strong><p>Choose the private key file (usually the same name without <span class="mono">.pub</span>). Nothing was saved.</p><div class="acts"><button type="button" class="btn sm">Choose key file…</button></div></div>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn primary" aria-disabled="true">Save host</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

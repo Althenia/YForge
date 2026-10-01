@@ -112,6 +112,8 @@ describe("typed IPC client", () => {
     await client.stashApply("/r", 1, "s1");
     await client.stashPop("/r", 1, "s1");
     await client.stashDrop("/r", 1, "s1");
+    await client.deleteBranches("/r", ["a", "b"], ["b"]);
+    await client.dropStashes("/r", [{ index: 2, sha: "s2" }]);
     await client.fetch("/r", "op-1", false);
     await client.pull("/r", "op-2", "rebase");
     await client.push("/r", "op-3");
@@ -134,6 +136,8 @@ describe("typed IPC client", () => {
       { cmd: "stash_apply", args: { path: "/r", index: 1, sha: "s1" } },
       { cmd: "stash_pop", args: { path: "/r", index: 1, sha: "s1" } },
       { cmd: "stash_drop", args: { path: "/r", index: 1, sha: "s1" } },
+      { cmd: "delete_branches", args: { path: "/r", names: ["a", "b"], forced: ["b"] } },
+      { cmd: "drop_stashes", args: { path: "/r", targets: [{ index: 2, sha: "s2" }] } },
       { cmd: "fetch", args: { path: "/r", id: "op-1", prune: false } },
       { cmd: "pull", args: { path: "/r", id: "op-2", mode: "rebase" } },
       { cmd: "push", args: { path: "/r", id: "op-3" } },
@@ -163,6 +167,7 @@ describe("typed IPC client", () => {
     await client.reset("/r", "abc1234", "hard");
     await client.createTag("/r", "v1", "abc1234", null);
     await client.deleteTag("/r", "v1");
+    await client.deleteTags("/r", ["v1", "v2"]);
     await client.pushTag("/r", "op-5", "origin", "v1");
     await client.deleteRemoteTag("/r", "op-6", "origin", "v1");
     await client.conflictFile("/r", "a.txt");
@@ -180,6 +185,7 @@ describe("typed IPC client", () => {
       { cmd: "reset", args: { path: "/r", target: "abc1234", mode: "hard" } },
       { cmd: "create_tag", args: { path: "/r", name: "v1", at: "abc1234", message: null } },
       { cmd: "delete_tag", args: { path: "/r", name: "v1" } },
+      { cmd: "delete_tags", args: { path: "/r", names: ["v1", "v2"] } },
       { cmd: "push_tag", args: { path: "/r", id: "op-5", remote: "origin", name: "v1" } },
       { cmd: "delete_remote_tag", args: { path: "/r", id: "op-6", remote: "origin", name: "v1" } },
       { cmd: "conflict_file", args: { path: "/r", file: "a.txt" } },
@@ -300,7 +306,13 @@ describe("typed IPC client", () => {
     await client.recentRemove("/r");
     await client.recentStatuses(["/r"]);
     await client.sessionLoad();
-    await client.sessionSave({ tabs: ["/r"], active: 0 });
+    await client.sessionSave({ tabs: ["/r"], active: 0, groups: [] });
+    await client.repoAliasesList();
+    await client.repoAliasSet("/r", "Corp A");
+    await client.repoAliasSet("/r", null);
+    await client.updateCheck();
+    await client.updateInstall();
+    await client.menuUpdate({ "tab.reopen": false }, { "theme.dark": true });
     await client.openPath("/r/a.txt", "editor");
     await client.activityList();
     await client.activityClear(null);
@@ -328,12 +340,30 @@ describe("typed IPC client", () => {
       { cmd: "recent_remove", args: { path: "/r" } },
       { cmd: "recent_statuses", args: { paths: ["/r"] } },
       { cmd: "session_load", args: {} },
-      { cmd: "session_save", args: { session: { tabs: ["/r"], active: 0 } } },
+      { cmd: "session_save", args: { session: { tabs: ["/r"], active: 0, groups: [] } } },
+      { cmd: "repo_aliases_list", args: {} },
+      { cmd: "repo_alias_set", args: { path: "/r", alias: "Corp A" } },
+      { cmd: "repo_alias_set", args: { path: "/r", alias: null } },
+      { cmd: "update_check", args: {} },
+      { cmd: "update_install", args: {} },
+      { cmd: "menu_update", args: { enabled: { "tab.reopen": false }, checked: { "theme.dark": true } } },
       { cmd: "open_path", args: { path: "/r/a.txt", with: "editor" } },
       { cmd: "activity_list", args: {} },
       { cmd: "activity_clear", args: { repo: null } },
       { cmd: "undo_last", args: { path: "/r", id: 7 } },
     ]);
+  });
+
+  it("delivers a menu-bar choice to its handler", async () => {
+    mockIPC(() => null, { shouldMockEvents: true });
+    const chosen: string[] = [];
+    const stop = await client.onMenuAction((id) => chosen.push(id));
+
+    await emit("menu-action", "tab.reopen");
+    stop();
+    await emit("menu-action", "tab.close");
+
+    expect(chosen).toEqual(["tab.reopen"]);
   });
 
   it("delivers auth prompt and activity events to their handlers", async () => {
@@ -526,11 +556,11 @@ describe("typed IPC client", () => {
     await client.aiProviderAdd({ kind: "openrouter", auth_mode: "api_key", name: "OR", api_key: "k" });
     await client.aiProviderUpdate({ id: "p1", auth_mode: "api_key", name: "OR", api_key: { kind: "keep" } });
     await client.aiProviderRemove("p1");
-    await client.aiSetActive("p1", "m");
     await client.aiProviderTest("p1");
     await client.aiProviderModels("p1");
     await client.aiFeatureConfigList();
     await client.aiFeatureConfigSet("generate_commit", "p1", "m", "{context}");
+    await client.aiFeatureConfigEnable("conflict_fix", false);
     await client.aiFeatureConfigReset("recompose");
     await client.aiSignIn("p1", "op-1", "device_code");
     await client.aiGenerateCommitMessage("/r", "op-2");
@@ -549,11 +579,11 @@ describe("typed IPC client", () => {
       { cmd: "ai_provider_add", args: { input: { kind: "openrouter", auth_mode: "api_key", name: "OR", api_key: "k" } } },
       { cmd: "ai_provider_update", args: { update: { id: "p1", auth_mode: "api_key", name: "OR", api_key: { kind: "keep" } } } },
       { cmd: "ai_provider_remove", args: { id: "p1" } },
-      { cmd: "ai_set_active", args: { id: "p1", model: "m" } },
       { cmd: "ai_provider_test", args: { id: "p1" } },
       { cmd: "ai_models", args: { providerId: "p1" } },
       { cmd: "ai_feature_config_list", args: {} },
       { cmd: "ai_feature_config_set", args: { feature: "generate_commit", providerId: "p1", modelId: "m", promptTemplate: "{context}" } },
+      { cmd: "ai_feature_config_enable", args: { feature: "conflict_fix", enabled: false } },
       { cmd: "ai_feature_config_reset", args: { feature: "recompose" } },
       { cmd: "ai_sign_in", args: { provider: "p1", id: "op-1", method: "device_code" } },
       { cmd: "ai_generate_commit_message", args: { path: "/r", id: "op-2" } },
@@ -653,6 +683,57 @@ describe("platform integration commands", () => {
     ]);
   });
 
+  it("invokes each Jira and Launchpad command by name with camelCase arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      if (cmd === "jira_connection_test") return "Sam Lee";
+      if (cmd === "jira_branch_name") return "ABC-1-fix";
+      return null;
+    });
+
+    await client.jiraConnectionsList();
+    await client.jiraConnectionAdd("cloud", "https://your-site.atlassian.net", "you@example.com", "tok");
+    await client.jiraConnectionAdd("data_center", "https://jira.corp", null, "pat");
+    await client.jiraConnectionRemove("j1");
+    expect(await client.jiraConnectionTest("j1")).toBe("Sam Lee");
+    await client.jiraFieldProblem("site", "x");
+    await client.jiraMyIssues("j1");
+    await client.jiraIssuesLookup(["ABC-1"]);
+    await client.jiraIssueKeys(["fix ABC-1"]);
+    expect(await client.jiraBranchName("ABC-1", "Fix")).toBe("ABC-1-fix");
+    await client.platformMyPulls("c1");
+    await client.launchpadWips();
+
+    expect(calls).toEqual([
+      { cmd: "jira_connections_list", args: {} },
+      { cmd: "jira_connection_add", args: { kind: "cloud", site: "https://your-site.atlassian.net", email: "you@example.com", token: "tok" } },
+      { cmd: "jira_connection_add", args: { kind: "data_center", site: "https://jira.corp", email: null, token: "pat" } },
+      { cmd: "jira_connection_remove", args: { id: "j1" } },
+      { cmd: "jira_connection_test", args: { id: "j1" } },
+      { cmd: "jira_field_problem", args: { field: "site", value: "x" } },
+      { cmd: "jira_my_issues", args: { id: "j1" } },
+      { cmd: "jira_issues_lookup", args: { keys: ["ABC-1"] } },
+      { cmd: "jira_issue_keys", args: { texts: ["fix ABC-1"] } },
+      { cmd: "jira_branch_name", args: { key: "ABC-1", summary: "Fix" } },
+      { cmd: "platform_my_pulls", args: { id: "c1" } },
+      { cmd: "launchpad_wips", args: {} },
+    ]);
+  });
+
+  it("returns the paged lists with their true total and cap flag as the backend sent them", async () => {
+    const pulls = { pulls: [], total: 1500, capped: true };
+    const launchpad = { pulls: [], total: null, capped: true };
+    const issues = { issues: [], total: 7, capped: false };
+    const detail = { pull: {}, files: [], files_total: null, files_capped: true };
+    mockIPC((cmd) => ({ platform_prs_list: pulls, platform_my_pulls: launchpad, jira_my_issues: issues, platform_pr_detail: detail })[cmd] ?? null);
+
+    expect(await client.platformPrsList("/r", "open")).toEqual(pulls);
+    expect(await client.platformMyPulls("c1")).toEqual(launchpad);
+    expect(await client.jiraMyIssues("j1")).toEqual(issues);
+    expect(await client.platformPrDetail("/r", 1)).toEqual(detail);
+  });
+
   it("raises an IpcError carrying the platform error kind and message", async () => {
     mockIPC(() => {
       throw { kind: "auth_failed", message: "Authentication failed for github.com", output: null };
@@ -669,5 +750,27 @@ describe("platform integration commands", () => {
     expect(open).toHaveBeenCalledWith("https://github.com/team/app/pull/7", "_blank", "noopener,noreferrer");
     expect(() => client.openUrl("javascript:alert(1)")).toThrow("is not an http or https address");
     expect(open).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Git host identity commands", () => {
+  it("sends the host, the key file, and the passphrase to key generation by their command argument names", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return cmd === "git_host_default_key_path" ? "~/.ssh/yforge_gitlab.corp-b.com" : cmd === "git_host_generate_key" ? "/Users/yui/.ssh/yforge_gitlab.corp-b.com" : null;
+    });
+
+    expect(await client.gitHostDefaultKeyPath("gitlab.corp-b.com:2222")).toBe("~/.ssh/yforge_gitlab.corp-b.com");
+    expect(await client.gitHostGenerateKey("gitlab.corp-b.com:2222", "~/.ssh/yforge_gitlab.corp-b.com", "open sesame")).toBe("/Users/yui/.ssh/yforge_gitlab.corp-b.com");
+    await client.gitHostGenerateKey("github.com", "~/.ssh/yforge_github.com", null);
+    await client.gitHostFieldProblem("new_key", "~/.ssh/yforge_github.com");
+
+    expect(calls).toEqual([
+      { cmd: "git_host_default_key_path", args: { host: "gitlab.corp-b.com:2222" } },
+      { cmd: "git_host_generate_key", args: { host: "gitlab.corp-b.com:2222", keyPath: "~/.ssh/yforge_gitlab.corp-b.com", passphrase: "open sesame" } },
+      { cmd: "git_host_generate_key", args: { host: "github.com", keyPath: "~/.ssh/yforge_github.com", passphrase: null } },
+      { cmd: "git_host_field_problem", args: { field: "new_key", value: "~/.ssh/yforge_github.com" } },
+    ]);
   });
 });

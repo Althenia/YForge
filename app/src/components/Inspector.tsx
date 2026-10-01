@@ -8,7 +8,9 @@ import type { Selection } from "../state/selection";
 import { ChangesInspector } from "./ChangesInspector";
 import { CommitInspector } from "./CommitInspector";
 import { OperationInspector } from "./OperationInspector";
+import { JiraIssueInspector } from "./JiraIssueInspector";
 import { PullRequestInspector } from "./PullRequestInspector";
+import type { JiraSidebar } from "../state/jiraIssues";
 import type { PlatformActions } from "../state/platformActions";
 import { StashInspector } from "./StashInspector";
 
@@ -16,6 +18,7 @@ export function Inspector(props: {
   session: RepoSession;
   actions: RepoActions;
   platform: PlatformActions;
+  jira?: JiraSidebar;
   composer: Composer;
   selection: Selection | undefined;
   activeTarget: DiffTarget | undefined;
@@ -26,6 +29,7 @@ export function Inspector(props: {
 }) {
   const commitSha = () => (props.selection?.kind === "commit" ? props.selection.sha : undefined);
   const pullNumber = () => (props.selection?.kind === "pull" ? props.selection.number : undefined);
+  const issueKey = () => (props.selection?.kind === "issue" ? props.selection.key : undefined);
   const stash = () => {
     const current = props.selection;
     return current?.kind === "stash" ? props.session.snapshot().stashes.find((entry) => entry.sha === current.sha) : undefined;
@@ -51,6 +55,13 @@ export function Inspector(props: {
         </Switch>
       }
     >
+      <Match when={props.jira !== undefined ? issueKey() : undefined}>
+        {(key) => {
+          const issue = () => props.jira?.state.issues().find((entry) => entry.key === key());
+          const connection = () => props.jira?.state.connections().find((entry) => entry.id === issue()?.connection_id);
+          return <JiraIssueInspector issueKey={key()} issue={issue()} connection={connection()} onOpen={(found) => props.jira?.openInBrowser(found)} />;
+        }}
+      </Match>
       <Match when={pullNumber()}>{(number) => <PullRequestInspector session={props.session} platform={props.platform} number={number()} />}</Match>
       <Match when={stash()}>
         {(entry) => <StashInspector session={props.session} stash={entry()} actions={props.actions} activeTarget={props.activeTarget} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />}

@@ -1,14 +1,16 @@
+import type { JiraIssue } from "../ipc/bindings/JiraIssue";
 import { createSignal } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AutoStash } from "../ipc/bindings/AutoStash";
 import type { CheckoutTarget } from "../ipc/bindings/CheckoutTarget";
-import type { CommitBrief } from "../ipc/bindings/CommitBrief";
+import type { BatchOutcome } from "../ipc/bindings/BatchOutcome";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { MergeMode } from "../ipc/bindings/MergeMode";
 import type { OperationOutcome } from "../ipc/bindings/OperationOutcome";
 import type { OperationProgress } from "../ipc/bindings/OperationProgress";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
+import type { RevisionRange } from "../ipc/bindings/RevisionRange";
 import type { PullMode } from "../ipc/bindings/PullMode";
 import type { PullOutcome } from "../ipc/bindings/PullOutcome";
 import type { PullStash } from "../ipc/bindings/PullStash";
@@ -25,6 +27,7 @@ import {
   deleteRemoteBranchCopy,
   deleteRemoteTagCopy,
   deleteTagCopy,
+  deleteTagsCopy,
   detachCopy,
   dropStashCopy,
   dropStashesCopy,
@@ -59,12 +62,20 @@ import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
 import { authFailure, authFix, isDiverged, syncMenu, type AuthFix, type SyncState } from "./syncModel";
 
+const PREVIEW_CONCURRENCY = 4;
+
+async function inBatches<T, R>(items: readonly T[], size: number, load: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let at = 0; at < items.length; at += size) results.push(...(await Promise.all(items.slice(at, at + size).map(load))));
+  return results;
+}
+
 export type Anchor = { left: number; top: number };
 
 export type MenuState = { anchor: Anchor; entries: MenuEntry[]; run: (id: string) => void; title?: MenuPart[] };
 
 export type PopoverState =
-  | { kind: "create_branch"; anchor: Anchor; at: string | null; atLabel: string }
+  | { kind: "create_branch"; anchor: Anchor; at: string | null; atLabel: string; name?: string }
   | { kind: "rename_branch"; anchor: Anchor; name: string }
   | { kind: "stash"; anchor: Anchor }
   | { kind: "merge"; anchor: Anchor; source: string; current: string; preview: IntegrationPreview }
@@ -161,6 +172,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [sync, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
   const [notices, setNotices] = createSignal<StripNotice[]>([]);
+  const [autoFetchPause, setAutoFetchPause] = createSignal<string | undefined>();
   const [history, setHistory] = createSignal<HistoryView | undefined>();
   let retry: (() => Promise<void>) | undefined;
 
@@ -203,6 +215,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     try {
       const value = await start(id);
       setSync({ kind: "idle" });
+      if (name === "Fetch") setAutoFetchPause(undefined);
       await session.refresh();
       return { value };
     } catch (failure) {
@@ -268,10 +281,10 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     await runSync("Publish", (id) => client.publish(path, id, remote));
   }
 
-  async function autoFetch(): Promise<boolean> {
-    if (deps.offline() || sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return true;
+  async function autoFetch(): Promise<void> {
+    if (autoFetchPause() !== undefined || deps.offline() || sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return;
     const result = await runSync("Fetch", (id) => client.fetch(path, id, false, false), () => true);
-    return "value" in result;
+    if ("error" in result && result.error.kind !== "cancelled") setAutoFetchPause(describe(result.error));
   }
 
   async function undo(id: number): Promise<void> {
@@ -410,27 +423,42 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       fail(failure);
       return;
     }
-    if (lost.length === 0) {
+    if (lost.count === 0) {
       await session.mutate(() => client.deleteBranch(path, name, false));
       return;
     }
     confirm(deleteBranchCopy(name, lost), () => void session.mutate(() => client.deleteBranch(path, name, true)));
   }
 
+  async function runBatch(total: number, verb: string, run: () => Promise<BatchOutcome>): Promise<void> {
+    const outcomes: BatchOutcome[] = [];
+    await session.mutate(async () => void outcomes.push(await run()));
+    const failed = outcomes[0]?.failed ?? [];
+    const [first] = failed;
+    if (first !== undefined) session.inform(`${failed.length} of ${total} could not be ${verb}. ${first.name}: ${first.reason}`);
+  }
+
   async function deleteBranches(names: readonly string[]): Promise<void> {
-    let previews: Array<{ name: string; commits: CommitBrief[] }>;
+    let previews: Array<{ branch: string; range: RevisionRange }>;
     try {
-      previews = await Promise.all(names.map(async (name) => ({ name, commits: await session.read(["delete-preview", name], () => client.branchDeletePreview(path, name)) })));
+      previews = await inBatches(names, PREVIEW_CONCURRENCY, async (branch) => ({ branch, range: await session.read(["delete-preview", branch], () => client.branchDeletePreview(path, branch)) }));
     } catch (failure) {
       fail(failure);
       return;
     }
-    const lost = previews.filter((preview) => preview.commits.length > 0).map((preview) => ({ branch: preview.name, commits: preview.commits }));
-    confirm(deleteBranchesCopy(names, lost), async () => {
-      await session.mutate(async () => {
-        for (const preview of previews) await client.deleteBranch(path, preview.name, preview.commits.length > 0);
-      });
-    });
+    const lost = previews.filter((preview) => preview.range.count > 0);
+    confirm(deleteBranchesCopy(names, lost), () =>
+      runBatch(
+        names.length,
+        "deleted",
+        () =>
+          client.deleteBranches(
+            path,
+            names,
+            lost.map((preview) => preview.branch),
+          ),
+      ),
+    );
   }
 
   function remoteBranchOf(target: RefTarget): { remote: string; name: string } | undefined {
@@ -745,6 +773,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const deleteLocalTag = (name: string) => confirm(deleteTagCopy(name), () => void session.mutate(() => client.deleteTag(path, name)));
 
+  const deleteTags = (names: readonly string[]) => confirm(deleteTagsCopy(names), () => runBatch(names.length, "deleted", () => client.deleteTags(path, names)));
+
   function deleteTagOnRemote(name: string): void {
     const remote = pushRemote(snapshot().remotes);
     if (remote === undefined) return;
@@ -754,14 +784,26 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const dropStash = (stash: StashEntry) => confirm(dropStashCopy(stash), () => void session.mutate(() => client.stashDrop(path, stash.index, stash.sha)));
 
   const dropStashes = (stashes: readonly StashEntry[]) =>
-    confirm(dropStashesCopy(stashes), async () => {
-      await session.mutate(async () => {
-        for (const stash of [...stashes].sort((left, right) => right.index - left.index)) await client.stashDrop(path, stash.index, stash.sha);
-      });
-    });
+    confirm(dropStashesCopy(stashes), () =>
+      runBatch(stashes.length, "dropped", () =>
+        client.dropStashes(
+          path,
+          stashes.map(({ index, sha }) => ({ index, sha })),
+        ),
+      ),
+    );
 
   const openCreateBranchAt = (at: string | null, anchor: Anchor) =>
     setPopover({ kind: "create_branch", anchor, at, atLabel: at === null ? "HEAD" : startLabel(at) });
+
+  async function openCreateBranchFromIssue(issue: Pick<JiraIssue, "key" | "summary">, anchor: Anchor): Promise<void> {
+    try {
+      const name = await client.jiraBranchName(issue.key, issue.summary);
+      setPopover({ kind: "create_branch", anchor, at: null, atLabel: "HEAD", name });
+    } catch (failure) {
+      fail(failure);
+    }
+  }
 
   const openStashForm = (anchor: Anchor) => setPopover({ kind: "stash", anchor });
 
@@ -918,6 +960,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     push,
     publish,
     autoFetch,
+    autoFetchPause,
     undo,
     openMerge,
     startRebase,
@@ -928,8 +971,10 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     pushTag,
     deleteBranch,
     deleteBranches,
+    deleteTags,
     openRenameBranch,
     openCreateBranchAt,
+    openCreateBranchFromIssue,
     deleteLocalTag,
     deleteTagOnRemote,
     dropStash,

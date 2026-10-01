@@ -4,7 +4,7 @@ import type { AiSignInMethod } from "../ipc/bindings/AiSignInMethod";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 import { client, IpcError } from "../ipc/client";
 import { nextAiId } from "./aiRun";
-import { aiKeys } from "./queryKeys";
+import { refreshProviders } from "./aiProviders";
 
 export type SignInState =
   | { kind: "idle" }
@@ -17,7 +17,7 @@ export function createSignIn(queryClient: QueryClient, provider: string) {
   const mutation = useMutation(
     () => ({
       mutationFn: (input: { method: AiSignInMethod; operation: string }) => client.aiSignIn(provider, input.operation, input.method),
-      onSettled: () => queryClient.invalidateQueries({ queryKey: aiKeys.providers }),
+      onSettled: () => refreshProviders(queryClient),
     }),
     () => queryClient,
   );

@@ -1,0 +1,80 @@
+<div class="screen" data-screen="tab-groups" hidden>
+  <header class="screen-head"><h2>Tab groups</h2><p class="muted">S37 · Name and color your own groups of repository tabs; they are saved with the session. A repository and its worktree tabs always move together.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tab"><span class="mark">Y</span>ycoding<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab active"><span class="mark">Y</span>YForge<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab"><span class="mark">Y</span>sisyphus<svg class="glyph"><use href="#i-close"/></svg></span>
+        <button type="button" class="icon-btn boxed" aria-label="New tab" title="New tab ⌘T"><svg class="glyph"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="row wrap" style="padding:16px;align-items:flex-start;gap:16px">
+        <div class="menu" role="menu" aria-label="YForge tab">
+          <span class="item focus" role="menuitem"><svg class="glyph"><use href="#i-plus"/></svg>Add to new group…</span>
+          <span class="item" role="menuitem" aria-disabled="true"><svg class="glyph"><use href="#i-launchpad"/></svg>Add to group<span class="kbd">No groups yet</span></span>
+          <hr><span class="item" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Close tab<span class="kbd">⌘W</span></span>
+        </div>
+        <div class="pop" role="dialog" aria-label="New tab group">
+          <strong>New tab group</strong>
+          <label class="field"><span>Name</span><span class="input focus"><span class="grow">Corp A</span></span></label>
+          <div class="field"><span>Color</span><div class="swatches" role="radiogroup" aria-label="Group color">
+            <span class="swatch" role="radio" aria-checked="false"><i class="s0"></i>Cyan</span><span class="swatch" role="radio" aria-checked="true"><i class="s1"></i>Blue</span><span class="swatch" role="radio" aria-checked="false"><i class="s2"></i>Purple</span><span class="swatch" role="radio" aria-checked="false"><i class="s3"></i>Magenta</span><span class="swatch" role="radio" aria-checked="false"><i class="s4"></i>Pink</span>
+            <span class="swatch" role="radio" aria-checked="false"><i class="s5"></i>Red</span><span class="swatch" role="radio" aria-checked="false"><i class="s6"></i>Orange</span><span class="swatch" role="radio" aria-checked="false"><i class="s7"></i>Yellow</span><span class="swatch" role="radio" aria-checked="false"><i class="s8"></i>Green</span><span class="swatch" role="radio" aria-checked="false"><i class="s9"></i>Mint</span></div></div>
+          <span class="sub">1 to 40 characters. YForge is added to the group.</span>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn primary">Create group</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="app">
+      <div class="tabbar" role="status" aria-busy="true" aria-label="Restoring tabs">
+        <span class="gchip lane-1">Corp A</span><span class="tab"><span class="mark">Y</span>…</span><span class="tab"><span class="mark">Y</span>…</span>
+        <span class="gchip lane-8">Personal <span class="count">· 3 tabs</span></span>
+        <span class="sub">Restoring 6 tabs and 2 groups…</span>
+      </div>
+      <div class="clean"><span class="sub">The groups come back exactly as you left them, including which are collapsed.</span></div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tgroup" role="group" aria-label="Corp A tab group">
+          <button type="button" class="gchip lane-1" aria-expanded="true">Corp A</button>
+          <span class="tab active"><span class="mark">Y</span>api<svg class="glyph"><use href="#i-close"/></svg></span>
+          <span class="tab"><svg class="glyph"><use href="#i-branch"/></svg>api · hotfix<svg class="glyph"><use href="#i-close"/></svg></span>
+          <span class="tab"><span class="mark">Y</span>handbook<svg class="glyph"><use href="#i-close"/></svg></span>
+        </span>
+        <span class="tgroup" role="group" aria-label="Corp B tab group"><button type="button" class="gchip lane-6" aria-expanded="false">Corp B <span class="count">· 2 tabs</span></button></span>
+        <span class="tgroup" role="group" aria-label="Personal tab group"><button type="button" class="gchip lane-8" aria-expanded="false">Personal <span class="count">· 3 tabs</span></button></span>
+        <span class="tab"><span class="mark">Y</span>scratch<svg class="glyph"><use href="#i-close"/></svg></span>
+        <button type="button" class="icon-btn boxed" aria-label="New tab" title="New tab ⌘T"><svg class="glyph"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="row wrap" style="padding:16px;align-items:flex-start;gap:16px">
+        <div class="menu" role="menu" aria-label="Corp B group">
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-edit"/></svg>Rename…</span>
+          <span class="item focus" role="menuitem"><i class="dot" style="background:var(--p-lane-6)"></i>Color…<span class="kbd">Orange</span></span>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-launchpad"/></svg>Ungroup</span>
+          <hr><span class="item danger" role="menuitem"><svg class="glyph"><use href="#i-trash"/></svg>Close group…</span>
+        </div>
+        <div class="dialog" role="alertdialog" aria-label="Close the Corp B group?" style="margin:0">
+          <h3>Close the Corp B group?</h3>
+          <p class="muted">Closes 2 tabs: <span class="mono">ledger</span> and <span class="mono">gateway</span>. Uncommitted changes stay on disk; the repositories stay in Recent.</p>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn text-danger">Close 2 tabs</button></div>
+        </div>
+        <p class="sub" style="max-width:28rem">Click a chip to collapse or expand its group. A collapsed group shows its tab count in text; its active tab never hides. Right-click a tab for Add to new group…, Add to group ▸ Corp A / Corp B / Personal, and Remove from group.</p>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tgroup" role="group" aria-label="Corp A tab group"><button type="button" class="gchip lane-1" aria-expanded="true">Corp A</button><span class="tab active"><span class="mark">Y</span>api<svg class="glyph"><use href="#i-close"/></svg></span><span class="tab"><span class="mark">Y</span>handbook<svg class="glyph"><use href="#i-close"/></svg></span></span>
+        <span class="tab"><span class="mark">Y</span>scratch<svg class="glyph"><use href="#i-close"/></svg></span>
+      </div>
+      <div style="padding:16px">
+        <div class="alert" role="alert"><strong>The tab groups could not be saved</strong><p>The app database could not be written (disk full). Your tabs and groups stay as they are now; after a restart they return to the last saved state.</p><div class="acts"><button type="button" class="btn sm">Try again</button></div></div>
+      </div>
+    </div>
+  </section>
+</div>

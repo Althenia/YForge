@@ -110,6 +110,26 @@ describe("virtual rows", () => {
     expect(rendered()).toContain("row 1500");
   });
 
+  it("keeps the same row elements, and the focus on one of them, when the list's offset inside its scroller shifts by a fraction while the window moves", async () => {
+    const { host, scrollTo } = await mountRows();
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const measured = rect.call(this);
+      if (this.tagName !== "UL") return measured;
+      const shift = ((this.parentElement?.scrollTop ?? 0) / ROW) % 2 === 0 ? 0 : 0.5;
+      return { ...measured, top: measured.top + shift, y: measured.y + shift };
+    };
+    const row = (index: number) => host.querySelector<HTMLElement>(`li[data-index="${index}"]`);
+    row(5)?.focus();
+    const focused = row(5);
+
+    for (const top of [ROW, 2 * ROW, 3 * ROW, 4 * ROW]) await scrollTo(top);
+
+    expect(focused).not.toBeNull();
+    expect(row(5)).toBe(focused);
+    expect(document.activeElement).toBe(focused);
+  });
+
   it("scrolls a revealed row into the rendered window", async () => {
     const { rendered, setReveal } = await mountRows();
 

@@ -1,0 +1,48 @@
+:root {
+  --p-bg: var(--colors-canvas);
+  --p-surface: var(--colors-surface-1);
+  --p-text: var(--colors-text);
+  --p-text-muted: var(--colors-text-muted);
+  --p-border: var(--colors-rule-panel);
+  --p-accent: var(--colors-accent);
+  --p-on-accent: var(--colors-on-accent);
+  --p-danger: var(--colors-danger);
+  --p-success: var(--colors-accent-ink);
+  --p-warning: var(--colors-attention-ink);
+  --p-focus: var(--colors-focus);
+  --p-font: var(--typography-ui-body-font-family);
+  --p-radius: var(--rounded-lg);
+}
+:root {
+  --p-surface-2: var(--colors-surface-2);
+  --p-surface-3: var(--colors-surface-3);
+  --p-raised: var(--colors-surface-raised);
+  --p-rule: var(--colors-rule);
+  --p-rule-strong: var(--colors-rule-strong);
+  --p-subtle: var(--colors-text-subtle);
+  --p-selection: var(--colors-selection);
+  --p-accent-tint: var(--colors-accent-tint);
+  --p-attention-tint: var(--colors-attention-tint);
+  --p-danger-tint: var(--colors-danger-tint);
+  --p-danger-ink: var(--colors-danger-ink);
+  --p-info-ink: var(--colors-info-ink);
+  --p-info-tint: var(--colors-info-tint);
+  --p-mono: var(--typography-code-font-family);
+  --p-radius-md: var(--rounded-md);
+  --p-radius-xl: var(--rounded-xl);
+  --p-pill: var(--rounded-pill);
+  --p-lane-0: var(--colors-lane-0);
+  --p-lane-1: var(--colors-lane-1);
+  --p-lane-6: var(--colors-lane-6);
+  --p-lane-8: var(--colors-lane-8);
+  --p-lane-0-label: var(--colors-lane-0-label);
+  --p-lane-1-label: var(--colors-lane-1-label);
+  --p-lane-6-label: var(--colors-lane-6-label);
+  --p-lane-8-label: var(--colors-lane-8-label);
+  --p-lane-2: var(--colors-lane-2);
+  --p-lane-3: var(--colors-lane-3);
+  --p-lane-4: var(--colors-lane-4);
+  --p-lane-5: var(--colors-lane-5);
+  --p-lane-7: var(--colors-lane-7);
+  --p-lane-9: var(--colors-lane-9);
+}

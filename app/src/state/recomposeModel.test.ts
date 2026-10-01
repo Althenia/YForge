@@ -30,13 +30,14 @@ const preview: RecomposePreview = {
       status: "modified",
       binary: false,
       whole_file_only: false,
+      hunks_omitted: null,
       hunks: [
         { id: "a.txt@1,3+1,3", hunk: hunk([line("context", "x"), line("removed", "old"), line("added", "new"), line("added", "more")]) },
         { id: "a.txt@20,3+20,3", hunk: hunk([line("removed", "gone")]) },
       ],
     },
-    { path: "logo.png", status: "added", binary: true, whole_file_only: true, hunks: [] },
-    { path: "empty.txt", status: "added", binary: false, whole_file_only: false, hunks: [] },
+    { path: "logo.png", status: "added", binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] },
+    { path: "empty.txt", status: "added", binary: false, whole_file_only: false, hunks_omitted: null, hunks: [] },
   ],
 };
 const catalog = catalogOf(preview);
@@ -48,6 +49,22 @@ describe("catalog", () => {
       ["a.txt@1,3+1,3", [1, 2, 3], 2, 1],
       ["a.txt@20,3+20,3", [0], 0, 1],
     ]);
+  });
+});
+
+describe("catalog of a file whose hunks the core omitted", () => {
+  const reason = "The diff of big.sql is 3000000 bytes, over the 2097152 byte limit.";
+  const omitted = catalogOf({ ...preview, files: [{ path: "big.sql", status: "modified", binary: false, whole_file_only: true, hunks_omitted: reason, hunks: [] }] });
+
+  it("keeps the reason on the whole-file unit and assigns it as one file", () => {
+    expect(omitted[0]).toMatchObject({ path: "big.sql", whole: true, omitted: reason, hunks: [] });
+    const draft = assign(newDraft(), omitted, { kind: "file", path: "big.sql" }, 1);
+    expect(groupsOf(draft, omitted)[0]?.changes).toEqual([{ kind: "file", path: "big.sql" }]);
+    expect(progressOf(draft, omitted)).toEqual({ total: 1, assigned: 1 });
+  });
+
+  it("has no omission reason for a file whose hunks were sent", () => {
+    expect(catalog.map((file) => file.omitted)).toEqual([null, null, null]);
   });
 });
 
@@ -135,6 +152,16 @@ describe("validation", () => {
     expect(second.ready).toBe(false);
     draft = removeGroup(draft, 2);
     expect(problemsOf(draft, catalog)).toEqual({ general: [], groups: {}, ready: true });
+  });
+
+  it("counts a long list of unassigned changes and names only the first three", () => {
+    const many = catalogOf({
+      ...preview,
+      files: Array.from({ length: 245 }, (_, index) => ({ path: `src/file${index}.ts`, status: "added" as const, binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] })),
+    });
+    expect(problemsOf(newDraft(), many).general[0]).toBe(
+      "Changes not assigned to any commit: 245 files: src/file0.ts, src/file1.ts, src/file2.ts and 242 more",
+    );
   });
 
   it("counts assigned and total changes", () => {

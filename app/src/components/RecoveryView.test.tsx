@@ -72,6 +72,24 @@ describe("recovery view", () => {
   });
 
   describe("reflog", () => {
+    it("ages a reflog entry's time as the clock ticks", async () => {
+      vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+      try {
+        vi.setSystemTime(new Date(1_700_000_020 * 1000));
+        const { host } = mount({ reflog_list: () => [entry(0)] });
+        await flush(40);
+        const age = () => host.querySelector('[aria-label="Reflog entries"] .dim[title]')?.textContent;
+        expect(age()).toBe("20s ago");
+
+        vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+        await flush();
+
+        expect(age()).toBe("2h ago");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("lists HEAD and each branch, shows the entries of the chosen reference, and pages older ones by the last index", async () => {
       const page = (from: number, count: number) => Array.from({ length: count }, (_, offset) => entry(from + offset));
       const { host } = mount({

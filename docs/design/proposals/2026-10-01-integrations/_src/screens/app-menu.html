@@ -1,0 +1,61 @@
+<div class="screen" data-screen="app-menu" hidden>
+  <header class="screen-head"><h2>macOS menu bar and Check for Update</h2><p class="muted">S43 · macOS draws the menu bar (a recorded platform exception); YForge owns its contents, shortcuts, and the update dialog.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="yf">
+      <div class="menubar" aria-label="Menu bar"><b>YForge</b><span>File</span><span>Edit</span><span>View</span><span>Repository</span><span>Window</span><span>Help</span></div>
+      <div class="row wrap" style="align-items:flex-start;gap:16px">
+        <div class="menu" role="menu" aria-label="YForge">
+          <span class="item" role="menuitem">About YForge</span>
+          <span class="item" role="menuitem">View Release Notes</span>
+          <span class="item focus" role="menuitem">Check for Update…</span>
+          <hr><span class="item" role="menuitem">Settings…<span class="kbd">⌘,</span></span>
+          <hr><span class="item" role="menuitem">Services<span class="kbd">▸</span></span>
+          <hr><span class="item" role="menuitem">Hide YForge<span class="kbd">⌘H</span></span><span class="item" role="menuitem">Hide Others<span class="kbd">⌥⌘H</span></span><span class="item" role="menuitem">Show All</span>
+          <hr><span class="item" role="menuitem">Quit YForge<span class="kbd">⌘Q</span></span>
+        </div>
+        <div class="menu" role="menu" aria-label="File">
+          <span class="item" role="menuitem">New Tab<span class="kbd">⌘T</span></span><span class="item" role="menuitem">Open Repository…<span class="kbd">⌘O</span></span><span class="item" role="menuitem">Clone Repository…</span><span class="item" role="menuitem">Create Repository…</span>
+          <hr><span class="item" role="menuitem">Launchpad</span>
+          <hr><span class="item" role="menuitem">Close Tab<span class="kbd">⌘W</span></span><span class="item" role="menuitem" aria-disabled="true">Reopen Closed Tab<span class="kbd">⇧⌘T</span></span>
+        </div>
+        <div class="menu" role="menu" aria-label="Edit">
+          <span class="item" role="menuitem">Undo<span class="kbd">⌘Z</span></span><span class="item" role="menuitem">Redo<span class="kbd">⇧⌘Z</span></span>
+          <hr><span class="item" role="menuitem">Cut<span class="kbd">⌘X</span></span><span class="item" role="menuitem">Copy<span class="kbd">⌘C</span></span><span class="item" role="menuitem">Paste<span class="kbd">⌘V</span></span><span class="item" role="menuitem">Select All<span class="kbd">⌘A</span></span>
+          <hr><span class="item" role="menuitem">Find<span class="kbd">⌘F</span></span><span class="item" role="menuitem">Command Palette<span class="kbd">⌘K</span></span>
+        </div>
+      </div>
+      <div class="row wrap" style="align-items:flex-start;gap:16px">
+        <div class="menu" role="menu" aria-label="View"><span class="item" role="menuitem">Theme<span class="kbd">▸</span></span><span class="item" role="menuitem">Density<span class="kbd">▸</span></span><span class="item" role="menuitem">Reveal HEAD<span class="kbd">⇧⌘H</span></span><hr><span class="item" role="menuitem">Enter Full Screen<span class="kbd">⌃⌘F</span></span></div>
+        <div class="menu" role="menu" aria-label="Repository"><span class="item" role="menuitem">Fetch<span class="kbd">⇧⌘F</span></span><span class="item" role="menuitem">Pull<span class="kbd">⇧⌘L</span></span><span class="item" role="menuitem">Push<span class="kbd">⇧⌘P</span></span><hr><span class="item" role="menuitem">Create Branch…<span class="kbd">⌘B</span></span><span class="item" role="menuitem">Stash…<span class="kbd">⇧⌘S</span></span><hr><span class="item" role="menuitem">Undo Last Action</span></div>
+        <div class="menu" role="menu" aria-label="Window"><span class="item" role="menuitem">Minimize<span class="kbd">⌘M</span></span><span class="item" role="menuitem">Zoom</span><hr><span class="item" role="menuitem">Show Next Tab<span class="kbd">⌃⇥</span></span><span class="item" role="menuitem">Show Previous Tab<span class="kbd">⌃⇧⇥</span></span><hr><span class="item" role="menuitem">Bring All to Front</span></div>
+        <div class="menu" role="menu" aria-label="Help"><span class="item" role="menuitem">YForge Help</span><span class="item" role="menuitem">Keyboard Shortcuts</span><span class="item" role="menuitem">Report an Issue</span></div>
+      </div>
+      <p class="sub">Without a repository tab, the Repository items are disabled. ⌘Z undoes typing inside a text field and otherwise runs YForge's Undo; Undo Last Action is the same Git undo, named.</p>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="dialog" role="dialog" aria-label="Check for Update">
+      <h3>Check for Update</h3>
+      <div class="status-line" role="status" aria-busy="true"><svg class="glyph"><use href="#i-sync"/></svg>Checking github.com/Althenia/YForge for a newer version…</div>
+      <p class="sub">You are on YForge 0.1.0 (arm64). Nothing downloads until you choose Install and Relaunch.</p>
+      <div class="foot"><button type="button" class="btn">Cancel</button></div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="dialog" role="dialog" aria-label="YForge 0.2.0 is available">
+      <h3>YForge 0.2.0 is available</h3>
+      <p class="muted">You have 0.1.0. The update is signed with YForge's key and is checked before it installs.</p>
+      <div class="card"><strong>Release notes</strong><ul class="order"><li>Jira issues in the sidebar and on commits</li><li>Per-host Git identities for SSH and HTTPS</li><li>Saved tab groups</li></ul></div>
+      <div class="foot"><button type="button" class="btn">Later</button><button type="button" class="btn primary">Install and Relaunch</button></div>
+      <p class="sub">Open repositories and tabs come back after the relaunch. Uncommitted changes stay on disk.</p>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="dialog" role="dialog" aria-label="Check for Update">
+      <h3>Check for Update</h3>
+      <div class="alert" role="alert"><strong>Could not check for updates</strong><p>github.com could not be reached. You are on YForge 0.1.0; nothing was downloaded or changed.</p><div class="acts"><button type="button" class="btn sm">Try again</button></div></div>
+      <p class="sub">If a downloaded update fails its signature check, YForge discards it and says so here; it never installs an unsigned update.</p>
+      <div class="foot"><button type="button" class="btn">Close</button></div>
+    </div>
+  </section>
+</div>

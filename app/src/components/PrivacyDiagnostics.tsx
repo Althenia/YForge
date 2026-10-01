@@ -128,6 +128,16 @@ function UsageRow(props: { record: UsageRecord }) {
 function ProfilePictures() {
   const app = useApp();
   const enabled = () => app.settings().gravatar_avatars;
+  const [failure, setFailure] = createSignal<string | undefined>();
+  const toggle = async (value: boolean) => {
+    setFailure(undefined);
+    const problem = await app.saveSettings({ ...app.settings(), gravatar_avatars: value });
+    if (problem !== undefined) {
+      setFailure(problem);
+      return;
+    }
+    forgetAvatars();
+  };
   return (
     <section aria-label="Profile pictures" class="diag">
       <h3>Profile pictures</h3>
@@ -138,13 +148,11 @@ function ProfilePictures() {
         <Switch
           label="Show profile pictures from Gravatar"
           checked={enabled()}
-          onChange={(value) => {
-            forgetAvatars();
-            void app.saveSettings({ ...app.settings(), gravatar_avatars: value });
-          }}
+          onChange={(value) => void toggle(value)}
         />
         <span class="setting-title">{enabled() ? "On" : "Off"}</span>
       </SettingRow>
+      <Outcome status={undefined} failure={failure()} />
     </section>
   );
 }

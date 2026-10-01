@@ -62,7 +62,7 @@ fn the_first_remote_that_matches_a_connection_wins() {
     .unwrap();
     let repo = Repo::new();
     repo.remote("backup", "/srv/git/widget.git");
-    repo.remote("origin", "git@GitHub.com:acme/widget.git");
+    repo.remote("origin", "git@GitHub.com:owner/widget.git");
     repo.remote("mirror", "https://gitlab.example.com/other/thing.git");
 
     let matched = h
@@ -88,8 +88,8 @@ fn remote_order_follows_git_remote_and_matches_by_host_case_insensitively() {
     )
     .unwrap();
     let repo = Repo::new();
-    repo.remote("origin", "git@GitHub.com:acme/widget.git");
-    repo.remote("backup", "https://github.com/acme/backup.git");
+    repo.remote("origin", "git@GitHub.com:owner/widget.git");
+    repo.remote("backup", "https://github.com/owner/backup.git");
 
     let matched = h
         .service
@@ -101,7 +101,7 @@ fn remote_order_follows_git_remote_and_matches_by_host_case_insensitively() {
     assert_eq!(matched.remote, "backup");
     assert_eq!(
         (matched.repo.owner.as_str(), matched.repo.repo.as_str()),
-        ("acme", "backup")
+        ("owner", "backup")
     );
 }
 
@@ -117,7 +117,7 @@ fn no_matching_remote_is_none_not_an_error() {
     )
     .unwrap();
     let repo = Repo::new();
-    repo.remote("origin", "https://example.org/acme/widget.git");
+    repo.remote("origin", "https://example.org/owner/widget.git");
     repo.remote("local", "/srv/git/widget.git");
 
     assert_eq!(
@@ -191,7 +191,7 @@ async fn invalid_input_is_refused_before_anything_is_stored() {
             ..input("x")
         },
         NewConnection {
-            host: "github.com/acme".into(),
+            host: "github.com/owner".into(),
             ..input("x")
         },
         NewConnection {
@@ -289,16 +289,91 @@ async fn pull_requests_are_listed_through_the_connection_matched_by_the_remote()
         .await
         .unwrap();
     let repo = Repo::new();
-    repo.remote("origin", &format!("http://{}/acme/widget.git", fake.host));
+    repo.remote("origin", &format!("http://{}/owner/widget.git", fake.host));
     let matched = h.service.require_repo(h.data.path(), &repo.path).unwrap();
 
-    let pulls = h.service.prs_list(&matched, PrFilter::Open).await.unwrap();
+    let pulls = h
+        .service
+        .prs_list(&matched, PrFilter::Open)
+        .await
+        .unwrap()
+        .pulls;
 
     assert_eq!(pulls.len(), 1);
     assert_eq!(pulls[0].state, PrState::Open);
     let last = fake.requests().pop().unwrap();
     assert_eq!(
         last.path,
-        "/api/v4/projects/acme%2Fwidget/merge_requests?state=opened&per_page=100"
+        "/api/v4/projects/owner%2Fwidget/merge_requests?state=opened&per_page=100&page=1"
+    );
+}
+
+#[tokio::test]
+async fn my_pulls_come_back_with_the_recent_repository_whose_remote_matches() {
+    let h = harness();
+    let fake = HttpFake::start(|request| {
+        let path = request.path.as_str();
+        if path == "/api/v4/user" {
+            Reply::ok(r#"{"username":"yui"}"#)
+        } else if path.contains("scope=created_by_me") {
+            Reply::ok(
+                &json!([
+                    {"iid": 3, "title": "Local", "description": "", "state": "opened",
+                     "source_branch": "f", "target_branch": "main", "author": {"username": "yui"},
+                     "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-02T10:00:00Z",
+                     "merge_status": "can_be_merged", "web_url": "https://x.example/owner/widget/-/merge_requests/3"},
+                    {"iid": 4, "title": "Remote only", "description": "", "state": "opened",
+                     "source_branch": "g", "target_branch": "main", "author": {"username": "yui"},
+                     "created_at": "2026-09-01T10:00:00Z", "updated_at": "2026-09-01T10:00:00Z",
+                     "merge_status": "can_be_merged", "web_url": "https://x.example/owner/elsewhere/-/merge_requests/4"}
+                ])
+                .to_string(),
+            )
+        } else {
+            Reply::ok("[]")
+        }
+    });
+    let connection = platform_connection_add(
+        h.data.path(),
+        PlatformKind::GitLab,
+        &fake.host,
+        "Lab",
+        false,
+    )
+    .unwrap();
+    let repo = Repo::new();
+    repo.remote("origin", &format!("https://{}/Owner/Widget.git", fake.host));
+    yforge_core::add_recent(h.data.path(), &repo.path.display().to_string()).unwrap();
+    h.secrets
+        .set(&format!("platform.{}", connection.id), "tok")
+        .unwrap();
+
+    let pulls = h
+        .service
+        .my_pulls(h.data.path(), &connection.id)
+        .await
+        .unwrap();
+    let located = h
+        .service
+        .locate_pulls(h.data.path(), &connection.id, pulls)
+        .unwrap();
+
+    let paths: Vec<(i64, Option<String>)> = located
+        .pulls
+        .iter()
+        .map(|pull| (pull.pull.number, pull.local_path.clone()))
+        .collect();
+    assert_eq!(
+        paths,
+        [(3, Some(repo.path.display().to_string())), (4, None)]
+    );
+    assert_eq!(
+        kind_of(
+            h.service
+                .my_pulls(h.data.path(), "missing")
+                .await
+                .unwrap_err()
+        ),
+        ErrorKind::InvalidRequest
     );
 }

@@ -35,6 +35,7 @@ const commandIcons: Partial<Record<string, IconName>> = {
   "tab.new": "plus",
   "tab.close": "close",
   "settings.open": "settings",
+  "launchpad.open": "launchpad",
   "settings.theme": "theme",
   "activity.toggle": "activity",
   "search.commits": "search",
@@ -96,6 +97,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "appearance", label: "Appearance", icon: "theme" },
   { id: "ai", label: "AI", icon: "wand" },
   { id: "platforms", label: "Platforms", icon: "plug" },
+  { id: "jira", label: "Jira", icon: "issue" },
+  { id: "git-hosts", label: "Git hosts", icon: "identity" },
   { id: "privacy", label: "Privacy & diagnostics", icon: "lock" },
   { id: "repository", label: "This repository", icon: "folder" },
 ];
@@ -107,6 +110,7 @@ export type PaletteApp = {
   openCreate: () => void;
   closeTab: () => void;
   openSettings: (section: string) => void;
+  openLaunchpad: () => void;
   addPlatformConnection: () => void;
   toggleDrawer: () => void;
   openSearch: () => void;
@@ -114,6 +118,12 @@ export type PaletteApp = {
   setTheme: (theme: "light" | "dark" | "system") => void;
   openRepository: (path: string) => void;
   repositories: () => string[];
+  aliasOf: (path: string) => string | undefined;
+  canReopenClosedTab: () => boolean;
+  reopenClosedTab: () => void;
+  nextTab: () => void;
+  previousTab: () => void;
+  checkForUpdate: () => void;
 };
 
 export type PaletteContext = {
@@ -136,6 +146,8 @@ export type PaletteContext = {
 };
 
 const NO_REPOSITORY = "Open a repository first";
+
+export const NO_CLOSED_TABS = "No closed tabs";
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
 
@@ -262,12 +274,24 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     });
 
   return [
-    command({ id: "repository.open", title: "Open repository…", group: "Application", shortcut: "⌘O", run: () => app.openFolder() }),
-    command({ id: "repository.clone", title: "Clone repository…", group: "Application", shortcut: "⌘⇧C", run: () => app.openClone() }),
-    command({ id: "repository.create", title: "Create repository…", group: "Application", shortcut: "⌘N", run: () => app.openCreate() }),
-    command({ id: "tab.new", title: "New tab", group: "Application", shortcut: "⌘T", run: () => app.openLauncher() }),
-    command({ id: "tab.close", title: "Close tab", group: "Application", shortcut: "⌘W", run: () => app.closeTab() }),
-    command({ id: "settings.open", title: "Open settings", group: "Application", shortcut: "⌘,", run: () => app.openSettings("general") }),
+    command({ id: "repository.open", title: "Open repository…", group: "Application", shortcut: SHORTCUTS.openRepository, run: () => app.openFolder() }),
+    command({ id: "repository.clone", title: "Clone repository…", group: "Application", shortcut: SHORTCUTS.cloneRepository, run: () => app.openClone() }),
+    command({ id: "repository.create", title: "Create repository…", group: "Application", shortcut: SHORTCUTS.createRepository, run: () => app.openCreate() }),
+    command({ id: "tab.new", title: "New tab", group: "Application", shortcut: SHORTCUTS.newTab, run: () => app.openLauncher() }),
+    command({ id: "tab.close", title: "Close tab", group: "Application", shortcut: SHORTCUTS.closeTab, run: () => app.closeTab() }),
+    command({
+      id: "tab.reopen",
+      title: "Reopen closed tab",
+      group: "Application",
+      shortcut: SHORTCUTS.reopenClosedTab,
+      ...(app.canReopenClosedTab() ? {} : { disabledReason: NO_CLOSED_TABS }),
+      run: () => app.reopenClosedTab(),
+    }),
+    command({ id: "tab.next", title: "Show next tab", group: "Application", shortcut: SHORTCUTS.nextTab, run: () => app.nextTab() }),
+    command({ id: "tab.previous", title: "Show previous tab", group: "Application", shortcut: SHORTCUTS.previousTab, run: () => app.previousTab() }),
+    command({ id: "update.check", title: "Check for update…", group: "Application", run: () => app.checkForUpdate() }),
+    command({ id: "launchpad.open", title: "Open Launchpad", group: "Application", run: () => app.openLaunchpad() }),
+    command({ id: "settings.open", title: "Open settings", group: "Application", shortcut: SHORTCUTS.settings, run: () => app.openSettings("general") }),
     command({
       id: "settings.theme",
       title: "Change theme…",
@@ -275,7 +299,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       args: [{ name: "theme", label: "Theme", options: () => [{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }] }],
       run: (values) => app.setTheme((values[0] ?? "system") as "light" | "dark" | "system"),
     }),
-    command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: "⌘⇧Y", run: () => app.toggleDrawer() }),
+    command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: SHORTCUTS.activity, run: () => app.toggleDrawer() }),
     command({ id: "head.reveal", title: "Reveal HEAD in the graph", group: "Repository", shortcut: SHORTCUTS.revealHead, run: () => context.revealHead() }),
     command({ id: "search.commits", title: "Search commits", group: "Commits", shortcut: SHORTCUTS.search, run: () => app.openSearch() }),
     command({ id: "open.editor", title: "Open repository in editor", group: "Repository", run: () => app.openExternal("editor") }),
@@ -625,11 +649,12 @@ export function navigationTargets(context: PaletteContext, choices: readonly Com
     })),
     ...app.repositories().map((path) => ({
       id: `go.repository.${path}`,
-      title: path,
+      title: app.aliasOf(path) ?? path,
       group: "Navigate" as const,
       covers: [],
       args: [],
       mode: "/" as const,
+      ...(app.aliasOf(path) === undefined ? {} : { note: path }),
       run: () => app.openRepository(path),
     })),
   ];
@@ -679,7 +704,7 @@ export function parseQuery(query: string): { mode: NavigationMode | undefined; t
   return mode === undefined ? { mode: undefined, text: query } : { mode, text: query.slice(1) };
 }
 
-const HOTKEY_PARTS: Record<string, string> = { "⌘": "Mod", "⇧": "Shift", "↵": "Enter" };
+const HOTKEY_PARTS: Record<string, string> = { "⌘": "Mod", "⇧": "Shift", "⌃": "Control", "⌥": "Alt", "↵": "Enter", "⇥": "Tab" };
 
 export function hotkeyOf(shortcut: string): Hotkey {
   const key = [...shortcut].pop() ?? "";

@@ -3,12 +3,13 @@ import type { CommitDraft } from "../ipc/bindings/CommitDraft";
 import { client } from "../ipc/client";
 import { createAiRun } from "./aiRun";
 import { SUMMARY_GUIDE, type Composer } from "./composer";
+import { fileList } from "./fileList";
 import type { RepoSession } from "./repoSession";
 
 export function draftNotes(draft: Pick<CommitDraft, "excluded" | "truncated" | "summary_trimmed">): string[] {
   const notes: string[] = [];
-  if (draft.excluded.length > 0) notes.push(`Withheld from the provider because they look like secrets: ${draft.excluded.join(", ")}`);
-  if (draft.truncated.length > 0) notes.push(`Cut to fit the size limit: ${draft.truncated.join(", ")}`);
+  if (draft.excluded.length > 0) notes.push(`Withheld from the provider because they look like secrets: ${fileList(draft.excluded)}`);
+  if (draft.truncated.length > 0) notes.push(`Cut to fit the size limit: ${fileList(draft.truncated)}`);
   if (draft.summary_trimmed) notes.push(`The summary was shortened to fit the ${SUMMARY_GUIDE} character guide.`);
   return notes;
 }

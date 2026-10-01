@@ -408,3 +408,16 @@ fn binary_commit_diffs_carry_the_size_of_each_side_that_exists() {
     let text = commit_file_diff(&repo.path, &added, "a.txt", false).unwrap();
     assert_eq!((text.old_size, text.new_size), (None, None));
 }
+
+#[test]
+fn a_commit_diff_over_two_megabytes_is_refused_with_its_size() {
+    let repo = ready_repository();
+    let big: String = (0..40_000)
+        .map(|number| format!("line {number:05} {}\n", "x".repeat(50)))
+        .collect();
+    let sha = repo.commit("big.txt", &big, "Add big");
+
+    let error = commit_file_diff(&repo.path, &sha, "big.txt", false).expect_err("refused");
+
+    assert_eq!(error.kind(), ErrorKind::FileTooLarge, "{error:?}");
+}

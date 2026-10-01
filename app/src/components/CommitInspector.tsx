@@ -7,13 +7,16 @@ import type { IconName } from "../iconNames";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
+import { useNow } from "../state/clock";
 import { repoKeys } from "../state/queryKeys";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import type { MenuEntry } from "../state/refMenu";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
+import { createIssueChips } from "../state/jiraIssues";
 import { AuthorBadge } from "./AuthorBadge";
+import { IssueChips } from "./IssueChip";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
 import { MessageForm } from "./MessageForm";
@@ -118,6 +121,7 @@ export function CommitInspector(props: {
     queryFn: () => client.commitDetails(path, props.sha),
     placeholderData: keepPreviousData,
   }));
+  const chips = createIssueChips(() => (details.data === undefined ? [] : [`${details.data.summary}\n${details.data.body}`]));
   let scroller: HTMLDivElement | undefined;
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const [editing, setEditing] = createSignal(false);
@@ -131,7 +135,7 @@ export function CommitInspector(props: {
     return head.kind === "branch" ? head.name : "HEAD";
   };
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
-  const now = Math.floor(Date.now() / 1000);
+  const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const commitTarget = (file: CommitFile): DiffTarget => ({ source: "commit", sha: shown()?.sha ?? props.sha, file: file.path });
@@ -176,6 +180,25 @@ export function CommitInspector(props: {
               </Show>
               <Show when={commit().body && !editing()}>{(body) => <p class="cbody">{body()}</p>}</Show>
               <div class="cmeta">
+                <Show when={chips.keysFor(`${commit().summary}\n${commit().body}`).length > 0}>
+                  <div class="mrow">
+                    <span class="k">Issues</span>
+                    <span class="v issue-chips">
+                      <IssueChips keys={chips.keysFor(`${commit().summary}\n${commit().body}`)} lookup={chips.lookup} />
+                      <For each={chips.keysFor(`${commit().summary}\n${commit().body}`)}>
+                        {(key) => (
+                          <Show when={chips.lookup(key)}>
+                            {(found) => (
+                              <span class="issue-detail">
+                                {found().issue === null ? `${key}: issue details unavailable${found().failure === null ? "" : `: ${found().failure}`}` : `${key} ${found().issue?.summary} · ${found().issue?.status}`}
+                              </span>
+                            )}
+                          </Show>
+                        )}
+                      </For>
+                    </span>
+                  </div>
+                </Show>
                 <div class="mrow">
                   <span class="k">Commit</span>
                   <span class="v sha">{commit().sha.slice(0, 7)}</span>
@@ -185,7 +208,7 @@ export function CommitInspector(props: {
                 <div class="mrow">
                   <span class="k">Date</span>
                   <span class="v" title={formatAbsolute(commit().committer.time)}>
-                    {formatAbsolute(commit().committer.time)} <span class="ago">· {relativeAge(commit().committer.time, now)} ago</span>
+                    {formatAbsolute(commit().committer.time)} <span class="ago">· {relativeAge(commit().committer.time, now())} ago</span>
                   </span>
                 </div>
                 <div class="mrow">

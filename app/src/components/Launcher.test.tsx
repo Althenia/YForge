@@ -1,6 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RecentStatus } from "../ipc/bindings/RecentStatus";
 import { CloneDialog, CreateDialog } from "./EntryDialogs";
@@ -30,7 +30,7 @@ const recents: RecentRepo[] = [
   { path: "/Users/yui/dev/other-repo", opened_at: now - 3600 },
   { path: "/Users/yui/dev/gone", opened_at: now - 86400 },
 ];
-const status = (path: string, extra: Partial<RecentStatus> = {}): RecentStatus => ({ path, exists: true, branch: "main", unborn: false, ahead_behind: null, counts: { ...counts, modified: 0, untracked: 0 }, worktrees: 1, ...extra });
+const status = (path: string, extra: Partial<RecentStatus> = {}): RecentStatus => ({ path, exists: true, branch: "main", unborn: false, ahead_behind: null, counts: { ...counts, modified: 0, untracked: 0 }, worktrees: 1, unreadable: null, ...extra });
 
 function install(handler: (call: Call) => unknown = () => undefined, list: RecentRepo[] = recents) {
   const calls: Call[] = [];
@@ -53,7 +53,9 @@ function install(handler: (call: Call) => unknown = () => undefined, list: Recen
               ? status(recent.path, { exists: false, branch: null, counts: null, worktrees: 0 })
               : recent.path.endsWith("sample")
                 ? status(recent.path, { branch: "feature/greeting", ahead_behind: { ahead: 2, behind: 0 }, counts, worktrees: 2 })
-                : status(recent.path),
+                : recent.path.endsWith("broken")
+                  ? status(recent.path, { branch: null, counts: null, worktrees: 0, unreadable: "index file smaller than expected" })
+                  : status(recent.path),
           );
         case "repo_open":
           return { root: (args as { path: string }).path };
@@ -61,6 +63,8 @@ function install(handler: (call: Call) => unknown = () => undefined, list: Recen
         case "recent_remove":
           return list;
         case "settings_load":
+        case "repo_aliases_list":
+          return [];
         case "session_load":
           return null;
         default:
@@ -83,6 +87,22 @@ async function mountLauncher(list: RecentRepo[] = recents, handler?: (call: Call
 const rows = (host: HTMLElement) => [...host.querySelectorAll(".recent")];
 
 describe("launcher", () => {
+  it("ages a recent's opened time as the clock ticks", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      const { host } = await mountLauncher();
+      const age = () => rows(host)[0]?.querySelector(".recent-age")?.textContent;
+      expect(age()).toBe("5m ago");
+
+      vi.advanceTimersByTime(3 * 60 * 60 * 1000);
+      await flush();
+
+      expect(age()).toBe("3h ago");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("lists recents with name, branch, ahead/behind, change counts, worktrees, home-relative path, and age", async () => {
     const { host } = await mountLauncher();
 
@@ -106,6 +126,22 @@ describe("launcher", () => {
     expect(host.textContent).toContain("Drop a folder to open it");
   });
 
+  it("names a recent repository by its alias, keeps the folder in the path line, and finds it by the alias", async () => {
+    const { host, app } = await mountLauncher(recents, (call) => (call.cmd === "repo_alias_set" ? [{ path: recents[0]?.path, alias: "Corp A · API" }] : undefined));
+
+    await app.setAlias(recents[0]?.path ?? "", "Corp A · API");
+    await flush();
+
+    const first = rows(host)[0];
+    expect(first?.querySelector(".recent-name")?.textContent).toBe("Corp A · API");
+    expect(first?.querySelector(".recent-path")?.textContent).toBe("~/dev/sample");
+    expect(first?.querySelector("button[aria-label^='Reveal']")?.getAttribute("aria-label")).toBe("Reveal Corp A · API in Finder");
+    const filter = host.querySelector<HTMLInputElement>('input[aria-label="Filter recent repositories"]');
+    type(filter, "corp");
+    await flush();
+    expect(rows(host)).toHaveLength(1);
+  });
+
   it("marks a repository that no longer exists as Not found with Locate and Remove instead of opening it", async () => {
     const { host, calls } = await mountLauncher();
 
@@ -117,6 +153,17 @@ describe("launcher", () => {
     await flush();
 
     expect(calls.find((call) => call.cmd === "recent_remove")?.args).toEqual({ path: "/Users/yui/dev/gone" });
+  });
+
+  it("states why a repository's status could not be read, in text, and still opens it", async () => {
+    const broken = { path: "/Users/yui/dev/broken", opened_at: now - 60 };
+    const { host, calls } = await mountLauncher([broken]);
+
+    const row = rows(host)[0];
+    expect(row?.textContent).toContain("Could not read status: index file smaller than expected");
+    expect(row?.textContent).not.toContain("Not found");
+    expect(row?.querySelector<HTMLButtonElement>(".recent-main")?.disabled).toBe(false);
+    expect(calls.some((call) => call.cmd === "recent_remove")).toBe(false);
   });
 
   it("filters the recents as you type and opens the highlighted one with Enter", async () => {
@@ -251,7 +298,7 @@ describe("clone dialog", () => {
     expect(host.querySelector(".entry-progress")?.textContent).toContain("Receiving objects 64%");
     expect(buttonNamed(host, "Clone")?.disabled).toBe(true);
     expect(buttonNamed(host, "Close")?.disabled).toBe(true);
-    buttonNamed(host, "Cancel")?.click();
+    buttonNamed(host, "Cancel clone")?.click();
     await flush();
     expect(calls.find((call) => call.cmd === "operation_cancel")?.args).toEqual({ id: cloneCall?.args.id });
     finish("/Users/yui/lab-app");
@@ -261,7 +308,7 @@ describe("clone dialog", () => {
     expect(app.activePath()).toBe("/Users/yui/lab-app");
   });
 
-  it("reports a failed or cancelled clone and offers Retry", async () => {
+  it("reports a failed or cancelled clone and offers Try again", async () => {
     let attempt = 0;
     const { host } = await mountClone((call) => {
       if (call.cmd !== "clone_repo") return undefined;
@@ -274,7 +321,7 @@ describe("clone dialog", () => {
     buttonNamed(host, "Clone")?.click();
     await flush();
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("Clone cancelled. The partial folder was removed.");
-    buttonNamed(host, "Retry")?.click();
+    buttonNamed(host, "Try again")?.click();
     await flush();
 
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("network is down");

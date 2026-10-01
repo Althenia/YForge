@@ -5,6 +5,7 @@ import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { takeConnectKind } from "../state/connectRequest";
 import { removeConnectionCopy } from "../state/confirmCopy";
 import { cardOfPlatform, CONNECTION_FIELDS, connectionFieldProblem, PLATFORM_CARDS, platformFailure, type ConnectionProblem, type ConnectionProblems, type PlatformFailure } from "../state/platformModel";
 import { platformConnectionsOptions } from "../state/platformQueries";
@@ -15,7 +16,7 @@ import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
 
-export type PlatformDialogStart = { kind: "add" } | { kind: "edit"; connection: PlatformConnection };
+export type PlatformDialogStart = { kind: "add"; platform?: PlatformKind } | { kind: "edit"; connection: PlatformConnection };
 
 type TestResult = { kind: "ok"; login: string } | { kind: "failed"; failure: PlatformFailure };
 
@@ -37,9 +38,9 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
   const [nameEdited, setNameEdited] = createSignal(editing() !== undefined);
   const form = createForm(() => ({
     defaultValues: {
-      kind: (editing()?.kind ?? "github") as PlatformKind,
+      kind: (editing()?.kind ?? (props.start.kind === "add" ? props.start.platform : undefined) ?? "github") as PlatformKind,
       host: editing()?.host ?? "",
-      name: editing()?.name ?? cardOfPlatform("github").title,
+      name: editing()?.name ?? cardOfPlatform((props.start.kind === "add" ? props.start.platform : undefined) ?? "github").title,
       token: "",
       insecureTls: editing()?.insecure_tls ?? false,
     },
@@ -200,7 +201,7 @@ export function PlatformSettings(props: { initialDialog?: PlatformDialogStart })
   const app = useApp();
   const queryClient = useQueryClient();
   const connections = useQuery(platformConnectionsOptions);
-  const [dialog, setDialog] = createSignal<PlatformDialogStart | undefined>(props.initialDialog ?? (app.takePlatformAddRequest() ? { kind: "add" } : undefined));
+  const [dialog, setDialog] = createSignal<PlatformDialogStart | undefined>(props.initialDialog ?? (app.takePlatformAddRequest() ? { kind: "add", platform: takeConnectKind() } : undefined));
   const [removal, setRemoval] = createSignal<PlatformConnection | undefined>();
   const [results, setResults] = createSignal<Record<string, TestResult>>({});
   const [testing, setTesting] = createSignal<ReadonlySet<string>>(new Set());

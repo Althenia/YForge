@@ -53,6 +53,8 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
 
+const noLoss = { count: 0, commits: [] };
+
 const rejection = (kind: string, message: string, output: string | null = null) => ({ kind, message, output });
 
 describe("checkout", () => {
@@ -187,7 +189,7 @@ describe("branch creation, rename, and deletion", () => {
   });
 
   it("deletes a fully merged branch without a dialog", async () => {
-    const { actions, calls, names } = setup((call) => (call.cmd === "branch_delete_preview" ? [] : null));
+    const { actions, calls, names } = setup((call) => (call.cmd === "branch_delete_preview" ? noLoss : null));
 
     actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: undefined, startPoint: "a" }, { left: 0, top: 0 });
     actions.menu()?.run("delete");
@@ -199,7 +201,7 @@ describe("branch creation, rename, and deletion", () => {
   });
 
   it("confirms deleting an unmerged branch, naming the lost commits, and forces only after confirmation", async () => {
-    const lost = [{ sha: "aaaaaaa1234", summary: "Topic work" }];
+    const lost = { count: 1, commits: [{ sha: "aaaaaaa1234", summary: "Topic work" }] };
     const { actions, calls } = setup((call) => (call.cmd === "branch_delete_preview" ? lost : null));
 
     actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: undefined, startPoint: "a" }, { left: 0, top: 0 });
@@ -306,7 +308,7 @@ describe("sync", () => {
   });
 
   it("pushes a tracked branch and lets a rejected push with local commits offer the force-with-lease dialog", async () => {
-    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: [] };
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: { count: 0, commits: [] } };
     const ahead = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 1, behind: 0 } } });
     const { actions, calls } = setup((call) => {
       if (call.cmd === "push") throw rejection("push_rejected", "The remote rejected the push");
@@ -333,7 +335,7 @@ describe("sync", () => {
   });
 
   it("goes straight to the force-with-lease dialog when the branch diverged", async () => {
-    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: [{ sha: "f86d53a", summary: "Old" }] };
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: { count: 1, commits: [{ sha: "f86d53a", summary: "Old" }] } };
     const diverged = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } } });
     const { actions, names } = setup((call) => (call.cmd === "push_plan" ? plan : null), diverged);
 
@@ -344,7 +346,7 @@ describe("sync", () => {
   });
 
   it("force pushes with the lease from the plan and reports a rejected lease", async () => {
-    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: [] };
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: { count: 0, commits: [] } };
     const { actions, calls, session } = setup((call) => {
       if (call.cmd === "push_force") throw rejection("push_rejected", "The remote rejected the push");
       return null;
@@ -685,31 +687,81 @@ describe("phase 3b actions", () => {
   it("auto-fetches without prompting and reports success", async () => {
     const { actions, calls } = setup(() => null);
 
-    const ok = await actions.autoFetch();
+    await actions.autoFetch();
 
-    expect(ok).toBe(true);
     expect(calls.find((call) => call.cmd === "fetch")?.args).toMatchObject({ interactive: false, prune: false });
+    expect(actions.autoFetchPause()).toBeUndefined();
   });
 
-  it("stays silent when an auto-fetch fails but reports it as not ok and keeps the auth state", async () => {
+  it("pauses auto-fetch with the reason in state, not a toast, when an auto-fetch fails, and keeps the auth state", async () => {
     const { actions, session } = setup((call) => {
       if (call.cmd === "fetch") throw rejection("auth_failed", "Authentication failed for origin");
       return null;
     });
 
-    const ok = await actions.autoFetch();
+    await actions.autoFetch();
 
-    expect(ok).toBe(false);
+    expect(actions.autoFetchPause()).toBe("Authentication failed for origin");
     expect(session.notice()).toBeUndefined();
     expect(actions.sync()).toMatchObject({ kind: "failed", message: "auth failed for origin" });
+  });
+
+  it("pauses with the first line of git's output when an auto-fetch fails for another reason", async () => {
+    const { actions, session } = setup((call) => {
+      if (call.cmd === "fetch") throw rejection("internal", "git fetch failed", "\nfatal: unable to access 'https://host/r.git/': Could not resolve host\n");
+      return null;
+    });
+
+    await actions.autoFetch();
+
+    expect(actions.autoFetchPause()).toBe("git fetch failed: fatal: unable to access 'https://host/r.git/': Could not resolve host");
+    expect(session.notice()).toBeUndefined();
+  });
+
+  it("does not pause when the user cancels the auto-fetch", async () => {
+    const { actions } = setup((call) => {
+      if (call.cmd === "fetch") throw rejection("cancelled", "Cancelled");
+      return null;
+    });
+
+    await actions.autoFetch();
+
+    expect(actions.autoFetchPause()).toBeUndefined();
+  });
+
+  it("stops auto-fetching while paused, and a successful manual fetch clears the pause and resumes it", async () => {
+    let failing = true;
+    const { actions, calls } = setup((call) => {
+      if (call.cmd === "fetch" && failing) throw rejection("internal", "git fetch failed");
+      return null;
+    });
+    const fetches = () => calls.filter((call) => call.cmd === "fetch").length;
+
+    await actions.autoFetch();
+    await actions.autoFetch();
+    expect(fetches()).toBe(1);
+    expect(actions.autoFetchPause()).toBe("git fetch failed");
+
+    await actions.fetchAll();
+    expect(fetches()).toBe(2);
+    expect(actions.autoFetchPause()).toBe("git fetch failed");
+
+    failing = false;
+    await actions.fetchAll();
+    expect(actions.autoFetchPause()).toBeUndefined();
+
+    await actions.autoFetch();
+    expect(fetches()).toBe(4);
   });
 
   it("skips the auto-fetch when there are no remotes or an operation is in progress", async () => {
     const none = setup(() => null, snapshot({ remotes: [] }));
     const busy = setup(() => null, snapshot({ operation: "merge" }));
 
-    expect(await none.actions.autoFetch()).toBe(true);
-    expect(await busy.actions.autoFetch()).toBe(true);
+    await none.actions.autoFetch();
+    await busy.actions.autoFetch();
+    expect(none.actions.autoFetchPause()).toBeUndefined();
+    expect(busy.actions.autoFetchPause()).toBeUndefined();
     expect(none.calls.some((call) => call.cmd === "fetch")).toBe(false);
     expect(busy.calls.some((call) => call.cmd === "fetch")).toBe(false);
   });
@@ -804,7 +856,8 @@ describe("fetch and prune", () => {
     actions.openSyncMenu({ left: 0, top: 0 });
     const fetch = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "fetch");
     expect(fetch).toMatchObject({ disabledReason: "You are offline" });
-    expect(await actions.autoFetch()).toBe(true);
+    await actions.autoFetch();
+    expect(actions.autoFetchPause()).toBeUndefined();
     expect(calls.some((call) => call.cmd === "fetch")).toBe(false);
   });
 });
@@ -995,7 +1048,7 @@ describe("remote branches", () => {
   });
 
   it("deletes a local branch and its remote branch together after one confirmation naming both", async () => {
-    const lost = [{ sha: "aaaaaaa1234", summary: "Topic work" }];
+    const lost = { count: 1, commits: [{ sha: "aaaaaaa1234", summary: "Topic work" }] };
     const { actions, names, calls } = setup((call) => (call.cmd === "branch_delete_preview" ? lost : null), snapshot({ remote_branches: ["origin/feature"] }));
 
     actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "a" }, { left: 0, top: 0 });
@@ -1013,7 +1066,7 @@ describe("remote branches", () => {
   it("does not touch the remote when the local deletion fails", async () => {
     const { actions, names, session } = setup((call) => {
       if (call.cmd === "delete_branch") throw rejection("invalid_request", "Cannot delete");
-      return call.cmd === "branch_delete_preview" ? [] : null;
+      return call.cmd === "branch_delete_preview" ? noLoss : null;
     }, snapshot({ remote_branches: ["origin/feature"] }));
 
     actions.openRefMenu({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "a" }, { left: 0, top: 0 });
@@ -1292,51 +1345,116 @@ describe("bulk branch and stash actions", () => {
     { index: 2, sha: "s2", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: three", time: 0 },
   ];
 
-  it("confirms deleting several branches once, naming them and the commits that would lose their name, then forces only those", async () => {
-    const lost = [{ sha: "aaaaaaa1234", summary: "Topic work" }];
-    const { actions, calls } = setup((call) => (call.cmd === "branch_delete_preview" ? (call.args.name === "feature" ? lost : []) : null));
+  const batch = (done: string[], failed: Array<{ name: string; reason: string }> = []) => ({ done, failed });
+
+  it("confirms deleting several branches once, naming them and the commits that would lose their name, then forces only those in one call", async () => {
+    const lost = { count: 1, commits: [{ sha: "aaaaaaa1234", summary: "Topic work" }] };
+    const { actions, calls } = setup((call) => {
+      if (call.cmd === "branch_delete_preview") return call.args.name === "feature" ? lost : noLoss;
+      return call.cmd === "delete_branches" ? batch(["feature", "spare"]) : null;
+    });
 
     await actions.deleteBranches(["feature", "spare"]);
 
     const dialog = actions.dialog();
     expect(dialog?.copy).toMatchObject({ title: "Delete 2 branches?", names: ["feature", "spare"], confirmLabel: "Delete branches", warning: true });
-    expect(dialog?.copy.also).toEqual({ heading: "Commits left without a name", names: ["feature: aaaaaaa Topic work"] });
-    expect(calls.some((call) => call.cmd === "delete_branch")).toBe(false);
+    expect(dialog?.copy.also).toEqual({ heading: "Commits left without a name", names: ["feature: aaaaaaa Topic work"], total: 1 });
+    expect(calls.some((call) => call.cmd === "delete_branches")).toBe(false);
     await dialog?.run();
-    expect(calls.filter((call) => call.cmd === "delete_branch").map((call) => call.args)).toEqual([
-      { path: "/r", name: "feature", force: true },
-      { path: "/r", name: "spare", force: false },
-    ]);
+    expect(calls.filter((call) => call.cmd === "delete_branches").map((call) => call.args)).toEqual([{ path: "/r", names: ["feature", "spare"], forced: ["feature"] }]);
+    expect(calls.some((call) => call.cmd === "delete_branch")).toBe(false);
     expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
   });
 
-  it("stops at the first refused branch and says why", async () => {
-    const { actions, calls, session } = setup((call) => {
-      if (call.cmd === "branch_delete_preview") return [];
-      if (call.cmd === "delete_branch" && call.args.name === "feature") throw rejection("branch_in_worktree", "feature is checked out in worktree /w/x");
-      return null;
+  it("previews many branches with a bounded number of requests at a time", async () => {
+    const names = Array.from({ length: 40 }, (_, index) => `topic-${index}`);
+    let running = 0;
+    let busiest = 0;
+    const { actions, calls } = setup(async (call) => {
+      if (call.cmd !== "branch_delete_preview") return null;
+      running += 1;
+      busiest = Math.max(busiest, running);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      running -= 1;
+      return noLoss;
+    });
+
+    await actions.deleteBranches(names);
+
+    expect(calls.filter((call) => call.cmd === "branch_delete_preview")).toHaveLength(40);
+    expect(busiest).toBeGreaterThan(1);
+    expect(busiest).toBeLessThanOrEqual(4);
+    expect(actions.dialog()?.copy.title).toBe("Delete 40 branches?");
+  });
+
+  it("says which branches could not be deleted when only some were", async () => {
+    const { actions, session } = setup((call) => {
+      if (call.cmd === "branch_delete_preview") return noLoss;
+      return call.cmd === "delete_branches" ? batch(["spare"], [{ name: "feature", reason: "feature is checked out in worktree /w/x" }]) : null;
     });
 
     await actions.deleteBranches(["feature", "spare"]);
     await actions.dialog()?.run();
     await settle();
 
-    expect(calls.filter((call) => call.cmd === "delete_branch")).toHaveLength(1);
+    expect(session.notice()).toBe("1 of 2 could not be deleted. feature: feature is checked out in worktree /w/x");
+  });
+
+  it("shows the refusal when no branch could be deleted", async () => {
+    const { actions, session } = setup((call) => {
+      if (call.cmd === "branch_delete_preview") return noLoss;
+      if (call.cmd === "delete_branches") throw rejection("branch_in_worktree", "feature is checked out in worktree /w/x");
+      return null;
+    });
+
+    await actions.deleteBranches(["feature"]);
+    await actions.dialog()?.run();
+    await settle();
+
     expect(session.notice()).toBe("feature is checked out in worktree /w/x");
   });
 
-  it("drops several stashes from the highest index down after one confirmation", async () => {
-    const { actions, calls } = setup(() => null);
+  it("deletes several tags after one confirmation that names them, in one call", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "delete_tags" ? batch(["v1.0", "v2.0"]) : null));
+
+    actions.deleteTags(["v1.0", "v2.0"]);
+    const dialog = actions.dialog();
+
+    expect(dialog?.copy).toMatchObject({ title: "Delete 2 tags?", names: ["v1.0", "v2.0"], confirmLabel: "Delete tags" });
+    expect(calls.some((call) => call.cmd === "delete_tags")).toBe(false);
+    await dialog?.run();
+    expect(calls.filter((call) => call.cmd === "delete_tags").map((call) => call.args)).toEqual([{ path: "/r", names: ["v1.0", "v2.0"] }]);
+    expect(calls.some((call) => call.cmd === "delete_tag")).toBe(false);
+  });
+
+  it("says which tags could not be deleted when only some were", async () => {
+    const { actions, session } = setup((call) => (call.cmd === "delete_tags" ? batch(["v1.0"], [{ name: "v2.0", reason: "there is no tag v2.0" }]) : null));
+
+    actions.deleteTags(["v1.0", "v2.0"]);
+    await actions.dialog()?.run();
+    await settle();
+
+    expect(session.notice()).toBe("1 of 2 could not be deleted. v2.0: there is no tag v2.0");
+  });
+
+  it("drops several stashes in one call after one confirmation", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "drop_stashes" ? batch(["stash@{2}", "stash@{0}"]) : null));
 
     actions.dropStashes([stashes[0], stashes[2]] as never);
     const dialog = actions.dialog();
 
     expect(dialog?.copy).toMatchObject({ title: "Drop 2 stashes?", names: ["stash@{0} On main: one", "stash@{2} On main: three"], confirmLabel: "Drop stashes" });
-    expect(calls.some((call) => call.cmd === "stash_drop")).toBe(false);
+    expect(calls.some((call) => call.cmd === "drop_stashes")).toBe(false);
     await dialog?.run();
-    expect(calls.filter((call) => call.cmd === "stash_drop").map((call) => call.args)).toEqual([
-      { path: "/r", index: 2, sha: "s2" },
-      { path: "/r", index: 0, sha: "s0" },
+    expect(calls.filter((call) => call.cmd === "drop_stashes").map((call) => call.args)).toEqual([
+      {
+        path: "/r",
+        targets: [
+          { index: 0, sha: "s0" },
+          { index: 2, sha: "s2" },
+        ],
+      },
     ]);
+    expect(calls.some((call) => call.cmd === "stash_drop")).toBe(false);
   });
 });

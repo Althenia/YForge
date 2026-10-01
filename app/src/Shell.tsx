@@ -6,8 +6,10 @@ import { CommandPalette } from "./components/CommandPalette";
 import { CloneDialog, CreateDialog } from "./components/EntryDialogs";
 import { EmptyState } from "./components/EmptyState";
 import { Notice } from "./components/Notice";
+import { TabRestoring } from "./components/TabRestoring";
 import { Toasts } from "./components/Toasts";
 import { TooltipHost } from "./components/Tooltip";
+import { UpdateDialog } from "./components/UpdateDialog";
 import { useApp } from "./state/app";
 
 const root = document.documentElement;
@@ -43,6 +45,7 @@ export function Shell() {
         <i class="a4" />
       </div>
       <Show when={app.fatal()}>{(message) => <EmptyState title="YForge could not start" message={message()} danger />}</Show>
+      <Show when={!app.ready() ? app.restoring() : undefined}>{(restoring) => <TabRestoring restoring={restoring()} />}</Show>
       <Show when={app.ready()}>
         <Outlet />
         <Show when={app.drawerOpen()}>
@@ -58,6 +61,9 @@ export function Shell() {
         </Show>
         <Show when={app.entryDialog() === "create"}>
           <CreateDialog onClose={() => app.setEntryDialog(undefined)} />
+        </Show>
+        <Show when={app.updateDialogOpen()}>
+          <UpdateDialog onClose={app.closeUpdateDialog} />
         </Show>
         <Show when={app.prompts()[0]} keyed>
           {(pending) => <AuthDialog pending={pending} />}

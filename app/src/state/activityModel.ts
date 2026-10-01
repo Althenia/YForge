@@ -1,8 +1,10 @@
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 
+export const ACTIVITY_LIMIT = 300;
+
 export function upsertEntry(entries: readonly ActivityEntry[], entry: ActivityEntry): ActivityEntry[] {
   const at = entries.findIndex((candidate) => candidate.id === entry.id);
-  if (at < 0) return [...entries, entry];
+  if (at < 0) return [...entries, entry].slice(-ACTIVITY_LIMIT);
   return entries.map((candidate, index) => (index === at ? entry : candidate));
 }
 

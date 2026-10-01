@@ -6,6 +6,7 @@ import { flush, mountWithApp } from "../components/testkit";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "./repoActions";
+import { repoKeys } from "./queryKeys";
 import { defaultSettings } from "./settingsModel";
 
 let dispose: (() => void) | undefined;
@@ -26,7 +27,7 @@ afterEach(async () => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-function install(options: { tabs: string[]; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string> }) {
+function install(options: { tabs: string[]; groups?: Array<{ name: string; color: "mint"; collapsed: boolean; tabs: string[] }>; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string>; failSessionSave?: () => boolean; failSettingsSave?: boolean; holdRepoOpen?: Promise<void>; aliases?: Array<{ path: string; alias: string }> }) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -35,14 +36,30 @@ function install(options: { tabs: string[]; launch: string; repositories: string
         case "settings_load":
           return { ...defaultSettings, ...options.settings };
         case "session_load":
-          return { tabs: options.tabs, active: 0 };
+          return { tabs: options.tabs, active: 0, groups: options.groups ?? [] };
         case "launch_path":
           return options.launch;
-        case "repo_open": {
-          const path = (args as { path: string }).path;
-          if (!options.repositories.includes(path)) throw { kind: "not_a_repository", message: `${path} is not inside a Git repository`, output: null };
-          return { root: path, main_root: options.mains?.[path] ?? path };
+        case "repo_aliases_list":
+          return options.aliases ?? [];
+        case "repo_alias_set": {
+          const { path, alias } = args as { path: string; alias: string | null };
+          if (alias === "refuse") throw { kind: "invalid_request", message: "An alias is at most 40 characters", output: null };
+          options.aliases = [...(options.aliases ?? []).filter((entry) => entry.path !== path), ...(alias === null ? [] : [{ path, alias }])];
+          return options.aliases;
         }
+        case "settings_save":
+          if (options.failSettingsSave === true) throw { kind: "internal", message: "settings database is read-only", output: null };
+          return (args as { settings: typeof defaultSettings }).settings;
+        case "session_save":
+          if (options.failSessionSave?.()) throw { kind: "internal", message: "disk full", output: null };
+          return null;
+        case "repo_open":
+          return (async () => {
+            await options.holdRepoOpen;
+            const path = (args as { path: string }).path;
+            if (!options.repositories.includes(path)) throw { kind: "not_a_repository", message: `${path} is not inside a Git repository`, output: null };
+            return { root: path, main_root: options.mains?.[path] ?? path };
+          })();
         case "activity_list":
         case "recents_list":
         case "recent_add":
@@ -114,7 +131,7 @@ describe("app state", () => {
     expect(app.activePath()).toBe("/r");
     expect(app.notice()).toBe("/nope is not a Git repository");
     expect(calls.find((call) => call.cmd === "recent_add")?.args).toEqual({ path: "/r" });
-    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/r"], active: 0 } });
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/r"], active: 0, groups: [] } });
   });
 
   it("closing the last tab leaves the launcher", async () => {
@@ -249,7 +266,7 @@ describe("app state", () => {
     const { app } = await boot({ tabs: ["/w/repo", "/w/other", "/w/repo-feature"], launch: "/", repositories: ["/w/repo", "/w/other", "/w/repo-feature", "/w/repo-fix"], mains: { ...mains, "/w/repo-fix": "/w/repo" } });
 
     expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo", "/w/repo-feature", "/w/other"]);
-    expect(app.tabGroups().map((group) => [group.main, group.tabs.map((entry) => entry.linked)])).toEqual([
+    expect(app.tabSegments().map((segment) => (segment.kind === "cluster" ? [segment.cluster.main, segment.cluster.tabs.map((entry) => entry.linked)] : []))).toEqual([
       ["/w/repo", [false, true]],
       ["/w/other", [false]],
     ]);
@@ -258,6 +275,19 @@ describe("app state", () => {
 
     expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/repo", "/w/repo-feature", "/w/repo-fix", "/w/other"]);
     expect(app.activePath()).toBe("/w/repo-fix");
+  });
+
+  it("restores saved tab groups and keeps them in the saved session when a worktree of a grouped repository opens", async () => {
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/repo"] };
+    const { app, calls } = await boot({ tabs: ["/w/repo", "/w/other"], groups: [group], launch: "/", repositories: ["/w/repo", "/w/other", "/w/repo-feature"], mains: { "/w/repo-feature": "/w/repo" } });
+
+    expect(app.tabs().groups).toEqual([group]);
+    await app.openRepository("/w/repo-feature");
+
+    expect(app.tabs().groups).toEqual([{ ...group, tabs: ["/w/repo", "/w/repo-feature"] }]);
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({
+      session: { tabs: ["/w/repo", "/w/repo-feature", "/w/other"], active: 1, groups: [{ ...group, tabs: ["/w/repo", "/w/repo-feature"] }] },
+    });
   });
 
   it("opens and activates the tab of a path a second yforge launch hands over", async () => {
@@ -271,7 +301,7 @@ describe("app state", () => {
 
     expect(app.activePath()).toBe("/a");
     expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }, { kind: "repo", path: "/b" }]);
-    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/a", "/b"], active: 0 } });
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/a", "/b"], active: 0, groups: [] } });
   });
 
   it("tells the user when a path handed over by a second launch is not a repository", async () => {
@@ -291,5 +321,284 @@ describe("app state", () => {
 
     expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/w/repo" }]);
     expect(app.activePath()).toBe("/w/repo");
+  });
+
+  it("saves each tab group action with the session and keeps the repository and its worktree tabs together", async () => {
+    const { app, calls } = await boot({ tabs: ["/w/a", "/w/b", "/w/b-feature"], launch: "/", repositories: ["/w/a", "/w/b", "/w/b-feature"], mains: { "/w/b-feature": "/w/b" } });
+    const saved = () => calls.filter((call) => call.cmd === "session_save").at(-1)?.args;
+
+    app.newTabGroup("/w/a", "  Corp A ", "red");
+    expect(app.tabs().groups).toEqual([{ name: "Corp A", color: "red", collapsed: false, tabs: ["/w/a"] }]);
+    app.addToTabGroup("/w/b", 0);
+    app.toggleTabGroup(0);
+    app.recolorTabGroup(0, "orange");
+    app.renameTabGroup(0, "Corp B");
+
+    const group = { name: "Corp B", color: "orange", collapsed: true, tabs: ["/w/a", "/w/b", "/w/b-feature"] };
+    expect(app.tabs().groups).toEqual([group]);
+    expect(saved()).toEqual({ session: { tabs: ["/w/a", "/w/b", "/w/b-feature"], active: 0, groups: [group] } });
+
+    app.removeFromTabGroup("/w/b");
+    expect(app.tabs().groups.map((entry) => entry.tabs)).toEqual([["/w/a"]]);
+    app.ungroupTabs(0);
+    expect(app.tabs().groups).toEqual([]);
+    expect(saved()).toEqual({ session: { tabs: ["/w/a", "/w/b", "/w/b-feature"], active: 0, groups: [] } });
+  });
+
+  it("closes the tabs of a group and deletes the group", async () => {
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a", "/w/b"] };
+    const { app, calls } = await boot({ tabs: ["/w/a", "/w/b", "/w/c"], groups: [group], launch: "/", repositories: ["/w/a", "/w/b", "/w/c"] });
+
+    app.closeTabGroup(0);
+
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/w/c" }]);
+    expect(app.activePath()).toBe("/w/c");
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/w/c"], active: 0, groups: [] } });
+  });
+
+  it("hides the tabs of a collapsed group but never the active one, and expands the group when one of its tabs is activated", async () => {
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a", "/w/b"] };
+    const { app } = await boot({ tabs: ["/w/a", "/w/b", "/w/c"], groups: [group], launch: "/", repositories: ["/w/a", "/w/b", "/w/c"] });
+    const visible = () => app.tabSegments().flatMap((segment) => (segment.kind === "group" ? segment.clusters : [segment.cluster]).flatMap((cluster) => cluster.tabs.filter((entry) => !entry.hidden).map((entry) => entry.tab.kind === "repo" ? entry.tab.path : "")));
+
+    app.activate(2);
+    app.toggleTabGroup(0);
+    expect(visible()).toEqual(["/w/c"]);
+
+    app.activate(1);
+    expect(app.tabs().groups[0]?.collapsed).toBe(false);
+    expect(visible()).toEqual(["/w/a", "/w/b", "/w/c"]);
+
+    app.toggleTabGroup(0);
+    expect(visible()).toEqual(["/w/b", "/w/c"]);
+  });
+
+  it("collapses, renames, and recolors a group without leaving the settings screen", async () => {
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a"] };
+    const { app } = await boot({ tabs: ["/w/a"], groups: [group], launch: "/", repositories: ["/w/a"] });
+    app.openSettings("general");
+    await flush();
+
+    app.toggleTabGroup(0);
+    app.renameTabGroup(0, "Corp");
+    app.recolorTabGroup(0, "cyan");
+    await flush();
+
+    expect(app.screen()).toEqual({ kind: "settings", section: "general" });
+    expect(app.tabs().groups).toEqual([{ name: "Corp", color: "cyan", collapsed: true, tabs: ["/w/a"] }]);
+  });
+
+  it("reports a tab group save failure and clears it when the retry saves", async () => {
+    let failing = true;
+    const { app, calls } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"], failSessionSave: () => failing });
+
+    app.newTabGroup("/w/a", "Work", "blue");
+    await flush();
+    expect(app.tabGroupSaveFailure()).toBe("disk full");
+    expect(app.notice()).toBeUndefined();
+
+    failing = false;
+    app.retryTabGroupSave();
+    await flush();
+
+    expect(app.tabGroupSaveFailure()).toBeUndefined();
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({
+      session: { tabs: ["/w/a"], active: 0, groups: [{ name: "Work", color: "blue", collapsed: false, tabs: ["/w/a"] }] },
+    });
+  });
+
+  it("exposes the saved tab count and groups while the session is restored and drops them once ready", async () => {
+    let release: () => void = () => undefined;
+    const holdRepoOpen = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a"] };
+    install({ tabs: ["/w/a", "/w/b"], groups: [group], launch: "/", repositories: ["/w/a", "/w/b"], holdRepoOpen });
+    const mounted = mountWithApp(() => null);
+    dispose = mounted.dispose;
+    const booting = mounted.app.boot();
+    await flush();
+
+    expect(mounted.app.ready()).toBe(false);
+    expect(mounted.app.restoring()).toEqual({ tabs: 2, groups: [group] });
+
+    release();
+    await booting;
+
+    expect(mounted.app.ready()).toBe(true);
+    expect(mounted.app.restoring()).toBeUndefined();
+  });
+
+  it("reopens the most recently closed tab into its former group, and says there is none until a tab was closed", async () => {
+    const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a", "/w/b"] };
+    const { app, calls } = await boot({ tabs: ["/w/a", "/w/b", "/w/c"], groups: [group], launch: "/", repositories: ["/w/a", "/w/b", "/w/c"] });
+    expect(app.canReopenClosedTab()).toBe(false);
+
+    app.closeTabAt(1);
+    app.closeTabAt(1);
+    expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/a"]);
+    expect(app.canReopenClosedTab()).toBe(true);
+
+    await app.reopenClosedTab();
+    await flush();
+
+    expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/a", "/w/c"]);
+    expect(app.activePath()).toBe("/w/c");
+    expect(app.tabs().groups).toEqual([{ ...group, tabs: ["/w/a"] }]);
+    await app.reopenClosedTab();
+    await flush();
+    expect(app.tabs().groups).toEqual([{ ...group, tabs: ["/w/a", "/w/b"] }]);
+    expect(app.activePath()).toBe("/w/b");
+    expect(app.canReopenClosedTab()).toBe(false);
+    expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({
+      session: { tabs: ["/w/a", "/w/b", "/w/c"], active: 1, groups: [{ ...group, tabs: ["/w/a", "/w/b"] }] },
+    });
+  });
+
+  it("remembers at most the last 20 closed tabs and skips a tab that is open again", async () => {
+    const paths = Array.from({ length: 24 }, (_, index) => `/w/r${index}`);
+    const { app } = await boot({ tabs: paths, launch: "/", repositories: paths });
+
+    app.closeTabIds(paths.slice(1));
+    expect(app.closedTabs()).toHaveLength(20);
+    expect(app.closedTabs()[0]?.path).toBe("/w/r4");
+
+    await app.openRepository("/w/r23");
+    await app.reopenClosedTab();
+    await flush();
+
+    expect(app.activePath()).toBe("/w/r22");
+  });
+
+  it("closes the other tabs or the tabs to the right and names the tabs with an operation in progress first", async () => {
+    const { app } = await boot({ tabs: ["/w/a", "/w/b", "/w/c", "/w/d"], launch: "/", repositories: ["/w/a", "/w/b", "/w/c", "/w/d"] });
+    app.queryClient.setQueryData(repoKeys.snapshot("/w/c"), { operation: "rebase" });
+
+    expect(app.planClose("others", "/w/b")).toEqual({ ids: ["/w/a", "/w/c", "/w/d"], busy: [{ path: "/w/c", operation: "rebase" }] });
+    expect(app.planClose("right", "/w/c")).toEqual({ ids: ["/w/d"], busy: [] });
+    expect(app.planClose("right", "/w/d")).toEqual({ ids: [], busy: [] });
+
+    app.closeTabIds(app.planClose("right", "/w/b").ids);
+
+    expect(app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : tab.kind))).toEqual(["/w/a", "/w/b"]);
+    expect(app.closedTabs().map((entry) => entry.path)).toEqual(["/w/c", "/w/d"]);
+  });
+
+  it("does not remember the tabs closed because their worktree was removed", async () => {
+    const { app } = await boot({ tabs: ["/w/a", "/w/b"], launch: "/", repositories: ["/w/a", "/w/b"] });
+
+    app.closeTabsAt("/w/b");
+
+    expect(app.canReopenClosedTab()).toBe(false);
+  });
+
+  it("shows the next and previous tab, wrapping around", async () => {
+    const { app } = await boot({ tabs: ["/w/a", "/w/b", "/w/c"], launch: "/", repositories: ["/w/a", "/w/b", "/w/c"] });
+    await app.openRepository("/w/a");
+
+    app.previousTab();
+    expect(app.activePath()).toBe("/w/c");
+    app.nextTab();
+    expect(app.activePath()).toBe("/w/a");
+    app.nextTab();
+    expect(app.activePath()).toBe("/w/b");
+  });
+
+  it("opens and closes the update dialog from the check for update command", async () => {
+    const { app } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"] });
+    expect(app.updateDialogOpen()).toBe(false);
+
+    app.checkForUpdate();
+    expect(app.updateDialogOpen()).toBe(true);
+    app.closeUpdateDialog();
+
+    expect(app.updateDialogOpen()).toBe(false);
+  });
+
+  it("loads the repository aliases at boot and names a repository by its alias", async () => {
+    const { app } = await boot({ tabs: ["/w/a", "/w/b"], launch: "/", repositories: ["/w/a", "/w/b"], aliases: [{ path: "/w/a", alias: "Corp A · API" }] });
+
+    expect(app.aliases()).toEqual({ "/w/a": "Corp A · API" });
+    expect(app.aliasOf("/w/a")).toBe("Corp A · API");
+    expect(app.aliasOf("/w/b")).toBeUndefined();
+  });
+
+  it("saves, replaces, and removes an alias per repository, and keeps the old one when the save is refused", async () => {
+    const { app, calls } = await boot({ tabs: ["/w/a", "/w/b"], launch: "/", repositories: ["/w/a", "/w/b"] });
+
+    expect(await app.setAlias("/w/a", "API")).toBeUndefined();
+    expect(await app.setAlias("/w/b", "Web")).toBeUndefined();
+    expect(await app.setAlias("/w/a", "refuse")).toBe("An alias is at most 40 characters");
+    expect(app.aliases()).toEqual({ "/w/a": "API", "/w/b": "Web" });
+    expect(await app.setAlias("/w/a", null)).toBeUndefined();
+
+    expect(app.aliases()).toEqual({ "/w/b": "Web" });
+    expect(calls.filter((call) => call.cmd === "repo_alias_set").map((call) => call.args)).toEqual([
+      { path: "/w/a", alias: "API" },
+      { path: "/w/b", alias: "Web" },
+      { path: "/w/a", alias: "refuse" },
+      { path: "/w/a", alias: null },
+    ]);
+  });
+
+  it("runs the command a macOS menu item stands for when the menu reports a choice, through the open repository's palette", async () => {
+    const { app } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"] });
+
+    await emit("menu-action", "tab.new");
+    await flush();
+
+    expect(app.activeTab()).toEqual({ kind: "launcher" });
+  });
+
+  it("tells the menu bar which items can act and which theme and density are chosen, and sends it again when that changes", async () => {
+    const { app, calls } = await boot({ tabs: ["/w/a", "/w/b"], launch: "/", repositories: ["/w/a", "/w/b"], settings: { theme: "dark" } });
+    const updates = () => calls.filter((call) => call.cmd === "menu_update").map((call) => call.args as { enabled: Record<string, boolean>; checked: Record<string, boolean> });
+    await flush();
+
+    expect(updates().at(-1)?.enabled).toMatchObject({ "tab.new": true, "tab.reopen": false, "edit.redo": false, "update.check": true });
+    expect(updates().at(-1)?.checked).toMatchObject({ "theme.dark": true, "theme.light": false });
+
+    app.closeTabAt(1);
+    await flush();
+
+    expect(updates().at(-1)?.enabled["tab.reopen"]).toBe(true);
+  });
+
+  it("sends Undo to the focused text field and Redo only there, and runs YForge's Undo for ⌘Z elsewhere", async () => {
+    const { app } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"] });
+    const exec = vi.fn((_command: string) => true);
+    document.execCommand = exec;
+    const input = document.createElement("input");
+    document.body.append(input);
+
+    input.focus();
+    await emit("menu-action", "edit.undo");
+    await emit("menu-action", "edit.redo");
+    await flush();
+    input.blur();
+    await emit("menu-action", "edit.redo");
+    await flush();
+
+    expect(exec.mock.calls.map((call) => call[0])).toEqual(["undo", "redo"]);
+    expect(app.paletteOpen()).toBe(false);
+  });
+
+  it("shows the failure in the shell notice when the View menu cannot save the theme or density, and keeps the saved choice", async () => {
+    const { app } = await boot({ tabs: [], launch: "/", repositories: [], settings: { theme: "dark", density: "default" }, failSettingsSave: true });
+
+    await emit("menu-action", "theme.light");
+    await flush();
+
+    expect(app.notice()).toBe("settings database is read-only");
+    expect(app.settings().theme).toBe("dark");
+  });
+
+  it("opens the palette for the Command Palette menu item", async () => {
+    const { app } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"] });
+
+    await emit("menu-action", "palette.open");
+    await flush();
+
+    expect(app.paletteOpen()).toBe(true);
   });
 });

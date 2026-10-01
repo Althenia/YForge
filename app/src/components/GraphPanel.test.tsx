@@ -81,12 +81,15 @@ const baseRow = (index: number): GraphRow => ({
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: "sha0" }, upstream: null, remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
 
-type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void };
+type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean };
 
 async function mountGraph(config: MountOptions = {}) {
   const offsets: number[] = [];
   const visibilities: unknown[] = [];
   mockIPC((cmd, args) => {
+    if (config.jira === true && cmd === "jira_connections_list") return [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
+    if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
+    if (cmd === "jira_issues_lookup") return (args as { keys: string[] }).keys.map((key) => ({ key, issue: { key, summary: "Retry login", status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: null }));
     if (cmd !== "repo_graph") return null;
     const { offset, limit, visibility } = args as { offset: number; limit: number; visibility?: unknown };
     offsets.push(offset);
@@ -301,6 +304,26 @@ describe("graph columns", () => {
     const cell = rowElement(host, 0).querySelector<HTMLElement>(".gcell") as HTMLElement;
     expect(cell.textContent).toMatch(/\d/);
     expect(cell.title).not.toBe("");
+  });
+
+  it("ages the date column as the clock ticks", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date(1_700_000_020 * 1000));
+      const { host } = await mountGraph();
+      await openSettings(host);
+      checkbox("Date / Time").click();
+      await flush();
+      const age = () => rowElement(host, 0).querySelector(".gcell")?.textContent;
+      expect(age()).toBe("20s");
+
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      await flush();
+
+      expect(age()).toBe("2h");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resizes the Branch / Tag column from its separator with the arrow keys within its limits, and resets it with Home", async () => {
@@ -528,5 +551,30 @@ describe("branch visibility", () => {
     radio("All branches").click();
     await flush(80);
     expect(visibilities.at(-1)).toBeUndefined();
+  });
+});
+
+describe("Jira issue chips", () => {
+  it("marks a key in a commit subject or a branch label with a chip and leaves other rows alone", async () => {
+    overrides = {
+      0: { summary: "Retry the login (ABC-142)" },
+      1: { summary: "Bump the base image", refs: [{ name: "fix/ABC-77-timeouts", kind: "local_branch", is_head: false, sha: "sha1" } as unknown as GraphRow["refs"][number]] },
+    };
+    const { host } = await mountGraph({ jira: true });
+    await flush(100);
+
+    const chips = (index: number) => [...rowElement(host, index).querySelectorAll(".chip.key .mono")].map((chip) => chip.textContent);
+    expect(chips(0)).toEqual(["ABC-142"]);
+    expect(chips(1)).toEqual(["ABC-77"]);
+    expect(chips(2)).toEqual([]);
+    expect(rowElement(host, 0).querySelector(".chip.key")?.getAttribute("data-tip")).toBe("ABC-142 · Retry login · Done");
+  });
+
+  it("shows no chips without a Jira connection", async () => {
+    overrides = { 0: { summary: "Retry the login (ABC-142)" } };
+    const { host } = await mountGraph();
+    await flush(60);
+
+    expect(rowElement(host, 0).querySelector(".chip.key")).toBeNull();
   });
 });

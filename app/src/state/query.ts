@@ -15,7 +15,7 @@ import {
   type UseQueryResult,
   useQueryClient,
 } from "@tanstack/solid-query";
-import { type Accessor, createComputed, createSignal, on, onCleanup } from "solid-js";
+import { type Accessor, createComputed, createSignal, on, onCleanup, untrack } from "solid-js";
 
 type Observed<Options, Result> = {
   setOptions: (options: Options) => void;
@@ -30,8 +30,9 @@ function observe<Options, Result extends object>(
 ): Result {
   const client = queryClient?.() ?? useQueryClient();
   const defaulted = () => client.defaultQueryOptions(options() as never) as Options;
-  const observer = create(client, defaulted());
-  const [result, setResult] = createSignal(observer.getOptimisticResult(defaulted()), { equals: false });
+  const initial = untrack(defaulted);
+  const observer = create(client, initial);
+  const [result, setResult] = createSignal(observer.getOptimisticResult(initial), { equals: false });
   createComputed(
     on(
       defaulted,

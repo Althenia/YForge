@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { defaultUiPrefs } from "./repoUiPrefs";
-import { bulkMenu, countLabel, extendRange, isSectionOpen, matchesFilter, selectedIn, toggleRow, toggleSection, type RowSelection } from "./sidebarModel";
+import { bulkMenu, countLabel, extendRange, isSectionOpen, matchesFilter, selectedIn, selectOnly, toggleRow, toggleSection, type RowSelection } from "./sidebarModel";
 
 describe("section collapse", () => {
   it("is open by default, toggles per section, and leaves folder state untouched", () => {
@@ -63,6 +63,14 @@ describe("multi-select", () => {
   });
 });
 
+describe("plain selection", () => {
+  it("selects one row and makes it the anchor of a later range", () => {
+    const one = selectOnly("tags", "tag:v1");
+    expect(one).toEqual({ group: "tags", ids: ["tag:v1"], anchor: "tag:v1" });
+    expect(extendRange(one, "tags", ["tag:v1", "tag:v2", "tag:v3"], "tag:v3").ids).toEqual(["tag:v1", "tag:v2", "tag:v3"]);
+  });
+});
+
 describe("bulk menu", () => {
   const item = (group: Parameters<typeof bulkMenu>[0], count: number, reason?: string) => {
     const entry = bulkMenu(group, count, reason)[0];
@@ -71,6 +79,7 @@ describe("bulk menu", () => {
 
   it("offers the section's bulk action with the row count", () => {
     expect(item("branches", 3)).toMatchObject({ id: "delete", label: ["Delete 3 branches…"], danger: true });
+    expect(item("tags", 2)).toMatchObject({ id: "delete", label: ["Delete 2 tags…"], danger: true });
     expect(item("remotes", 2)).toMatchObject({ id: "fetch", label: ["Fetch 2 remotes"], note: "fetches every remote" });
     expect(item("stashes", 2)).toMatchObject({ id: "drop", label: ["Drop 2 stashes…"], danger: true });
     expect(item("worktrees", 4)).toMatchObject({ id: "remove", label: ["Remove 4 worktrees…"], danger: true });

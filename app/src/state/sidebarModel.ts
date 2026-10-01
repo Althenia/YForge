@@ -2,9 +2,9 @@ import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
 import type { MenuEntry } from "./refMenu";
 import { toggleFolder } from "./repoUiPrefs";
 
-export type SectionId = "changes" | "branches" | "remotes" | "tags" | "stashes" | "worktrees" | "pulls" | "recovery";
+export type SectionId = "branches" | "remotes" | "tags" | "stashes" | "worktrees" | "pulls" | "issues" | "recovery";
 
-export type BulkGroup = "branches" | "remotes" | "stashes" | "worktrees";
+export type BulkGroup = "branches" | "remotes" | "tags" | "stashes" | "worktrees";
 
 export type RowSelection = { group: BulkGroup; ids: readonly string[]; anchor: string };
 
@@ -22,6 +22,8 @@ export const matchesFilter = (query: string, ...texts: readonly string[]): boole
 export const countLabel = (total: number, matched: number, filtering: boolean): string => (filtering ? `${matched}/${total}` : String(total));
 
 export const selectedIn = (current: RowSelection | undefined, group: BulkGroup): readonly string[] => (current?.group === group ? current.ids : []);
+
+export const selectOnly = (group: BulkGroup, id: string): RowSelection => ({ group, ids: [id], anchor: id });
 
 export function toggleRow(current: RowSelection | undefined, group: BulkGroup, id: string): RowSelection | undefined {
   const chosen = selectedIn(current, group);
@@ -44,6 +46,8 @@ export function bulkMenu(group: BulkGroup, count: number, disabledReason?: strin
   switch (group) {
     case "branches":
       return [{ kind: "item", id: "delete", label: [`Delete ${plural(count, "branch", "branches")}…`], icon: "trash", danger: true, ...reason }];
+    case "tags":
+      return [{ kind: "item", id: "delete", label: [`Delete ${plural(count, "tag", "tags")}…`], icon: "trash", danger: true, ...reason }];
     case "remotes":
       return [{ kind: "item", id: "fetch", label: [`Fetch ${plural(count, "remote", "remotes")}`], icon: "fetch", note: "fetches every remote", ...reason }];
     case "stashes":

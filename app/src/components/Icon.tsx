@@ -156,11 +156,31 @@ const glyphs: Record<IconName, () => JSX.Element> = {
       <path d="M6 7.5v9M18 16.5V10a3 3 0 0 0-3-3h-3M14.5 4.5 12 7l2.5 2.5" />
     </>
   ),
+  issue: () => (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="m8.5 12 2.5 2.5 4.5-5" />
+    </>
+  ),
+  launchpad: () => (
+    <>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.5" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.5" />
+      <path d="M17 13.5v7M13.5 17h7" />
+    </>
+  ),
+  identity: () => (
+    <>
+      <circle cx="9" cy="9" r="3.5" />
+      <path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5M15.5 8.5h5M15.5 12h4" />
+    </>
+  ),
 };
 
 const strokeFor = (size: number): number => (size <= 16 ? 1.5 : 1.6);
 
-export function Icon(props: { name: IconName; size?: 14 | 16 | 20 }) {
+export function Icon(props: { name: IconName; size?: 14 | 16 | 20 | 32 }) {
   const size = () => props.size ?? 16;
   return (
     <svg

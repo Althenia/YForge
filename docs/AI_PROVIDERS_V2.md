@@ -39,16 +39,17 @@ Status: **approved 2026-09-30** (owner decision: ChatGPT API key + headless OAut
 ## Per-feature configuration
 
 - Features: `generate_commit`, `recompose`, `conflict_fix`.
-- Each feature stores: `provider_id`, `model_id`, `prompt_template`. New store table `ai_feature_config` (migration 6), keyed by feature.
+- Each feature stores: `provider_id`, `model_id`, `prompt_template`, `enabled`. Store table `ai_feature_config` (migration 6, `enabled` added by migration 7), keyed by feature. The first save turns a feature on; `ai_feature_config_enable` switches it.
 - `prompt_template` contains the `{context}` placeholder; the default is the current built-in prompt for that feature; "Reset to default" restores it.
-- Settings UI: three feature cards (Generate commit, Recompose, Conflict fix), each with provider picker, model picker (models API), and prompt editor.
-- `ai_run` dispatches through the per-feature config; a feature with no config uses the active provider and default prompt.
-- The provider list and active-provider concept stays; per-feature config overrides it for that feature.
+- Settings UI: three feature cards (Generate commit, Recompose, Conflict fix), each with a "Use AI for <feature>" switch, a provider picker, a model picker that loads from the models API as soon as a provider is chosen (with an icon-only Reload models), and a prompt editor.
+- `ai_run` dispatches through the per-feature config only; a feature with no config, or one that is off, is refused as `ai_not_configured`.
+- Providers have no model and none is "active" (migration 7 dropped `ai_providers.model` and the `ai.active_provider` setting). The provider dialog holds the connection only.
+- A feature's AI action renders only while the core reports it `available`: switched on and its provider's status is `ready`.
 
 ## Verification
 
 - Adapters against fake `TcpListener` servers: request shape (method, path, headers, body), response mapping, 401/403 → `ai_auth_required`, models mapping.
 - OAuth readers: fixture files for `~/.codex/auth.json` and a Keychain stub behind the existing `SecretStore` trait.
-- Store: feature-config CRUD, migration bump to 6.
+- Store: feature-config CRUD and switch, migrations 6 and 7.
 - Frontend: model picker from the API, feature cards, prompt editor with reset, run dispatch per feature.
 - Live smoke (ignored test): ChatGPT subscription via the codex backend and Claude subscription via Keychain, one generate call each, on this machine.

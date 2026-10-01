@@ -5,7 +5,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createComposer } from "../state/composer";
 import { createRepoActions } from "../state/repoActions";
 import { ChangesInspector } from "./ChangesInspector";
-import { flush, mountWithApp, stubLayout, testSession, type } from "./testkit";
+import { aiFeatureList, flush, mountWithApp, stubLayout, testSession, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
@@ -53,8 +53,9 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as RepoSnapshot;
 
-function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null) {
+function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null, features = aiFeatureList()) {
   mockIPC((cmd, args) => {
+    if (cmd === "ai_feature_config_list") return features;
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === "commit") return "c0ffee";
     if (cmd === "repo_open") return current;
@@ -84,6 +85,52 @@ const summaryOf = (host: HTMLElement) => host.querySelector<HTMLInputElement>('i
 const commands = () => calls.map((call) => call.cmd).filter((cmd) => cmd !== "repo_open");
 const chord = (host: HTMLElement, init: KeyboardEventInit) =>
   summaryOf(host)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init }));
+
+describe("clean working tree", () => {
+  const clean = (overrides: Partial<RepoSnapshot> = {}) => snapshot({ counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, files: [], ...overrides });
+  const amendButton = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent?.trim() === "Amend last commit");
+
+  it("shows a centered clean state and collapses the composer to Amend last commit", async () => {
+    const { host } = mount(clean(), (cmd) => (cmd === "amend_info" ? { sha: "b".repeat(40), summary: "Earlier work", description: "Why.", pushed: false } : null));
+    await flush();
+
+    const state = host.querySelector(".clean-state");
+    expect(state?.querySelector("strong")?.textContent).toBe("Working tree clean");
+    expect(state?.textContent).toContain("Nothing to commit on main");
+    expect(host.querySelector(".empty")).toBeNull();
+    expect(summaryOf(host)).toBeNull();
+    expect(amendButton(host)?.disabled).toBe(false);
+
+    amendButton(host)?.click();
+    await flush(60);
+
+    expect(summaryOf(host)?.value).toBe("Earlier work");
+    expect(host.querySelector<HTMLInputElement>('.composer input[type="checkbox"]')?.checked).toBe(true);
+  });
+
+  it("disables Amend last commit with its reason on an unborn branch and during an operation", async () => {
+    const unborn = mount(clean({ head: { kind: "unborn", branch: "main" } }));
+    await flush();
+    expect(amendButton(unborn.host)?.disabled).toBe(true);
+    expect(amendButton(unborn.host)?.title).toBe("There is no commit to amend yet");
+    unborn.dispose();
+    document.body.innerHTML = "";
+
+    const merging = mount(clean({ operation: "merge" } as Partial<RepoSnapshot>));
+    await flush();
+    expect(amendButton(merging.host)?.disabled).toBe(true);
+    expect(amendButton(merging.host)?.title).toBe("Finish the operation in progress first");
+  });
+
+  it("keeps the full composer while files changed", async () => {
+    const { host } = mount(snapshot());
+    await flush();
+
+    expect(host.querySelector(".clean-state")).toBeNull();
+    expect(summaryOf(host)).not.toBeNull();
+    expect(amendButton(host)).toBeUndefined();
+  });
+});
 
 describe("commit and push", () => {
   it("offers Commit and Commit & Push from the split button, with the shortcut on the second", async () => {
@@ -253,6 +300,14 @@ describe("generate a commit message", () => {
     expect(host.querySelector(".note.attention")?.textContent).toContain("Draft from your staged changes. Review and edit it; nothing is committed until you commit.");
   });
 
+  it("is not shown while the feature is off or its provider is not ready", async () => {
+    const { host } = mount(snapshot(), () => null, aiFeatureList(["recompose", "conflict_fix"]));
+    await flush(60);
+
+    expect(generateButton(host)).toBeUndefined();
+    expect(summaryOf(host)).not.toBeNull();
+  });
+
   it("is disabled with its reason when nothing is staged", async () => {
     const { host } = mount(snapshot({ counts: { modified: 1, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, files: [{ path: "a.txt", original_path: null, area: "unstaged", status: "modified" }] }));
     await flush();
@@ -263,14 +318,14 @@ describe("generate a commit message", () => {
 
   it("points a missing provider at the AI settings, and a revoked sign-in at Sign in", async () => {
     const missing = mount(snapshot(), (cmd) => {
-      if (cmd === "ai_generate_commit_message") throw { kind: "ai_not_configured", message: "none" };
+      if (cmd === "ai_generate_commit_message") throw { kind: "ai_not_configured", message: "Generate commit message is turned off in Settings → AI" };
       return null;
     });
     await flush();
     generateButton(missing.host)?.click();
     await flush(60);
     const note = missing.host.querySelector(".note.danger");
-    expect(note?.textContent).toContain("No AI provider is set up. Choose one in Settings → AI.");
+    expect(note?.textContent).toContain("Generate commit message is turned off in Settings → AI. Nothing was changed.");
     expect([...(note?.querySelectorAll("button") ?? [])].map((button) => button.textContent?.trim())).toEqual(["Open AI settings"]);
     missing.dispose();
     document.body.innerHTML = "";

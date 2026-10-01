@@ -4,6 +4,7 @@ import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { CrashRecord } from "../ipc/bindings/CrashRecord";
 import type { UsageRecord } from "../ipc/bindings/UsageRecord";
+import { loadAvatar } from "../state/avatar";
 import { defaultSettings } from "../state/settingsModel";
 import { SettingsView } from "./SettingsView";
 import { buttonNamed, flush, mountWithApp } from "./testkit";
@@ -64,10 +65,10 @@ const entry = (id: number, overrides: Partial<ActivityEntry> = {}): ActivityEntr
   ...overrides,
 });
 
-type World = { settings: AppSettings; usage: UsageRecord[]; crashes: CrashRecord[]; history: ActivityEntry[]; session: ActivityEntry[]; saved: string | undefined; count: number; exportFailure: string | undefined };
+type World = { settings: AppSettings; usage: UsageRecord[]; crashes: CrashRecord[]; history: ActivityEntry[]; session: ActivityEntry[]; saved: string | undefined; count: number; exportFailure: string | undefined; saveFailure: string | undefined };
 
 function install(world: Partial<World> = {}) {
-  const state: World = { settings: { ...defaultSettings }, usage: [], crashes: [], history: [], session: [], saved: "/tmp/export.json", count: 2, exportFailure: undefined, ...world };
+  const state: World = { settings: { ...defaultSettings }, usage: [], crashes: [], history: [], session: [], saved: "/tmp/export.json", count: 2, exportFailure: undefined, saveFailure: undefined, ...world };
   const calls: Call[] = [];
   const page = <T extends { id: number }>(rows: T[], args: Record<string, unknown>): T[] => {
     const before = args.before as number | null;
@@ -80,13 +81,16 @@ function install(world: Partial<World> = {}) {
       case "settings_load":
         return state.settings;
       case "settings_save": {
+        if (state.saveFailure !== undefined) throw { kind: "internal", message: state.saveFailure, output: null };
         const next = call.args.settings as AppSettings;
         if (state.settings.telemetry_opt_in && !next.telemetry_opt_in) state.usage = [];
         state.settings = next;
         return next;
       }
+      case "repo_aliases_list":
+        return [];
       case "session_load":
-        return { tabs: ["/r"], active: 0 };
+        return { tabs: ["/r"], active: 0, groups: [] };
       case "launch_path":
         return "/nowhere";
       case "repo_open":
@@ -356,6 +360,20 @@ describe("profile pictures setting", () => {
     pictureSwitch(host)?.click();
     await flush();
     expect(host.textContent).toContain("On");
+  });
+
+  it("states the refusal and keeps the switch and the loaded pictures when the settings cannot be saved", async () => {
+    const { host, calls } = await open({ saveFailure: "Settings could not be written: disk full" });
+    const section = region(host, "Profile pictures");
+    await loadAvatar("ada@example.test");
+
+    pictureSwitch(host)?.click();
+    await flush();
+    await loadAvatar("ada@example.test");
+
+    expect(section.querySelector('[role="alert"]')?.textContent).toBe("Settings could not be written: disk full");
+    expect(pictureSwitch(host)?.getAttribute("aria-checked")).toBe("true");
+    expect(calls.filter((call) => call.cmd === "avatar_url")).toHaveLength(1);
   });
 
   it("no longer claims that nothing is sent anywhere, since the pictures are fetched when on", async () => {

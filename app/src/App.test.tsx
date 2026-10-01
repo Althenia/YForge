@@ -43,7 +43,8 @@ describe("application root", () => {
       (cmd, args) => {
         if (cmd === "crash_report") reports.push((args as { report: CrashReport }).report);
         if (cmd === "settings_load") return defaultSettings;
-        if (cmd === "session_load") return { tabs: [], active: 0 };
+        if (cmd === "repo_aliases_list") return [];
+        if (cmd === "session_load") return { tabs: [], active: 0, groups: [] };
         if (cmd === "launch_path") return "/nowhere";
         if (cmd === "repo_open") throw { kind: "not_a_repository", message: "not a repository", output: null };
         if (cmd === "activity_list" || cmd === "recents_list") return [];
@@ -63,5 +64,55 @@ describe("application root", () => {
 
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ kind: "error", message: "uncaught in a handler", view: "/launcher" });
+  });
+
+  it("shows the busy tab bar with the saved tab and group counts while the session is restored, and removes it when boot ends", async () => {
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    mockIPC(
+      async (cmd) => {
+        if (cmd === "settings_load") return defaultSettings;
+        if (cmd === "repo_aliases_list") return [];
+        if (cmd === "session_load") {
+          return {
+            tabs: ["/a", "/b", "/c"],
+            active: 0,
+            groups: [
+              { name: "Corp A", color: "blue", collapsed: false, tabs: ["/a", "/b"] },
+              { name: "Personal", color: "mint", collapsed: true, tabs: ["/c"] },
+            ],
+          };
+        }
+        if (cmd === "launch_path") return "/nowhere";
+        if (cmd === "repo_open") {
+          await held;
+          throw { kind: "not_a_repository", message: "not a repository", output: null };
+        }
+        if (cmd === "activity_list" || cmd === "recents_list") return [];
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+    window.location.hash = "#/launcher";
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(() => <App />, host);
+    await flush(80);
+
+    const status = host.querySelector<HTMLElement>('[role="status"][aria-busy="true"]');
+    expect(status?.getAttribute("aria-label")).toBe("Restoring tabs");
+    expect(status?.textContent).toContain("Restoring 3 tabs and 2 groups…");
+    expect([...(status?.querySelectorAll(".gchip") ?? [])].map((chip) => chip.textContent?.replace(/\s+/g, " ").trim())).toEqual(["Corp A", "Personal · 1 tab"]);
+    expect([...(status?.querySelectorAll(".gchip") ?? [])].map((chip) => chip.tagName)).toEqual(["SPAN", "SPAN"]);
+    expect(host.textContent).toContain("The groups come back exactly as you left them, including which are collapsed.");
+    expect(host.querySelector('[role="tablist"]')).toBeNull();
+
+    release();
+    await flush(80);
+
+    expect(host.querySelector('[role="status"][aria-busy="true"]')).toBeNull();
+    expect(host.textContent).not.toContain("Restoring");
   });
 });

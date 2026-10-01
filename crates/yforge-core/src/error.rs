@@ -329,7 +329,7 @@ impl fmt::Display for CoreError {
                 f,
                 "{file} is {size} bytes; files over {limit} bytes are not shown"
             ),
-            Self::AiNotConfigured { detail } => write!(f, "No AI provider is ready: {detail}"),
+            Self::AiNotConfigured { detail } => write!(f, "{detail}"),
             Self::AiProviderUnavailable { provider, detail } => {
                 write!(f, "{provider} is unavailable: {detail}")
             }

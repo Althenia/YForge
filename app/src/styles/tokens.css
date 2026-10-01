@@ -194,6 +194,7 @@
   --controls-row-file: 32px;
   --controls-banner: 30px;
   --controls-bar-tabs: 40px;
+  --controls-tab-min: 128px;
   --controls-bar-command: 48px;
   --controls-bar-state: 36px;
   --controls-bar-activity: 30px;

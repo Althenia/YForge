@@ -18,7 +18,9 @@ import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SS
 import { pullModes } from "../state/syncModel";
 import { AiSettings } from "./AiSettings";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { GitHostsSettings } from "./GitHostsSettings";
 import { Icon } from "./Icon";
+import { JiraSettings } from "./JiraSettings";
 import { PlatformSettings } from "./PlatformSettings";
 import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
 import { SettingRow } from "./SettingRow";
@@ -447,6 +449,12 @@ export function SettingsView(props: { section: string }) {
           </Match>
           <Match when={section() === "platforms"}>
             <PlatformSettings />
+          </Match>
+          <Match when={section() === "jira"}>
+            <JiraSettings />
+          </Match>
+          <Match when={section() === "git-hosts"}>
+            <GitHostsSettings />
           </Match>
           <Match when={section() === "privacy"}>
             <PrivacyDiagnostics />

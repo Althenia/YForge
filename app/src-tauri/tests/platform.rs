@@ -198,7 +198,7 @@ fn merge_request(state: &str) -> Value {
         "source_branch": "feature", "target_branch": "main",
         "author": {"username": "yui"}, "created_at": "2026-09-01T10:00:00Z",
         "updated_at": "2026-09-02T10:00:00Z", "merge_status": "can_merge",
-        "web_url": "https://gitlab.example/acme/widget/-/merge_requests/3"
+        "web_url": "https://gitlab.example/owner/widget/-/merge_requests/3"
     })
 }
 
@@ -275,7 +275,7 @@ fn a_repository_is_matched_through_its_remote_and_lists_its_pull_requests() {
     let h = harness();
     let fake = serving();
     let added = add(&h, &fake).unwrap();
-    let repo = repository(Some(&format!("http://{}/acme/widget.git", fake.host)));
+    let repo = repository(Some(&format!("http://{}/owner/widget.git", fake.host)));
 
     let matched = invoke(
         &h.window,
@@ -292,16 +292,20 @@ fn a_repository_is_matched_through_its_remote_and_lists_its_pull_requests() {
 
     assert_eq!(matched["connection"], added);
     assert_eq!(matched["remote"], "origin");
-    assert_eq!(matched["repo"], json!({"owner": "acme", "repo": "widget"}));
-    assert_eq!(pulls[0]["number"], 3);
-    assert_eq!(pulls[0]["state"], "open");
-    assert_eq!(pulls[0]["source_ref"], "feature");
-    assert_eq!(pulls[0]["mergeable"], true);
+    assert_eq!(matched["repo"], json!({"owner": "owner", "repo": "widget"}));
+    assert_eq!(pulls["pulls"][0]["number"], 3);
+    assert_eq!(pulls["pulls"][0]["state"], "open");
+    assert_eq!(pulls["pulls"][0]["source_ref"], "feature");
+    assert_eq!(pulls["pulls"][0]["mergeable"], true);
+    assert_eq!(
+        (&pulls["total"], &pulls["capped"]),
+        (&json!(1), &json!(false))
+    );
     let (method, path, authorization) = fake.requests().pop().unwrap();
     assert_eq!(method, "GET");
     assert_eq!(
         path,
-        "/api/v4/projects/acme%2Fwidget/merge_requests?state=opened&per_page=100"
+        "/api/v4/projects/owner%2Fwidget/merge_requests?state=opened&per_page=100&page=1"
     );
     assert_eq!(authorization, "Bearer tok-ipc-secret");
 }
@@ -311,7 +315,7 @@ fn a_repository_without_a_matching_connection_has_no_match_and_cannot_list() {
     let h = harness();
     let fake = serving();
     add(&h, &fake).unwrap();
-    let repo = repository(Some("https://example.org/acme/widget.git"));
+    let repo = repository(Some("https://example.org/owner/widget.git"));
 
     let matched = invoke(
         &h.window,
@@ -345,7 +349,7 @@ fn listing_maps_a_rejected_token_and_a_missing_repository_to_their_error_kinds()
         }
     });
     add(&h, &fake).unwrap();
-    let repo = repository(Some(&format!("http://{}/acme/widget.git", fake.host)));
+    let repo = repository(Some(&format!("http://{}/owner/widget.git", fake.host)));
     let list = || {
         invoke(
             &h.window,
@@ -362,7 +366,7 @@ fn listing_maps_a_rejected_token_and_a_missing_repository_to_their_error_kinds()
     assert_eq!(missing["kind"], "not_found");
     assert_eq!(
         missing["message"],
-        "No GitLab repository found for acme/widget"
+        "No GitLab repository found for owner/widget"
     );
     assert_eq!(rejected["kind"], "auth_failed");
     assert_eq!(
@@ -376,7 +380,7 @@ fn detail_create_and_merge_go_through_the_matched_connection() {
     let h = harness();
     let fake = serving();
     add(&h, &fake).unwrap();
-    let repo = repository(Some(&format!("http://{}/acme/widget.git", fake.host)));
+    let repo = repository(Some(&format!("http://{}/owner/widget.git", fake.host)));
 
     let detail = invoke(
         &h.window,
@@ -400,6 +404,10 @@ fn detail_create_and_merge_go_through_the_matched_connection() {
 
     assert_eq!(detail["pull"]["number"], 3);
     assert_eq!(detail["files"], json!([]));
+    assert_eq!(
+        (&detail["files_total"], &detail["files_capped"]),
+        (&json!(0), &json!(false))
+    );
     assert_eq!(created["state"], "open");
     assert_eq!(merged["state"], "merged");
 }

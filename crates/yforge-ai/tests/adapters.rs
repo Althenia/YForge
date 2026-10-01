@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    add_active, chatgpt_tokens, claude_blob, commit_context, keyed_input, messages_reply,
+    add_configured, chatgpt_tokens, claude_blob, commit_context, keyed_input, messages_reply,
     provider_input, responses_reply, sse, store_tokens, Harness, HttpFake, Recorded, Reply,
     FAR_FUTURE, GOOD,
 };
@@ -39,7 +39,7 @@ async fn chatgpt_with_an_api_key_posts_to_the_responses_api_and_joins_the_stream
         openai_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    add_active(
+    add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Chatgpt, "ChatGPT", "sk-openai"),
@@ -87,7 +87,7 @@ async fn chatgpt_with_a_subscription_posts_to_the_codex_backend_with_the_account
         chatgpt_backend: format!("{}/backend-api/codex", fake.root),
         ..Endpoints::default()
     });
-    let id = add_active(
+    let id = add_configured(
         &h,
         &ai,
         provider_input(ProviderKind::Chatgpt, AuthMode::Subscription, "ChatGPT"),
@@ -127,7 +127,7 @@ async fn claude_with_an_api_key_posts_to_the_messages_api_with_x_api_key() {
         anthropic_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    add_active(
+    add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Claude, "Claude", "sk-ant"),
@@ -172,7 +172,7 @@ async fn claude_with_a_subscription_uses_the_oauth_bearer_beta_flags_and_the_cli
         ..Endpoints::default()
     });
     h.claude_code_signs_in(&claude_blob("cc-access", "cc-refresh", FAR_FUTURE));
-    add_active(
+    add_configured(
         &h,
         &ai,
         provider_input(ProviderKind::Claude, AuthMode::Subscription, "Claude"),
@@ -212,7 +212,7 @@ async fn openrouter_posts_chat_completions_with_the_bearer_key() {
         openrouter_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    add_active(
+    add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Openrouter, "OpenRouter", "or-key"),
@@ -252,7 +252,7 @@ async fn every_backend(
         });
         match name {
             "chatgpt-key" => {
-                add_active(
+                add_configured(
                     h,
                     &ai,
                     keyed_input(ProviderKind::Chatgpt, "P", "secret-key-1"),
@@ -261,7 +261,7 @@ async fn every_backend(
                 .await;
             }
             "chatgpt-sub" => {
-                let id = add_active(
+                let id = add_configured(
                     h,
                     &ai,
                     provider_input(ProviderKind::Chatgpt, AuthMode::Subscription, "P"),
@@ -275,7 +275,7 @@ async fn every_backend(
                 );
             }
             "claude-key" => {
-                add_active(
+                add_configured(
                     h,
                     &ai,
                     keyed_input(ProviderKind::Claude, "P", "secret-key-1"),
@@ -285,7 +285,7 @@ async fn every_backend(
             }
             "claude-sub" => {
                 h.claude_code_signs_in(&claude_blob("secret-key-1", "r", FAR_FUTURE));
-                add_active(
+                add_configured(
                     h,
                     &ai,
                     provider_input(ProviderKind::Claude, AuthMode::Subscription, "P"),
@@ -294,7 +294,7 @@ async fn every_backend(
                 .await;
             }
             _ => {
-                add_active(
+                add_configured(
                     h,
                     &ai,
                     keyed_input(ProviderKind::Openrouter, "P", "secret-key-1"),
@@ -383,7 +383,7 @@ async fn unusable_replies_are_invalid_responses_and_stream_errors_are_failures()
             anthropic_api: fake.url.clone(),
             ..Endpoints::default()
         });
-        add_active(&h, &ai, keyed_input(kind, "P", "k"), "m").await;
+        add_configured(&h, &ai, keyed_input(kind, "P", "k"), "m").await;
         let error = draft_summary(&h, &ai).await.unwrap_err();
         assert_eq!(kind_of(error), expected, "{kind:?}");
     }
@@ -399,7 +399,7 @@ async fn a_hosted_provider_without_a_credential_cannot_be_resolved() {
         (ProviderKind::Chatgpt, AuthMode::Subscription),
         (ProviderKind::Claude, AuthMode::Subscription),
     ] {
-        add_active(&h, &ai, provider_input(kind, mode, "P"), "m").await;
+        add_configured(&h, &ai, provider_input(kind, mode, "P"), "m").await;
         let error = draft_summary(&h, &ai).await.unwrap_err();
         assert_eq!(
             kind_of(error),

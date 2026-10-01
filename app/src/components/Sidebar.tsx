@@ -1,7 +1,6 @@
 import { createMemo, createSignal, For, Index, Show, type JSX } from "solid-js";
 import { basename } from "../format";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { changeTotal } from "../state/changes";
 import { localTarget, remoteTarget, tagTarget, type RefTarget } from "../state/refMenu";
 import { treeRows, type TreeRow } from "../state/refTree";
 import type { Anchor, RepoActions } from "../state/repoActions";
@@ -13,6 +12,7 @@ import {
   extendRange,
   isSectionOpen,
   matchesFilter,
+  selectOnly,
   toggleRow,
   toggleSection,
   type BulkGroup,
@@ -24,12 +24,17 @@ import type { PanelRequest } from "../state/palette";
 import type { WorktreeActions } from "../state/worktreeActions";
 import type { PlatformActions } from "../state/platformActions";
 import type { PullRequest } from "../ipc/bindings/PullRequest";
+import type { JiraIssue } from "../ipc/bindings/JiraIssue";
+import type { JiraSidebar } from "../state/jiraIssues";
+import { issueRowLabel, loadingIssuesText, pullText, statusTone } from "../state/jiraModel";
+import { IssueChips } from "./IssueChip";
 import { prStateView } from "../state/platformModel";
 import type { MenuState } from "../state/repoActions";
 import { AuthorBadge } from "./AuthorBadge";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
+import { listRowHeight, VirtualRows, type VirtualRow } from "./VirtualRows";
 
 const RECOVERY_ROWS: ReadonlyArray<{ panel: PanelRequest; title: string; label: string; note: string }> = [
   { panel: "reflog", title: "Reflog", label: "Reflog", note: "HEAD and branch history, restorable" },
@@ -76,6 +81,7 @@ export function Sidebar(props: {
   onSelectStash: (sha: string) => void;
   onOpenPanel: (panel: PanelRequest) => void;
   platform?: PlatformActions;
+  jira?: JiraSidebar;
   onSelectPull?: (number: number) => void;
 }) {
   const snapshot = () => props.snapshot;
@@ -83,8 +89,12 @@ export function Sidebar(props: {
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const [worktreeMenu, setWorktreeMenu] = createSignal<MenuState | undefined>();
   const [pullMenu, setPullMenu] = createSignal<MenuState | undefined>();
+  const [issueMenu, setIssueMenu] = createSignal<MenuState | undefined>();
   const [bulkMenuState, setBulkMenuState] = createSignal<MenuState | undefined>();
   const [filter, setFilter] = createSignal("");
+  const [reveal, setReveal] = createSignal<{ list: string; nonce: number; index: number } | undefined>();
+  let body: HTMLDivElement | undefined;
+  let pendingNav: { list: string; pos: number } | undefined;
   const [multi, setMulti] = createSignal<RowSelection | undefined>();
   const filtering = () => filter() !== "";
   const fits = (...texts: string[]) => matchesFilter(filter(), ...texts);
@@ -108,15 +118,55 @@ export function Sidebar(props: {
   const branchLabel = (worktree: { branch: string | null; bare: boolean }) => worktree.branch ?? (worktree.bare ? "bare" : "detached");
   const visibleWorktrees = createMemo(() => snapshot().worktrees.filter((worktree) => fits(basename(worktree.path), worktree.path, branchLabel(worktree))));
   const visiblePulls = createMemo(() => props.platform?.pulls().filter((pull) => fits(`#${pull.number}`, pull.title, pull.author, pull.source_ref, pull.target_ref)) ?? []);
+  const visibleIssues = createMemo(() => props.jira?.state.issues().filter((issue) => fits(issue.key, issue.summary, issue.status)) ?? []);
   const visibleRecovery = createMemo(() => RECOVERY_ROWS.filter((entry) => fits(entry.title, entry.label)));
 
-  const localRows = () => treeRows(visibleBranches(), foldersFor(), "local:");
-  const remoteRows = (remote: string) =>
-    treeRows(
-      visibleRemoteBranches(remote).map((name) => name.slice(remote.length + 1)),
-      foldersFor(),
-      `${remote}:`,
-    );
+  const localRows = createMemo(() => treeRows(visibleBranches(), foldersFor(), "local:"));
+  const remoteRowsByName = createMemo(
+    () =>
+      new Map(
+        visibleRemotes().map((remote) => [
+          remote,
+          treeRows(
+            visibleRemoteBranches(remote).map((name) => name.slice(remote.length + 1)),
+            foldersFor(),
+            `${remote}:`,
+          ),
+        ]),
+      ),
+  );
+  const remoteRows = (remote: string): TreeRow[] => remoteRowsByName().get(remote) ?? [];
+  const localRowId = (row: TreeRow): string => (row.kind === "folder" ? `folder:${row.id}` : `branch:${row.path}`);
+  const remoteRowId = (remote: string, row: TreeRow): string => (row.kind === "folder" ? `folder:${row.id}` : `remote:${remote}/${row.path}`);
+  const TAGS_LIST = "tags";
+  const BRANCHES_LIST = "branches";
+  const remoteList = (remote: string) => `remote:${remote}`;
+  const listIds = (list: string): string[] => {
+    if (list === BRANCHES_LIST) return localRows().map(localRowId);
+    if (list === TAGS_LIST) return visibleTags().map((name) => `tag:${name}`);
+    const remote = list.slice("remote:".length);
+    return remoteRows(remote).map((row) => remoteRowId(remote, row));
+  };
+  const keepIn = (list: string): number => listIds(list).indexOf(activeRow() ?? firstRowId() ?? "");
+  const revealIn = (list: string) => {
+    const current = reveal();
+    return current?.list === list ? current : undefined;
+  };
+  const focusInList = (list: string, pos: number) => {
+    const mounted = body?.querySelector<HTMLElement>(`[data-nav][data-list="${CSS.escape(list)}"][data-pos="${pos}"]`);
+    if (mounted !== null && mounted !== undefined) {
+      mounted.focus();
+      return;
+    }
+    pendingNav = { list, pos };
+    setReveal((current) => ({ list, nonce: (current?.nonce ?? 0) + 1, index: pos }));
+  };
+  const mountNav = (list: string | undefined, virtual: VirtualRow | undefined, element: HTMLElement) => {
+    virtual?.measure(element);
+    if (list === undefined || virtual === undefined || pendingNav?.list !== list || pendingNav.pos !== virtual.index) return;
+    pendingNav = undefined;
+    queueMicrotask(() => element.focus());
+  };
   const firstRowId = () => {
     const first = localRows()[0];
     return first === undefined ? undefined : first.kind === "folder" ? `folder:${first.id}` : `branch:${first.path}`;
@@ -128,6 +178,8 @@ export function Sidebar(props: {
         return snapshot().branches.map((name) => `branch:${name}`);
       case "remotes":
         return snapshot().remotes.map((remote) => `folder:remote:${remote}`);
+      case "tags":
+        return snapshot().tags.map((name) => `tag:${name}`);
       case "stashes":
         return snapshot().stashes.map((stash) => `stash:${stash.sha}`);
       case "worktrees":
@@ -140,6 +192,8 @@ export function Sidebar(props: {
         return localRows().flatMap((row) => (row.kind === "leaf" ? [`branch:${row.path}`] : []));
       case "remotes":
         return visibleRemotes().map((remote) => `folder:remote:${remote}`);
+      case "tags":
+        return visibleTags().map((name) => `tag:${name}`);
       case "stashes":
         return visibleStashes().map((stash) => `stash:${stash.sha}`);
       case "worktrees":
@@ -163,6 +217,7 @@ export function Sidebar(props: {
   function runBulk(group: BulkGroup, ids: readonly string[]): void {
     setMulti(undefined);
     if (group === "branches") void props.actions.deleteBranches(ids.map((id) => id.slice("branch:".length)));
+    else if (group === "tags") props.actions.deleteTags(ids.map((id) => id.slice("tag:".length)));
     else if (group === "remotes") void props.actions.fetchAll();
     else if (group === "stashes") props.actions.dropStashes(snapshot().stashes.filter((stash) => ids.includes(`stash:${stash.sha}`)));
     else void props.worktrees.removeMany(ids.map((id) => id.slice("worktree:".length)));
@@ -199,12 +254,21 @@ export function Sidebar(props: {
   const onKeyDown = (event: KeyboardEvent) => {
     const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
     if (step === undefined || !(event.target instanceof HTMLElement) || event.target.dataset.nav === undefined) return;
-    const rows = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>("[data-nav]")];
-    const next = rows[rows.indexOf(event.target) + step];
-    if (next !== undefined) {
+    const list = event.target.dataset.list;
+    const next = Number(event.target.dataset.pos) + step;
+    if (list !== undefined && next >= 0 && next < listIds(list).length) {
       event.preventDefault();
-      next.focus();
+      focusInList(list, next);
+      return;
     }
+    const rows = [...(event.currentTarget as HTMLElement).querySelectorAll<HTMLElement>("[data-nav]")];
+    const neighbour = rows[rows.indexOf(event.target) + step];
+    if (neighbour === undefined) return;
+    event.preventDefault();
+    const neighbourList = neighbour.dataset.list;
+    const edge = neighbourList === undefined ? undefined : step > 0 ? 0 : listIds(neighbourList).length - 1;
+    if (neighbourList !== undefined && edge !== undefined && Number(neighbour.dataset.pos) !== edge) focusInList(neighbourList, edge);
+    else neighbour.focus();
   };
 
   const tabStop = (id: string) => activeRow() === id || (activeRow() === undefined && id === firstRowId());
@@ -215,6 +279,7 @@ export function Sidebar(props: {
     title: string;
     total?: number;
     shown?: number;
+    countText?: string;
     open?: { label: string; run: () => void };
     add?: { label: string; run: () => void };
     children?: JSX.Element;
@@ -231,7 +296,7 @@ export function Sidebar(props: {
             </span>
           </button>
           <Show when={section.total !== undefined}>
-            <span class="count">{countLabel(section.total ?? 0, section.shown ?? section.total ?? 0, filtering() && section.shown !== undefined)}</span>
+            <span class="count">{section.countText ?? countLabel(section.total ?? 0, section.shown ?? section.total ?? 0, filtering() && section.shown !== undefined)}</span>
           </Show>
           <Show when={section.open}>
             {(open) => (
@@ -262,6 +327,8 @@ export function Sidebar(props: {
     pull?: boolean;
     group?: BulkGroup;
     tree?: Tree;
+    list?: string;
+    virtual?: VirtualRow;
     label: string;
     onOpen: (anchor: Anchor) => void;
     onMenu: (anchor: Anchor) => void;
@@ -276,7 +343,10 @@ export function Sidebar(props: {
       <div
         class="srow"
         classList={{ current: row.current === true, pull: row.pull === true, selected: isChosen(row.id) }}
-        style={{ "padding-left": indent(row.depth ?? 0, row.base) }}
+        style={{ "padding-left": indent(row.depth ?? 0, row.base), ...row.virtual?.style }}
+        ref={(element) => mountNav(row.list, row.virtual, element)}
+        data-list={row.list}
+        data-pos={row.virtual?.index}
         role="button"
         aria-haspopup="menu"
         aria-label={row.label}
@@ -289,7 +359,7 @@ export function Sidebar(props: {
         onClick={(event) => {
           if (row.group !== undefined) {
             if (selectWithModifier(row.group, row.id, event)) return;
-            setMulti(undefined);
+            setMulti(selectOnly(row.group, row.id));
           }
           row.onClick?.();
         }}
@@ -328,6 +398,8 @@ export function Sidebar(props: {
     noun: "Folder" | "Remote";
     group?: BulkGroup;
     tree?: Tree;
+    list?: string;
+    virtual?: VirtualRow;
   }) {
     const toggle = () => props.uiPrefs.update((current) => toggleFolder(current, row.scopeId));
     const menu = (anchor: Anchor) => row.group !== undefined && openBulk(row.group, row.id, anchor);
@@ -335,7 +407,10 @@ export function Sidebar(props: {
       <div
         class="srow folder"
         classList={{ selected: isChosen(row.id) }}
-        style={{ "padding-left": indent(row.depth, row.base ?? 6) }}
+        style={{ "padding-left": indent(row.depth, row.base ?? 6), ...row.virtual?.style }}
+        ref={(element) => mountNav(row.list, row.virtual, element)}
+        data-list={row.list}
+        data-pos={row.virtual?.index}
         role="button"
         aria-expanded={row.open}
         aria-pressed={isChosen(row.id) ? "true" : undefined}
@@ -347,7 +422,7 @@ export function Sidebar(props: {
         onClick={(event) => {
           if (row.group !== undefined) {
             if (selectWithModifier(row.group, row.id, event)) return;
-            setMulti(undefined);
+            setMulti(selectOnly(row.group, row.id));
           }
           toggle();
         }}
@@ -409,14 +484,32 @@ export function Sidebar(props: {
     });
   }
 
+  function openIssueMenu(issue: JiraIssue, anchor: Anchor): void {
+    const jira = props.jira;
+    if (jira === undefined) return;
+    setIssueMenu({
+      anchor,
+      entries: [
+        { kind: "item", id: "branch", label: [`Create branch from ${issue.key}…`], icon: "branch" },
+        { kind: "item", id: "open", label: ["Open in browser"], icon: "open" },
+      ],
+      run: (id) => {
+        if (id === "branch") void props.actions.openCreateBranchFromIssue(issue, anchor);
+        else if (id === "open") jira.openInBrowser(issue);
+      },
+    });
+  }
+
   const branchTarget = (name: string): RefTarget => localTarget(snapshot(), name);
   const checkoutOf = (target: RefTarget) => () => {
     if (target.kind !== "local_branch" || target.name !== currentBranch()) props.actions.checkoutRef(target);
   };
 
-  const localRow = (row: TreeRow) =>
+  const localRow = (row: TreeRow, virtual: VirtualRow) =>
     row.kind === "folder" ? (
       <FolderRow
+        list={BRANCHES_LIST}
+        virtual={virtual}
         id={`folder:${row.id}`}
         scopeId={row.id}
         name={row.name}
@@ -430,6 +523,8 @@ export function Sidebar(props: {
       />
     ) : (
       <NavRow
+        list={BRANCHES_LIST}
+        virtual={virtual}
         id={`branch:${row.path}`}
         title={row.path}
         label={`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`}
@@ -443,6 +538,7 @@ export function Sidebar(props: {
         onActivate={checkoutOf(branchTarget(row.path))}
       >
         <span class="name">{row.label}</span>
+        <Show when={props.jira}>{(jira) => <IssueChips keys={jira().chips.keysFor(row.path)} lookup={jira().chips.lookup} />}</Show>
         <Show when={branchMeta(row.path)}>
           {(meta) => (
             <span class="meta">
@@ -457,10 +553,10 @@ export function Sidebar(props: {
       </NavRow>
     );
 
-  const remoteRow = (remote: string, row: TreeRow, remoteLast: boolean) => {
+  const remoteRow = (remote: string, row: TreeRow, remoteLast: boolean, virtual: VirtualRow) => {
     // The remote itself is the section's child, so its branches sit one level deeper.
     const lines = [!remoteLast, ...row.trail];
-    const chrome = { depth: row.depth + 2, base: 6, tree: { last: row.last, lines } };
+    const chrome = { depth: row.depth + 2, base: 6, tree: { last: row.last, lines }, list: remoteList(remote), virtual };
     return row.kind === "folder" ? (
       <FolderRow
         id={`folder:${row.id}`}
@@ -506,10 +602,11 @@ export function Sidebar(props: {
           }}
         />
       </label>
-      <div class="sidebar-body">
-        <Section id="changes" icon="changes" title="Changes" total={changeTotal(snapshot().counts)} />
+      <div class="sidebar-body" ref={body}>
         <Section id="branches" icon="branch" title="Branches" total={snapshot().branches.length} shown={visibleBranches().length}>
-          <For each={localRows()}>{localRow}</For>
+          <VirtualRows as="div" items={localRows()} scroller={() => body} estimate={listRowHeight()} keepIndex={keepIn(BRANCHES_LIST)} reveal={revealIn(BRANCHES_LIST)} measured>
+            {localRow}
+          </VirtualRows>
         </Section>
         <Section id="remotes" icon="remote" title="Remotes" total={snapshot().remotes.length} shown={visibleRemotes().length}>
           <For each={visibleRemotes()}>
@@ -532,7 +629,9 @@ export function Sidebar(props: {
                     tree={{ last: last(), lines: [] }}
                   />
                   <Show when={open()}>
-                    <For each={remoteRows(remote)}>{(row) => remoteRow(remote, row, last())}</For>
+                    <VirtualRows as="div" items={remoteRows(remote)} scroller={() => body} estimate={listRowHeight()} keepIndex={keepIn(remoteList(remote))} reveal={revealIn(remoteList(remote))} measured>
+                      {(row, virtual) => remoteRow(remote, row, last(), virtual)}
+                    </VirtualRows>
                   </Show>
                 </>
               );
@@ -540,17 +639,20 @@ export function Sidebar(props: {
           </For>
         </Section>
         <Section id="tags" icon="tag" title="Tags" total={snapshot().tags.length} shown={visibleTags().length}>
-          <For each={visibleTags()}>
-            {(name, index) => {
+          <VirtualRows as="div" items={visibleTags()} scroller={() => body} estimate={listRowHeight()} keepIndex={keepIn(TAGS_LIST)} reveal={revealIn(TAGS_LIST)} measured>
+            {(name, virtual) => {
               const target = () => tagTarget(name);
               return (
                 <NavRow
+                  list={TAGS_LIST}
+                  virtual={virtual}
                   id={`tag:${name}`}
                   title={name}
                   label={`Tag ${name}`}
                   depth={1}
                   base={6}
-                  tree={{ last: index() === visibleTags().length - 1, lines: [] }}
+                  group="tags"
+                  tree={{ last: virtual.index === visibleTags().length - 1, lines: [] }}
                   onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onActivate={checkoutOf(target())}
@@ -559,7 +661,7 @@ export function Sidebar(props: {
                 </NavRow>
               );
             }}
-          </For>
+          </VirtualRows>
         </Section>
         <Section id="stashes" icon="stash" title="Stashes" total={snapshot().stashes.length} shown={visibleStashes().length}>
           <For each={visibleStashes()}>
@@ -621,7 +723,7 @@ export function Sidebar(props: {
               id="pulls"
               icon="pullrequest"
               title="Pull requests"
-              total={platform.pulls().length}
+              total={platform.pullsTotal()}
               shown={visiblePulls().length}
               add={{ label: "New pull request", run: () => void platform.openCreate() }}
             >
@@ -648,6 +750,7 @@ export function Sidebar(props: {
                         <span class="pull-line">
                           <span class="pull-number">#{pull.number}</span>
                           <span class="name">{pull.title}</span>
+                          <Show when={props.jira}>{(jira) => <IssueChips keys={jira().chips.keysFor(pullText(pull))} lookup={jira().chips.lookup} />}</Show>
                         </span>
                         <span class="pull-sub">
                           <AuthorBadge name={pull.author} />
@@ -708,9 +811,107 @@ export function Sidebar(props: {
                   {platform.listState() === "open" ? "No open pull requests" : "No pull requests"}
                 </div>
               </Show>
+              <Show when={platform.pullsCappedText()}>{(text) => <div class="pull-note" role="status">{text()}</div>}</Show>
               <button type="button" class="srow pull-filter" onClick={() => platform.setListState(platform.listState() === "open" ? "all" : "open")}>
                 {platform.listState() === "open" ? "Show merged and closed" : "Show open only"}
               </button>
+            </Section>
+          )}
+        </Show>
+        <Show when={props.jira?.state.connected() ? props.jira : undefined} keyed>
+          {(jira) => (
+            <Section
+              id="issues"
+              icon="issue"
+              title="Jira issues"
+              total={jira.state.total()}
+              shown={visibleIssues().length}
+              countText={jira.state.loading() && jira.state.total() === 0 ? "…" : undefined}
+            >
+              <For each={visibleIssues()}>
+                {(issue, index) => (
+                  <NavRow
+                    id={`issue:${issue.key}`}
+                    title={`${issue.key} ${issue.summary}`}
+                    label={issueRowLabel(issue)}
+                    current={props.selection?.kind === "issue" && props.selection.key === issue.key}
+                    pull
+                    depth={1}
+                    base={6}
+                    tree={{ last: index() === visibleIssues().length - 1, lines: [] }}
+                    onClick={() => jira.select(issue.key)}
+                    onActivate={() => jira.select(issue.key)}
+                    onOpen={(anchor) => openIssueMenu(issue, anchor)}
+                    onMenu={(anchor) => openIssueMenu(issue, anchor)}
+                  >
+                    <span class="pull-main">
+                      <span class="pull-line">
+                        <span class="pull-number">{issue.key}</span>
+                        <span class="chip issue-status" classList={{ "chip-info": statusTone(issue.status_category) === "info", "chip-success": statusTone(issue.status_category) === "ok" }}>
+                          {issue.status}
+                        </span>
+                      </span>
+                      <span class="pull-sub">
+                        <span class="pull-by">{issue.summary}</span>
+                      </span>
+                    </span>
+                    <span class="acts">
+                      <button
+                        type="button"
+                        class="icon-btn dense"
+                        tabindex="-1"
+                        {...tip("Create branch from issue", undefined, `Create branch from ${issue.key}`)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void props.actions.openCreateBranchFromIssue(issue, anchorOf(event.currentTarget));
+                        }}
+                      >
+                        <Icon name="branch" size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        class="icon-btn dense"
+                        tabindex="-1"
+                        {...tip("Open in browser", undefined, `Open ${issue.key} in browser`)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          jira.openInBrowser(issue);
+                        }}
+                      >
+                        <Icon name="open" size={14} />
+                      </button>
+                    </span>
+                  </NavRow>
+                )}
+              </For>
+              <For each={jira.state.sources().filter((source) => source.failure !== undefined)}>
+                {(source) => (
+                  <div class="pull-note error" role="alert">
+                    <span>
+                      {source.connection.host}: {source.failure?.message}
+                    </span>
+                    <button type="button" class="btn sm" onClick={jira.state.refresh}>
+                      Retry
+                    </button>
+                    <Show when={source.failure?.action}>
+                      <button type="button" class="btn sm" onClick={jira.openSettings}>
+                        Edit connection
+                      </button>
+                    </Show>
+                  </div>
+                )}
+              </For>
+              <For each={jira.state.cappedNotes()}>{(note) => <div class="pull-note" role="status">{note}</div>}</For>
+              <Show when={jira.state.loading()}>
+                <div class="pull-note" role="status" aria-busy="true">
+                  {loadingIssuesText(jira.state.sources().filter((source) => source.loading).map((source) => source.connection))}
+                </div>
+              </Show>
+              <Show when={!jira.state.loading() && jira.state.issues().length === 0 && jira.state.sources().every((source) => source.failure === undefined)}>
+                <div class="pull-note" role="status">
+                  No open issues assigned to you
+                </div>
+              </Show>
             </Section>
           )}
         </Show>
@@ -739,6 +940,9 @@ export function Sidebar(props: {
       </Show>
       <Show when={pullMenu()} keyed>
         {(menu) => <ContextMenu menu={menu} onClose={() => setPullMenu(undefined)} />}
+      </Show>
+      <Show when={issueMenu()} keyed>
+        {(menu) => <ContextMenu menu={menu} onClose={() => setIssueMenu(undefined)} />}
       </Show>
       <Show when={bulkMenuState()} keyed>
         {(menu) => <ContextMenu menu={menu} onClose={() => setBulkMenuState(undefined)} />}

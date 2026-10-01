@@ -1,9 +1,10 @@
 import { keepPreviousData } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import type { ConflictSide } from "../ipc/bindings/ConflictSide";
 import type { ConflictRegionProposal } from "../ipc/bindings/ConflictRegionProposal";
 import { client, IpcError } from "../ipc/client";
+import { featureAvailable, featuresOptions } from "../state/aiFeatures";
 import { createAiRun } from "../state/aiRun";
 import { conflictDescription, conflictSides } from "../state/operationModel";
 import { repoKeys } from "../state/queryKeys";
@@ -29,6 +30,9 @@ import {
 import { MenuLabel } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
+import { VirtualRows } from "./VirtualRows";
+
+const RESULT_LINE_HEIGHT = 20;
 
 const blocks: { choice: Choice; label: string; hint?: string }[] = [
   { choice: "current", label: "Take current", hint: "1" },
@@ -57,7 +61,10 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   const [draft, setDraft] = createSignal<string | undefined>();
   const [proposals, setProposals] = createSignal<Record<number, ConflictRegionProposal>>({});
   const proposer = createAiRun(props.session.queryClient, (id) => client.aiProposeConflict(path, id, props.file));
+  const features = useQuery(featuresOptions, () => props.session.queryClient);
   let root: HTMLElement | undefined;
+  let body: HTMLDivElement | undefined;
+  const [reveal, setReveal] = createSignal<{ nonce: number; index: number } | undefined>();
 
   const sides = () => conflictSides(props.session.snapshot());
   const loaded = () => (conflict.error == null ? conflict.data : undefined);
@@ -88,10 +95,17 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
     }),
   );
 
-  createEffect(() => {
-    const index = state().active;
-    queueMicrotask(() => root?.querySelector(`.rline.active[data-region="${index}"]`)?.scrollIntoView({ block: "nearest" }));
-  });
+  const activeIndex = createMemo(() => state().active);
+  createEffect(
+    on(
+      activeIndex,
+      (region) => {
+        const first = lines().findIndex((line) => line.region === region);
+        if (first >= 0) setReveal((current) => ({ nonce: (current?.nonce ?? 0) + 1, index: first }));
+      },
+      { defer: true },
+    ),
+  );
 
   const apply = (choice: Choice) => {
     setState(choose(state(), state().active, choice));
@@ -194,7 +208,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
           Back to graph
         </button>
       </div>
-      <div class="rbody">
+      <div class="rbody" ref={body}>
         <Show when={failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
         <Show when={loaded()}>
           {(file) => (
@@ -226,22 +240,24 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                   <Show when={proposalCount() > 0}> · {proposalCount()} {proposalCount() === 1 ? "proposal" : "proposals"} to review</Show>
                 </span>
                 <span class="spacer" />
-                <Show
-                  when={proposer.running()}
-                  fallback={
-                    <button type="button" class="btn sm" title="Ask your AI provider for a resolution of every conflict in this file. Nothing changes until you accept one." onClick={() => void propose()}>
+                <Show when={featureAvailable(features.data, "conflict_fix") || proposer.running()}>
+                  <Show
+                    when={proposer.running()}
+                    fallback={
+                      <button type="button" class="btn sm" title="Ask your AI provider for a resolution of every conflict in this file. Nothing changes until you accept one." onClick={() => void propose()}>
+                        <Icon name="wand" size={14} />
+                        Propose resolution
+                      </button>
+                    }
+                  >
+                    <button type="button" class="btn sm" aria-busy="true" disabled>
                       <Icon name="wand" size={14} />
-                      Propose resolution
+                      Proposing…
                     </button>
-                  }
-                >
-                  <button type="button" class="btn sm" aria-busy="true" disabled>
-                    <Icon name="wand" size={14} />
-                    Proposing…
-                  </button>
-                  <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
-                    <Icon name="close" size={14} />
-                  </button>
+                    <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
+                      <Icon name="close" size={14} />
+                    </button>
+                  </Show>
                 </Show>
                 <button type="button" class="btn sm" onClick={() => setState(takeAll(state(), "current"))}>
                   Take all current
@@ -366,12 +382,14 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
               <div class="cpane result">
                 <div class="chead">Result</div>
                 <div class="lines" role="group" aria-label="Result">
-                  <For each={lines()}>
-                    {(line) => (
+                  <VirtualRows as="div" items={lines()} scroller={() => body} estimate={RESULT_LINE_HEIGHT} reveal={reveal()} measured>
+                    {(line, row) => (
                       <div
                         class="rline"
                         classList={{ active: line.region === state().active, unresolved: line.region !== undefined && state().choices[line.region] === undefined }}
                         data-region={line.region}
+                        ref={row.measure}
+                        style={row.style}
                         onClick={() => line.region !== undefined && setState({ ...state(), active: line.region })}
                       >
                         <span class="ln" aria-hidden="true">{line.number}</span>
@@ -379,7 +397,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                         <span>{line.text}</span>
                       </div>
                     )}
-                  </For>
+                  </VirtualRows>
                 </div>
               </div>
             </Show>

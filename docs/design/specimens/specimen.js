@@ -180,7 +180,6 @@
   function sidebar({ current = "greeting", repo, recovery = false, pulls = null, worktrees = ["sample|main worktree|", "hotfix/wt-demo|clean|"] } = {}) {
     const row = (name, meta = "", cls = "") => `<div class="srow${cls}${name === current && cls.includes("child") ? " current" : ""}">${name}${meta ? ` <span class="meta${meta.startsWith("↑") ? " up" : ""}">${meta}</span>` : ""}</div>`;
     return `<aside class="panel sidebar" aria-label="Repository">${repo ? `<div class="sec">${repo}</div>` : ""}
-      ${sec("changes", "Changes", 2)}
       ${sec("branch", "Branches", 7)}
       ${row("main", "↑3")}
       <div class="srow folder"><span class="chev">${glyph("chevron", 14)}</span>bugfix <span class="meta">1 branch</span></div>${row("header", "", " child")}

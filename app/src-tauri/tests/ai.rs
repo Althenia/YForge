@@ -13,6 +13,7 @@ use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
 use tauri::webview::InvokeRequest;
 use tauri::{App, Listener, Manager, WebviewWindow};
 use yforge_ai::{Ai, Endpoints, Limits, MemoryStore};
+use yforge_core::AiFeatureConfig;
 use yforge_platform::PlatformService;
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -235,20 +236,31 @@ fn invoke(window: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result
     .map(|response| response.deserialize::<Value>().expect("json response"))
 }
 
-fn add_endpoint(h: &Harness, url: &str, key: Option<&str>) -> String {
+fn add_provider(h: &Harness, url: &str, key: Option<&str>) -> String {
     let added = invoke(
         &h.window,
         "ai_provider_add",
         json!({"input": {"kind": "openai_compatible", "name": "Endpoint", "base_url": url, "api_key": key}}),
     )
     .unwrap();
-    let id = added["config"]["id"].as_str().unwrap().to_owned();
-    invoke(
-        &h.window,
-        "ai_set_active",
-        json!({"id": id, "model": "model-x"}),
-    )
-    .unwrap();
+    added["config"]["id"].as_str().unwrap().to_owned()
+}
+
+fn add_endpoint(h: &Harness, url: &str, key: Option<&str>) -> String {
+    let id = add_provider(h, url, key);
+    let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
+    for summary in listed.as_array().unwrap() {
+        let config = AiFeatureConfig {
+            feature: serde_json::from_value(summary["feature"].clone()).unwrap(),
+            provider_id: id.clone(),
+            model_id: "model-x".to_owned(),
+            prompt_template: summary["default_prompt_template"]
+                .as_str()
+                .unwrap()
+                .to_owned(),
+        };
+        yforge_core::ai_feature_config_set(h.data.path(), &config).unwrap();
+    }
     id
 }
 
@@ -279,9 +291,9 @@ fn providers_are_managed_over_ipc_with_the_key_only_in_the_secret_store() {
     assert_eq!(listed[0]["config"]["id"], id);
     assert_eq!(listed[0]["config"]["kind"], "openai_compatible");
     assert_eq!(listed[0]["config"]["auth_mode"], "api_key");
-    assert_eq!(listed[0]["config"]["model"], "model-x");
+    assert!(listed[0]["config"].get("model").is_none());
     assert_eq!(listed[0]["config"]["has_api_key"], true);
-    assert_eq!(listed[0]["active"], true);
+    assert!(listed[0].get("active").is_none());
     assert_eq!(listed[0]["status"], json!({"kind": "ready"}));
     assert!(!listed.to_string().contains(key));
     assert_eq!(h.secrets.accounts(), std::slice::from_ref(&id));
@@ -758,7 +770,7 @@ fn models_fake() -> Fake {
 fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
     let h = harness();
     let fake = models_fake();
-    let id = add_endpoint(&h, &fake.url, None);
+    let id = add_provider(&h, &fake.url, None);
 
     let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
     assert_eq!(
@@ -775,6 +787,8 @@ fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
         .unwrap()
         .iter()
         .all(|s| s["config"].is_null()
+            && s["enabled"] == false
+            && s["available"] == false
             && s["default_prompt_template"]
                 .as_str()
                 .unwrap()
@@ -805,9 +819,31 @@ fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
         saved["config"],
         json!({"feature": "recompose", "provider_id": id, "model_id": "listed-model", "prompt_template": "Regroup.\n{context}"})
     );
+    assert_eq!(
+        (saved["enabled"].clone(), saved["available"].clone()),
+        (json!(true), json!(true))
+    );
     let listed = invoke(&h.window, "ai_feature_config_list", json!({})).unwrap();
     assert_eq!(listed[1]["config"]["model_id"], "listed-model");
     assert!(listed[0]["config"].is_null());
+
+    let off = invoke(
+        &h.window,
+        "ai_feature_config_enable",
+        json!({"feature": "recompose", "enabled": false}),
+    )
+    .unwrap();
+    assert_eq!(
+        (off["enabled"].clone(), off["available"].clone()),
+        (json!(false), json!(false))
+    );
+    let unset = invoke(
+        &h.window,
+        "ai_feature_config_enable",
+        json!({"feature": "conflict_fix", "enabled": true}),
+    )
+    .unwrap_err();
+    assert_eq!(unset["kind"], "invalid_request");
 
     let reset = invoke(
         &h.window,

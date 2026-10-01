@@ -9,6 +9,7 @@ use crate::branch;
 use crate::commit::{self, parse_raw, validate_sha};
 use crate::diff::{self, ParsedDiff};
 use crate::error::CoreError;
+use crate::file_view::FILE_VIEW_LIMIT;
 use crate::git;
 use crate::graph;
 use crate::model::{
@@ -501,6 +502,7 @@ struct FileEntry {
     status: FileStatus,
     parsed: ParsedDiff,
     whole_file_only: bool,
+    hunks_omitted: Option<String>,
 }
 
 fn changes_mode(header: &str) -> bool {
@@ -534,8 +536,18 @@ fn combined_diff(root: &Path, range: &Range) -> Result<Vec<FileEntry>, CoreError
     parse_raw(&raw)?
         .into_iter()
         .map(|(status, path, _)| {
-            let parsed =
+            let mut parsed =
                 diff::read_commit_diff(root, &range.base, &range.head, &path, None, false)?;
+            let size = diff::hunks_text_size(&parsed.hunks);
+            let too_large = size > FILE_VIEW_LIMIT;
+            if too_large {
+                parsed.hunks.clear();
+            }
+            let hunks_omitted = too_large.then(|| {
+                format!(
+                    "The diff of {path} is {size} bytes, over the {FILE_VIEW_LIMIT} byte limit, so its hunks are not shown and it can only be assigned as a whole file."
+                )
+            });
             let whole_file_only = parsed.binary
                 || parsed.hunks.is_empty()
                 || status == FileStatus::TypeChanged
@@ -545,6 +557,7 @@ fn combined_diff(root: &Path, range: &Range) -> Result<Vec<FileEntry>, CoreError
                 status,
                 parsed,
                 whole_file_only,
+                hunks_omitted,
             })
         })
         .collect()
@@ -576,6 +589,7 @@ pub fn recompose_preview(path: &Path, base: &str) -> Result<RecomposePreview, Co
                 status: entry.status,
                 binary: entry.parsed.binary,
                 whole_file_only: entry.whole_file_only,
+                hunks_omitted: entry.hunks_omitted,
             })
             .collect(),
     })

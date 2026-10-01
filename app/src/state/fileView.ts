@@ -36,11 +36,11 @@ export function formatBytes(size: number): string {
   return `${value.toFixed(1)} ${units[unit]}`;
 }
 
-export function fileViewError(failure: unknown): string {
+export function fileViewError(failure: unknown, subject: "file" | "diff" = "file"): string {
   if (failure instanceof IpcError && failure.kind === "file_too_large") {
     const size = Number(failure.output);
-    const limit = `over the ${formatBytes(2 * MEBIBYTE)} limit of the file view. Open it in your editor instead.`;
-    return failure.output === null || !Number.isFinite(size) ? `This file is ${limit}` : `This file is ${formatBytes(size)}, ${limit}`;
+    const limit = `over the ${formatBytes(2 * MEBIBYTE)} limit of the ${subject} view. Open it in your editor instead.`;
+    return failure.output === null || !Number.isFinite(size) ? `This ${subject} is ${limit}` : `This ${subject} is ${formatBytes(size)}, ${limit}`;
   }
   return failure instanceof Error ? failure.message : String(failure);
 }

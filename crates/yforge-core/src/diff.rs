@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::error::CoreError;
+use crate::file_view::FILE_VIEW_LIMIT;
 use crate::git;
 use crate::model::{ChangeArea, DiffHunk, DiffLine, DiffLineKind, FileDiff};
 use crate::repo;
@@ -268,6 +269,26 @@ fn worktree_size(root: &Path, file: &str) -> Option<u64> {
         .map(|metadata| metadata.len())
 }
 
+pub(crate) fn hunks_text_size(hunks: &[DiffHunk]) -> u64 {
+    hunks
+        .iter()
+        .flat_map(|hunk| &hunk.lines)
+        .map(|line| line.text.len() as u64 + 1)
+        .sum()
+}
+
+fn within_view_limit(file: &str, diff: FileDiff) -> Result<FileDiff, CoreError> {
+    let size = hunks_text_size(&diff.hunks);
+    if size > FILE_VIEW_LIMIT {
+        return Err(CoreError::FileTooLarge {
+            file: file.to_owned(),
+            size,
+            limit: FILE_VIEW_LIMIT,
+        });
+    }
+    Ok(diff)
+}
+
 pub(crate) fn diff_between(
     root: &Path,
     base: &str,
@@ -285,14 +306,17 @@ pub(crate) fn diff_between(
     } else {
         (None, None)
     };
-    Ok(FileDiff {
-        path: file.to_owned(),
-        original_path: original.map(str::to_owned),
-        binary: parsed.binary,
-        old_size,
-        new_size,
-        hunks: parsed.hunks,
-    })
+    within_view_limit(
+        file,
+        FileDiff {
+            path: file.to_owned(),
+            original_path: original.map(str::to_owned),
+            binary: parsed.binary,
+            old_size,
+            new_size,
+            hunks: parsed.hunks,
+        },
+    )
 }
 
 fn working_sizes(
@@ -315,6 +339,18 @@ fn working_sizes(
 }
 
 pub fn diff_file(
+    path: &Path,
+    file: &str,
+    area: ChangeArea,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
+    within_view_limit(
+        file,
+        diff_file_unbounded(path, file, area, ignore_whitespace)?,
+    )
+}
+
+pub(crate) fn diff_file_unbounded(
     path: &Path,
     file: &str,
     area: ChangeArea,

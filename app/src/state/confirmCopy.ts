@@ -1,6 +1,6 @@
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
-import type { CommitBrief } from "../ipc/bindings/CommitBrief";
 import type { FileChange } from "../ipc/bindings/FileChange";
+import type { Operation } from "../ipc/bindings/Operation";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
 import type { RevisionRange } from "../ipc/bindings/RevisionRange";
@@ -11,15 +11,18 @@ export type ConfirmCopy = {
   title: string;
   consequences: string[];
   names: string[];
+  total?: number;
   confirmLabel: string;
   neutral?: boolean;
   warning?: boolean;
   lead?: string;
   namesHeading?: string;
-  also?: { heading: string; names: string[] };
+  also?: { heading: string; names: string[]; total?: number };
 };
 
-const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+const formatCount = (count: number) => count.toLocaleString("en-US");
+
+const plural = (count: number, one: string, many: string) => `${formatCount(count)} ${count === 1 ? one : many}`;
 
 export function discardFilesCopy(files: readonly FileChange[]): ConfirmCopy {
   const untracked = files.filter((file) => file.area === "untracked");
@@ -95,34 +98,36 @@ export function stashAndSwitchCopy(label: string, from: string | undefined): Con
   };
 }
 
-export function deleteBranchCopy(name: string, lost: readonly CommitBrief[]): ConfirmCopy {
-  const count = lost.length;
+export function deleteBranchCopy(name: string, lost: RevisionRange): ConfirmCopy {
+  const count = lost.count;
   return {
     title: `Delete ${name}?`,
     consequences: [
-      `${count === 1 ? "This commit is" : `These ${count} commits are`} on no other branch, remote branch, or tag, so deleting ${name} leaves ${count === 1 ? "it" : "them"} without a name. ${count === 1 ? "It" : "They"} can only be recovered through the reflog.`,
+      `${count === 1 ? "This commit is" : `These ${formatCount(count)} commits are`} on no other branch, remote branch, or tag, so deleting ${name} leaves ${count === 1 ? "it" : "them"} without a name. ${count === 1 ? "It" : "They"} can only be recovered through the reflog.`,
     ],
-    names: lost.map((commit) => `${commit.sha.slice(0, 7)} ${commit.summary}`),
+    names: lost.commits.map(commitLine),
+    total: count,
     confirmLabel: "Delete branch",
   };
 }
 
-export function deleteBranchesCopy(names: readonly string[], lost: ReadonlyArray<{ branch: string; commits: readonly CommitBrief[] }>): ConfirmCopy {
-  const commits = lost.flatMap((entry) => entry.commits.map((commit) => `${entry.branch}: ${commit.sha.slice(0, 7)} ${commit.summary}`));
+export function deleteBranchesCopy(names: readonly string[], lost: ReadonlyArray<{ branch: string; range: RevisionRange }>): ConfirmCopy {
+  const commits = lost.flatMap((entry) => entry.range.commits.map((commit) => `${entry.branch}: ${commitLine(commit)}`));
+  const total = lost.reduce((sum, entry) => sum + entry.range.count, 0);
   const copy: ConfirmCopy = {
     title: `Delete ${names.length} branches?`,
     consequences: ["The branches are deleted from this repository. Remote branches stay."],
     names: [...names],
     confirmLabel: "Delete branches",
   };
-  if (commits.length === 0) return copy;
+  if (total === 0) return copy;
   return {
     ...copy,
     consequences: [
       ...copy.consequences,
-      `${commits.length === 1 ? "One commit is" : `${commits.length} commits are`} on no other branch, remote branch, or tag, so deleting ${commits.length === 1 ? "it leaves it" : "them leaves them"} without a name. ${commits.length === 1 ? "It" : "They"} can only be recovered through the reflog.`,
+      `${total === 1 ? "One commit is" : `${formatCount(total)} commits are`} on no other branch, remote branch, or tag, so deleting ${total === 1 ? "it leaves it" : "them leaves them"} without a name. ${total === 1 ? "It" : "They"} can only be recovered through the reflog.`,
     ],
-    also: { heading: "Commits left without a name", names: commits },
+    also: { heading: "Commits left without a name", names: commits, total },
     warning: true,
   };
 }
@@ -139,15 +144,16 @@ export function deleteRemoteBranchCopy(remote: string, name: string): ConfirmCop
   };
 }
 
-export function deleteBranchAndRemoteCopy(name: string, remote: string, lost: readonly CommitBrief[]): ConfirmCopy {
+export function deleteBranchAndRemoteCopy(name: string, remote: string, lost: RevisionRange): ConfirmCopy {
   return {
     title: `Delete ${name} and ${remote}/${name}?`,
     consequences: [
       `The local branch is deleted first, then the branch is removed from ${remote} for everyone who fetches from it.`,
       "Each deletion is its own operation, so Undo restores them one at a time.",
     ],
-    namesHeading: lost.length === 0 ? undefined : `${lost.length === 1 ? "This commit is" : "These commits are"} only on the local branch`,
-    names: lost.map((commit) => `${commit.sha.slice(0, 7)} ${commit.summary}`),
+    namesHeading: lost.count === 0 ? undefined : `${lost.count === 1 ? "This commit is" : "These commits are"} only on the local branch`,
+    names: lost.commits.map(commitLine),
+    total: lost.count,
     confirmLabel: "Delete both",
   };
 }
@@ -187,9 +193,10 @@ export function forcePushCopy(plan: ForcePushPlan): ConfirmCopy {
   return {
     title: "Force push with lease",
     warning: true,
-    lead: `Your local ${lease.branch} has diverged from ${upstream}; its history no longer contains ${replaced.length === 1 ? "this remote commit" : "these remote commits"}.`,
-    namesHeading: `${replaced.length === 1 ? "This remote commit" : "These remote commits"} will be replaced`,
-    names: replaced.map((commit) => `${commit.sha.slice(0, 7)} ${commit.summary}`),
+    lead: `Your local ${lease.branch} has diverged from ${upstream}; its history no longer contains ${replaced.count === 1 ? "this remote commit" : "these remote commits"}.`,
+    namesHeading: `${replaced.count === 1 ? "This remote commit" : "These remote commits"} will be replaced`,
+    names: replaced.commits.map(commitLine),
+    total: replaced.count,
     consequences: [`Lease: ${upstream} must still be at ${shortLease}. If the remote moved since, git rejects the push and nothing is replaced.`],
     confirmLabel: "Force push with lease",
   };
@@ -222,6 +229,7 @@ export function rebaseCopy(current: string, onto: string, replayed: RevisionRang
         : `${plural(count, "commit", "commits")} on ${current} ${count === 1 ? "is" : "are"} replayed on top of ${onto}.`,
     namesHeading: count === 0 ? undefined : `${count === 1 ? "This commit" : "These commits"} get new ids`,
     names: replayed.commits.map(commitLine),
+    total: count,
     consequences: [
       "The original commits stay reachable through the reflog, but any copy already pushed now differs from your branch.",
       "If a commit conflicts, the rebase stops and you resolve it in the operation banner.",
@@ -251,6 +259,7 @@ export function resetCopy(mode: ResetMode, current: string, target: string, leav
     lead: `${current} moves to ${target}.`,
     namesHeading: leaving.count === 0 ? undefined : `${plural(leaving.count, "commit leaves", "commits leave")} ${current}`,
     names: leaving.commits.map(commitLine),
+    total: leaving.count,
     consequences,
     confirmLabel: `${modeName[mode]} reset`,
     neutral: mode !== "hard",
@@ -268,6 +277,15 @@ export function deleteTagCopy(name: string): ConfirmCopy {
     consequences: ["The tag is removed from this repository. No commit changes. A copy on a remote stays there until you delete it from the remote too."],
     names: [],
     confirmLabel: "Delete tag",
+  };
+}
+
+export function deleteTagsCopy(names: readonly string[]): ConfirmCopy {
+  return {
+    title: `Delete ${names.length} tags?`,
+    consequences: ["The tags are removed from this repository. No commit changes. Copies on a remote stay there until you delete them from the remote too."],
+    names: [...names],
+    confirmLabel: "Delete tags",
   };
 }
 
@@ -325,9 +343,9 @@ export function clearHistoryCopy(repository: string): ConfirmCopy {
   };
 }
 
-export function removeProviderCopy(name: string, hasKey: boolean, active: boolean): ConfirmCopy {
+export function removeProviderCopy(name: string, hasKey: boolean, usedBy: readonly string[]): ConfirmCopy {
   const consequences = [hasKey ? "Its API key is deleted from the macOS Keychain." : "Nothing else on this Mac changes."];
-  if (active) consequences.push("It is the active provider, so AI actions stop until you choose another one.");
+  if (usedBy.length > 0) consequences.push(`It is set up for ${usedBy.join(" and ")}, so ${usedBy.length === 1 ? "that feature loses its setup and turns" : "those features lose their setup and turn"} off.`);
   return { title: "Remove this AI provider?", names: [name], consequences, confirmLabel: "Remove provider" };
 }
 
@@ -337,5 +355,65 @@ export function removeConnectionCopy(name: string, host: string): ConfirmCopy {
     names: [`${name} · ${host}`],
     consequences: ["Its access token is deleted from the macOS Keychain. Pull requests on the platform are not changed, and repositories on this host lose their Pull requests section until you connect again."],
     confirmLabel: "Remove connection",
+  };
+}
+
+export function removeJiraConnectionCopy(host: string, displayName: string): ConfirmCopy {
+  return {
+    title: "Remove this Jira connection?",
+    names: [`${host} · ${displayName}`],
+    consequences: ["Its token is deleted from the macOS Keychain. Issues in Jira are not changed; issue keys from this site show the key only and its issues leave the sidebar until you connect again."],
+    confirmLabel: "Remove connection",
+  };
+}
+
+export function removeGitHostCopy(host: string): ConfirmCopy {
+  return {
+    title: "Remove this host identity?",
+    names: [host],
+    consequences: ["Remotes on this host use the app-wide key, or your SSH agent and ~/.ssh/config, again. The key files stay in ~/.ssh, saved key passphrases stay in the Keychain, and passwords or tokens stay in Git's credential helper."],
+    confirmLabel: "Remove host",
+  };
+}
+
+export function closeGroupCopy(name: string, tabs: readonly string[]): ConfirmCopy {
+  return {
+    title: `Close the ${name} group?`,
+    namesHeading: `Closes ${plural(tabs.length, "tab", "tabs")}:`,
+    names: [...tabs],
+    consequences: ["Uncommitted changes stay on disk; the repositories stay in Recent."],
+    confirmLabel: `Close ${plural(tabs.length, "tab", "tabs")}`,
+  };
+}
+
+const OPERATION_NOUNS: Record<Operation, string> = {
+  merge: "merge",
+  rebase: "rebase",
+  cherry_pick: "cherry-pick",
+  revert: "revert",
+  cherry_pick_sequence: "cherry-pick sequence",
+  revert_sequence: "revert sequence",
+  bisect: "bisect",
+};
+
+export function closeTabsCopy(count: number, busy: ReadonlyArray<{ name: string; operation: Operation }>): ConfirmCopy {
+  const confirmLabel = `Close ${plural(count, "tab", "tabs")}`;
+  const only = busy.length === 1 ? busy[0] : undefined;
+  if (only !== undefined) {
+    const noun = OPERATION_NOUNS[only.operation];
+    return {
+      title: `${confirmLabel}?`,
+      lead: `${only.name} is in the middle of a ${noun}.`,
+      names: [],
+      consequences: [`Closing its tab does not stop or undo the ${noun}; it stays in the repository until you continue or abort it there.`],
+      confirmLabel,
+    };
+  }
+  return {
+    title: `${confirmLabel}?`,
+    namesHeading: "In progress:",
+    names: busy.map((entry) => `${entry.name} · ${OPERATION_NOUNS[entry.operation]}`),
+    consequences: ["Closing a tab does not stop or undo its operation; it stays in the repository until you continue or abort it there."],
+    confirmLabel,
   };
 }

@@ -1,8 +1,10 @@
 mod auth;
 mod crash;
 mod instance;
+pub mod menu;
 mod open;
 mod tracking;
+pub mod update;
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -15,21 +17,24 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use yforge_ai::{Ai, AiError, KeychainStore, Selection};
 use yforge_core::{
     ActivityEntry, AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod,
-    AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, CancelToken, ChangeArea,
-    CheckoutOutcome, CheckoutTarget, CliInstall, CommitBrief, CommitDetails, CommitDraft,
-    ConflictFile, ConflictProposal, ConflictSide, CoreError, CrashRecord, CrashReport, CreatePull,
-    DiffHunk, ErrorKind, ErrorPayload, FileAtRevision, FileDiff, ForceLease, ForcePushPlan,
-    GraphPage, GraphVisibility, Identity, IdentityField, IntegrationPreview, LostCommit,
-    MatchedRepo, MergeMode, MessageEdit, ModelInfo, OperationKind, OperationOutcome,
-    OperationProgress, Planned, PlatformConnection, PlatformKind, PrDetail, Progress,
-    ProviderInput, ProviderKind, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode,
-    PullOutcome, PullReport, PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult,
-    RebaseStep, RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal,
-    RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs,
-    RepoWatcher, ResetMode, SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails,
-    StashRestore, SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
+    AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, BatchOutcome,
+    CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CliInstall, CommitDetails,
+    CommitDraft, ConflictFile, ConflictProposal, ConflictSide, CoreError, CrashRecord, CrashReport,
+    CreatePull, DiffHunk, ErrorKind, ErrorPayload, FileAtRevision, FileDiff, ForceLease,
+    ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GraphPage, GraphVisibility, Identity,
+    IdentityField, IntegrationPreview, JiraConnection, JiraIssueList, JiraIssueLookup, JiraKind,
+    KeychainPassphrases, LaunchpadPulls, LostCommit, MatchedRepo, MergeMode, MessageEdit,
+    ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore, Planned,
+    PlatformConnection, PlatformKind, PrDetail, Progress, ProviderInput, ProviderKind,
+    ProviderStatus, ProviderSummary, ProviderUpdate, PullList, PullMode, PullOutcome, PullReport,
+    PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
+    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
+    ReflogEntry, RemoteInfo, RepoAlias, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs,
+    RepoWatcher, ResetMode, RevisionRange, SearchResult, SnapshotChange, SnapshotInfo, SshKey,
+    StashDetails, StashRestore, StashTarget, SwitchStash, TabSession, UrlIdentity, UsageRecord,
+    WorktreeIntegration, WorktreeStatus,
 };
-use yforge_platform::{NewConnection, PlatformService, PrFilter};
+use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilter};
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
@@ -49,6 +54,8 @@ pub struct DataDir(pub PathBuf);
 pub struct AiState(pub Ai);
 
 pub struct PlatformState(pub Arc<PlatformService>);
+
+pub struct SshPassphrases(pub Arc<dyn PassphraseStore>);
 
 #[derive(Default)]
 struct WatchState(Mutex<Option<RepoWatcher>>);
@@ -170,9 +177,17 @@ impl<R: Runtime> Network<'_, R> {
         };
         let dir = self.recorder.app.state::<DataDir>().0.clone();
         let repository = meta.repo.clone();
-        let key = blocking(move || yforge_core::ssh_key_for(&dir, &repository)).await?;
-        log::debug!("network id={id} ssh_key_set={}", key.is_some());
-        let token = self.registry.register(&id, token.with_ssh_key(key))?;
+        let ssh = blocking(move || yforge_core::ssh_plan(&dir, Some(&repository))).await?;
+        log::debug!(
+            "network id={id} repository_key_set={} app_key_set={} host_identities={}",
+            ssh.repository_key.is_some(),
+            ssh.app_key.is_some(),
+            ssh.hosts.len()
+        );
+        let passphrases = self.recorder.app.state::<SshPassphrases>().0.clone();
+        let token = self
+            .registry
+            .register(&id, token.with_ssh_plan(ssh).with_passphrases(passphrases))?;
         let announced = id.clone();
         let app = self.recorder.app.clone();
         let joined = tauri::async_runtime::spawn_blocking(move || {
@@ -261,6 +276,25 @@ fn track(repo: &str, operation: OperationKind, local: bool, toast: bool) -> Trac
 
 fn counted(count: usize, noun: &str) -> String {
     format!("{count} {noun}{}", if count == 1 { "" } else { "s" })
+}
+
+fn batch_summary(
+    verb: &str,
+    (one, many): (&str, &str),
+    total: usize,
+    outcome: &BatchOutcome,
+) -> String {
+    let noun = |count: usize| format!("{count} {}", if count == 1 { one } else { many });
+    if outcome.failed.is_empty() {
+        format!("{verb} {}", noun(outcome.done.len()))
+    } else {
+        format!(
+            "{verb} {} of {} ({} failed)",
+            outcome.done.len(),
+            noun(total),
+            outcome.failed.len()
+        )
+    }
 }
 
 fn short(sha: &str) -> String {
@@ -943,15 +977,12 @@ async fn rename_branch<R: Runtime>(
 }
 
 #[tauri::command]
-async fn branch_delete_preview(
-    path: String,
-    name: String,
-) -> Result<Vec<CommitBrief>, ErrorPayload> {
+async fn branch_delete_preview(path: String, name: String) -> Result<RevisionRange, ErrorPayload> {
     log::debug!("branch_delete_preview path={path} name={name}");
     let result =
         blocking(move || yforge_core::branch_delete_preview(Path::new(&path), &name)).await;
     log_outcome("branch_delete_preview", &result, |lost| {
-        format!("lost={}", lost.len())
+        format!("lost={}", lost.count)
     });
     result
 }
@@ -987,6 +1018,65 @@ async fn delete_branch<R: Runtime>(
         )
         .await;
     log_outcome("delete_branch", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn delete_branches<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    names: Vec<String>,
+    forced: Vec<String>,
+) -> Result<BatchOutcome, ErrorPayload> {
+    log::debug!(
+        "delete_branches path={path} names={} forced={}",
+        names.len(),
+        forced.len()
+    );
+    let target = path.clone();
+    let total = names.len();
+    let requested = names.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::DeleteBranch, true, true),
+            move |outcome: &BatchOutcome| {
+                batch_summary("Deleted", ("branch", "branches"), total, outcome)
+            },
+            {
+                let path = path.clone();
+                move || {
+                    requested
+                        .into_iter()
+                        .map(|name| {
+                            let snapshot = yforge_core::branch_snapshot(Path::new(&path), &name)?;
+                            Ok((name, snapshot))
+                        })
+                        .collect::<Result<Vec<_>, CoreError>>()
+                }
+            },
+            move || yforge_core::delete_branches(Path::new(&target), &names, &forced),
+            move |snapshots, outcome| {
+                let deleted: Vec<_> = snapshots
+                    .iter()
+                    .filter(|(name, _)| outcome.done.contains(name))
+                    .filter_map(|(name, snapshot)| Some((name.clone(), snapshot.as_ref()?)))
+                    .collect();
+                Ok(if deleted.is_empty() {
+                    Planned::Unavailable("The branches were not found before deleting".to_owned())
+                } else {
+                    yforge_core::plan_branches_delete(&deleted)
+                })
+            },
+        )
+        .await;
+    log_outcome("delete_branches", &result, |outcome| {
+        format!(
+            "done={} failed={}",
+            outcome.done.len(),
+            outcome.failed.len()
+        )
+    });
     result
 }
 
@@ -1106,6 +1196,35 @@ async fn stash_drop<R: Runtime>(
 }
 
 #[tauri::command]
+async fn drop_stashes<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    targets: Vec<StashTarget>,
+) -> Result<BatchOutcome, ErrorPayload> {
+    log::debug!("drop_stashes path={path} count={}", targets.len());
+    let target = path.clone();
+    let total = targets.len();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::DropStash, true, true),
+            move |outcome: &BatchOutcome| {
+                batch_summary("Dropped", ("stash", "stashes"), total, outcome)
+            },
+            move || yforge_core::drop_stashes(Path::new(&target), &targets),
+        )
+        .await;
+    log_outcome("drop_stashes", &result, |outcome| {
+        format!(
+            "done={} failed={}",
+            outcome.done.len(),
+            outcome.failed.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
 async fn fetch<R: Runtime>(
     app: AppHandle<R>,
     log: State<'_, ActivityLog>,
@@ -1211,9 +1330,7 @@ async fn push_plan(path: String) -> Result<ForcePushPlan, ErrorPayload> {
     log_outcome("push_plan", &result, |plan| {
         format!(
             "upstream={} expected={} replaced={}",
-            plan.upstream,
-            plan.lease.expected_sha,
-            plan.replaced.len()
+            plan.upstream, plan.lease.expected_sha, plan.replaced.count
         )
     });
     result
@@ -1699,6 +1816,33 @@ async fn delete_tag<R: Runtime>(
         )
         .await;
     log_outcome("delete_tag", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn delete_tags<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    names: Vec<String>,
+) -> Result<BatchOutcome, ErrorPayload> {
+    log::debug!("delete_tags path={path} count={}", names.len());
+    let target = path.clone();
+    let total = names.len();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::DeleteTag, true, true),
+            move |outcome: &BatchOutcome| batch_summary("Deleted", ("tag", "tags"), total, outcome),
+            move || yforge_core::delete_tags(Path::new(&target), &names),
+        )
+        .await;
+    log_outcome("delete_tags", &result, |outcome| {
+        format!(
+            "done={} failed={}",
+            outcome.done.len(),
+            outcome.failed.len()
+        )
+    });
     result
 }
 
@@ -2268,7 +2412,11 @@ async fn session_load(data: State<'_, DataDir>) -> Result<TabSession, ErrorPaylo
     let dir = data_dir(&data);
     let result = blocking(move || yforge_core::load_session(&dir)).await;
     log_outcome("session_load", &result, |session| {
-        format!("tabs={}", session.tabs.len())
+        format!(
+            "tabs={} groups={}",
+            session.tabs.len(),
+            session.groups.len()
+        )
     });
     result
 }
@@ -2276,12 +2424,34 @@ async fn session_load(data: State<'_, DataDir>) -> Result<TabSession, ErrorPaylo
 #[tauri::command]
 async fn session_save(data: State<'_, DataDir>, session: TabSession) -> Result<(), ErrorPayload> {
     log::debug!(
-        "session_save tabs={} active={}",
+        "session_save tabs={} active={} groups={}",
         session.tabs.len(),
-        session.active
+        session.active,
+        session.groups.len()
     );
     let dir = data_dir(&data);
     blocking(move || yforge_core::save_session(&dir, &session)).await
+}
+
+#[tauri::command]
+async fn repo_aliases_list(data: State<'_, DataDir>) -> Result<Vec<RepoAlias>, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repo_aliases_list(&dir)).await;
+    log_outcome("repo_aliases_list", &result, |aliases| {
+        format!("aliases={}", aliases.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn repo_alias_set(
+    data: State<'_, DataDir>,
+    path: String,
+    alias: Option<String>,
+) -> Result<Vec<RepoAlias>, ErrorPayload> {
+    log::debug!("repo_alias_set path={path} set={}", alias.is_some());
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::repo_aliases_set(&dir, &path, alias.as_deref())).await
 }
 
 #[tauri::command]
@@ -2804,20 +2974,136 @@ async fn switch_stash_dismiss(
     result
 }
 
+fn home_ssh_dir() -> Result<PathBuf, CoreError> {
+    let home = std::env::var_os("HOME")
+        .filter(|home| !home.is_empty())
+        .ok_or_else(|| CoreError::InvalidRequest {
+            detail: "HOME is not set, so ~/.ssh cannot be read".to_owned(),
+        })?;
+    Ok(Path::new(&home).join(".ssh"))
+}
+
 #[tauri::command]
 async fn ssh_keys_list() -> Result<Vec<SshKey>, ErrorPayload> {
     log::debug!("ssh_keys_list");
-    let result = blocking(|| {
-        let home = std::env::var_os("HOME")
-            .filter(|home| !home.is_empty())
-            .ok_or_else(|| CoreError::InvalidRequest {
-                detail: "HOME is not set, so ~/.ssh cannot be read".to_owned(),
-            })?;
-        yforge_core::list_ssh_keys(&Path::new(&home).join(".ssh"))
-    })
-    .await;
+    let result = blocking(|| yforge_core::list_ssh_keys(&home_ssh_dir()?)).await;
     log_outcome("ssh_keys_list", &result, |keys| {
         format!("keys={}", keys.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn ssh_public_key(path: String) -> Result<String, ErrorPayload> {
+    log::debug!("ssh_public_key path={path}");
+    let result = blocking(move || yforge_core::public_key_text(Path::new(&path))).await;
+    log_outcome("ssh_public_key", &result, |text| {
+        format!("chars={}", text.chars().count())
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_hosts_list(data: State<'_, DataDir>) -> Result<Vec<GitHost>, ErrorPayload> {
+    log::debug!("git_hosts_list");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::git_hosts_list(&dir)).await;
+    log_outcome("git_hosts_list", &result, |hosts| {
+        format!("hosts={}", hosts.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_save(
+    data: State<'_, DataDir>,
+    id: Option<String>,
+    draft: GitHostDraft,
+) -> Result<GitHost, ErrorPayload> {
+    log::debug!(
+        "git_host_save id={id:?} host={} key_set={} https_user_set={}",
+        draft.host,
+        draft.ssh_key_path.is_some(),
+        draft.https_user.is_some()
+    );
+    let dir = data_dir(&data);
+    let result = blocking(move || match id {
+        Some(id) => yforge_core::git_host_update(&dir, &id, &draft),
+        None => yforge_core::git_host_add(&dir, &draft),
+    })
+    .await;
+    log_outcome("git_host_save", &result, |host| {
+        format!("host={}", host.host)
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_remove(data: State<'_, DataDir>, id: String) -> Result<(), ErrorPayload> {
+    log::debug!("git_host_remove id={id}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::git_host_remove(&dir, &id)).await;
+    log_outcome("git_host_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn git_host_field_problem(
+    field: String,
+    value: String,
+) -> Result<Option<GitHostProblem>, ErrorPayload> {
+    let result =
+        blocking(move || Ok::<_, CoreError>(yforge_core::git_host_problem(&field, &value))).await;
+    log_outcome("git_host_field_problem", &result, |problem| {
+        format!("problem={}", problem.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_default_key_path(host: String) -> Result<String, ErrorPayload> {
+    let result = blocking(move || yforge_core::default_key_path(&host)).await;
+    log_outcome("git_host_default_key_path", &result, |path| {
+        format!("path={path}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_generate_key(
+    passphrases: State<'_, SshPassphrases>,
+    host: String,
+    key_path: String,
+    passphrase: Option<String>,
+) -> Result<String, ErrorPayload> {
+    log::debug!(
+        "git_host_generate_key host={host} key_path={key_path} passphrase_set={}",
+        passphrase.as_deref().is_some_and(|text| !text.is_empty())
+    );
+    let store = passphrases.0.clone();
+    let result = blocking(move || {
+        yforge_core::generate_ssh_key(&host, &key_path, passphrase.as_deref(), store.as_ref())
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await;
+    log_outcome("git_host_generate_key", &result, |path| {
+        format!("key={path}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_identity_for_url(
+    data: State<'_, DataDir>,
+    url: String,
+) -> Result<UrlIdentity, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::url_identity(&dir, &url)).await;
+    log_outcome("git_identity_for_url", &result, |identity| {
+        format!(
+            "transport={:?} source={:?}",
+            identity.transport, identity.source
+        )
     });
     result
 }
@@ -3053,20 +3339,6 @@ async fn ai_provider_remove(
 }
 
 #[tauri::command]
-async fn ai_set_active(
-    data: State<'_, DataDir>,
-    id: Option<String>,
-    model: Option<String>,
-) -> Result<(), ErrorPayload> {
-    log::debug!("ai_set_active id={id:?} model={model:?}");
-    let dir = data_dir(&data);
-    let result =
-        blocking(move || yforge_core::ai_choose(&dir, id.as_deref(), model.as_deref())).await;
-    log_outcome("ai_set_active", &result, |()| String::new());
-    result
-}
-
-#[tauri::command]
 async fn ai_provider_test(
     data: State<'_, DataDir>,
     ai: State<'_, AiState>,
@@ -3138,6 +3410,27 @@ async fn ai_feature_config_set(
             .map_err(ai_payload);
     log_outcome("ai_feature_config_set", &result, |summary| {
         format!("feature={:?}", summary.feature)
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_feature_config_enable(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    feature: AiFeature,
+    enabled: bool,
+) -> Result<AiFeatureSummary, ErrorPayload> {
+    log::debug!("ai_feature_config_enable feature={feature:?} enabled={enabled}");
+    let result =
+        ai.0.enable_feature(&data_dir(&data), feature, enabled)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_feature_config_enable", &result, |summary| {
+        format!(
+            "feature={:?} enabled={} available={}",
+            summary.feature, summary.enabled, summary.available
+        )
     });
     result
 }
@@ -3702,7 +3995,7 @@ async fn platform_prs_list(
     platform: State<'_, PlatformState>,
     path: String,
     state: PrFilter,
-) -> Result<Vec<PullRequest>, ErrorPayload> {
+) -> Result<PullList, ErrorPayload> {
     log::debug!("platform_prs_list path={path} state={state:?}");
     let result = async {
         let matched = matched_repo(&platform, &data, path).await?;
@@ -3713,8 +4006,13 @@ async fn platform_prs_list(
             .map_err(platform_payload)
     }
     .await;
-    log_outcome("platform_prs_list", &result, |pulls| {
-        format!("pulls={}", pulls.len())
+    log_outcome("platform_prs_list", &result, |list| {
+        format!(
+            "pulls={} total={:?} capped={}",
+            list.pulls.len(),
+            list.total,
+            list.capped
+        )
     });
     result
 }
@@ -3792,6 +4090,202 @@ async fn platform_pr_merge(
     result
 }
 
+#[tauri::command]
+async fn jira_connections_list(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+) -> Result<Vec<JiraConnection>, ErrorPayload> {
+    let service = platform.0.clone();
+    let dir = data_dir(&data);
+    let result = blocking(move || service.jira_list(&dir).map_err(CoreError::from)).await;
+    log_outcome("jira_connections_list", &result, |list| {
+        format!("connections={}", list.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_connection_add(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    kind: JiraKind,
+    site: String,
+    email: Option<String>,
+    token: String,
+) -> Result<JiraConnection, ErrorPayload> {
+    log::debug!("jira_connection_add kind={kind:?} site={site} email={email:?} token=<redacted>");
+    let input = NewJiraConnection {
+        kind,
+        site,
+        email,
+        token,
+    };
+    let result = platform
+        .0
+        .jira_add(&data_dir(&data), input)
+        .await
+        .map_err(platform_payload);
+    log_outcome("jira_connection_add", &result, |connection| {
+        format!(
+            "id={} projects={}",
+            connection.id,
+            connection.projects.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_connection_remove(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("jira_connection_remove id={id}");
+    let service = platform.0.clone();
+    let dir = data_dir(&data);
+    let result = blocking(move || service.jira_remove(&dir, &id).map_err(CoreError::from)).await;
+    log_outcome("jira_connection_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn jira_connection_test(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<String, ErrorPayload> {
+    log::debug!("jira_connection_test id={id}");
+    let result = platform
+        .0
+        .jira_test(&data_dir(&data), &id)
+        .await
+        .map_err(platform_payload);
+    log_outcome("jira_connection_test", &result, |name| {
+        format!("name={name}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_field_problem(field: String, value: String) -> Result<Option<String>, ErrorPayload> {
+    let result =
+        blocking(move || Ok::<_, CoreError>(yforge_platform::jira_field_problem(&field, &value)))
+            .await;
+    log_outcome("jira_field_problem", &result, |problem| {
+        format!("problem={}", problem.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_my_issues(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<JiraIssueList, ErrorPayload> {
+    log::debug!("jira_my_issues id={id}");
+    let result = platform
+        .0
+        .jira_my_issues(&data_dir(&data), &id)
+        .await
+        .map_err(platform_payload);
+    log_outcome("jira_my_issues", &result, |list| {
+        format!(
+            "issues={} total={:?} capped={}",
+            list.issues.len(),
+            list.total,
+            list.capped
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_issues_lookup(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    keys: Vec<String>,
+) -> Result<Vec<JiraIssueLookup>, ErrorPayload> {
+    log::debug!("jira_issues_lookup keys={}", keys.len());
+    let result = platform
+        .0
+        .jira_issues(&data_dir(&data), &keys)
+        .await
+        .map_err(platform_payload);
+    log_outcome("jira_issues_lookup", &result, |found| {
+        format!(
+            "found={}",
+            found.iter().filter(|lookup| lookup.issue.is_some()).count()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_issue_keys(
+    data: State<'_, DataDir>,
+    texts: Vec<String>,
+) -> Result<Vec<Vec<String>>, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::jira_issue_keys_in(&dir, &texts)).await;
+    log_outcome("jira_issue_keys", &result, |keys| {
+        format!("texts={}", keys.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn jira_branch_name(key: String, summary: String) -> Result<String, ErrorPayload> {
+    let result =
+        blocking(move || Ok::<_, CoreError>(yforge_core::jira_branch_name(&key, &summary))).await;
+    log_outcome("jira_branch_name", &result, |name| format!("name={name}"));
+    result
+}
+
+#[tauri::command]
+async fn platform_my_pulls(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    id: String,
+) -> Result<LaunchpadPulls, ErrorPayload> {
+    log::debug!("platform_my_pulls id={id}");
+    let dir = data_dir(&data);
+    let service = platform.0.clone();
+    let result = async {
+        let pulls = service
+            .my_pulls(&dir, &id)
+            .await
+            .map_err(platform_payload)?;
+        blocking(move || {
+            service
+                .locate_pulls(&dir, &id, pulls)
+                .map_err(CoreError::from)
+        })
+        .await
+    }
+    .await;
+    log_outcome("platform_my_pulls", &result, |list| {
+        format!(
+            "pulls={} total={:?} capped={}",
+            list.pulls.len(),
+            list.total,
+            list.capped
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn launchpad_wips(data: State<'_, DataDir>) -> Result<Vec<yforge_core::Wip>, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::launchpad_wips(&dir)).await;
+    log_outcome("launchpad_wips", &result, |wips| {
+        format!("wips={}", wips.len())
+    });
+    result
+}
+
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
     register_with(
         builder,
@@ -3805,7 +4299,18 @@ pub fn register_with<R: Runtime>(
     ai: Ai,
     platform: PlatformService,
 ) -> tauri::Builder<R> {
+    register_with_passphrases(builder, ai, platform, Arc::new(KeychainPassphrases))
+}
+
+pub fn register_with_passphrases<R: Runtime>(
+    builder: tauri::Builder<R>,
+    ai: Ai,
+    platform: PlatformService,
+    passphrases: Arc<dyn PassphraseStore>,
+) -> tauri::Builder<R> {
     builder
+        .manage(SshPassphrases(passphrases))
+        .manage(update::PendingUpdate::default())
         .manage(AiState(ai))
         .manage(PlatformState(Arc::new(platform)))
         .manage(WatchState::default())
@@ -3848,6 +4353,7 @@ pub fn register_with<R: Runtime>(
             rename_branch,
             branch_delete_preview,
             delete_branch,
+            delete_branches,
             delete_remote_branch,
             set_upstream,
             stash_push,
@@ -3858,6 +4364,7 @@ pub fn register_with<R: Runtime>(
             stash_apply,
             stash_pop,
             stash_drop,
+            drop_stashes,
             fetch,
             pull,
             pull_with_autostash,
@@ -3886,6 +4393,7 @@ pub fn register_with<R: Runtime>(
             reset,
             create_tag,
             delete_tag,
+            delete_tags,
             push_tag,
             delete_remote_tag,
             conflict_file,
@@ -3894,6 +4402,14 @@ pub fn register_with<R: Runtime>(
             conflict_reset,
             repo_watch,
             ssh_keys_list,
+            ssh_public_key,
+            git_hosts_list,
+            git_host_save,
+            git_host_remove,
+            git_host_field_problem,
+            git_host_default_key_path,
+            git_host_generate_key,
+            git_identity_for_url,
             worktree_list,
             worktree_suggest_path,
             worktree_create,
@@ -3932,6 +4448,11 @@ pub fn register_with<R: Runtime>(
             recent_statuses,
             session_load,
             session_save,
+            repo_aliases_list,
+            repo_alias_set,
+            update::update_check,
+            update::update_install,
+            menu::menu_update,
             open_path,
             activity_list,
             activity_history,
@@ -3948,11 +4469,11 @@ pub fn register_with<R: Runtime>(
             ai_provider_add,
             ai_provider_update,
             ai_provider_remove,
-            ai_set_active,
             ai_provider_test,
             ai_models,
             ai_feature_config_list,
             ai_feature_config_set,
+            ai_feature_config_enable,
             ai_feature_config_reset,
             ai_sign_in,
             ai_generate_commit_message,
@@ -3966,7 +4487,18 @@ pub fn register_with<R: Runtime>(
             platform_prs_list,
             platform_pr_detail,
             platform_pr_create,
-            platform_pr_merge
+            platform_pr_merge,
+            platform_my_pulls,
+            jira_connections_list,
+            jira_connection_add,
+            jira_connection_remove,
+            jira_connection_test,
+            jira_field_problem,
+            jira_my_issues,
+            jira_issues_lookup,
+            jira_issue_keys,
+            jira_branch_name,
+            launchpad_wips
         ])
 }
 
@@ -3984,7 +4516,8 @@ pub fn run() {
             .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
                 second_instance(app, &argv, &cwd);
             }))
-            .plugin(tauri_plugin_dialog::init()),
+            .plugin(tauri_plugin_dialog::init())
+            .plugin(tauri_plugin_updater::Builder::new().build()),
     )
     .setup(|app| {
         let dir = match std::env::var_os(DATA_DIR_ENV).filter(|value| !value.is_empty()) {
@@ -4000,6 +4533,9 @@ pub fn run() {
         crash::seed_repositories(&dir);
         install_panic_hook(dir.clone());
         app.manage(DataDir(dir));
+        if cfg!(target_os = "macos") {
+            menu::install(app.handle())?;
+        }
         Ok(())
     })
     .run(tauri::generate_context!())

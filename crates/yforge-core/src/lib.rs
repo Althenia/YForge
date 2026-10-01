@@ -3,6 +3,7 @@ mod ai;
 mod ai_context;
 mod askpass;
 mod avatar;
+mod batch;
 mod branch;
 mod cli;
 mod clone;
@@ -14,12 +15,16 @@ mod diff;
 mod error;
 mod file_view;
 mod git;
+mod git_hosts;
 mod graph;
 mod history;
 mod integrate;
+mod jira;
+mod launchpad;
 mod layout;
 mod model;
 mod operation;
+mod passphrase;
 mod platform;
 mod recovery;
 mod refs;
@@ -34,6 +39,7 @@ mod store;
 mod sync;
 mod tag;
 mod undo;
+mod update;
 mod watch;
 mod worktree;
 
@@ -51,6 +57,9 @@ pub use ai_context::{
 };
 pub use askpass::{AuthHandler, AuthKind, AuthPrompt, AuthReply};
 pub use avatar::{gravatar_url, initial_of, md5_hex};
+pub use batch::{
+    delete_branches, delete_tags, drop_stashes, BatchFailure, BatchOutcome, StashTarget,
+};
 pub use branch::{
     branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
     delete_branch, rename_branch, set_upstream,
@@ -72,11 +81,21 @@ pub use diff::diff_file;
 pub use error::{CoreError, ErrorKind, ErrorPayload};
 pub use file_view::file_at_revision;
 pub use git::{ensure_supported, git_version, CancelToken, GitVersion};
+pub use git_hosts::{
+    git_host_problem, remote_address, url_identity, GitHost, GitHostDraft, GitHostProblem,
+    IdentitySource, RemoteAddress, Resolved, SshPlan, Transport, UrlIdentity,
+};
 pub use graph::{graph_page, search_commits};
 pub use history::{
     rebase_interactive, rebase_plan, recompose_apply, recompose_preview, squash_commits,
 };
 pub use integrate::{cherry_pick, fast_forward, integration_preview, merge, rebase, reset, revert};
+pub use jira::{
+    jira_branch_name, jira_issue_keys, jira_issue_keys_in, jira_site_host, JiraConnection,
+    JiraIssue, JiraIssueList, JiraIssueLookup, JiraKind, JiraProject, JiraStatusCategory,
+    BRANCH_NAME_LIMIT,
+};
+pub use launchpad::{launchpad_wips, LaunchpadPull, LaunchpadPulls, PullRole, Wip};
 pub use model::{
     AheadBehind, AmendInfo, AppInfo, AuthPromptEvent, Author, AutoStash, CarriedEdge, ChangeArea,
     ChangeCounts, CheckoutOutcome, CheckoutTarget, CliInstall, CommitBrief, CommitDetails,
@@ -93,8 +112,9 @@ pub use model::{
 };
 pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
+pub use passphrase::{KeychainPassphrases, PassphraseStore, PASSPHRASE_SERVICE};
 pub use platform::{
-    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
+    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState, PullList,
     PullRequest, RepoRef,
 };
 pub use recovery::{lost_commits, reflog_list, reflog_refs};
@@ -103,7 +123,7 @@ pub use snapshots::{
     snapshot_changed_files, snapshot_delete, snapshot_restore_all, snapshot_restore_files,
     snapshots_list,
 };
-pub use ssh::{list_ssh_keys, SshKey};
+pub use ssh::{default_key_path, generate_ssh_key, list_ssh_keys, public_key_text, SshKey};
 pub use stage::{
     discard_files, discard_hunk, discard_lines, stage_all, stage_files, stage_hunk, stage_lines,
     unstage_all, unstage_files, unstage_hunk, unstage_lines,
@@ -112,15 +132,18 @@ pub use stash::{
     stash_apply, stash_details, stash_drop, stash_file_diff, stash_pop, stash_push, stash_rename,
 };
 pub use store::{
-    activity_history, add_recent, ai_active_provider, ai_choose, ai_feature_config,
+    activity_history, add_recent, ai_feature_config, ai_feature_config_enable,
     ai_feature_config_reset, ai_feature_config_set, ai_feature_configs, ai_provider,
     ai_provider_add, ai_provider_delete, ai_provider_edit, ai_provider_key_flag, ai_providers,
     app_ui_prefs_load, app_ui_prefs_save, append_activity, clear_activity, dismiss_switch_stash,
-    load_recents, load_repo_settings, load_session, load_settings, mark_activity_undone,
-    platform_connection_add, platform_connection_remove, platform_connections_list, recent_status,
-    remove_recent, repo_ui_prefs_load, repo_ui_prefs_save, save_repo_settings, save_session,
-    save_settings, ssh_key_for, switch_stashes, AppSettings, AppUiPrefs, ColumnPref, Density,
-    GraphColumn, RecentRepo, RecentStatus, RepoSettings, RepoUiPrefs, TabSession, Theme,
+    git_host_add, git_host_remove, git_host_update, git_hosts_list, jira_connection_add,
+    jira_connection_remove, jira_connection_update, jira_connections_list, load_recents,
+    load_repo_settings, load_session, load_settings, mark_activity_undone, platform_connection_add,
+    platform_connection_remove, platform_connections_list, recent_status, remove_recent,
+    repo_alias_problem, repo_aliases_list, repo_aliases_set, repo_ui_prefs_load,
+    repo_ui_prefs_save, save_repo_settings, save_session, save_settings, ssh_plan, switch_stashes,
+    AppSettings, AppUiPrefs, ColumnPref, Density, GraphColumn, RecentRepo, RecentStatus, RepoAlias,
+    RepoSettings, RepoUiPrefs, TabGroup, TabGroupColor, TabSession, Theme,
 };
 pub use sync::{
     delete_remote_branch, fetch, publish, pull, pull_autostash, push, push_force, push_plan,
@@ -129,10 +152,12 @@ pub use sync::{
 pub use tag::{create_tag, delete_remote_tag, delete_tag, push_tag};
 pub use undo::{
     branch_snapshot, capture_state, head_ref, plan_branch_create, plan_branch_delete,
-    plan_checkout, plan_commit, plan_discard, plan_force_push, plan_integration,
-    plan_remote_branch_delete, plan_reset, plan_stash_restore, plan_upstream, snapshot_files, undo,
-    undo_with, BranchSnapshot, HeadRef, Planned, RepoState, SnapshotFile, UndoAction, UndoPlan,
+    plan_branches_delete, plan_checkout, plan_commit, plan_discard, plan_force_push,
+    plan_integration, plan_remote_branch_delete, plan_reset, plan_stash_restore, plan_upstream,
+    snapshot_files, undo, undo_with, BranchSnapshot, HeadRef, Planned, RepoState, SnapshotFile,
+    UndoAction, UndoPlan,
 };
+pub use update::UpdateCheck;
 pub use watch::{watch_repo, RepoWatcher};
 pub use worktree::{
     create_worktree, integrate_worktree, list_worktrees, remove_worktree, suggest_worktree_path,

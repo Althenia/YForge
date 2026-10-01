@@ -1,5 +1,5 @@
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, For, on, onCleanup, onMount, Show } from "solid-js";
 import type { IconName } from "../iconNames";
 import {
   buildCommands,
@@ -16,6 +16,7 @@ import { useApp } from "../state/app";
 import { rememberCommand } from "../state/appUiPrefs";
 import { repoKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
+import { listRowHeight, VirtualRows } from "./VirtualRows";
 
 type Item = { key: string; label: string; icon?: IconName; note?: string; group?: string; shortcut?: string; disabledReason?: string; positions: number[]; choose: () => void };
 
@@ -44,6 +45,8 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
   app.uiPrefs.ensure();
   const opener = document.activeElement;
   let input: HTMLInputElement | undefined;
+  let scroller: HTMLDivElement | undefined;
+  const [reveal, setReveal] = createSignal<{ nonce: number; index: number } | undefined>();
 
   const commands = createMemo(() => buildCommands(props.context));
   const parsed = createMemo(() => parseQuery(query()));
@@ -172,10 +175,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
     });
   });
 
-  createEffect(() => {
-    const active = document.getElementById(`${listId}-${highlight()}`);
-    active?.scrollIntoView({ block: "nearest" });
-  });
+  createEffect(on(highlight, (index) => setReveal((current) => ({ nonce: (current?.nonce ?? 0) + 1, index })), { defer: true }));
 
   const placeholder = () => (pending() === undefined ? "Type a command, or > actions · @ branches · # commits · : settings · / repositories" : (step()?.label ?? ""));
 
@@ -207,30 +207,41 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
             }}
           />
         </div>
-        <ul class="pal-list" id={listId} role="listbox">
-          <For each={items()} fallback={<li class="pal-empty">{options.isLoading || choices.isLoading ? "Loading…" : "No matches"}</li>}>
-            {(item, index) => (
-              <li
-                id={`${listId}-${index()}`}
-                role="option"
-                class="pal-item"
-                classList={{ sel: highlight() === index(), disabled: item.disabledReason !== undefined }}
-                aria-selected={highlight() === index()}
-                aria-disabled={item.disabledReason === undefined ? undefined : "true"}
-                onMouseMove={() => setHighlight(index())}
-                onClick={() => item.disabledReason === undefined && item.choose()}
-              >
-                <span class="pal-icon" aria-hidden="true">
-                  <Show when={item.icon}>{(name) => <Icon name={name()} />}</Show>
-                </span>
-                <Highlighted text={item.label} positions={item.positions} />
-                <Show when={item.note}>{(note) => <span class="pal-note">{note()}</span>}</Show>
-                <Show when={item.disabledReason}>{(reason) => <span class="pal-reason">{reason()}</span>}</Show>
-                <Show when={item.shortcut}>{(shortcut) => <span class="kbd">{shortcut()}</span>}</Show>
-              </li>
-            )}
-          </For>
-        </ul>
+        <div class="pal-list" ref={scroller}>
+          <Show
+            when={items().length > 0}
+            fallback={
+              <ul class="pal-rows" id={listId} role="listbox">
+                <li class="pal-empty">{options.isLoading || choices.isLoading ? "Loading…" : "No matches"}</li>
+              </ul>
+            }
+          >
+            <VirtualRows as="ul" class="pal-rows" attrs={{ id: listId, role: "listbox" }} items={items()} scroller={() => scroller} estimate={listRowHeight()} keepIndex={highlight()} reveal={reveal()} measured>
+              {(item, row) => (
+                <li
+                  id={`${listId}-${row.index}`}
+                  role="option"
+                  class="pal-item"
+                  classList={{ sel: highlight() === row.index, disabled: item.disabledReason !== undefined }}
+                  aria-selected={highlight() === row.index}
+                  aria-disabled={item.disabledReason === undefined ? undefined : "true"}
+                  ref={row.measure}
+                  style={row.style}
+                  onMouseMove={() => setHighlight(row.index)}
+                  onClick={() => item.disabledReason === undefined && item.choose()}
+                >
+                  <span class="pal-icon" aria-hidden="true">
+                    <Show when={item.icon}>{(name) => <Icon name={name()} />}</Show>
+                  </span>
+                  <Highlighted text={item.label} positions={item.positions} />
+                  <Show when={item.note}>{(note) => <span class="pal-note">{note()}</span>}</Show>
+                  <Show when={item.disabledReason}>{(reason) => <span class="pal-reason">{reason()}</span>}</Show>
+                  <Show when={item.shortcut}>{(shortcut) => <span class="kbd">{shortcut()}</span>}</Show>
+                </li>
+              )}
+            </VirtualRows>
+          </Show>
+        </div>
         <div class="pal-foot">
           <span>
             <Show when={headLabel(props.context)} fallback="No repository open">

@@ -4,6 +4,8 @@ import type { FileChange } from "../ipc/bindings/FileChange";
 import type { RevisionRange } from "../ipc/bindings/RevisionRange";
 import {
   clearCrashesCopy,
+  closeGroupCopy,
+  closeTabsCopy,
   clearHistoryCopy,
   clearUsageCopy,
   deleteBranchAndRemoteCopy,
@@ -117,14 +119,14 @@ describe("branch and stash confirmations", () => {
   });
 
   it("lists the commits only the local branch holds when deleting a branch with its remote branch", () => {
-    const copy = deleteBranchAndRemoteCopy("topic", "origin", [{ sha: "0123456789abcdef", summary: "Topic work" }]);
+    const copy = deleteBranchAndRemoteCopy("topic", "origin", { count: 1, commits: [{ sha: "0123456789abcdef", summary: "Topic work" }] });
 
     expect(copy.title).toBe("Delete topic and origin/topic?");
     expect(copy.confirmLabel).toBe("Delete both");
     expect(copy.namesHeading).toBe("This commit is only on the local branch");
     expect(copy.names).toEqual(["0123456 Topic work"]);
     expect(copy.consequences.join(" ")).toMatch(/local branch is deleted first/);
-    expect(deleteBranchAndRemoteCopy("topic", "origin", []).names).toEqual([]);
+    expect(deleteBranchAndRemoteCopy("topic", "origin", { count: 0, commits: [] }).names).toEqual([]);
   });
 
   it("explains why a pull left the changes in the stash", () => {
@@ -135,16 +137,21 @@ describe("branch and stash confirmations", () => {
   });
 
   it("names every commit a branch deletion would leave without a name", () => {
-    const one = deleteBranchCopy("topic", [{ sha: "0123456789abcdef", summary: "Topic work" }]);
-    const two = deleteBranchCopy("topic", [
-      { sha: "aaaaaaaa1", summary: "Two" },
-      { sha: "bbbbbbbb2", summary: "One" },
-    ]);
+    const one = deleteBranchCopy("topic", { count: 1, commits: [{ sha: "0123456789abcdef", summary: "Topic work" }] });
+    const two = deleteBranchCopy("topic", {
+      count: 2,
+      commits: [
+        { sha: "aaaaaaaa1", summary: "Two" },
+        { sha: "bbbbbbbb2", summary: "One" },
+      ],
+    });
 
     expect(one.names).toEqual(["0123456 Topic work"]);
     expect(one.consequences[0]).toMatch(/^This commit is on no other branch/);
     expect(two.names).toEqual(["aaaaaaa Two", "bbbbbbb One"]);
     expect(two.consequences[0]).toMatch(/^These 2 commits are on no other branch/);
+    expect(deleteBranchCopy("topic", { count: 1200, commits: two.names.map((name) => ({ sha: name.slice(0, 7), summary: "x" })) }).consequences[0]).toMatch(/^These 1,200 commits are/);
+    expect(deleteBranchCopy("topic", { count: 1200, commits: [] }).total).toBe(1200);
     expect(two.confirmLabel).toBe("Delete branch");
     expect(two.neutral).toBeUndefined();
   });
@@ -167,10 +174,13 @@ describe("force push with lease copy", () => {
     const copy = forcePushCopy({
       lease,
       upstream: "origin/feature/greeting",
-      replaced: [
-        { sha: "f86d53a9999", summary: "Personalize greeting" },
-        { sha: "e2b1c09aaaa", summary: "Tweak greeting" },
-      ],
+      replaced: {
+        count: 2,
+        commits: [
+          { sha: "f86d53a9999", summary: "Personalize greeting" },
+          { sha: "e2b1c09aaaa", summary: "Tweak greeting" },
+        ],
+      },
     });
 
     expect(copy.title).toBe("Force push with lease");
@@ -182,8 +192,16 @@ describe("force push with lease copy", () => {
     expect(copy.warning).toBe(true);
   });
 
+  it("counts every replaced commit when only a preview of them was fetched", () => {
+    const commits = Array.from({ length: 20 }, (_, index) => ({ sha: `${index}abcdef0123`, summary: `Remote ${index}` }));
+    const copy = forcePushCopy({ lease, upstream: "origin/x", replaced: { count: 25, commits } });
+
+    expect(copy.total).toBe(25);
+    expect(copy.names).toHaveLength(20);
+  });
+
   it("uses the singular for one replaced commit", () => {
-    const copy = forcePushCopy({ lease, upstream: "origin/x", replaced: [{ sha: "f86d53a9999", summary: "Only" }] });
+    const copy = forcePushCopy({ lease, upstream: "origin/x", replaced: { count: 1, commits: [{ sha: "f86d53a9999", summary: "Only" }] } });
 
     expect(copy.namesHeading).toBe("This remote commit will be replaced");
     expect(copy.lead).toMatch(/this remote commit\.$/);
@@ -201,6 +219,13 @@ describe("rebase confirmation", () => {
     expect(copy.names).toEqual(["0abcdef One", "1abcdef Two"]);
     expect(copy.neutral).toBe(true);
     expect(copy.consequences.join(" ")).toMatch(/reflog/);
+  });
+
+  it("carries the true commit total when only a preview of the commits was fetched", () => {
+    const preview: RevisionRange = { count: 5000, commits: Array.from({ length: 20 }, (_, index) => ({ sha: `${index}abcdef0123`, summary: `Commit ${index}` })) };
+
+    expect(rebaseCopy("feature", "main", preview).total).toBe(5000);
+    expect(rebaseCopy("feature", "main", preview).lead).toBe("5,000 commits on feature are replayed on top of main.");
   });
 
   it("says the branch only moves forward when it has no commits of its own", () => {
@@ -244,6 +269,14 @@ describe("reset confirmation", () => {
     expect(copy.consequences.join(" ")).toMatch(/Untracked files are kept/);
     expect(copy.consequences.join(" ")).toMatch(/Recovery, Reflog/);
     expect(copy.consequences.join(" ")).toMatch(/Recovery, Safety snapshots/);
+  });
+
+  it("carries the true commit total when only a preview of the commits was fetched", () => {
+    const preview: RevisionRange = { count: 5000, commits: Array.from({ length: 20 }, (_, index) => ({ sha: `${index}abcdef0123`, summary: `Commit ${index}` })) };
+    const copy = resetCopy("hard", "main", "abc1234", preview, []);
+
+    expect(copy.total).toBe(5000);
+    expect(copy.namesHeading).toBe("5,000 commits leave main");
   });
 
   it("says a clean hard reset loses no uncommitted changes and that nothing leaves when the target is ahead", () => {
@@ -308,5 +341,42 @@ describe("diagnostics confirmation copy", () => {
     expect(copy.title).toBe("Clear activity history for sample?");
     expect(copy.consequences.join(" ")).toContain("Undo no longer reaches them");
     expect(copy.confirmLabel).toBe("Clear history");
+  });
+});
+
+describe("close tab group confirmation copy", () => {
+  it("names the group and its tabs and says the changes stay on disk and the repositories stay in Recent", () => {
+    const copy = closeGroupCopy("Corp B", ["ledger", "gateway"]);
+
+    expect(copy).toEqual({
+      title: "Close the Corp B group?",
+      namesHeading: "Closes 2 tabs:",
+      names: ["ledger", "gateway"],
+      consequences: ["Uncommitted changes stay on disk; the repositories stay in Recent."],
+      confirmLabel: "Close 2 tabs",
+    });
+    expect(closeGroupCopy("Solo", ["only"])).toMatchObject({ namesHeading: "Closes 1 tab:", confirmLabel: "Close 1 tab" });
+  });
+});
+
+describe("close several tabs confirmation copy", () => {
+  it("names a single tab with an operation in progress in a sentence and says closing the tab does not end the operation", () => {
+    expect(closeTabsCopy(2, [{ name: "gateway", operation: "rebase" }])).toEqual({
+      title: "Close 2 tabs?",
+      lead: "gateway is in the middle of a rebase.",
+      names: [],
+      consequences: ["Closing its tab does not stop or undo the rebase; it stays in the repository until you continue or abort it there."],
+      confirmLabel: "Close 2 tabs",
+    });
+  });
+
+  it("lists several tabs with their operations", () => {
+    expect(closeTabsCopy(3, [{ name: "ledger", operation: "cherry_pick" }, { name: "gateway", operation: "bisect" }])).toEqual({
+      title: "Close 3 tabs?",
+      namesHeading: "In progress:",
+      names: ["ledger · cherry-pick", "gateway · bisect"],
+      consequences: ["Closing a tab does not stop or undo its operation; it stays in the repository until you continue or abort it there."],
+      confirmLabel: "Close 3 tabs",
+    });
   });
 });

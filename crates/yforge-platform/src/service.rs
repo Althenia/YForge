@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use yforge_ai::SecretStore;
 use yforge_core::{
-    list_remotes, platform_connection_add, platform_connection_remove, platform_connections_list,
-    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PullRequest,
+    list_remotes, load_recents, platform_connection_add, platform_connection_remove,
+    platform_connections_list, CreatePull, LaunchpadPulls, MatchedRepo, PlatformConnection,
+    PlatformKind, PrDetail, PullList, PullRequest, RepoRef,
 };
 
 use crate::adapter::PrFilter;
@@ -24,7 +25,7 @@ pub struct NewConnection {
 }
 
 pub struct PlatformService {
-    secrets: Arc<dyn SecretStore>,
+    pub(crate) secrets: Arc<dyn SecretStore>,
 }
 
 /// The problem the form must show with a field, or `None` when the value is acceptable.
@@ -45,7 +46,7 @@ fn account(id: &str) -> String {
     format!("platform.{id}")
 }
 
-fn valid_host(text: &str) -> Result<String> {
+pub(crate) fn valid_host(text: &str) -> Result<String> {
     let host = text.trim().to_ascii_lowercase();
     let (name, port) = match host.rsplit_once(':') {
         Some((name, port)) => (name, Some(port)),
@@ -74,7 +75,7 @@ fn valid_name(text: &str) -> Result<String> {
     Ok(name.to_owned())
 }
 
-fn valid_token(text: &str) -> Result<String> {
+pub(crate) fn valid_token(text: &str) -> Result<String> {
     let token = text.trim();
     if token.is_empty() {
         return Err(PlatformError::invalid("the access token is required"));
@@ -82,7 +83,7 @@ fn valid_token(text: &str) -> Result<String> {
     Ok(token.to_owned())
 }
 
-fn keychain(error: yforge_ai::SecretError) -> PlatformError {
+pub(crate) fn keychain(error: yforge_ai::SecretError) -> PlatformError {
     PlatformError::Keychain { detail: error.0 }
 }
 
@@ -144,14 +145,58 @@ impl PlatformService {
     }
 
     pub async fn test(&self, dir: &Path, id: &str) -> Result<String> {
-        let connection = self
-            .list(dir)?
+        let connection = self.connection(dir, id)?;
+        self.client(&connection)?.verify().await
+    }
+
+    /// The open pull requests of the user on one connection, without local paths.
+    pub async fn my_pulls(&self, dir: &Path, id: &str) -> Result<LaunchpadPulls> {
+        let connection = self.connection(dir, id)?;
+        self.client(&connection)?.mine().await
+    }
+
+    /// Fills in the recent repository each pull request belongs to, by matching its
+    /// repository to the remotes of the recent repositories.
+    pub fn locate_pulls(
+        &self,
+        dir: &Path,
+        id: &str,
+        mut found: LaunchpadPulls,
+    ) -> Result<LaunchpadPulls> {
+        let connection = self.connection(dir, id)?;
+        let mut local: Vec<(String, RepoRef)> = Vec::new();
+        for recent in load_recents(dir)? {
+            let Ok(remotes) = list_remotes(Path::new(&recent.path)) else {
+                continue;
+            };
+            for remote in remotes {
+                match parse_remote(&remote.fetch_url) {
+                    Some((host, repo)) if host.eq_ignore_ascii_case(&connection.host) => {
+                        local.push((recent.path.clone(), repo));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for pull in &mut found.pulls {
+            pull.local_path = local
+                .iter()
+                .find(|(_, repo)| {
+                    repo.owner.eq_ignore_ascii_case(&pull.repo.owner)
+                        && repo.repo.eq_ignore_ascii_case(&pull.repo.repo)
+                })
+                .map(|(path, _)| path.clone());
+        }
+        Ok(found)
+    }
+
+    fn connection(&self, dir: &Path, id: &str) -> Result<PlatformConnection> {
+        self.list(dir)?
             .into_iter()
             .find(|connection| connection.id == id)
             .ok_or_else(|| {
                 PlatformError::invalid(format!("there is no platform connection `{id}`"))
-            })?;
-        self.client(&connection)?.verify().await
+            })
     }
 
     pub fn match_repo(&self, dir: &Path, path: &Path) -> Result<Option<MatchedRepo>> {
@@ -164,11 +209,7 @@ impl PlatformService {
         })
     }
 
-    pub async fn prs_list(
-        &self,
-        matched: &MatchedRepo,
-        filter: PrFilter,
-    ) -> Result<Vec<PullRequest>> {
+    pub async fn prs_list(&self, matched: &MatchedRepo, filter: PrFilter) -> Result<PullList> {
         self.client(&matched.connection)?
             .list(&matched.repo, filter)
             .await

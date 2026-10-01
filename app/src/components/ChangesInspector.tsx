@@ -4,6 +4,8 @@ import { useApp } from "../state/app";
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import { canDiscard, changeTotal, filesIn, isPartiallyStaged, neighborKey, pathsToMove, rowKey, stagedFileCount, areaOrder } from "../state/changes";
+import { featureAvailable, featuresOptions } from "../state/aiFeatures";
+import { useQuery } from "../state/query";
 import { createGenerateAction } from "../state/aiGenerate";
 import { commitPushReason, createCommitAction, type Composer as ComposerState } from "../state/composer";
 import { discardFilesCopy } from "../state/confirmCopy";
@@ -53,6 +55,7 @@ export function ChangesInspector(props: {
   });
 
   const generate = createGenerateAction({ session: props.session, composer: props.composer });
+  const features = useQuery(featuresOptions, () => props.session.queryClient);
 
   const pushReason = () =>
     commitPushReason({
@@ -269,15 +272,19 @@ export function ChangesInspector(props: {
         <Show
           when={total() > 0}
           fallback={
-            <div class="empty">
-              Working tree clean. Nothing to commit on <span class="ref">{head()}</span>.
+            <div class="clean-state" role="status">
+              <Icon name="changes" size={32} />
+              <strong>Working tree clean</strong>
+              <span>
+                Nothing to commit on <span class="ref">{head()}</span>
+              </span>
             </div>
           }
         >
           <For each={areaOrder}>{(section) => <Section {...section} />}</For>
         </Show>
       </div>
-      <Composer snapshot={snapshot()} state={props.composer} action={action} generate={generate} staged={stagedFileCount(snapshot().files)} onOpenAiSettings={() => app.openSettings("ai")} pushReason={pushReason()} summaryRef={(element) => (summary = element)} />
+      <Composer snapshot={snapshot()} state={props.composer} action={action} generate={generate} generateAvailable={featureAvailable(features.data, "generate_commit")} clean={total() === 0} staged={stagedFileCount(snapshot().files)} onOpenAiSettings={() => app.openSettings("ai")} pushReason={pushReason()} summaryRef={(element) => (summary = element)} />
       <Show when={pendingDiscard()}>
         {(files) => <ConfirmDialog copy={discardFilesCopy(files())} onConfirm={() => void confirmDiscard()} onCancel={() => setPendingDiscard(undefined)} />}
       </Show>

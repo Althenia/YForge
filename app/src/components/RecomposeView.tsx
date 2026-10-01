@@ -3,7 +3,9 @@ import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
 import type { RecomposeGroup } from "../ipc/bindings/RecomposeGroup";
 import { client, IpcError } from "../ipc/client";
+import { featureAvailable, featuresOptions } from "../state/aiFeatures";
 import { createAiRun } from "../state/aiRun";
+import { fileList } from "../state/fileList";
 import { statusLetter, statusWord } from "../state/changes";
 import { beginPointerDrag } from "../state/pointerDrag";
 import { historyKeys } from "../state/queryKeys";
@@ -33,6 +35,7 @@ import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
 import { tip } from "./Tooltip";
+import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 const short = (sha: string) => sha.slice(0, 7);
 
@@ -84,6 +87,8 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
   const [dropGroup, setDropGroup] = createSignal<number | undefined>();
   const [withheld, setWithheld] = createSignal<string[]>([]);
   const [failure, setFailure] = createSignal<IpcError | undefined>();
+  const [focusedFile, setFocusedFile] = createSignal<string | undefined>();
+  let scroller: HTMLDivElement | undefined;
 
   createEffect(
     on(loaded, () => {
@@ -105,6 +110,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
   };
 
   const proposer = createAiRun(props.session.queryClient, (id) => client.aiProposeRecompose(path, id, baseRef() as string));
+  const features = useQuery(featuresOptions, () => props.session.queryClient);
   async function propose(): Promise<void> {
     const proposal = await proposer.start();
     if (proposal === undefined) return;
@@ -208,7 +214,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
     const chosen = () => selected()[hunkProps.unit.id] ?? [];
     return (
       <>
-        <div class="crow hunk" role="listitem" tabindex="-1" data-unit={`hunk:${hunkProps.unit.id}`} onKeyDown={(event) => onUnitKey(event, target, event.currentTarget)}>
+        <div class="crow hunk" tabindex="-1" data-unit={`hunk:${hunkProps.unit.id}`} onKeyDown={(event) => onUnitKey(event, target, event.currentTarget)}>
           <button type="button" class="icon-btn dense rgrip" tabindex="-1" {...tip("Drag to a commit", undefined, `Drag ${hunkLabel(hunkProps.unit)} of ${hunkProps.file.path} to a commit`)} onPointerDown={(event) => startDrag(event, target)}>
             <Icon name="grip" />
           </button>
@@ -276,7 +282,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
     const key = `file:${fileProps.file.path}`;
     return (
       <>
-        <div class="crow file" role="listitem" tabindex="0" data-unit={key} onKeyDown={(event) => onUnitKey(event, target, event.currentTarget)}>
+        <div class="crow file" tabindex="0" data-unit={key} onKeyDown={(event) => onUnitKey(event, target, event.currentTarget)}>
           <button type="button" class="icon-btn dense rgrip" tabindex="-1" {...tip("Drag to a commit", undefined, `Drag ${fileProps.file.path} to a commit`)} onPointerDown={(event) => startDrag(event, target)}>
             <Icon name="grip" />
           </button>
@@ -294,13 +300,14 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
             <bdi dir="ltr">{fileProps.file.path}</bdi>
           </span>
           <Show when={fileProps.file.whole}>
-            <span class="hint-text">{fileProps.file.binary ? "binary, whole file" : "whole file"}</span>
+            <span class="hint-text">{fileProps.file.binary ? "binary, whole file" : fileProps.file.omitted === null ? "whole file" : "too large, whole file"}</span>
           </Show>
           {chipView(target)}
           <button type="button" class="icon-btn dense" tabindex="-1" aria-haspopup="menu" {...tip("Assign to a commit", "1–9", `Assign ${fileProps.file.path} to a commit`)} onClick={(event) => openAssignMenu(target, event.currentTarget)}>
             <Icon name="recompose" />
           </button>
         </div>
+        <Show when={fileProps.file.omitted}>{(text) => <p class="setting-note">{text()}</p>}</Show>
         <Show when={expanded().has(key)}>
           <For each={fileProps.file.hunks}>{(unit) => <HunkRows file={fileProps.file} unit={unit} />}</For>
         </Show>
@@ -320,7 +327,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
           Back to graph
         </button>
       </div>
-      <div class="rbody">
+      <div class="rbody" ref={scroller}>
         <div class="rtool" role="toolbar" aria-label="Recompose tools">
           <label class="base-pick">
             <span class="field-label">Base</span>
@@ -342,22 +349,24 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
             {progress().assigned} of {progress().total} changes assigned
           </span>
           <span class="spacer" />
-          <Show
-            when={proposer.running()}
-            fallback={
-              <button type="button" class="btn sm" disabled={loaded() === undefined} title="Ask your AI provider to group these changes into commits. You review and edit the result before anything is rewritten." onClick={() => void propose()}>
+          <Show when={featureAvailable(features.data, "recompose") || proposer.running()}>
+            <Show
+              when={proposer.running()}
+              fallback={
+                <button type="button" class="btn sm" disabled={loaded() === undefined} title="Ask your AI provider to group these changes into commits. You review and edit the result before anything is rewritten." onClick={() => void propose()}>
+                  <Icon name="wand" size={14} />
+                  Propose with AI
+                </button>
+              }
+            >
+              <button type="button" class="btn sm" aria-busy="true" disabled>
                 <Icon name="wand" size={14} />
-                Propose with AI
+                Proposing…
               </button>
-            }
-          >
-            <button type="button" class="btn sm" aria-busy="true" disabled>
-              <Icon name="wand" size={14} />
-              Proposing…
-            </button>
-            <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
-              <Icon name="close" size={14} />
-            </button>
+              <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
+                <Icon name="close" size={14} />
+              </button>
+            </Show>
           </Show>
           <Show when={previous()}>
             <button
@@ -404,16 +413,22 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
         </Show>
         <Show when={withheld().length > 0}>
           <div class="note attention" role="status">
-            Withheld from the provider because they look like secrets: {withheld().join(", ")}. Review where they belong.
+            Withheld from the provider because they look like secrets: {fileList(withheld())}. Review where they belong.
           </div>
         </Show>
         <div class="rsplit">
           <section class="rchanges" aria-label="Changes to assign">
             <h4>Changes</h4>
-            <div role="list" class="clist">
-              <For each={catalog()} fallback={<p class="setting-note">{baseRef() === undefined ? "There is no upstream. Choose a base commit to recompose from." : "Nothing to assign yet."}</p>}>
-                {(file) => <FileRows file={file} />}
-              </For>
+            <div role="list">
+              <Show when={catalog().length > 0} fallback={<p class="setting-note">{baseRef() === undefined ? "There is no upstream. Choose a base commit to recompose from." : "Nothing to assign yet."}</p>}>
+                <VirtualRows as="div" class="clist" measured items={catalog()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={catalog().findIndex((file) => file.path === focusedFile())}>
+                  {(file, virtual) => (
+                    <div role="listitem" ref={virtual.measure} style={virtual.style} onFocusIn={() => setFocusedFile(file.path)}>
+                      <FileRows file={file} />
+                    </div>
+                  )}
+                </VirtualRows>
+              </Show>
             </div>
             <p class="setting-note">Drag a handle onto a commit, or focus a row and press 1–9 for a commit and 0 to unassign.</p>
           </section>

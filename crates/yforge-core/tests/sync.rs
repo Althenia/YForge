@@ -119,6 +119,38 @@ fn fetch_without_remotes_is_an_invalid_request() {
 }
 
 #[test]
+fn a_fetch_that_fails_on_a_later_remote_keeps_the_time_and_record_of_the_last_fetch() {
+    let pair = pair();
+    let missing = pair.repo.sibling("missing.git");
+    pair.repo
+        .git(&["remote", "add", "zeta", missing.to_str().unwrap()]);
+    let fetch_head = pair.repo.path.join(".git/FETCH_HEAD");
+    let earlier = "1111111111111111111111111111111111111111\t\tbranch 'main' of example\n";
+    std::fs::write(&fetch_head, earlier).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&fetch_head)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+        .unwrap();
+
+    let error = fetch(
+        &pair.repo.path,
+        false,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::GitFailed, "{error:?}");
+    assert_eq!(std::fs::read_to_string(&fetch_head).unwrap(), earlier);
+    assert_eq!(
+        repo_snapshot(&pair.repo.path).unwrap().last_fetch,
+        Some(1_700_000_000)
+    );
+}
+
+#[test]
 fn pull_fast_forwards_and_reports_up_to_date() {
     let pair = pair();
     let pushed = pair
@@ -368,9 +400,26 @@ fn a_force_push_plan_lists_the_remote_commits_that_would_be_replaced() {
     assert_eq!(plan.lease.branch, "main");
     assert_eq!(plan.lease.remote_ref, "refs/heads/main");
     assert_eq!(plan.lease.expected_sha, remote_tip);
-    assert_eq!(plan.replaced.len(), 1);
-    assert_eq!(plan.replaced[0].sha, remote_tip);
-    assert_eq!(plan.replaced[0].summary, "Original work");
+    assert_eq!(plan.replaced.count, 1);
+    assert_eq!(plan.replaced.commits[0].sha, remote_tip);
+    assert_eq!(plan.replaced.commits[0].summary, "Original work");
+}
+
+#[test]
+fn a_force_push_plan_lists_at_most_twenty_replaced_commits_and_counts_them_all() {
+    let pair = pair();
+    for number in 0..25 {
+        pair.repo
+            .commit("b.txt", &format!("{number}\n"), &format!("Remote {number}"));
+    }
+    pair.repo.git(&["push", "-q"]);
+    pair.repo.git(&["reset", "-q", "--hard", "HEAD~25"]);
+    pair.repo.commit("c.txt", "mine\n", "Local work");
+
+    let plan = push_plan(&pair.repo.path).unwrap();
+
+    assert_eq!(plan.replaced.commits.len(), 20);
+    assert_eq!(plan.replaced.count, 25);
 }
 
 #[test]

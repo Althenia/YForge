@@ -5,7 +5,7 @@ use crate::activity::redact;
 use crate::error::CoreError;
 use crate::git::{self, CancelToken};
 use crate::repo;
-use crate::sync::{run_network, Progress};
+use crate::sync::{run_routed, Progress};
 
 pub(crate) fn valid_url(url: &str) -> bool {
     let has_scheme = ["https://", "http://", "ssh://", "git://", "file://"]
@@ -74,7 +74,13 @@ pub fn clone_repository(
         args.push("--no-checkout");
     }
     args.extend(["--", url, &target]);
-    let result = run_network(parent, &args, &redact(url), cancel, on_progress);
+    let result = run_routed(
+        parent,
+        &args,
+        &redact(url),
+        &cancel.toward(Some(url)),
+        on_progress,
+    );
     if let Err(error) = result {
         if destination.exists() {
             let removal = if existed {

@@ -1,7 +1,11 @@
 mod ai;
+mod aliases;
+mod git_hosts;
 mod history;
+mod jira;
 mod legacy;
 mod platform;
+mod session;
 mod stashes;
 mod ui_prefs;
 
@@ -22,14 +26,21 @@ use crate::repo;
 use crate::sqlite::{failure, unix_now, Database};
 
 pub use ai::{
-    ai_active_provider, ai_choose, ai_feature_config, ai_feature_config_reset,
-    ai_feature_config_set, ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete,
-    ai_provider_edit, ai_provider_key_flag, ai_providers,
+    ai_feature_config, ai_feature_config_enable, ai_feature_config_reset, ai_feature_config_set,
+    ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete, ai_provider_edit,
+    ai_provider_key_flag, ai_providers,
 };
+pub use aliases::{repo_alias_problem, repo_aliases_list, repo_aliases_set, RepoAlias};
+pub use git_hosts::{git_host_add, git_host_remove, git_host_update, git_hosts_list, ssh_plan};
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
+pub use jira::{
+    jira_connection_add, jira_connection_remove, jira_connection_update, jira_connections_list,
+};
 pub use platform::{
     platform_connection_add, platform_connection_remove, platform_connections_list,
 };
+pub(crate) use session::write_session;
+pub use session::{load_session, save_session, TabGroup, TabGroupColor, TabSession};
 pub(crate) use stashes::record_switch_stash;
 pub use stashes::{dismiss_switch_stash, switch_stashes};
 pub use ui_prefs::{
@@ -62,6 +73,11 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("repo_ui_prefs.sql")),
         M::up(include_str!("platform_connections.sql")),
         M::up(include_str!("ai_v2.sql")),
+        M::up(include_str!("ai_feature_switch.sql")),
+        M::up(include_str!("tab_groups.sql")),
+        M::up(include_str!("jira_connections.sql")),
+        M::up(include_str!("git_hosts.sql")),
+        M::up(include_str!("repo_aliases.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];
@@ -128,12 +144,6 @@ pub struct RecentRepo {
     pub opened_at: i64,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
-pub struct TabSession {
-    pub tabs: Vec<String>,
-    pub active: u32,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct RecentStatus {
     pub path: String,
@@ -143,6 +153,7 @@ pub struct RecentStatus {
     pub ahead_behind: Option<AheadBehind>,
     pub counts: Option<ChangeCounts>,
     pub worktrees: u32,
+    pub unreadable: Option<String>,
 }
 
 pub(crate) fn open(dir: &Path) -> Result<Connection, CoreError> {
@@ -273,15 +284,6 @@ fn valid_ssh_key(key: Option<&str>) -> Result<Option<String>, CoreError> {
     Ok(Some(key.to_owned()))
 }
 
-pub fn ssh_key_for(dir: &Path, repository: &str) -> Result<Option<std::path::PathBuf>, CoreError> {
-    let own = load_repo_settings(dir, repository)?.ssh_key_path;
-    let key = match own {
-        Some(key) => Some(key),
-        None => load_settings(dir)?.ssh_key_path,
-    };
-    Ok(key.map(std::path::PathBuf::from))
-}
-
 pub(crate) fn write_repo_settings(
     conn: &Connection,
     repository: &str,
@@ -383,78 +385,43 @@ pub fn remove_recent(dir: &Path, repository: &str) -> Result<Vec<RecentRepo>, Co
         .map_err(sql(dir))
 }
 
-pub(crate) fn write_session(conn: &Connection, session: &TabSession) -> rusqlite::Result<()> {
-    conn.execute("DELETE FROM session_tabs", [])?;
-    for (position, path) in (0_i64..).zip(&session.tabs) {
-        conn.execute(
-            "INSERT INTO session_tabs (position, path) VALUES (?1, ?2)",
-            params![position, path],
-        )?;
-    }
-    conn.execute(
-        "INSERT INTO session (id, active) VALUES (1, ?1)
-         ON CONFLICT (id) DO UPDATE SET active = excluded.active",
-        [session.active],
-    )
-    .map(drop)
-}
-
-pub fn load_session(dir: &Path) -> Result<TabSession, CoreError> {
-    let conn = open(dir)?;
-    let read = || -> rusqlite::Result<TabSession> {
-        let tabs = conn
-            .prepare("SELECT path FROM session_tabs ORDER BY position")?
-            .query_map([], |row| row.get(0))?
-            .collect::<rusqlite::Result<Vec<String>>>()?;
-        let active = conn
-            .query_row("SELECT active FROM session WHERE id = 1", [], |row| {
-                row.get(0)
-            })
-            .or_else(|error| match error {
-                rusqlite::Error::QueryReturnedNoRows => Ok(0),
-                other => Err(other),
-            })?;
-        Ok(TabSession { tabs, active })
-    };
-    read().map_err(sql(dir))
-}
-
-pub fn save_session(dir: &Path, session: &TabSession) -> Result<(), CoreError> {
-    let mut conn = open(dir)?;
-    let tx = conn.transaction().map_err(sql(dir))?;
-    write_session(&tx, session).map_err(sql(dir))?;
-    tx.commit().map_err(sql(dir))
-}
-
 pub fn recent_status(path: &Path) -> RecentStatus {
-    let missing = || RecentStatus {
+    let summary = |exists: bool| RecentStatus {
         path: path.display().to_string(),
-        exists: false,
+        exists,
         branch: None,
         unborn: false,
         ahead_behind: None,
         counts: None,
         worktrees: 0,
+        unreadable: None,
     };
     let Ok(root) = repo::resolve_root(path) else {
-        return missing();
+        return summary(false);
     };
-    let Ok(status) = repo::read_status(&root) else {
-        return missing();
+    let unreadable = |error: CoreError| RecentStatus {
+        unreadable: Some(error.to_string()),
+        ..summary(true)
     };
-    let worktrees = repo::count_worktrees(&root).unwrap_or(1);
+    let status = match repo::read_status(&root) {
+        Ok(status) => status,
+        Err(error) => return unreadable(error),
+    };
+    let worktrees = match repo::count_worktrees(&root) {
+        Ok(worktrees) => worktrees,
+        Err(error) => return unreadable(error),
+    };
     let (branch, unborn) = match &status.head {
         Head::Branch { name, .. } => (Some(name.clone()), false),
         Head::Unborn { branch } => (Some(branch.clone()), true),
         Head::Detached { sha } => (Some(sha.chars().take(7).collect()), false),
     };
     RecentStatus {
-        path: path.display().to_string(),
-        exists: true,
         branch,
         unborn,
         ahead_behind: status.upstream.and_then(|upstream| upstream.ahead_behind),
         counts: Some(status.counts),
         worktrees,
+        ..summary(true)
     }
 }

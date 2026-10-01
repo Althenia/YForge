@@ -6,42 +6,51 @@ import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import { client, IpcError } from "../ipc/client";
 import { repoKeys } from "../state/queryKeys";
 import { visibilityKey } from "../state/repoUiPrefs";
+import { indexOfSelection, selectedShas, type Selection } from "../state/selection";
 import { edgeKey, placeRowEdges, type PlacedEdge } from "./laneArt";
 
 export const PAGE_SIZE = 200;
 
+const PAGE_MARGIN = 1;
+
 type Layout = {
   total: number;
-  rows: ReadonlyMap<number, GraphRow>;
-  edges: ReadonlyMap<string, PlacedEdge>;
+  rows: Map<number, GraphRow>;
+  edges: Map<string, PlacedEdge>;
   lanes: number;
+  pages: Set<number>;
 };
 
-const emptyLayout: Layout = { total: 0, rows: new Map(), edges: new Map(), lanes: 1 };
+const emptyLayout = (): Layout => ({ total: 0, rows: new Map(), edges: new Map(), lanes: 1, pages: new Set() });
 
-function withPage(layout: Layout, page: number, result: GraphPage): Layout {
-  const rows = new Map(layout.rows);
-  const edges = new Map(layout.edges);
-  let lanes = layout.lanes;
+function addPage(layout: Layout, page: number, result: GraphPage): void {
   const add = (placed: PlacedEdge) => {
-    edges.set(edgeKey(placed), placed);
-    lanes = Math.max(lanes, placed.column + 1, placed.edge.lane + 1);
+    layout.edges.set(edgeKey(placed), placed);
+    layout.lanes = Math.max(layout.lanes, placed.column + 1, placed.edge.lane + 1);
   };
   result.carried.forEach(add);
   result.rows.forEach((row, offset) => {
     const index = page * PAGE_SIZE + offset;
-    rows.set(index, row);
+    layout.rows.set(index, row);
     placeRowEdges(index, row).forEach(add);
   });
-  return { total: result.total, rows, edges, lanes };
+  layout.total = result.total;
+  layout.pages.add(page);
 }
+
+const pageOf = (index: number): number => Math.floor(index / PAGE_SIZE);
 
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
 const allBranches: GraphVisibility = { kind: "all" };
 
-export function createGraphStore(path: string, queryClient: QueryClient, visibility: () => GraphVisibility = () => allBranches) {
+export function createGraphStore(
+  path: string,
+  queryClient: QueryClient,
+  visibility: () => GraphVisibility = () => allBranches,
+  selection: () => Selection | undefined = () => undefined,
+) {
   const fetchPage = (page: number): Promise<GraphPage> => {
     const chosen = visibility();
     return queryClient.fetchQuery({
@@ -51,9 +60,10 @@ export function createGraphStore(path: string, queryClient: QueryClient, visibil
     });
   };
 
-  const [layout, setLayout] = createSignal(emptyLayout);
+  const [layout, setLayout] = createSignal(emptyLayout(), { equals: false });
   const [error, setError] = createSignal<IpcError | undefined>();
   const requested = new Set<number>();
+  let viewport: { first: number; end: number } | undefined;
   let epoch = 0;
   let rebuilding: Promise<void> | undefined;
   let rebuildAgain = false;
@@ -67,7 +77,9 @@ export function createGraphStore(path: string, queryClient: QueryClient, visibil
     try {
       const result = await fetchPage(page);
       if (disposed || startedIn !== epoch) return;
-      setLayout(withPage(layout(), page, result));
+      const current = layout();
+      addPage(current, page, result);
+      setLayout(current);
       setError(undefined);
     } catch (failure) {
       if (disposed || startedIn !== epoch) return;
@@ -86,6 +98,32 @@ export function createGraphStore(path: string, queryClient: QueryClient, visibil
     }
   }
 
+  function show(first: number, end: number): void {
+    viewport = { first, end };
+    ensure(first, end);
+  }
+
+  function pagesToKeep(): Set<number> {
+    const { rows, total } = layout();
+    const keep = new Set<number>();
+    if (viewport !== undefined) {
+      const lastPage = pageOf(Math.max(total - 1, 0));
+      const first = Math.max(pageOf(viewport.first) - PAGE_MARGIN, 0);
+      const last = Math.min(pageOf(Math.max(viewport.end - 1, viewport.first)) + PAGE_MARGIN, lastPage);
+      for (let page = first; page <= last; page++) keep.add(page);
+    }
+    const chosen = selection();
+    const primary = indexOfSelection(rows, chosen);
+    if (primary !== undefined) keep.add(pageOf(primary));
+    const shas = new Set(selectedShas(chosen));
+    if (shas.size > 0) {
+      for (const [index, row] of rows) {
+        if (row.sha !== null && shas.has(row.sha)) keep.add(pageOf(index));
+      }
+    }
+    return keep;
+  }
+
   async function load(first: number, end: number): Promise<void> {
     ensure(first, end);
     const lastPage = Math.floor(Math.max(end - 1, 0) / PAGE_SIZE);
@@ -97,17 +135,18 @@ export function createGraphStore(path: string, queryClient: QueryClient, visibil
   async function rebuild(): Promise<void> {
     epoch += 1;
     await queryClient.invalidateQueries({ queryKey: repoKeys.graphPages(path), refetchType: "none" });
-    let next = emptyLayout;
-    const loaded = new Set<number>();
+    const keep = pagesToKeep();
+    for (const page of layout().pages) {
+      if (!keep.has(page)) requested.delete(page);
+    }
+    keep.forEach((page) => requested.add(page));
+    const next = emptyLayout();
     try {
       for (;;) {
-        const pending = [...requested].filter((page) => !loaded.has(page)).sort((left, right) => left - right);
+        const pending = [...requested].filter((page) => !next.pages.has(page)).sort((left, right) => left - right);
         if (pending.length === 0) break;
         const results = await Promise.all(pending.map((page) => fetchPage(page)));
-        pending.forEach((page, position) => {
-          next = withPage(next, page, results[position] as GraphPage);
-          loaded.add(page);
-        });
+        pending.forEach((page, position) => addPage(next, page, results[position] as GraphPage));
       }
       if (disposed) return;
       setLayout(next);
@@ -140,6 +179,7 @@ export function createGraphStore(path: string, queryClient: QueryClient, visibil
     lanes: () => layout().lanes,
     error,
     ensure,
+    show,
     load,
     refresh,
   };

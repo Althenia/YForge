@@ -529,7 +529,7 @@ fn branch_commands_create_check_out_rename_and_delete() {
         json!({ "path": path, "name": "feature/y" }),
     )
     .expect("preview");
-    assert_eq!(lost, json!([]));
+    assert_eq!(lost, json!({ "count": 0, "commits": [] }));
     invoke(
         &window,
         "delete_branch",
@@ -557,7 +557,8 @@ fn deleting_an_unmerged_branch_serializes_as_unmerged_branch_and_the_preview_nam
         json!({ "path": path, "name": "topic" }),
     )
     .expect("preview");
-    assert_eq!(preview[0]["summary"], "Topic work");
+    assert_eq!(preview["count"], 1);
+    assert_eq!(preview["commits"][0]["summary"], "Topic work");
     let error = invoke(
         &window,
         "delete_branch",
@@ -741,7 +742,8 @@ fn force_push_uses_the_plan_lease_and_a_rejected_push_serializes_its_kind() {
         invoke(&window, "push", json!({ "path": path, "id": "push-2" })).expect_err("rejected");
     assert_eq!(rejected["kind"], "push_rejected");
     let plan = invoke(&window, "push_plan", json!({ "path": path })).expect("push_plan");
-    assert_eq!(plan["replaced"][0]["summary"], "Original work");
+    assert_eq!(plan["replaced"]["count"], 1);
+    assert_eq!(plan["replaced"]["commits"][0]["summary"], "Original work");
     assert_eq!(plan["upstream"], "origin/main");
 
     invoke(

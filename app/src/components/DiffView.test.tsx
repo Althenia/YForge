@@ -73,10 +73,10 @@ const diff: FileDiff = { path: "src/app.ts", original_path: null, binary: false,
 
 const working = (area: "unstaged" | "staged" = "unstaged"): DiffTarget => ({ source: "working", area, file: "src/app.ts" });
 
-function mount(target: DiffTarget, result: FileDiff = diff, prefs = createDiffPrefs(), viewed: FileViewTarget[] = []) {
+function mount(target: DiffTarget, result: FileDiff | (() => FileDiff) = diff, prefs = createDiffPrefs(), viewed: FileViewTarget[] = []) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? result : null;
+    return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? (typeof result === "function" ? result() : result) : null;
   });
   const mounted = mountWithApp(() => (
     <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={target} prefs={prefs} onClose={() => undefined} onViewFile={(view) => viewed.push(view)} />
@@ -378,6 +378,16 @@ describe("binary and editor", () => {
 
     expect(host.querySelector(".empty")?.textContent).toBe("Binary file — no text diff");
     expect(host.querySelectorAll("section.hunk")).toHaveLength(0);
+  });
+
+  it("says why a diff over the limit is not shown, with its size, instead of rendering lines", async () => {
+    const { host } = mount(working(), () => {
+      throw { kind: "file_too_large", message: "src/app.ts is too large", output: "3145728" };
+    });
+    await flush(60);
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("This diff is 3.0 MiB, over the 2.0 MiB limit of the diff view. Open it in your editor instead.");
+    expect(host.querySelectorAll("section.hunk, .dflat")).toHaveLength(0);
   });
 
   it("opens the file in the editor from the toolbar", async () => {

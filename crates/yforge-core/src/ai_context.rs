@@ -134,7 +134,7 @@ pub fn commit_context(path: &Path) -> Result<CommitContext, CoreError> {
                 .push_str(&heading(change, ", content withheld: secret file"));
             continue;
         }
-        let file_diff = diff::diff_file(&root, &change.path, ChangeArea::Staged, false)?;
+        let file_diff = diff::diff_file_unbounded(&root, &change.path, ChangeArea::Staged, false)?;
         if file_diff.binary {
             context
                 .diff

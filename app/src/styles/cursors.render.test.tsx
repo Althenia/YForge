@@ -77,7 +77,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     const snapshot = { head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot;
     const host = mount(() => (
       <>
-        <Composer snapshot={snapshot} state={state} action={action} generate={generate} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />
+        <Composer snapshot={snapshot} state={state} action={action} generate={generate} generateAvailable={true} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />
         <Switch label="Usage" checked={false} onChange={() => undefined} />
         <Switch label="Locked" checked disabled onChange={() => undefined} />
       </>
@@ -98,7 +98,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     const state = createRoot(() => createComposer());
     const generate = idleGenerate;
     const action = { button: () => ({ label: "Commit", disabledReason: undefined }), submit: async () => undefined, toggleAmend: async () => undefined } as unknown as ComponentProps<typeof Composer>["action"];
-    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} generate={generate} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />);
+    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} generate={generate} generateAvailable={true} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />);
 
     expectCursor(host.querySelector('input[type="text"]'), "text");
     expectCursor(host.querySelector("textarea"), "text");
@@ -148,7 +148,8 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     mockIPC(
       (cmd) => {
         if (cmd === "settings_load") return defaultSettings;
-        if (cmd === "session_load") return { tabs: ["/work/sample"], active: 0 };
+        if (cmd === "repo_aliases_list") return [];
+        if (cmd === "session_load") return { tabs: ["/work/sample"], active: 0, groups: [] };
         if (cmd === "activity_list" || cmd === "recents_list") return [];
         if (cmd === "launch_path") return "/nowhere";
         if (cmd === "repo_open") throw { kind: "not_a_repository", message: "no", output: null };

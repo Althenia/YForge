@@ -4,8 +4,9 @@ use common::Fixture;
 use rusqlite::Connection;
 use yforge_core::{
     add_recent, list_ssh_keys, load_recents, load_repo_settings, load_session, load_settings,
-    recent_status, remove_recent, save_repo_settings, save_session, save_settings, ssh_key_for,
-    start_storage, AppSettings, Density, ErrorKind, PullMode, RepoSettings, TabSession, Theme,
+    recent_status, remove_recent, save_repo_settings, save_session, save_settings, ssh_plan,
+    start_storage, AppSettings, Density, ErrorKind, PullMode, RepoSettings, TabGroup,
+    TabGroupColor, TabSession, Theme,
 };
 
 fn database(dir: &std::path::Path) -> Connection {
@@ -97,6 +98,7 @@ fn the_tab_session_and_repository_overrides_round_trip() {
     let session = TabSession {
         tabs: vec!["/a".into(), "/b".into()],
         active: 1,
+        groups: Vec::new(),
     };
     save_session(dir.path(), &session).unwrap();
     save_repo_settings(
@@ -147,6 +149,28 @@ fn recent_status_summarises_a_repository_and_flags_a_missing_path() {
     assert_eq!(status.worktrees, 1);
     assert!(!missing.exists);
     assert_eq!(missing.branch, None);
+    assert_eq!(status.unreadable, None);
+    assert_eq!(missing.unreadable, None);
+}
+
+#[test]
+fn recent_status_of_a_repository_whose_status_cannot_be_read_carries_the_reason() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "one\n", "First");
+    repo.write(".git/index", "garbage");
+
+    let status = recent_status(&repo.path);
+
+    assert!(status.exists);
+    assert!(
+        status
+            .unreadable
+            .as_deref()
+            .is_some_and(|reason| reason.contains("index file smaller than expected")),
+        "{status:?}"
+    );
+    assert_eq!((status.branch, status.counts), (None, None));
 }
 
 fn write_legacy_files(dir: &std::path::Path) {
@@ -203,7 +227,8 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
         load_session(dir.path()).unwrap(),
         TabSession {
             tabs: vec!["/a".into(), "/b".into()],
-            active: 1
+            active: 1,
+            groups: Vec::new(),
         }
     );
     assert_eq!(
@@ -279,7 +304,7 @@ fn reopening_keeps_the_schema_version_data_and_wal_journal() {
     let journal: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 11);
     assert_eq!(journal, "wal");
 }
 
@@ -337,6 +362,289 @@ fn start_storage_stops_on_a_corrupt_state_file_and_leaves_it_untouched() {
     );
 }
 
+fn tab_group(name: &str, color: TabGroupColor, collapsed: bool, tabs: &[&str]) -> TabGroup {
+    TabGroup {
+        name: name.to_owned(),
+        color,
+        collapsed,
+        tabs: tabs.iter().map(|tab| (*tab).to_owned()).collect(),
+    }
+}
+
+fn session_with(tabs: &[&str], active: u32, groups: Vec<TabGroup>) -> TabSession {
+    TabSession {
+        tabs: tabs.iter().map(|tab| (*tab).to_owned()).collect(),
+        active,
+        groups,
+    }
+}
+
+#[test]
+fn tab_groups_with_their_name_color_collapsed_state_and_members_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = session_with(
+        &["/a", "/b", "/c", "/d", "/e"],
+        3,
+        vec![
+            tab_group("Backend", TabGroupColor::Mint, false, &["/b", "/c"]),
+            tab_group("Docs", TabGroupColor::Pink, true, &["/e"]),
+        ],
+    );
+
+    save_session(dir.path(), &session).unwrap();
+
+    assert_eq!(load_session(dir.path()).unwrap(), session);
+}
+
+#[test]
+fn saving_a_new_session_replaces_the_groups_and_a_group_left_without_tabs_is_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    save_session(
+        dir.path(),
+        &session_with(
+            &["/a", "/b"],
+            0,
+            vec![tab_group("Old", TabGroupColor::Red, false, &["/a", "/b"])],
+        ),
+    )
+    .unwrap();
+
+    save_session(
+        dir.path(),
+        &session_with(
+            &["/a", "/b"],
+            0,
+            vec![
+                tab_group("Empty", TabGroupColor::Blue, false, &[]),
+                tab_group("New", TabGroupColor::Green, true, &["/b"]),
+            ],
+        ),
+    )
+    .unwrap();
+
+    assert_eq!(
+        load_session(dir.path()).unwrap().groups,
+        vec![tab_group("New", TabGroupColor::Green, true, &["/b"])]
+    );
+    let stored: i64 = database(dir.path())
+        .query_row("SELECT COUNT(*) FROM session_groups", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(stored, 1);
+}
+
+#[test]
+fn a_group_name_is_trimmed_and_groups_are_kept_in_tab_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = session_with(
+        &["/a", "/b", "/c"],
+        0,
+        vec![
+            tab_group("Later", TabGroupColor::Red, false, &["/c"]),
+            tab_group("  First  ", TabGroupColor::Blue, false, &["/b", "/a"]),
+        ],
+    );
+
+    save_session(dir.path(), &session).unwrap();
+
+    assert_eq!(
+        load_session(dir.path()).unwrap().groups,
+        vec![
+            tab_group("First", TabGroupColor::Blue, false, &["/a", "/b"]),
+            tab_group("Later", TabGroupColor::Red, false, &["/c"]),
+        ]
+    );
+}
+
+#[test]
+fn a_group_name_of_one_to_forty_characters_is_required() {
+    let dir = tempfile::tempdir().unwrap();
+    let named = |name: &str| {
+        session_with(
+            &["/a"],
+            0,
+            vec![tab_group(name, TabGroupColor::Cyan, false, &["/a"])],
+        )
+    };
+
+    for refused in ["", "   ", &"x".repeat(41)] {
+        let error = save_session(dir.path(), &named(refused)).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidRequest, "{refused:?}");
+    }
+    save_session(dir.path(), &named(&"é".repeat(40))).unwrap();
+
+    assert_eq!(
+        load_session(dir.path()).unwrap().groups[0].name,
+        "é".repeat(40)
+    );
+}
+
+#[test]
+fn a_group_must_hold_open_tabs_once_and_next_to_each_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let tabs = ["/a", "/b", "/c"];
+    let refused = [
+        vec![tab_group("G", TabGroupColor::Cyan, false, &["/gone"])],
+        vec![
+            tab_group("G", TabGroupColor::Cyan, false, &["/a", "/b"]),
+            tab_group("H", TabGroupColor::Red, false, &["/b"]),
+        ],
+        vec![tab_group("G", TabGroupColor::Cyan, false, &["/a", "/a"])],
+        vec![tab_group("G", TabGroupColor::Cyan, false, &["/a", "/c"])],
+    ];
+
+    for groups in refused {
+        let error = save_session(dir.path(), &session_with(&tabs, 0, groups)).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    }
+
+    assert_eq!(load_session(dir.path()).unwrap(), TabSession::default());
+}
+
+#[test]
+fn a_session_saved_without_groups_still_deserializes_as_ungrouped() {
+    let session: TabSession = serde_json::from_str(r#"{"tabs":["/a"],"active":0}"#).unwrap();
+
+    assert_eq!(session.groups, Vec::<TabGroup>::new());
+}
+
+#[test]
+fn a_version_seven_database_keeps_its_tabs_and_gains_groups() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = database(dir.path());
+    for migration in [
+        include_str!("../src/store/schema.sql"),
+        include_str!("../src/store/switch_stashes.sql"),
+        include_str!("../src/store/ai_providers.sql"),
+        include_str!("../src/store/repo_ui_prefs.sql"),
+        include_str!("../src/store/platform_connections.sql"),
+        include_str!("../src/store/ai_v2.sql"),
+        include_str!("../src/store/ai_feature_switch.sql"),
+    ] {
+        connection.execute_batch(migration).unwrap();
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 7;
+             INSERT INTO session (id, active) VALUES (1, 1);
+             INSERT INTO session_tabs (position, path) VALUES (0, '/a'), (1, '/b');",
+        )
+        .unwrap();
+    drop(connection);
+
+    let loaded = load_session(dir.path()).unwrap();
+
+    assert_eq!(loaded, session_with(&["/a", "/b"], 1, Vec::new()));
+    let version: i64 = database(dir.path())
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 11);
+    save_session(
+        dir.path(),
+        &session_with(
+            &["/a", "/b"],
+            1,
+            vec![tab_group("G", TabGroupColor::Orange, false, &["/b"])],
+        ),
+    )
+    .unwrap();
+    assert_eq!(load_session(dir.path()).unwrap().groups[0].tabs, ["/b"]);
+}
+
+#[test]
+fn a_version_eight_database_keeps_its_data_and_gains_jira_connections() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = database(dir.path());
+    for migration in [
+        include_str!("../src/store/schema.sql"),
+        include_str!("../src/store/switch_stashes.sql"),
+        include_str!("../src/store/ai_providers.sql"),
+        include_str!("../src/store/repo_ui_prefs.sql"),
+        include_str!("../src/store/platform_connections.sql"),
+        include_str!("../src/store/ai_v2.sql"),
+        include_str!("../src/store/ai_feature_switch.sql"),
+        include_str!("../src/store/tab_groups.sql"),
+    ] {
+        connection.execute_batch(migration).unwrap();
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 8;
+             INSERT INTO session (id, active) VALUES (1, 0);
+             INSERT INTO session_tabs (position, path) VALUES (0, '/a');
+             INSERT INTO platform_connections (id, kind, host, name, insecure_tls, created_at)
+             VALUES ('github-1', 'github', 'github.com', 'Home', 0, 5);",
+        )
+        .unwrap();
+    drop(connection);
+
+    start_storage(dir.path()).unwrap();
+
+    assert_eq!(load_session(dir.path()).unwrap().tabs, ["/a"]);
+    assert_eq!(
+        yforge_core::platform_connections_list(dir.path()).unwrap()[0].id,
+        "github-1"
+    );
+    assert!(yforge_core::jira_connections_list(dir.path())
+        .unwrap()
+        .is_empty());
+    let version: i64 = database(dir.path())
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 11);
+}
+
+#[test]
+fn a_version_nine_database_keeps_its_data_and_gains_git_hosts() {
+    let dir = tempfile::tempdir().unwrap();
+    let connection = database(dir.path());
+    for migration in [
+        include_str!("../src/store/schema.sql"),
+        include_str!("../src/store/switch_stashes.sql"),
+        include_str!("../src/store/ai_providers.sql"),
+        include_str!("../src/store/repo_ui_prefs.sql"),
+        include_str!("../src/store/platform_connections.sql"),
+        include_str!("../src/store/ai_v2.sql"),
+        include_str!("../src/store/ai_feature_switch.sql"),
+        include_str!("../src/store/tab_groups.sql"),
+        include_str!("../src/store/jira_connections.sql"),
+    ] {
+        connection.execute_batch(migration).unwrap();
+    }
+    connection
+        .execute_batch(
+            "PRAGMA user_version = 9;
+             INSERT INTO session (id, active) VALUES (1, 0);
+             INSERT INTO session_tabs (position, path) VALUES (0, '/a');
+             INSERT INTO jira_connections (id, kind, site, email, display_name, projects, created_at)
+             VALUES ('jira-1', 'cloud', 'https://your-site.atlassian.net', 'you@example.com', 'Yui', '[]', 5);",
+        )
+        .unwrap();
+    drop(connection);
+
+    start_storage(dir.path()).unwrap();
+
+    assert_eq!(load_session(dir.path()).unwrap().tabs, ["/a"]);
+    assert_eq!(
+        yforge_core::jira_connections_list(dir.path()).unwrap()[0].id,
+        "jira-1"
+    );
+    assert!(yforge_core::git_hosts_list(dir.path()).unwrap().is_empty());
+    let host = yforge_core::git_host_add(
+        dir.path(),
+        &yforge_core::GitHostDraft {
+            host: "github.com".to_owned(),
+            ssh_key_path: None,
+            https_user: Some("you".to_owned()),
+        },
+    )
+    .unwrap();
+    assert_eq!(yforge_core::git_hosts_list(dir.path()).unwrap(), [host]);
+    let version: i64 = database(dir.path())
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 11);
+}
+
 #[test]
 fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safety_copy() {
     let dir = tempfile::tempdir().unwrap();
@@ -353,7 +661,7 @@ fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safet
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!((kept.as_str(), version), ("kept", 6));
+    assert_eq!((kept.as_str(), version), ("kept", 11));
     assert!(!dir.path().join("yforge.db.pre-migration").exists());
 }
 
@@ -363,12 +671,17 @@ fn key_file(dir: &std::path::Path, name: &str) -> String {
     path.display().to_string()
 }
 
+fn effective_key(dir: &std::path::Path, repository: &str) -> Option<std::path::PathBuf> {
+    let plan = ssh_plan(dir, Some(repository)).unwrap();
+    plan.repository_key.or(plan.app_key)
+}
+
 #[test]
 fn the_repository_ssh_key_wins_over_the_app_key_and_either_can_be_cleared() {
     let dir = tempfile::tempdir().unwrap();
     let app_key = key_file(dir.path(), "id_app");
     let repo_key = key_file(dir.path(), "id_repo");
-    assert_eq!(ssh_key_for(dir.path(), "/repo").unwrap(), None);
+    assert_eq!(effective_key(dir.path(), "/repo"), None);
 
     save_settings(
         dir.path(),
@@ -383,7 +696,7 @@ fn the_repository_ssh_key_wins_over_the_app_key_and_either_can_be_cleared() {
         Some(app_key.clone())
     );
     assert_eq!(
-        ssh_key_for(dir.path(), "/repo").unwrap(),
+        effective_key(dir.path(), "/repo"),
         Some(app_key.clone().into())
     );
 
@@ -403,17 +716,17 @@ fn the_repository_ssh_key_wins_over_the_app_key_and_either_can_be_cleared() {
         Some(repo_key.clone())
     );
     assert_eq!(
-        ssh_key_for(dir.path(), "/repo").unwrap(),
-        Some(repo_key.into())
+        effective_key(dir.path(), "/repo"),
+        Some(repo_key.clone().into())
     );
     assert_eq!(
-        ssh_key_for(dir.path(), "/other").unwrap(),
-        Some(app_key.into())
+        effective_key(dir.path(), "/other"),
+        Some(app_key.clone().into())
     );
 
     save_repo_settings(dir.path(), "/repo", &RepoSettings::default()).unwrap();
     save_settings(dir.path(), &AppSettings::default()).unwrap();
-    assert_eq!(ssh_key_for(dir.path(), "/repo").unwrap(), None);
+    assert_eq!(effective_key(dir.path(), "/repo"), None);
 }
 
 #[test]

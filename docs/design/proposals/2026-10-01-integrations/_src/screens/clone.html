@@ -1,0 +1,44 @@
+<div class="screen" data-screen="clone" hidden>
+  <header class="screen-head"><h2>Clone repository</h2><p class="muted">S40 · SSH (<span class="mono">git@host:path</span>, <span class="mono">ssh://</span>) and HTTPS URLs both work; the dialog names the identity the URL will use before you clone.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="dialog" role="dialog" aria-label="Clone repository">
+      <h3>Clone repository</h3>
+      <label class="field"><span>Repository URL</span><span class="input focus placeholder"><span class="grow">git@gitlab.corp-a.com:team/app.git or https://…</span></span></label>
+      <div class="identity"><svg class="glyph"><use href="#i-identity"/></svg><span class="sub">Type a URL to see which identity it uses.</span></div>
+      <label class="field"><span>Destination</span><span class="row"><span class="input" style="flex:1"><span class="grow mono">~/Workspace</span></span><button type="button" class="btn">Browse…</button></span></label>
+      <span class="check"><i class="on"></i>Open after clone</span>
+      <div class="foot"><button type="button" class="btn">Close</button><button type="button" class="btn primary" aria-disabled="true">Clone</button></div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="dialog" role="dialog" aria-label="Clone repository">
+      <h3>Clone repository</h3>
+      <label class="field"><span>Repository URL</span><span class="input"><span class="grow mono">git@gitlab.corp-b.com:2222/payments/ledger.git</span></span></label>
+      <div class="identity"><svg class="glyph"><use href="#i-identity"/></svg><div class="yf" style="gap:2px"><strong>Uses the gitlab.corp-b.com identity</strong><span class="sub mono">~/.ssh/id_corp_b</span></div></div>
+      <div class="yf" role="status" aria-busy="true" style="gap:6px"><span class="sub">Receiving objects · 42%</span><div class="bar"><i style="width:42%"></i></div></div>
+      <div class="foot"><button type="button" class="btn">Cancel clone</button></div>
+      <p class="sub">Cancelling removes the partial folder.</p>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="dialog" role="dialog" aria-label="Clone repository">
+      <h3>Clone repository</h3>
+      <label class="field"><span>Repository URL</span><span class="input"><span class="grow mono">https://gitlab.corp-a.com/platform/api.git</span></span></label>
+      <div class="identity"><svg class="glyph"><use href="#i-identity"/></svg><div class="yf" style="gap:2px"><strong>Uses the gitlab.corp-a.com identity</strong><span class="sub">HTTPS as <b>you</b>; the password or token comes from the macOS Keychain, or YForge asks once and can save it there.</span></div><span class="spacer"></span><button type="button" class="btn sm">Change</button></div>
+      <label class="field"><span>Destination</span><span class="row"><span class="input" style="flex:1"><span class="grow mono">~/Workspace/corp-a</span></span><button type="button" class="btn">Browse…</button></span></label>
+      <span class="sub">Clones into <span class="mono">~/Workspace/corp-a/api</span></span>
+      <span class="check"><i class="on"></i>Open after clone</span>
+      <span class="check"><i></i>Shallow clone</span>
+      <div class="foot"><button type="button" class="btn">Close</button><button type="button" class="btn primary">Clone</button></div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="dialog" role="dialog" aria-label="Clone repository">
+      <h3>Clone repository</h3>
+      <label class="field"><span>Repository URL</span><span class="input"><span class="grow mono">git@gitlab.corp-b.com:2222/payments/ledger.git</span></span></label>
+      <div class="identity"><svg class="glyph"><use href="#i-identity"/></svg><div class="yf" style="gap:2px"><strong>Uses the gitlab.corp-b.com identity</strong><span class="sub mono">~/.ssh/id_corp_b</span></div></div>
+      <div class="alert" role="alert"><strong>gitlab.corp-b.com refused the key</strong><p>Permission denied (publickey). Add the public key to your corp B GitLab account, or choose another key for this host. Nothing was written to <span class="mono">~/Workspace</span>.</p><div class="acts"><button type="button" class="btn sm">Copy public key</button><button type="button" class="btn sm">Edit host identity</button></div></div>
+      <div class="foot"><button type="button" class="btn">Close</button><button type="button" class="btn primary">Try again</button></div>
+    </div>
+  </section>
+</div>

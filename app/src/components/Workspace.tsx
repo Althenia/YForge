@@ -13,6 +13,9 @@ import { createRepoUiPrefs } from "../state/repoUiPrefs";
 import type { PanelRequest } from "../state/palette";
 import { createWorktreeActions } from "../state/worktreeActions";
 import { createPlatformActions } from "../state/platformActions";
+import { createIssueChips, createJiraIssues, type JiraSidebar } from "../state/jiraIssues";
+import { pullText } from "../state/jiraModel";
+import { takePullInspector } from "../state/connectRequest";
 import { createRepoSession } from "../state/repoSession";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
@@ -85,6 +88,19 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     fetchAll: () => actions.fetchAll(),
     openSettings: () => app.openSettings("platforms"),
   });
+  const jira: JiraSidebar = {
+    state: createJiraIssues(),
+    select: (key) => select({ kind: "issue", key }),
+    chips: createIssueChips(() => [...session.snapshot().branches, ...platform.pulls().map(pullText)]),
+    openSettings: () => app.openSettings("jira"),
+    openInBrowser: (issue) => {
+      try {
+        client.openUrl(issue.web_url);
+      } catch (failure) {
+        session.report(failure);
+      }
+    },
+  };
   createEffect(() => {
     const problem = platform.matchFailure();
     if (problem !== undefined) session.inform(problem.message);
@@ -141,6 +157,10 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     setSelection(next);
     setDiffTarget(undefined);
   };
+  createEffect(() => {
+    const number = takePullInspector(session.path);
+    if (number !== undefined) select({ kind: "pull", number });
+  });
   const closeDiff = () => {
     setDiffTarget(undefined);
     queueMicrotask(focusGraph);
@@ -221,16 +241,11 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     root.toggleAttribute("data-operation", session.snapshot().operation != null);
   });
 
-  let pausedAutoFetch = false;
   createEffect(() => {
     const minutes = app.settings().auto_fetch_minutes;
     if (minutes === 0) return;
-    pausedAutoFetch = false;
     const timer = setInterval(() => {
-      if (pausedAutoFetch || document.hidden) return;
-      void actions.autoFetch().then((ok) => {
-        if (!ok) pausedAutoFetch = true;
-      });
+      if (!document.hidden) void actions.autoFetch();
     }, minutes * MINUTE_MS);
     onCleanup(() => clearInterval(timer));
   });
@@ -315,7 +330,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
       />
       <div class="main">
-        <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} onSelectPull={(number) => select({ kind: "pull", number })} />
+        <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} jira={jira} onSelectPull={(number) => select({ kind: "pull", number })} />
         <div class="center">
           <Show
             when={!unborn()}
@@ -369,6 +384,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           session={session}
           actions={actions}
           platform={platform}
+          jira={jira}
           composer={composer}
           selection={selection()}
           activeTarget={diffTarget()}

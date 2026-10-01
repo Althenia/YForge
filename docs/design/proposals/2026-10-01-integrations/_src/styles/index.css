@@ -1,0 +1,7 @@
+.ix { max-width: 72rem; margin: 0 auto; padding: 24px; }
+.ix h1 { margin: 0 0 4px; font-size: 20px; }
+.ix h2 { margin: 32px 0 8px; font-size: 16px; }
+.ix table { width: 100%; border-collapse: collapse; }
+.ix th, .ix td { padding: 8px 12px; border-bottom: 1px solid var(--p-border); text-align: left; vertical-align: top; }
+.ix th { color: var(--p-text-muted); font-size: 12px; font-weight: 600; }
+.ix a { color: var(--p-accent); }

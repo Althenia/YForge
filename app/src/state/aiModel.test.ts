@@ -67,7 +67,7 @@ describe("AI failures", () => {
   const failure = (kind: ConstructorParameters<typeof IpcError>[0]["kind"], message = "core message") => new IpcError({ kind, message });
 
   it("sends a missing provider to Settings → AI and a revoked sign-in to that provider's sign-in", () => {
-    expect(aiFailure(failure("ai_not_configured"))).toEqual({ message: "No AI provider is set up. Choose one in Settings → AI.", action: "open_settings" });
+    expect(aiFailure(failure("ai_not_configured", "Generate commit message is turned off in Settings → AI"))).toEqual({ message: "Generate commit message is turned off in Settings → AI. Nothing was changed.", action: "open_settings" });
     expect(aiFailure(failure("ai_auth_required", "Sign in to ChatGPT"))).toEqual({ message: "The provider needs you to sign in again. Sign in from Settings → AI, then run this again.", detail: "Sign in to ChatGPT", action: "sign_in" });
   });
 

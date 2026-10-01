@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    add_active, chatgpt_tokens, claude_blob, keyed_input, provider_input, store_tokens, Harness,
-    HttpFake, Reply, FAR_FUTURE,
+    add_configured, chatgpt_tokens, claude_blob, keyed_input, provider_input, store_tokens,
+    Harness, HttpFake, Reply, FAR_FUTURE,
 };
 use serde_json::json;
 use yforge_ai::Endpoints;
@@ -30,7 +30,7 @@ async fn openai_keys_list_model_ids_from_the_models_endpoint() {
         openai_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    let id = add_active(
+    let id = add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Chatgpt, "ChatGPT", "sk-1"),
@@ -69,7 +69,7 @@ async fn the_chatgpt_subscription_lists_codex_models_with_the_account_header() {
         chatgpt_backend: format!("{}/backend-api/codex", fake.root),
         ..Endpoints::default()
     });
-    let id = add_active(
+    let id = add_configured(
         &h,
         &ai,
         provider_input(ProviderKind::Chatgpt, AuthMode::Subscription, "ChatGPT"),
@@ -118,7 +118,7 @@ async fn anthropic_lists_models_with_a_key_and_with_claude_code_credentials() {
         ..Endpoints::default()
     };
     let ai = h.ai_at(endpoints);
-    let key = add_active(
+    let key = add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Claude, "Key", "sk-ant"),
@@ -126,7 +126,7 @@ async fn anthropic_lists_models_with_a_key_and_with_claude_code_credentials() {
     )
     .await;
     h.claude_code_signs_in(&claude_blob("cc-access", "cc-refresh", FAR_FUTURE));
-    let sub = add_active(
+    let sub = add_configured(
         &h,
         &ai,
         provider_input(ProviderKind::Claude, AuthMode::Subscription, "Sub"),
@@ -174,7 +174,7 @@ async fn openrouter_lists_names_and_context_lengths() {
         openrouter_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    let id = add_active(
+    let id = add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Openrouter, "OR", "or-key"),
@@ -212,6 +212,37 @@ async fn an_openai_compatible_endpoint_lists_from_its_own_base_url() {
 
     assert_eq!(models, [info("llama", "llama", None)]);
     assert_eq!(fake.requests()[0].path, "/v1/models");
+}
+
+#[tokio::test]
+async fn an_openai_compatible_endpoint_reads_names_and_context_limits() {
+    let h = Harness::new();
+    let fake = HttpFake::start(|_| {
+        Reply::ok(
+            &json!({"data": [
+                {"id": "qwen", "name": "Qwen 3", "limit": {"context": 131072, "output": 8192}},
+                {"id": "mistral", "context_window": 32768},
+                {"id": "phi", "limit": {"input": 16384}}
+            ]})
+            .to_string(),
+        )
+    });
+    let ai = h.ai();
+    let added = ai
+        .add(h.dir(), common::http_input("Local", &fake.url, None))
+        .await
+        .unwrap();
+
+    let models = listed(&h, &ai, &added.config.id).await;
+
+    assert_eq!(
+        models,
+        [
+            info("mistral", "mistral", Some(32_768)),
+            info("phi", "phi", Some(16_384)),
+            info("qwen", "Qwen 3", Some(131_072))
+        ]
+    );
 }
 
 #[tokio::test]
@@ -256,7 +287,7 @@ async fn a_rejected_credential_is_ai_auth_required() {
         anthropic_api: fake.url.clone(),
         ..Endpoints::default()
     });
-    let id = add_active(
+    let id = add_configured(
         &h,
         &ai,
         keyed_input(ProviderKind::Claude, "Key", "sk-ant"),

@@ -1,0 +1,74 @@
+<div class="screen" data-screen="launchpad" hidden>
+  <header class="screen-head"><h2>Launchpad</h2><p class="muted">S41 · One place for your open pull requests, your Jira issues, and repositories with unfinished work. Read-only: nothing is written to a platform or to Jira.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="lp">
+      <div class="lp-head"><svg class="glyph lg"><use href="#i-launchpad"/></svg><h3>Launchpad</h3></div>
+      <div class="tabs" role="tablist" aria-label="Launchpad lists">
+        <span role="tab" aria-selected="true">My pull requests <b class="count">0</b></span>
+        <span role="tab" aria-selected="false">My issues <b class="count">0</b></span>
+        <span role="tab" aria-selected="false">WIPs <b class="count">0</b></span>
+      </div>
+      <div class="connect">
+        <h4>No pull request service is connected</h4>
+        <p class="muted">Pull requests appear here when YForge can read them from GitHub, GitLab, or Bitbucket, including self-managed servers such as gitlab.corp-a.com. Each connection keeps its token in the macOS Keychain.</p>
+        <div class="row wrap">
+          <button type="button" class="btn"><svg class="glyph"><use href="#i-plug"/></svg>Connect GitHub</button>
+          <button type="button" class="btn"><svg class="glyph"><use href="#i-plug"/></svg>Connect GitLab</button>
+          <button type="button" class="btn"><svg class="glyph"><use href="#i-plug"/></svg>Connect Bitbucket</button>
+        </div>
+        <p class="sub">My issues needs a Jira site (Settings → Jira). WIPs needs no connection; it lists recent repositories with uncommitted changes or unpushed commits.</p>
+      </div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="lp">
+      <div class="lp-head"><svg class="glyph lg"><use href="#i-launchpad"/></svg><h3>Launchpad</h3></div>
+      <div class="tabs" role="tablist" aria-label="Launchpad lists">
+        <span role="tab" aria-selected="true">My pull requests <b class="count">…</b></span>
+        <span role="tab" aria-selected="false">My issues <b class="count">…</b></span>
+        <span role="tab" aria-selected="false">WIPs <b class="count">2</b></span>
+      </div>
+      <div class="lp-tools"><div class="input placeholder"><svg class="glyph"><use href="#i-search"/></svg><span class="grow">Search title, number, key, or repository</span></div><div class="input"><span class="grow">All sources</span><svg class="glyph"><use href="#i-chevron"/></svg></div></div>
+      <div class="lp-group" role="status" aria-busy="true">
+        <div class="status-line"><svg class="glyph"><use href="#i-sync"/></svg>Reading github.com (personal) …</div>
+        <div class="status-line"><svg class="glyph"><use href="#i-sync"/></svg>Reading gitlab.corp-a.com …</div>
+        <div class="status-line"><svg class="glyph"><use href="#i-check"/></svg>bitbucket.corp-b.com: 1 pull request</div>
+        <div class="skeleton"><span></span><span></span><span></span></div>
+      </div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="lp">
+      <div class="lp-head"><svg class="glyph lg"><use href="#i-launchpad"/></svg><h3>Launchpad</h3><span class="spacer"></span><span class="sub">Updated 1 minute ago</span><button type="button" class="icon-btn" aria-label="Refresh" title="Refresh"><svg class="glyph"><use href="#i-sync"/></svg></button></div>
+      <div class="tabs" role="tablist" aria-label="Launchpad lists">
+        <span role="tab" aria-selected="true">My pull requests <b class="count">4</b></span>
+        <span role="tab" aria-selected="false">My issues <b class="count">3</b></span>
+        <span role="tab" aria-selected="false">WIPs <b class="count">2</b></span>
+      </div>
+      <div class="lp-tools"><div class="input placeholder"><svg class="glyph"><use href="#i-search"/></svg><span class="grow">Search title, number, key, or repository</span></div><div class="input"><span class="grow">All sources</span><svg class="glyph"><use href="#i-chevron"/></svg></div></div>
+      <div class="lp-group">
+        <span class="sub">Waiting for your review · 2</span>
+        <div class="lp-row"><svg class="glyph"><use href="#i-pr"/></svg><div class="yf" style="gap:2px"><span class="title">#418 Retry login when the token refresh races the first request <span class="chip key">ABC-142</span></span><span class="meta"><span>gitlab.corp-a.com · platform/api</span><span class="mono">fix/ABC-142-retry-login → main</span><span>by Nok · 3 h ago</span></span></div><span class="chip warn">Review requested</span></div>
+        <div class="lp-row"><svg class="glyph"><use href="#i-pr"/></svg><div class="yf" style="gap:2px"><span class="title">#77 Pin the build image to the October base</span><span class="meta"><span>bitbucket.corp-b.com · ops/ci</span><span class="mono">chore/pin-image → master</span><span>by Arun · yesterday</span></span></div><span class="chip warn">Review requested</span></div>
+        <span class="sub">Authored by you · 2</span>
+        <div class="lp-row"><svg class="glyph"><use href="#i-pr"/></svg><div class="yf" style="gap:2px"><span class="title">#1290 Show the identity a clone will use</span><span class="meta"><span>github.com · yforge/yforge</span><span class="mono">feat/git-hosts → main</span><span>2 approvals · checks passed</span></span></div><span class="chip ok"><svg class="glyph"><use href="#i-check"/></svg>Ready to merge</span></div>
+        <div class="lp-row"><svg class="glyph"><use href="#i-pr"/></svg><div class="yf" style="gap:2px"><span class="title">#421 Document the corp B proxy settings for new laptops, including the long list of hosts that need it <span class="chip key">OPS-9</span></span><span class="meta"><span>gitlab.corp-a.com · platform/handbook</span><span class="mono">docs/OPS-9-proxy → main</span><span>Draft</span></span></div><span class="chip">Draft</span></div>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="lp">
+      <div class="lp-head"><svg class="glyph lg"><use href="#i-launchpad"/></svg><h3>Launchpad</h3></div>
+      <div class="tabs" role="tablist" aria-label="Launchpad lists">
+        <span role="tab" aria-selected="true">My pull requests <b class="count">1</b></span>
+        <span role="tab" aria-selected="false">My issues <b class="count">3</b></span>
+        <span role="tab" aria-selected="false">WIPs <b class="count">2</b></span>
+      </div>
+      <div class="alert" role="alert"><strong>gitlab.corp-a.com could not be read</strong><p>The server's certificate is not trusted on this Mac. The list below shows the 1 pull request from the sources that answered; nothing was changed.</p><div class="acts"><button type="button" class="btn sm">Retry</button><button type="button" class="btn sm">Edit connection</button></div></div>
+      <div class="lp-group">
+        <span class="sub">Waiting for your review · 1</span>
+        <div class="lp-row"><svg class="glyph"><use href="#i-pr"/></svg><div class="yf" style="gap:2px"><span class="title">#77 Pin the build image to the October base</span><span class="meta"><span>bitbucket.corp-b.com · ops/ci</span><span class="mono">chore/pin-image → master</span></span></div><span class="chip warn">Review requested</span></div>
+      </div>
+    </div>
+  </section>
+</div>

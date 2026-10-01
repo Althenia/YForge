@@ -2,4 +2,4 @@
 import type { FileStatus } from "./FileStatus";
 import type { RecomposeHunk } from "./RecomposeHunk";
 
-export type RecomposeFile = { path: string, status: FileStatus, binary: boolean, whole_file_only: boolean, hunks: Array<RecomposeHunk>, };
+export type RecomposeFile = { path: string, status: FileStatus, binary: boolean, whole_file_only: boolean, hunks_omitted: string | null, hunks: Array<RecomposeHunk>, };

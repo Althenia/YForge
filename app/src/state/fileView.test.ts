@@ -45,4 +45,9 @@ describe("sizes and errors", () => {
     expect(fileViewError(new IpcError({ kind: "invalid_request", message: "a.ts is not a file in that revision", output: null }))).toBe("a.ts is not a file in that revision");
     expect(fileViewError(new Error("boom"))).toBe("boom");
   });
+
+  it("words the same refusal for a diff by the diff view's limit", () => {
+    const tooLarge = new IpcError({ kind: "file_too_large", message: "too large", output: "3145728" });
+    expect(fileViewError(tooLarge, "diff")).toBe("This diff is 3.0 MiB, over the 2.0 MiB limit of the diff view. Open it in your editor instead.");
+  });
 });

@@ -269,15 +269,23 @@ fn model_info(kind: ProviderKind, id_field: &str, entry: &Value) -> Option<Model
         .unwrap_or(&id)
         .to_owned();
     let window_field = match kind {
-        ProviderKind::Chatgpt => "context_window",
+        ProviderKind::Chatgpt | ProviderKind::OpenaiCompatible => "context_window",
         ProviderKind::Claude => "max_input_tokens",
         ProviderKind::Openrouter => "context_length",
-        ProviderKind::OpenaiCompatible => "",
     };
-    let context_window = entry
-        .get(window_field)
-        .and_then(Value::as_u64)
-        .and_then(|tokens| u32::try_from(tokens).ok());
+    let limit = entry.get("limit");
+    let context_window = [
+        entry.get(window_field),
+        limit.and_then(|limit| limit.get("context")),
+        limit.and_then(|limit| limit.get("input")),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|tokens| {
+        tokens
+            .as_u64()
+            .and_then(|tokens| u32::try_from(tokens).ok())
+    });
     Some(ModelInfo {
         id,
         display_name,

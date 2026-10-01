@@ -1,15 +1,22 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
 import type { RecomposePreview } from "../ipc/bindings/RecomposePreview";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { RecomposeView } from "./RecomposeView";
-import { buttonNamed, flush, mountWithApp, testSession, type } from "./testkit";
+import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
+import { aiFeatureList, buttonNamed, flush, mountWithApp, stubLayout, testSession, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubLayout();
+});
 
 afterEach(async () => {
+  restoreLayout?.();
   dispose?.();
   dispose = undefined;
   await flush();
@@ -28,18 +35,19 @@ const preview = (overrides: Partial<RecomposePreview> = {}): RecomposePreview =>
   head: "h",
   pushed: false,
   files: [
-    { path: "a.txt", status: "modified", binary: false, whole_file_only: false, hunks: [{ id: "a.txt@1,3+1,3", hunk: hunk([line("context", "x", 1), line("removed", "old", 2), line("added", "new", 2), line("added", "more", 3)]) }, { id: "a.txt@20,3+20,3", hunk: hunk([line("removed", "gone", 20)]) }] },
-    { path: "logo.png", status: "added", binary: true, whole_file_only: true, hunks: [] },
+    { path: "a.txt", status: "modified", binary: false, whole_file_only: false, hunks_omitted: null, hunks: [{ id: "a.txt@1,3+1,3", hunk: hunk([line("context", "x", 1), line("removed", "old", 2), line("added", "new", 2), line("added", "more", 3)]) }, { id: "a.txt@20,3+20,3", hunk: hunk([line("removed", "gone", 20)]) }] },
+    { path: "logo.png", status: "added", binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] },
   ],
   ...overrides,
 });
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mount(config: { snapshot?: RepoSnapshot; preview?: RecomposePreview; apply?: unknown; propose?: unknown; base?: string } = {}) {
+async function mount(config: { snapshot?: RepoSnapshot; preview?: RecomposePreview; apply?: unknown; propose?: unknown; base?: string; features?: AiFeatureSummary[] } = {}) {
   const calls: Call[] = [];
   const current = config.snapshot ?? snapshot();
   mockIPC((cmd, args) => {
+    if (cmd === "ai_feature_config_list") return config.features ?? aiFeatureList();
     const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
     calls.push(call);
     if (cmd === "repo_open") return current;
@@ -73,6 +81,31 @@ async function mount(config: { snapshot?: RepoSnapshot; preview?: RecomposePrevi
 }
 
 describe("recompose view", () => {
+  it("renders only the files near the viewport of a long file list and still counts every file", async () => {
+    const files = Array.from({ length: 600 }, (_, index) => ({ path: `src/file${index}.ts`, status: "added" as const, binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] }));
+    const { host, unit } = await mount({ preview: preview({ files }) });
+
+    const rendered = host.querySelectorAll('[data-unit^="file:"]').length;
+    expect(rendered).toBeGreaterThan(0);
+    expect(rendered).toBeLessThan(60);
+    expect(unit("file:src/file0.ts")).not.toBeNull();
+    expect(host.querySelector('[data-unit="file:src/file599.ts"]')).toBeNull();
+    expect(host.querySelector(".rhead")?.textContent).toContain("600 files");
+    expect(host.querySelector(".rtool .reason")?.textContent).toContain("0 of 600 changes assigned");
+  });
+
+  it("says in text why a file over the size limit shows no hunks and assigns it whole", async () => {
+    const reason = "The diff of big.sql is 3000000 bytes, over the 2097152 byte limit, so its hunks are not shown and it can only be assigned as a whole file.";
+    const files = [{ path: "big.sql", status: "modified" as const, binary: false, whole_file_only: true, hunks_omitted: reason, hunks: [] }];
+    const { host, unit, chip, assign } = await mount({ preview: preview({ files }) });
+
+    expect(host.querySelector('[data-unit="file:big.sql"] button[aria-label^="Show hunks"]')).toBeNull();
+    expect(host.textContent).toContain(reason);
+    await assign("file:big.sql", "Commit 1");
+    expect(chip("file:big.sql")).toBe("Commit 1");
+    expect(unit("file:big.sql")).not.toBeNull();
+  });
+
   it("reads the preview from the upstream by default and lists each file with its hunks, everything unassigned", async () => {
     const { host, calls, chip } = await mount();
 
@@ -244,13 +277,20 @@ describe("recompose view", () => {
     expect([...host.querySelectorAll<HTMLTextAreaElement>(".rgroup textarea")].map((area) => area.value)).toEqual(["My message"]);
   });
 
+  it("hides Propose with AI while the feature is off or its provider is not ready", async () => {
+    const { host } = await mount({ features: aiFeatureList(["generate_commit", "conflict_fix"]) });
+
+    expect(buttonNamed(host, "Propose with AI")).toBeUndefined();
+    expect(host.textContent).toContain("changes assigned");
+  });
+
   it("points a missing provider at the AI settings", async () => {
-    const { host, opened } = await mount({ propose: { reject: { kind: "ai_not_configured", message: "none" } } });
+    const { host, opened } = await mount({ propose: { reject: { kind: "ai_not_configured", message: "Propose with AI in Recompose is turned off in Settings → AI" } } });
 
     buttonNamed(host, "Propose with AI")?.click();
     await flush(60);
 
-    expect(host.querySelector(".note.danger")?.textContent).toContain("No AI provider is set up. Choose one in Settings → AI.");
+    expect(host.querySelector(".note.danger")?.textContent).toContain("Propose with AI in Recompose is turned off in Settings → AI. Nothing was changed.");
     buttonNamed(host, "Open AI settings")?.click();
     expect(opened).toEqual(["ai"]);
   });

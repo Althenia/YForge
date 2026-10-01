@@ -2,4 +2,4 @@
 import type { PrFile } from "./PrFile";
 import type { PullRequest } from "./PullRequest";
 
-export type PrDetail = { pull: PullRequest, files: Array<PrFile>, };
+export type PrDetail = { pull: PullRequest, files: Array<PrFile>, files_total: number | null, files_capped: boolean, };

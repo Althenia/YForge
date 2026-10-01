@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
-import { commandText, entriesFor, formatDuration, NOTHING_TO_UNDO, outputText, refreshToasts, toastFor, undoState, upsertEntry } from "./activityModel";
+import { ACTIVITY_LIMIT, commandText, entriesFor, formatDuration, NOTHING_TO_UNDO, outputText, refreshToasts, toastFor, undoState, upsertEntry } from "./activityModel";
 
 let next = 0;
 const entry = (extra: Partial<ActivityEntry> = {}): ActivityEntry => ({
@@ -26,6 +26,26 @@ describe("activity model", () => {
     const undone = { ...first, undo: { kind: "undone" } as const };
     expect(upsertEntry([first, second], undone)).toEqual([undone, second]);
     expect(upsertEntry([first], second)).toEqual([first, second]);
+  });
+
+  it("keeps only the newest entries once the core's log limit is exceeded, dropping the oldest first", () => {
+    let entries: ActivityEntry[] = [];
+    for (let count = 0; count < ACTIVITY_LIMIT + 25; count += 1) entries = upsertEntry(entries, entry());
+
+    expect(ACTIVITY_LIMIT).toBe(300);
+    expect(entries).toHaveLength(ACTIVITY_LIMIT);
+    expect(entries[0]?.id).toBe((entries[ACTIVITY_LIMIT - 1]?.id ?? 0) - ACTIVITY_LIMIT + 1);
+  });
+
+  it("replaces an entry in place without dropping any when the log is full", () => {
+    const full = Array.from({ length: ACTIVITY_LIMIT }, () => entry());
+    const first = full[0] as ActivityEntry;
+    const undone = { ...first, undo: { kind: "undone" } as const };
+
+    const next = upsertEntry(full, undone);
+
+    expect(next).toHaveLength(ACTIVITY_LIMIT);
+    expect(next[0]).toEqual(undone);
   });
 
   it("offers Undo for the newest local, successful, not-yet-undone entry with its scope", () => {

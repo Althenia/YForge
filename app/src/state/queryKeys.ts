@@ -9,6 +9,12 @@ export const appKeys = {
   sshKeys: ["ssh-keys"] as const,
 };
 
+export const gitHostKeys = {
+  all: ["git-hosts"] as const,
+  list: ["git-hosts", "list"] as const,
+  identity: (url: string) => ["git-hosts", "identity", url] as const,
+};
+
 export const aiKeys = {
   providers: ["ai", "providers"] as const,
   features: ["ai", "features"] as const,
@@ -23,6 +29,19 @@ export const platformKeys = {
   prsOf: (path: string) => ["platform", "prs", path] as const,
   pr: (path: string, number: number) => ["platform", "pr", path, number] as const,
   prsDetailOf: (path: string) => ["platform", "pr", path] as const,
+};
+
+export const jiraKeys = {
+  all: ["jira"] as const,
+  connections: ["jira", "connections"] as const,
+  issues: (id: string) => ["jira", "issues", id] as const,
+  keys: (texts: readonly string[]) => ["jira", "keys", texts] as const,
+  lookup: (keys: readonly string[]) => ["jira", "lookup", keys] as const,
+};
+
+export const launchpadKeys = {
+  pulls: (id: string) => ["launchpad", "pulls", id] as const,
+  wips: ["launchpad", "wips"] as const,
 };
 
 export const diagnosticsKeys = {

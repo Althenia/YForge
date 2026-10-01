@@ -63,7 +63,10 @@ const readingSurfaces = ["canvas", "surface-1", "surface-2", "surface-3", "surfa
 const syntaxKinds = ["keyword", "string", "number", "comment", "function", "type", "property"].map((kind) => `syntax-${kind}`);
 const codeSurfaces = ["canvas", "accent-tint", "danger-tint", "diff-added-word", "diff-removed-word", "diff-added-selected", "diff-removed-selected"];
 
+const groupChipFills = Array.from({ length: 10 }, (_, lane) => [`lane-${lane}-label`, `lane-${lane}-label-active`]).flat();
+
 const pairs: Pair[] = [
+  { foreground: "text", backgrounds: groupChipFills, minimum: TEXT },
   { foreground: "text", backgrounds: codeSurfaces, minimum: TEXT },
   ...syntaxKinds.map((foreground): Pair => ({ foreground, backgrounds: codeSurfaces, minimum: TEXT })),
   { foreground: "text-muted", backgrounds: ["accent-tint", "danger-tint", "diff-added-selected", "diff-removed-selected"], minimum: TEXT },

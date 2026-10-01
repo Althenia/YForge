@@ -1,0 +1,43 @@
+<div class="screen" data-screen="changes-clean" hidden>
+  <header class="screen-head"><h2>Changes inspector · clean working tree</h2><p class="muted">S38 · When nothing changed, the panel says so in the middle and the composer shrinks to one Amend last commit button; the full composer returns as soon as a file changes.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="row" style="align-items:stretch;gap:16px">
+      <div class="inspector" style="width:340px">
+        <div class="ihead"><h4><svg class="glyph"><use href="#i-changes"/></svg>Changes</h4><p class="sub">on <span class="mono">main</span> · 0 files</p></div>
+        <div class="clean" role="status"><svg class="glyph lg"><use href="#i-changes"/></svg><strong>Working tree clean</strong><span>Nothing to commit on <span class="mono">main</span></span></div>
+        <div class="composer compact" role="group" aria-label="Commit"><button type="button" class="btn"><svg class="glyph"><use href="#i-edit"/></svg>Amend last commit</button></div>
+      </div>
+      <div class="yf" style="max-width:26rem"><strong>Today</strong><p class="sub">A dashed note at the top, a tall empty area, and a full composer whose Commit is disabled ("Stage files to commit"). The proposal removes the dead form and keeps the one action that works on a clean tree.</p></div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="inspector" style="width:340px">
+      <div class="ihead"><h4><svg class="glyph"><use href="#i-changes"/></svg>Changes</h4><p class="sub">on <span class="mono">main</span> · 0 files</p></div>
+      <div class="clean"><svg class="glyph lg"><use href="#i-changes"/></svg><strong>Working tree clean</strong><span>Nothing to commit on <span class="mono">main</span></span></div>
+      <div class="composer compact" role="status" aria-busy="true"><button type="button" class="btn" aria-disabled="true"><svg class="glyph"><use href="#i-edit"/></svg>Reading the last commit…</button></div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="inspector" style="width:340px">
+      <div class="ihead"><h4><svg class="glyph"><use href="#i-changes"/></svg>Changes</h4><p class="sub">on <span class="mono">main</span> · 0 files</p></div>
+      <div class="clean"><svg class="glyph lg"><use href="#i-changes"/></svg><strong>Working tree clean</strong><span>Amending <span class="mono">9f2c1ab</span> keeps its files</span></div>
+      <div class="composer" role="group" aria-label="Commit">
+        <span class="input"><span class="grow">Retry the login once the refresh settles</span><span class="sub">31</span></span>
+        <span class="input area">The first request can race the token refresh; retry once after it settles.</span>
+        <span class="check"><i class="on"></i>Amend last commit</span>
+        <div class="note attention">This commit is already on origin/main. Amending rewrites it, and the next push needs a force push.</div>
+        <div class="row"><button type="button" class="btn primary">Amend commit</button><span class="sub">⌘↵</span></div>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="inspector" style="width:340px">
+      <div class="ihead"><h4><svg class="glyph"><use href="#i-changes"/></svg>Changes</h4><p class="sub">on <span class="mono">main</span> · 0 files</p></div>
+      <div class="clean"><svg class="glyph lg"><use href="#i-changes"/></svg><strong>Working tree clean</strong><span>Nothing to commit on <span class="mono">main</span></span></div>
+      <div class="composer compact" role="group" aria-label="Commit">
+        <button type="button" class="btn" aria-disabled="true" title="Finish the operation in progress first"><svg class="glyph"><use href="#i-edit"/></svg>Amend last commit</button>
+        <span class="sub">Finish the merge in progress first.</span>
+      </div>
+    </div>
+  </section>
+</div>

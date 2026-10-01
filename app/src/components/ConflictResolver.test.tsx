@@ -1,6 +1,6 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ConflictFile } from "../ipc/bindings/ConflictFile";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { QueryClientProvider } from "@tanstack/solid-query";
@@ -8,15 +8,24 @@ import { createRoot } from "solid-js";
 import { createQueryClient } from "../state/queryClient";
 import { createRepoSession } from "../state/repoSession";
 import { ConflictResolver } from "./ConflictResolver";
+import { aiFeatureList } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
 const opened: string[] = [];
 
 Element.prototype.scrollIntoView = () => undefined;
 
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubScrollLayout({ viewport: 600, row: 20, total: 5000 });
+});
+
 afterEach(() => {
   dispose?.();
   dispose = undefined;
+  restoreLayout?.();
   document.body.innerHTML = "";
   clearMocks();
 });
@@ -49,9 +58,10 @@ const twoRegions: ConflictFile = {
   ],
 };
 
-async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = snapshot(), proposal: () => unknown = () => ({ regions: [] })) {
+async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = snapshot(), proposal: () => unknown = () => ({ regions: [] }), features = aiFeatureList()) {
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
   mockIPC((cmd, args) => {
+    if (cmd === "ai_feature_config_list") return features;
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === "conflict_file") return conflict;
     if (cmd === "ai_propose_conflict") return proposal();
@@ -80,6 +90,56 @@ describe("conflict resolver", () => {
     expect(text(".rhead")).toContain("Merging origin/main into main");
     const heads = [...host.querySelectorAll(".panes .chead")].map((head) => head.textContent);
     expect(heads).toEqual(["Current · main · your branch", "Incoming · origin/main · incoming"]);
+  });
+
+  describe("a file with thousands of lines", () => {
+    const BLOCK = 2000;
+    const block = (prefix: string) => Array.from({ length: BLOCK }, (_, index) => `${prefix} ${index}`);
+    const large: ConflictFile = {
+      ...twoRegions,
+      segments: [
+        { kind: "text", lines: block("head") },
+        { kind: "conflict", current: ["ours one"], incoming: ["theirs one"], base: null },
+        { kind: "text", lines: block("middle") },
+        { kind: "conflict", current: ["ours two"], incoming: ["theirs two"], base: null },
+        { kind: "text", lines: block("tail") },
+      ],
+    };
+    const lastLine = `tail ${BLOCK - 1}`;
+
+    it("renders only the lines in view, in a list as tall as the whole result", async () => {
+      const { host, result } = await mountResolver(large);
+
+      expect(result().length).toBeGreaterThan(0);
+      expect(result().length).toBeLessThan(60);
+      expect(result()[0]).toBe(" |head 0");
+      const total = 3 * BLOCK + 2 * 5;
+      expect(host.querySelector<HTMLElement>(".result .lines > div")?.style.height).toBe(`${total * 20}px`);
+    });
+
+    it("brings the second conflict into view with N and keeps the keyboard focus on the resolver", async () => {
+      const { host, press, result, tick, panel } = await mountResolver(large);
+      expect(host.querySelector('.rline[data-region="1"]')).toBeNull();
+
+      press("n");
+      await tick();
+
+      expect(host.querySelector('.rline.active[data-region="1"]')).not.toBeNull();
+      expect(result()).toContain("C|ours two");
+      expect(result().length).toBeLessThan(60);
+      expect(document.activeElement).toBe(panel());
+    });
+
+    it("reaches the last line by scrolling the result to the end", async () => {
+      const { host, result, tick } = await mountResolver(large);
+
+      (host.querySelector(".rbody") as HTMLElement).scrollTop = 1_000_000;
+      await tick();
+      await tick();
+
+      expect(result().some((line) => line.endsWith(`|${lastLine}`))).toBe(true);
+      expect(result().length).toBeLessThan(60);
+    });
   });
 
   it("names a rebase's panes by the rebase target and the replayed commit", async () => {
@@ -309,15 +369,23 @@ describe("conflict resolver", () => {
       expect(host.querySelector(".actions .state")?.textContent).toContain("Manual");
     });
 
+    it("hides Propose resolution while the feature is off or its provider is not ready", async () => {
+      const { host, tick } = await mountResolver(twoRegions, snapshot(), () => ({ regions: [] }), aiFeatureList(["generate_commit", "recompose"]));
+      await tick();
+
+      expect(named(host, "Propose resolution")).toBeUndefined();
+      expect(named(host, "Take all current")).toBeDefined();
+    });
+
     it("explains a missing provider and opens the AI settings", async () => {
       opened.length = 0;
-      const { host, tick } = await mountResolver(twoRegions, snapshot(), () => Promise.reject({ kind: "ai_not_configured", message: "none" }));
+      const { host, tick } = await mountResolver(twoRegions, snapshot(), () => Promise.reject({ kind: "ai_not_configured", message: "Propose conflict resolution is turned off in Settings → AI" }));
 
       named(host, "Propose resolution")?.click();
       await tick();
       await tick();
 
-      expect(host.querySelector(".note.danger")?.textContent).toContain("No AI provider is set up. Choose one in Settings → AI.");
+      expect(host.querySelector(".note.danger")?.textContent).toContain("Propose conflict resolution is turned off in Settings → AI. Nothing was changed.");
       named(host, "Open AI settings")?.click();
       expect(opened).toEqual(["ai"]);
     });

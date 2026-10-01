@@ -12,6 +12,8 @@ export function Composer(props: {
   state: ComposerState;
   action: CommitAction;
   generate: GenerateAction;
+  generateAvailable: boolean;
+  clean: boolean;
   staged: number;
   onOpenAiSettings: () => void;
   pushReason: string | undefined;
@@ -22,6 +24,8 @@ export function Composer(props: {
   const button = () => props.action.button();
   const warning = () => amendWarning(props.state.pushed(), props.snapshot.upstream?.name);
   const unborn = () => props.snapshot.head.kind === "unborn";
+  const amendReason = () =>
+    unborn() ? "There is no commit to amend yet" : props.snapshot.operation !== null ? "Finish the operation in progress first" : undefined;
   const failure = () => props.state.failure();
   const [open, setOpen] = createSignal(false);
   const [position, setPosition] = createSignal({ bottom: 0, right: 0 });
@@ -68,6 +72,24 @@ export function Composer(props: {
   };
 
   return (
+    <Show
+      when={!props.clean || props.state.amend()}
+      fallback={
+        <div class="composer compact" role="group" aria-label="Commit" aria-busy={props.state.busy()}>
+          <button type="button" class="btn" disabled={amendReason() !== undefined || props.state.busy()} title={amendReason()} onClick={() => void props.action.toggleAmend(true)}>
+            <Icon name="edit" size={14} />
+            Amend last commit
+          </button>
+          <Show when={failure()}>
+            {(error) => (
+              <div class="note danger" role="alert">
+                <strong>{error().message}</strong>
+              </div>
+            )}
+          </Show>
+        </div>
+      }
+    >
     <div class="composer" role="group" aria-label="Commit" aria-busy={props.state.busy()}>
       <label class="input">
         <input
@@ -137,28 +159,30 @@ export function Composer(props: {
         </div>
       </Show>
       <div class="hrow">
-        <Show
-          when={props.generate.running()}
-          fallback={
-            <button
-              type="button"
-              class="btn"
-              disabled={generateReason() !== undefined}
-              title={generateReason() ?? "Draft a message from the staged changes with your AI provider"}
-              onClick={() => void props.generate.run()}
-            >
+        <Show when={props.generateAvailable || props.generate.running()}>
+          <Show
+            when={props.generate.running()}
+            fallback={
+              <button
+                type="button"
+                class="btn"
+                disabled={generateReason() !== undefined}
+                title={generateReason() ?? "Draft a message from the staged changes with your AI provider"}
+                onClick={() => void props.generate.run()}
+              >
+                <Icon name="wand" />
+                Generate
+              </button>
+            }
+          >
+            <button type="button" class="btn" aria-busy="true" disabled>
               <Icon name="wand" />
-              Generate
+              Generating…
             </button>
-          }
-        >
-          <button type="button" class="btn" aria-busy="true" disabled>
-            <Icon name="wand" />
-            Generating…
-          </button>
-          <button type="button" class="icon-btn dense" {...tip("Cancel generating")} onClick={props.generate.cancel}>
-            <Icon name="close" />
-          </button>
+            <button type="button" class="icon-btn dense" {...tip("Cancel generating")} onClick={props.generate.cancel}>
+              <Icon name="close" />
+            </button>
+          </Show>
         </Show>
         <span class="split-btn">
           <button
@@ -209,5 +233,6 @@ export function Composer(props: {
         </div>
       </Show>
     </div>
+    </Show>
   );
 }

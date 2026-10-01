@@ -1,6 +1,8 @@
 import { QueryClientProvider } from "@tanstack/solid-query";
 import { createRoot, createSignal, type JSX } from "solid-js";
 import { render } from "solid-js/web";
+import type { AiFeature } from "../ipc/bindings/AiFeature";
+import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createMemoryHistory } from "@tanstack/solid-router";
 import { createAppRouter } from "../routes";
@@ -78,3 +80,14 @@ export function testUiPrefs(initial: RepoUiPrefs = defaultUiPrefs): RepoUiPrefsS
   const [prefs, setPrefs] = createSignal(initial);
   return { prefs, update: (change) => setPrefs(change(prefs())) };
 }
+
+const AI_FEATURES: readonly AiFeature[] = ["generate_commit", "recompose", "conflict_fix"];
+
+export const aiFeatureList = (available: readonly AiFeature[] = AI_FEATURES): AiFeatureSummary[] =>
+  AI_FEATURES.map((feature) => ({
+    feature,
+    config: available.includes(feature) ? { feature, provider_id: "p1", model_id: "m", prompt_template: "{context}" } : null,
+    enabled: available.includes(feature),
+    available: available.includes(feature),
+    default_prompt_template: "{context}",
+  }));

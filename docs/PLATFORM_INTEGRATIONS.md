@@ -24,7 +24,7 @@ app/src-tauri (shell)
        �── yforge-ai (SecretStore trait + KeychainStore, reused)
 ```
 
-- **Model types** (`PlatformConnection`, `PullRequest`, `PrDetail`, `CreatePull`, `MatchedRepo`, `PlatformKind`, `PrState`, `PrFile`, `RepoRef`) live in `yforge-core` (`src/platform.rs`, following `src/ai.rs`) because the TS bindings are generated from `yforge-core` types via `crates/yforge-core/tests/bindings.rs` (`pnpm bindings`).
+- **Model types** (`PlatformConnection`, `PullRequest`, `PullList`, `PrDetail`, `CreatePull`, `MatchedRepo`, `PlatformKind`, `PrState`, `PrFile`, `RepoRef`) live in `yforge-core` (`src/platform.rs`, following `src/ai.rs`) because the TS bindings are generated from `yforge-core` types via `crates/yforge-core/tests/bindings.rs` (`pnpm bindings`).
 - **`yforge-platform`** owns the platform-specific logic: remote-URL parsing, the four HTTP adapters, and a `PlatformService` that resolves a repository path to a connection (via its remotes) and dispatches to the right adapter.
 - **Connection rows** (non-secret) live in the app store: new migration `platform_connections.sql` (id, kind, host, name, insecure_tls, created_at), CRUD in `store/platform.rs` following the `store/ai.rs` pattern.
 - **Tokens** live in the Keychain under account `platform.<connection-id>`, through the existing `SecretStore` trait (`yforge-ai::secret`). The shell already constructs a `KeychainStore`; it passes the same `Arc<dyn SecretStore>` to the platform service.
@@ -69,7 +69,9 @@ pub struct PrFile {
     pub deletions: i64,
 }
 
-pub struct PrDetail { pub pull: PullRequest, pub files: Vec<PrFile> }
+pub struct PullList { pub pulls: Vec<PullRequest>, pub total: Option<u32>, pub capped: bool }
+
+pub struct PrDetail { pub pull: PullRequest, pub files: Vec<PrFile>, pub files_total: Option<u32>, pub files_capped: bool }
 
 pub struct CreatePull {
     pub source_ref: String,
@@ -110,8 +112,8 @@ Bitbucket routing: host `bitbucket.org` → Cloud (2.0 API); any other host → 
 | Base | `https://api.github.com` for `github.com`; `https://host/api/v3` for GitHub Enterprise Server | `https://host/api/v4` |
 | Extra header | `Accept: application/vnd.github+json` | — |
 | Verify | `GET /user` → `login` | `GET /user` → `username` |
-| List | `GET /repos/{o}/{r}/pulls?state=open&per_page=100` | `GET /projects/{urlencoded o/r}/merge_requests?state=opened&per_page=100` |
-| Detail | `GET /repos/{o}/{r}/pulls/{n}` + `GET …/pulls/{n}/files?per_page=100` | `GET /projects/{id}/merge_requests/{iid}` — the response includes a `changes[]` array with per-file diffs (`new_path`, `new_file`, `renamed_file`, `deleted_file`); if absent, files = empty list and the detail still works |
+| List | `GET /repos/{o}/{r}/pulls?state=open&per_page=100&page=n` (a full page means another may follow) | `GET /projects/{urlencoded o/r}/merge_requests?state=opened&per_page=100&page=n` (`X-Next-Page`; `X-Total` is the total) |
+| Detail | `GET /repos/{o}/{r}/pulls/{n}` + `GET …/pulls/{n}/files?per_page=100&page=n` (`files_total` is the pull's `changed_files`) | `GET /projects/{id}/merge_requests/{iid}` — the response includes a `changes[]` array with per-file diffs (`new_path`, `new_file`, `renamed_file`, `deleted_file`) in one response, cut by the service (`overflow`, or a `changes_count` ending in `+`) and by the 1,000 cap; if absent, files = empty list and the detail still works |
 | Create | `POST /repos/{o}/{r}/pulls` `{title, head, base, body}` | `POST /projects/{id}/merge_requests` `{source_branch, target_branch, title, description}` |
 | Merge | `PUT /repos/{o}/{r}/pulls/{n}/merge` | `PUT /projects/{id}/merge_requests/{iid}/merge` |
 
@@ -119,8 +121,8 @@ Bitbucket routing: host `bitbucket.org` → Cloud (2.0 API); any other host → 
 |---|---|---|
 | Base | `https://api.bitbucket.org/2.0` | `https://host/rest/api/1.0` |
 | Verify | `GET /user` → `username` | `GET /application-properties`; the username is the `X-AUSERNAME` response header (Data Center has no current-user endpoint); a missing header → `auth_failed` |
-| List | `GET /repositories/{o}/{r}/pullrequests?state=OPEN` | `GET /projects/{key}/repos/{slug}/pull-requests?state=OPEN&limit=100` (`state=ALL` for all) → `values[]` |
-| Detail | `GET /repositories/{o}/{r}/pullrequests/{id}` + `GET …/pullrequests/{id}/diffstat` | `GET /projects/{key}/repos/{slug}/pull-requests/{id}` + `GET …/pull-requests/{id}/diff` (`diffs[]`; per-file additions/deletions = lines in `ADDED`/`REMOVED` segments; `source` null → added, `destination` null → removed, differing paths → renamed) |
+| List | `GET /repositories/{o}/{r}/pullrequests?state=OPEN&pagelen=50`, then the `next` link (`size` is the total when sent) | `GET /projects/{key}/repos/{slug}/pull-requests?state=OPEN&limit=100&start=n` (`state=ALL` for all) → `values[]`, until `isLastPage`, continuing at `nextPageStart` |
+| Detail | `GET /repositories/{o}/{r}/pullrequests/{id}` + `GET …/pullrequests/{id}/diffstat?pagelen=500`, then the `next` link (`size` is the file total) | `GET /projects/{key}/repos/{slug}/pull-requests/{id}` + `GET …/pull-requests/{id}/diff` (a `truncated` diff is capped; `files_total` is the file count only when it is not truncated; `diffs[]`; per-file additions/deletions = lines in `ADDED`/`REMOVED` segments; `source` null → added, `destination` null → removed, differing paths → renamed) |
 | Create | `POST /repositories/{o}/{r}/pullrequests` `{title, description, source:{branch:{name}}, destination:{branch:{name}}}` | `POST /projects/{key}/repos/{slug}/pull-requests` `{title, description, fromRef:{id:"refs/heads/<branch>", repository:{slug, project:{key}}}, toRef:{…}}` |
 | Merge | `POST /repositories/{o}/{r}/pullrequests/{id}/merge` | `GET …/pull-requests/{id}` for `version`, then `POST …/pull-requests/{id}/merge?version={version}` |
 
@@ -132,6 +134,12 @@ Field mapping (source → unified):
 - GitLab: `iid, title, description, state (opened|merged|closed), source_branch, target_branch, author.username, created_at, updated_at, merge_status == "can_merge" → mergeable, web_url`.
 - Bitbucket Cloud: `id, title, description, state (OPEN|MERGED|REJECTED), source.branch.name, destination.branch.name, author.username, created_on, updated_on, mergeable = (state == OPEN), links.html.href`.
 - Bitbucket Data Center: `id, title, description, state (OPEN|MERGED|DECLINED), fromRef.displayId, toRef.displayId, author.user.name, createdDate and updatedDate (epoch milliseconds → RFC 3339 UTC), mergeable = (state == OPEN), links.self[0].href`.
+
+## Paged lists (rule S44)
+
+Every list read from a platform follows the service's pagination to the end, up to a safety cap of 1,000 items (`LIST_CAP`, `crates/yforge-platform/src/paging.rs`). Each list carries `total: number | null` (the true total when the service reports one, else the items returned when not capped, else `null`) and `capped: boolean` (the service has more than the 1,000 returned). A request that fails fails the whole list. The per-command paging and the source of each total are in `docs/CORE_UI_CONTRACT.md`, section "Paged lists".
+
+The UI counts the true total, never the array length: the sidebar pull request count, `Files · N` in the pull request inspector, the Launchpad tab counts, and the Jira issue count. A capped list says so in text: "Showing 1,000 of <total>", or "Showing the first 1,000" when `total` is `null`. When a pull request's files are capped, the inspector also states that the +/- sums cover only the loaded files.
 
 ## Errors
 
@@ -152,8 +160,8 @@ Field mapping (source → unified):
 | `platform_connection_remove` | `id` | `null` (removes row + Keychain entry) |
 | `platform_connection_test` | `id` | `String` (the verified login name) |
 | `platform_repo_match` | `path` | `Option<MatchedRepo>` |
-| `platform_prs_list` | `path, state: "open" \| "all"` | `Vec<PullRequest>` |
-| `platform_pr_detail` | `path, number` | `PrDetail` |
+| `platform_prs_list` | `path, state: "open" \| "all"` | `PullList { pulls, total, capped }` |
+| `platform_pr_detail` | `path, number` | `PrDetail { pull, files, files_total, files_capped }` |
 | `platform_pr_create` | `path, CreatePull` | `PullRequest` |
 | `platform_pr_merge` | `path, number` | `PullRequest` |
 
@@ -162,11 +170,19 @@ Field mapping (source → unified):
 ## Frontend
 
 - **Settings → Platforms:** list of connections (kind glyph, name, host); add dialog (kind, host, name, token, insecure-TLS checkbox with a plain-language warning); per-row Test and Remove. Token field is write-only: editing a connection re-tests with a new token.
-- **Workspace sidebar → Pull requests section:** visible only when `platform_repo_match` resolves. Lists open PRs: `#number title`, author, `source → target`. Row actions: open in browser, merge (confirm dialog stating the consequence), and a section-level "New pull request" action.
-- **PR detail view:** state, author, dates, mergeability, file list with +/- counts; open in browser.
+- **Workspace sidebar → Pull requests section:** visible only when `platform_repo_match` resolves. Lists open PRs: `#number title`, author, `source → target`; the section count is `PullList.total` (or the number returned), with the capped text under the list when `capped`. Row actions: open in browser, merge (confirm dialog stating the consequence), and a section-level "New pull request" action.
+- **PR detail view:** state, author, dates, mergeability, `Files · <files_total or files shown>`, the file list with +/- counts (and, when only part of the files was loaded, a text note that the sums cover only the loaded files); open in browser.
 - **Create PR dialog:** source (default: current branch), target (default: the remote's default branch), title (default: HEAD subject), body. On success: toast with the web URL, list refreshes.
 - **Merge:** confirm → `platform_pr_merge` → `fetch` → toast; the PR row moves to merged state on refresh.
 - Query keys: `["platform", "match", path]`, `["platform", "prs", path, state]`, `["platform", "pr", path, number]`. Mutations invalidate the list.
+
+## Jira and the Launchpad (rules S39 and S41)
+
+- **Connections:** `jira_connections` (migration 9) keeps kind (`cloud` or `data_center`), the site address, the Cloud email, the display name, and the visible project list (refreshed on connect and Test). The token lives only in the Keychain under `jira.<id>`. Cloud signs in with Basic (email and API token) against `/rest/api/3`, Data Center with a Bearer personal access token against `/rest/api/2`. YForge only issues `GET` requests to Jira.
+- **Reads:** `GET /myself` (display name), Cloud `GET /project/search?startAt&maxResults` (paged until `isLast`) or Data Center `GET /project`, Cloud `GET /search/jql` (`maxResults=100`, `nextPageToken`) or Data Center `GET /search` (`maxResults=100&startAt=n`, `total`) with `jql=assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` (my issues, returned as `JiraIssueList { issues, total, capped }`, at most 1,000) or `key in (…)` (chip lookups, 50 keys per request), `fields=summary,status,issuetype,project,updated`.
+- **Issue keys:** `[A-Z][A-Z0-9]+-\d+`, case-sensitive, not glued to letters or digits, kept only when the project belongs to a connected site; branch names, commit subjects and messages, and pull request titles.
+- **My pull requests:** per connection, GitHub `GET /search/issues?q=is:pr is:open author:@me` and `review-requested:@me` then `GET /repos/{o}/{r}/pulls/{n}` for the branches; GitLab `GET /merge_requests?state=opened&scope=created_by_me` and `scope=all&reviewer_username=<user>`; Bitbucket Data Center `GET /dashboard/pull-requests?state=OPEN&role=AUTHOR|REVIEWER`; Bitbucket Cloud `GET /pullrequests/{account_id}?state=OPEN` (authored only: the API has no account-wide review list). Each role is paged and merged into `LaunchpadPulls { pulls, total, capped }`, at most 1,000. The Launchpad states each source's own update time ("<source> · updated <age> ago"), never one combined time.
+- **Query keys:** `["jira", "connections"]`, `["jira", "issues", id]`, `["jira", "keys", texts]`, `["jira", "lookup", keys]`, `["launchpad", "pulls", id]`, `["launchpad", "wips"]`.
 
 ## Design process
 

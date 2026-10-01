@@ -2,4 +2,4 @@
 import type { ProviderConfig } from "./ProviderConfig";
 import type { ProviderStatus } from "./ProviderStatus";
 
-export type ProviderSummary = { config: ProviderConfig, status: ProviderStatus, active: boolean, };
+export type ProviderSummary = { config: ProviderConfig, status: ProviderStatus, };

@@ -42,7 +42,8 @@ const mount = async (name: string, email?: string | null, avatars = true) => {
           gravatar_avatars: avatars,
         };
       }
-      if (cmd === "session_load") return { tabs: [], active: null };
+      if (cmd === "repo_aliases_list") return [];
+      if (cmd === "session_load") return { tabs: [], active: null, groups: [] };
       if (cmd === "activity_list") return [];
       if (cmd === "recents_list") return [];
       if (cmd === "launch_path") return null;

@@ -1,0 +1,72 @@
+<div class="screen" data-screen="jira-sidebar" hidden>
+  <header class="screen-head"><h2>Workspace · Jira issues</h2><p class="muted">S39 · The sidebar lists issues assigned to you that are not done; issue keys in branches, commits, and pull requests become chips with the summary and status.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="work">
+      <div class="panel" aria-label="Repository">
+        <div class="sec"><svg class="glyph"><use href="#i-branch"/></svg>Branches<span class="n">3</span></div>
+        <div class="srow"><span class="t">main</span></div><div class="srow"><span class="t mono">fix/ABC-142-retry-login</span></div><div class="srow"><span class="t">release/2026.10</span></div>
+        <div class="sec"><svg class="glyph"><use href="#i-issue"/></svg>Jira issues<span class="n">0</span></div>
+        <div class="srow"><span class="t sub">No open issues assigned to you</span></div>
+      </div>
+      <div class="panel" aria-label="Commit graph">
+        <div class="gline"><i class="dot"></i><span class="msg">Retry the login once the refresh settles</span><span class="chip key"><svg class="glyph"><use href="#i-issue"/></svg>ABC-142</span></div>
+        <div class="gline"><i class="dot"></i><span class="msg">Bump the base image</span></div>
+      </div>
+      <div class="inspector"><div class="ihead"><h4>Commit 9f2c1ab</h4><p class="sub">Retry the login once the refresh settles · Sam Lee</p></div><div class="clean"><span class="chip key"><svg class="glyph"><use href="#i-issue"/></svg>ABC-142</span><span>Retry login when the token refresh races the first request</span><span class="chip">Done</span></div><div></div></div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="work">
+      <div class="panel" aria-label="Repository">
+        <div class="sec"><svg class="glyph"><use href="#i-branch"/></svg>Branches<span class="n">3</span></div>
+        <div class="srow"><span class="t">main</span></div>
+        <div class="sec"><svg class="glyph"><use href="#i-issue"/></svg>Jira issues<span class="n">…</span></div>
+        <div class="srow" role="status" aria-busy="true"><span class="t sub">Loading issues from your-site.atlassian.net and jira.corp-b.internal…</span></div>
+        <div class="skeleton"><span></span><span></span></div>
+      </div>
+      <div class="panel" aria-label="Commit graph"><div class="gline"><i class="dot"></i><span class="msg">Retry the login once the refresh settles</span><span class="chip key">ABC-142</span></div></div>
+      <div class="inspector"><div class="ihead"><h4>Commit 9f2c1ab</h4></div><div class="clean"><span class="chip key">ABC-142</span><span class="sub">Reading the issue…</span></div><div></div></div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="work">
+      <div class="panel" aria-label="Repository">
+        <div class="sec"><svg class="glyph"><use href="#i-branch"/></svg>Branches<span class="n">3</span></div>
+        <div class="srow"><span class="t">main</span></div><div class="srow"><span class="t mono">fix/ABC-142-retry-login</span></div>
+        <div class="sec"><svg class="glyph"><use href="#i-issue"/></svg>Jira issues<span class="n">3</span></div>
+        <div class="srow issue sel" role="button" aria-label="ABC-155 Show the account switcher on the login screen, In Progress"><span class="line"><span class="mono">ABC-155</span><span class="chip info">In Progress</span></span>
+          <span class="acts"><button type="button" class="icon-btn" aria-label="Create branch from ABC-155" title="Create branch from issue"><svg class="glyph"><use href="#i-branch"/></svg></button><button type="button" class="icon-btn" aria-label="Open ABC-155 in browser" title="Open in browser"><svg class="glyph"><use href="#i-open"/></svg></button></span>
+          <span class="summary">Show the account switcher on the login screen</span></div>
+        <div class="srow issue" role="button" aria-label="OPS-9 Proxy settings for new laptops, To Do"><span class="line"><span class="mono">OPS-9</span><span class="chip">To Do</span></span><span></span><span class="summary">Proxy settings for new laptops</span></div>
+        <div class="srow issue" role="button" aria-label="WEB-31 Cookie banner copy, In Review"><span class="line"><span class="mono">WEB-31</span><span class="chip info">In Review</span></span><span></span><span class="summary">Cookie banner copy</span></div>
+      </div>
+      <div class="yf">
+        <div class="panel" aria-label="Commit graph">
+          <div class="gline"><i class="dot"></i><span class="msg">Retry the login once the refresh settles</span><span class="chip key" title="ABC-142 · Retry login when the token refresh races the first request · Done"><svg class="glyph"><use href="#i-issue"/></svg>ABC-142</span></div>
+          <div class="gline"><i class="dot"></i><span class="msg">Pin proxy hosts for the build agents</span><span class="chip key"><svg class="glyph"><use href="#i-issue"/></svg>OPS-9</span></div>
+        </div>
+        <div class="pop" role="dialog" aria-label="Create branch from ABC-155">
+          <strong>Create branch from ABC-155</strong>
+          <label class="field"><span>Branch name</span><span class="input focus"><span class="grow mono">ABC-155-show-the-account-switcher-on-login</span></span></label>
+          <span class="sub">From <span class="mono">main</span> · 41 of 50 characters · the issue in Jira is not changed</span>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn primary">Create branch</button></div>
+        </div>
+      </div>
+      <div class="inspector"><div class="ihead"><h4>Issue ABC-155</h4><p class="sub">your-site.atlassian.net · Accounts</p></div>
+        <div class="yf" style="padding:0 16px"><strong>Show the account switcher on the login screen</strong><div class="row wrap"><span class="chip info">In Progress</span><span class="chip">Story</span><span class="sub">Assigned to you · updated today</span></div><p class="sub">Read-only. Status and comments change in Jira.</p></div>
+        <div class="composer compact"><button type="button" class="btn"><svg class="glyph"><use href="#i-open"/></svg>Open in browser</button></div></div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="work">
+      <div class="panel" aria-label="Repository">
+        <div class="sec"><svg class="glyph"><use href="#i-issue"/></svg>Jira issues<span class="n">2</span></div>
+        <div class="alert" role="alert"><strong>jira.corp-b.internal could not be reached</strong><p>Showing the 2 issues from your-site.atlassian.net. Chips for OPS and PAY keys show the key only.</p><div class="acts"><button type="button" class="btn sm">Retry</button><button type="button" class="btn sm">Edit connection</button></div></div>
+        <div class="srow"><span class="mono">ABC-155</span><span class="t">Show the account switcher on login</span></div>
+        <div class="srow"><span class="mono">WEB-31</span><span class="t">Cookie banner copy</span></div>
+      </div>
+      <div class="panel" aria-label="Commit graph"><div class="gline"><i class="dot"></i><span class="msg">Pin proxy hosts for the build agents</span><span class="chip key" title="OPS-9 · issue details unavailable">OPS-9</span></div></div>
+      <div class="inspector"><div class="ihead"><h4>Commit 4d8e017</h4></div><div class="clean"><span class="chip key">OPS-9</span><span class="sub">Issue details unavailable: jira.corp-b.internal could not be reached.</span></div><div></div></div>
+    </div>
+  </section>
+</div>

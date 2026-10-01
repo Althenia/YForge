@@ -1,9 +1,9 @@
 use rusqlite::Connection;
 use yforge_core::{
-    ai_active_provider, ai_choose, ai_feature_config, ai_feature_config_reset,
-    ai_feature_config_set, ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete,
-    ai_provider_edit, ai_provider_key_flag, ai_providers, start_storage, AiFeature,
-    AiFeatureConfig, AuthMode, ErrorKind, ProviderKind,
+    ai_feature_config, ai_feature_config_enable, ai_feature_config_reset, ai_feature_config_set,
+    ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete, ai_provider_edit,
+    ai_provider_key_flag, ai_providers, start_storage, AiFeature, AiFeatureConfig, AuthMode,
+    ErrorKind, ProviderKind,
 };
 
 fn data() -> tempfile::TempDir {
@@ -40,12 +40,12 @@ fn providers_keep_non_secret_config_in_creation_order() {
     assert_eq!(second.auth_mode, AuthMode::Subscription);
     assert_eq!(first.auth_mode, AuthMode::ApiKey);
     assert_eq!(first.base_url.as_deref(), Some("http://127.0.0.1:1234/v1"));
-    assert!(!first.has_api_key && first.model.is_none());
+    assert!(!first.has_api_key);
     assert!(first.created_at > 0);
 }
 
 #[test]
-fn editing_changes_the_fields_but_not_the_kind_model_or_creation_time() {
+fn editing_changes_the_fields_but_not_the_kind_or_creation_time() {
     let dir = data();
     let added = ai_provider_add(
         dir.path(),
@@ -55,7 +55,6 @@ fn editing_changes_the_fields_but_not_the_kind_model_or_creation_time() {
         Some("http://127.0.0.1:1/v1"),
     )
     .unwrap();
-    ai_choose(dir.path(), Some(&added.id), Some("llama")).unwrap();
 
     let edited = ai_provider_edit(
         dir.path(),
@@ -70,99 +69,38 @@ fn editing_changes_the_fields_but_not_the_kind_model_or_creation_time() {
     assert_eq!(edited.name, "Renamed");
     assert_eq!(edited.base_url.as_deref(), Some("https://example.test/v1"));
     assert_eq!(edited.kind, ProviderKind::OpenaiCompatible);
-    assert_eq!(edited.model.as_deref(), Some("llama"));
     assert_eq!(edited.created_at, added.created_at);
     assert!(ai_provider(dir.path(), &added.id).unwrap().has_api_key);
 }
 
 #[test]
-fn choosing_a_provider_records_it_as_active_with_its_trimmed_model() {
-    let dir = data();
-    let one = ai_provider_add(
-        dir.path(),
-        ProviderKind::Claude,
-        AuthMode::Subscription,
-        "Claude",
-        None,
-    )
-    .unwrap();
-    let two = ai_provider_add(
-        dir.path(),
-        ProviderKind::Chatgpt,
-        AuthMode::Subscription,
-        "ChatGPT",
-        None,
-    )
-    .unwrap();
-    assert_eq!(ai_active_provider(dir.path()).unwrap(), None);
-
-    ai_choose(dir.path(), Some(&one.id), Some("  opus ")).unwrap();
-    assert_eq!(
-        ai_active_provider(dir.path()).unwrap(),
-        Some(one.id.clone())
-    );
-    assert_eq!(
-        ai_provider(dir.path(), &one.id).unwrap().model.as_deref(),
-        Some("opus")
-    );
-
-    ai_choose(dir.path(), Some(&two.id), Some("  ")).unwrap();
-    assert_eq!(
-        ai_active_provider(dir.path()).unwrap(),
-        Some(two.id.clone())
-    );
-    assert_eq!(ai_provider(dir.path(), &two.id).unwrap().model, None);
-
-    ai_choose(dir.path(), None, None).unwrap();
-    assert_eq!(ai_active_provider(dir.path()).unwrap(), None);
-}
-
-#[test]
-fn choosing_or_editing_an_unknown_provider_is_an_invalid_request() {
+fn editing_an_unknown_provider_is_an_invalid_request() {
     let dir = data();
 
-    let chosen = ai_choose(dir.path(), Some("nope"), None).unwrap_err();
     let edited = ai_provider_edit(dir.path(), "nope", AuthMode::ApiKey, "x", None).unwrap_err();
     let flagged = ai_provider_key_flag(dir.path(), "nope", true).unwrap_err();
 
-    for error in [chosen, edited, flagged] {
+    for error in [edited, flagged] {
         assert_eq!(error.kind(), ErrorKind::InvalidRequest);
     }
-    assert_eq!(ai_active_provider(dir.path()).unwrap(), None);
 }
 
 #[test]
-fn deleting_the_active_provider_clears_the_choice_and_other_providers_stay() {
+fn deleting_a_provider_keeps_the_others() {
     let dir = data();
-    let one = ai_provider_add(
-        dir.path(),
-        ProviderKind::Claude,
-        AuthMode::Subscription,
-        "Claude",
-        None,
-    )
-    .unwrap();
-    let two = ai_provider_add(
-        dir.path(),
-        ProviderKind::Chatgpt,
-        AuthMode::Subscription,
-        "ChatGPT",
-        None,
-    )
-    .unwrap();
-    ai_choose(dir.path(), Some(&one.id), None).unwrap();
+    let one = provider(dir.path(), "One");
+    let two = provider(dir.path(), "Two");
 
-    ai_provider_delete(dir.path(), &two.id).unwrap();
-    assert_eq!(
-        ai_active_provider(dir.path()).unwrap(),
-        Some(one.id.clone())
-    );
-    ai_provider_delete(dir.path(), &one.id).unwrap();
+    ai_provider_delete(dir.path(), &two).unwrap();
 
-    assert_eq!(ai_active_provider(dir.path()).unwrap(), None);
-    assert!(ai_providers(dir.path()).unwrap().is_empty());
+    let left: Vec<_> = ai_providers(dir.path())
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(left, [one]);
     assert_eq!(
-        ai_provider_delete(dir.path(), &one.id).unwrap_err().kind(),
+        ai_provider_delete(dir.path(), &two).unwrap_err().kind(),
         ErrorKind::InvalidRequest
     );
 }
@@ -197,7 +135,6 @@ fn the_database_holds_no_column_that_could_carry_a_key() {
             "auth_mode",
             "name",
             "base_url",
-            "model",
             "has_api_key",
             "created_at"
         ]
@@ -276,13 +213,13 @@ fn feature_configs_are_stored_per_feature_and_replaced_on_set() {
 
     assert_eq!(
         ai_feature_config(dir.path(), AiFeature::Recompose).unwrap(),
-        Some(feature(AiFeature::Recompose, &two, "m3"))
+        Some((feature(AiFeature::Recompose, &two, "m3"), true))
     );
     assert_eq!(
         ai_feature_configs(dir.path()).unwrap(),
         [
-            feature(AiFeature::Recompose, &two, "m3"),
-            feature(AiFeature::GenerateCommit, &two, "m2")
+            (feature(AiFeature::Recompose, &two, "m3"), true),
+            (feature(AiFeature::GenerateCommit, &two, "m2"), true)
         ]
     );
 }
@@ -299,7 +236,35 @@ fn resetting_a_feature_removes_only_its_config() {
 
     assert_eq!(
         ai_feature_configs(dir.path()).unwrap(),
-        [feature(AiFeature::ConflictFix, &id, "m")]
+        [(feature(AiFeature::ConflictFix, &id, "m"), true)]
+    );
+}
+
+#[test]
+fn a_first_save_switches_a_feature_on_and_a_later_save_keeps_its_switch() {
+    let dir = data();
+    let id = provider(dir.path(), "One");
+    let unset = ai_feature_config_enable(dir.path(), AiFeature::Recompose, true).unwrap_err();
+    assert_eq!(unset.kind(), ErrorKind::InvalidRequest);
+
+    ai_feature_config_set(dir.path(), &feature(AiFeature::Recompose, &id, "m1")).unwrap();
+    let first = ai_feature_config(dir.path(), AiFeature::Recompose).unwrap();
+    ai_feature_config_enable(dir.path(), AiFeature::Recompose, false).unwrap();
+    ai_feature_config_set(dir.path(), &feature(AiFeature::Recompose, &id, "m2")).unwrap();
+    let resaved = ai_feature_config(dir.path(), AiFeature::Recompose).unwrap();
+    ai_feature_config_enable(dir.path(), AiFeature::Recompose, true).unwrap();
+
+    assert_eq!(
+        first,
+        Some((feature(AiFeature::Recompose, &id, "m1"), true))
+    );
+    assert_eq!(
+        resaved,
+        Some((feature(AiFeature::Recompose, &id, "m2"), false))
+    );
+    assert_eq!(
+        ai_feature_config(dir.path(), AiFeature::Recompose).unwrap(),
+        Some((feature(AiFeature::Recompose, &id, "m2"), true))
     );
 }
 
@@ -318,12 +283,12 @@ fn a_feature_config_needs_an_existing_provider_and_dies_with_it() {
 
     assert_eq!(
         ai_feature_configs(dir.path()).unwrap(),
-        [feature(AiFeature::ConflictFix, &other, "m")]
+        [(feature(AiFeature::ConflictFix, &other, "m"), true)]
     );
 }
 
 #[test]
-fn migration_six_converts_existing_providers_and_keeps_their_choices() {
+fn migration_six_converts_existing_providers() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("yforge.db");
     let old = Connection::open(&path).unwrap();
@@ -352,15 +317,7 @@ fn migration_six_converts_existing_providers_and_keeps_their_choices() {
     let listed = ai_providers(dir.path()).unwrap();
     let summary: Vec<_> = listed
         .iter()
-        .map(|p| {
-            (
-                p.id.as_str(),
-                p.kind,
-                p.auth_mode,
-                p.model.as_deref(),
-                p.has_api_key,
-            )
-        })
+        .map(|p| (p.id.as_str(), p.kind, p.auth_mode, p.has_api_key))
         .collect();
     assert_eq!(
         summary,
@@ -369,25 +326,79 @@ fn migration_six_converts_existing_providers_and_keeps_their_choices() {
                 "claude_code-1",
                 ProviderKind::Claude,
                 AuthMode::Subscription,
-                Some("opus"),
                 false
             ),
             (
                 "chatgpt-1",
                 ProviderKind::Chatgpt,
                 AuthMode::Subscription,
-                None,
                 false
             ),
             (
                 "openrouter-1",
                 ProviderKind::Openrouter,
                 AuthMode::ApiKey,
-                Some("m/x"),
                 true
             ),
         ]
     );
     let added = provider(dir.path(), "Later");
     assert!(ai_providers(dir.path()).unwrap().len() == 4 && !added.is_empty());
+}
+
+#[test]
+fn migration_seven_drops_the_provider_model_and_active_choice_and_keeps_features_on() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("yforge.db");
+    let old = Connection::open(&path).unwrap();
+    for script in [
+        include_str!("../src/store/schema.sql"),
+        include_str!("../src/store/switch_stashes.sql"),
+        include_str!("../src/store/ai_providers.sql"),
+        include_str!("../src/store/repo_ui_prefs.sql"),
+        include_str!("../src/store/platform_connections.sql"),
+        include_str!("../src/store/ai_v2.sql"),
+    ] {
+        old.execute_batch(script).unwrap();
+    }
+    old.pragma_update(None, "user_version", 6).unwrap();
+    old.execute_batch(
+        "INSERT INTO ai_providers (id, kind, auth_mode, name, base_url, model, has_api_key, created_at) VALUES
+         ('openrouter-1', 'openrouter', 'api_key', 'OR', NULL, 'm/x', 1, 30);
+         INSERT INTO settings (key, value) VALUES ('ai.active_provider', '\"openrouter-1\"');
+         INSERT INTO ai_feature_config (feature, provider_id, model_id, prompt_template) VALUES
+         ('recompose', 'openrouter-1', 'm/y', 'Do {context}');",
+    )
+    .unwrap();
+    drop(old);
+
+    start_storage(dir.path()).unwrap();
+
+    let ids: Vec<_> = ai_providers(dir.path())
+        .unwrap()
+        .into_iter()
+        .map(|p| p.id)
+        .collect();
+    assert_eq!(ids, ["openrouter-1"]);
+    assert_eq!(
+        ai_feature_configs(dir.path()).unwrap(),
+        [(
+            AiFeatureConfig {
+                feature: AiFeature::Recompose,
+                provider_id: "openrouter-1".to_owned(),
+                model_id: "m/y".to_owned(),
+                prompt_template: "Do {context}".to_owned(),
+            },
+            true
+        )]
+    );
+    let conn = Connection::open(&path).unwrap();
+    let active: i64 = conn
+        .query_row(
+            "SELECT count(*) FROM settings WHERE key = 'ai.active_provider'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(active, 0);
 }

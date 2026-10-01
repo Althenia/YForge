@@ -1,0 +1,85 @@
+<div class="screen" data-screen="tab-menu" hidden>
+  <header class="screen-head"><h2>Tab context menu</h2><p class="muted">S42 with S37 · Right-click or ⇧F10 on a tab. Items that cannot act stay visible and say why.</p></header>
+  <section data-state="empty" hidden aria-label="Empty">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tab active"><span class="mark">Y</span>YForge<svg class="glyph"><use href="#i-close"/></svg></span>
+        <button type="button" class="icon-btn boxed" aria-label="New tab" title="New tab ⌘T"><svg class="glyph"><use href="#i-plus"/></svg></button>
+      </div>
+      <div class="row wrap" style="padding:16px;align-items:flex-start;gap:24px">
+        <div class="menu" role="menu" aria-label="YForge tab">
+          <span class="item focus" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Close tab<span class="kbd">⌘W</span></span>
+          <span class="item" role="menuitem" aria-disabled="true" title="No other tabs"><svg class="glyph"><use href="#i-close"/></svg>Close other tabs</span>
+          <span class="item" role="menuitem" aria-disabled="true" title="No tabs to the right"><svg class="glyph"><use href="#i-close"/></svg>Close tabs to the right</span>
+          <hr>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-plus"/></svg>Add to new group…</span>
+          <hr>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-edit"/></svg>Alias repository…</span>
+          <hr>
+          <span class="item" role="menuitem" aria-disabled="true" title="No closed tabs"><svg class="glyph"><use href="#i-sync"/></svg>Reopen closed tab<span class="kbd">⇧⌘T</span></span>
+        </div>
+        <p class="sub" style="max-width:26rem">With one tab open, the close-others items are disabled with their reason as the tooltip ("No other tabs", "No tabs to the right"), and Reopen closed tab says "No closed tabs" until you close one in this session.</p>
+      </div>
+    </div>
+  </section>
+  <section data-state="loading" hidden aria-label="Loading">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tab active"><span class="mark">Y</span>api<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab"><span class="mark">Y</span>handbook<svg class="glyph"><use href="#i-close"/></svg></span>
+      </div>
+      <div style="padding:16px">
+        <div class="pop" role="dialog" aria-label="Alias api">
+          <strong>Alias repository</strong>
+          <label class="field"><span>Name shown for <span class="mono">~/Workspace/corp-a/api</span></span><span class="input focus"><span class="grow">Corp A · API</span></span></label>
+          <span class="sub">1 to 40 characters. Shown on the tab, in Recent, and in the palette; the folder name stays in the tooltip.</span>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn primary">Save alias</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+  <section data-state="success" hidden aria-label="Success">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tgroup" role="group" aria-label="Corp A tab group"><button type="button" class="gchip lane-1" aria-expanded="true">Corp A</button>
+          <span class="tab active" title="~/Workspace/corp-a/api"><span class="mark">Y</span>Corp A · API<svg class="glyph"><use href="#i-close"/></svg></span>
+          <span class="tab"><span class="mark">Y</span>handbook<svg class="glyph"><use href="#i-close"/></svg></span></span>
+        <span class="tab"><span class="mark">Y</span>ycoding<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab"><span class="mark">Y</span>sisyphus<svg class="glyph"><use href="#i-close"/></svg></span>
+      </div>
+      <div class="row wrap" style="padding:16px;align-items:flex-start;gap:24px">
+        <div class="menu" role="menu" aria-label="Corp A · API tab">
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Close tab<span class="kbd">⌘W</span></span>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Close other tabs</span>
+          <span class="item focus" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Close tabs to the right</span>
+          <hr>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-plus"/></svg>Add to new group…</span>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-launchpad"/></svg>Add to group<span class="kbd">Personal</span></span>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-close"/></svg>Remove from group</span>
+          <hr>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-edit"/></svg>Alias repository…</span>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-undo"/></svg>Remove alias</span>
+          <hr>
+          <span class="item" role="menuitem"><svg class="glyph"><use href="#i-sync"/></svg>Reopen closed tab<span class="kbd">⇧⌘T</span></span>
+        </div>
+        <p class="sub" style="max-width:26rem">The aliased tab reads "Corp A · API"; hovering it shows <span class="mono">~/Workspace/corp-a/api</span>. Reopen closed tab brings back the last of up to 20 tabs closed in this session, into its old group when that group still exists.</p>
+      </div>
+    </div>
+  </section>
+  <section data-state="error" hidden aria-label="Error">
+    <div class="app">
+      <div class="tabbar" role="tablist" aria-label="Repositories">
+        <span class="tab active"><span class="mark">Y</span>ledger<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab"><span class="mark">Y</span>gateway<svg class="glyph"><use href="#i-close"/></svg></span>
+        <span class="tab"><span class="mark">Y</span>ops-ci<svg class="glyph"><use href="#i-close"/></svg></span>
+      </div>
+      <div style="padding:16px">
+        <div class="dialog" role="alertdialog" aria-label="Close 2 tabs?">
+          <h3>Close 2 tabs?</h3>
+          <p class="muted"><span class="mono">gateway</span> is in the middle of a rebase. Closing its tab does not stop or undo the rebase; it stays in the repository until you continue or abort it there.</p>
+          <div class="foot"><button type="button" class="btn">Cancel</button><button type="button" class="btn text-danger">Close 2 tabs</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>

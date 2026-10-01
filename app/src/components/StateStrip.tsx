@@ -4,6 +4,7 @@ import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { useNow } from "../state/clock";
 import { conflictLabel, firstConflict, operationButtons, operationSummary, operationTitle, stepLabel } from "../state/operationModel";
 import { repoKeys } from "../state/queryKeys";
 import type { Anchor, RepoActions } from "../state/repoActions";
@@ -142,7 +143,9 @@ function ChangesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
 }
 
 function FreshnessChip(props: { snapshot: RepoSnapshot; actions: RepoActions; online: boolean }) {
-  const state = () => freshness(props.snapshot.last_fetch, Math.floor(Date.now() / 1000), props.snapshot.remotes.length > 0);
+  const now = useNow();
+  const state = () => freshness(props.snapshot.last_fetch, now(), props.snapshot.remotes.length > 0);
+  const paused = () => (props.online ? props.actions.autoFetchPause() : undefined);
   const reason = () => {
     if (!props.online) return OFFLINE_REASON;
     if (props.actions.sync().kind === "running") return "A sync is running";
@@ -150,20 +153,27 @@ function FreshnessChip(props: { snapshot: RepoSnapshot; actions: RepoActions; on
   };
   return (
     <Show when={state()}>
-      {(value) => (
-        <button
-          type="button"
-          class="chip"
-          classList={{ "chip-success": value().tone === "fresh", "chip-attention": value().tone !== "fresh" }}
-          aria-label={`${value().text}. Fetch now`}
-          title={reason() ?? `${value().text}. Fetch now`}
-          disabled={reason() !== undefined}
-          onClick={() => void props.actions.fetchAll()}
-        >
-          <Icon name={value().tone === "fresh" ? "check" : "warning"} />
-          <span class="chip-text">{value().text}</span>
-        </button>
-      )}
+      {(value) => {
+        const text = () => {
+          const reasonPaused = paused();
+          return reasonPaused === undefined ? value().text : `Auto-fetch paused: ${reasonPaused}`;
+        };
+        const fresh = () => paused() === undefined && value().tone === "fresh";
+        return (
+          <button
+            type="button"
+            class="chip"
+            classList={{ "chip-success": fresh(), "chip-attention": !fresh() }}
+            aria-label={`${text()}. Fetch now`}
+            title={reason() ?? `${text()}. Fetch now`}
+            disabled={reason() !== undefined}
+            onClick={() => void props.actions.fetchAll()}
+          >
+            <Icon name={fresh() ? "check" : "warning"} />
+            <span class="chip-text">{text()}</span>
+          </button>
+        );
+      }}
     </Show>
   );
 }

@@ -18,6 +18,7 @@ import {
 import { commitMenu, dropPlan, localTarget, refMenu, remoteTarget, resetModeMenu, stashMenu, tagTarget, type MenuEntry, type RefTarget } from "./refMenu";
 import type { RepoActions } from "./repoActions";
 import type { PlatformActions } from "./platformActions";
+import { SHORTCUTS } from "./shortcuts";
 import { syncMenu } from "./syncModel";
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
@@ -48,6 +49,7 @@ const app = (): PaletteApp => ({
   openCreate: vi.fn(),
   closeTab: vi.fn(),
   openSettings: vi.fn(),
+  openLaunchpad: vi.fn(),
   addPlatformConnection: vi.fn(),
   toggleDrawer: vi.fn(),
   openSearch: vi.fn(),
@@ -55,6 +57,12 @@ const app = (): PaletteApp => ({
   setTheme: vi.fn(),
   openRepository: vi.fn(),
   repositories: () => ["/r", "/other"],
+  aliasOf: () => undefined,
+  canReopenClosedTab: () => false,
+  reopenClosedTab: vi.fn(),
+  nextTab: vi.fn(),
+  previousTab: vi.fn(),
+  checkForUpdate: vi.fn(),
 });
 
 const fakeActions = () => {
@@ -497,9 +505,86 @@ describe("platform commands", () => {
     expect(ctx.app.addPlatformConnection).toHaveBeenCalledTimes(1);
   });
 
+  it("opens the Launchpad with the launchpad glyph and lists Jira among the settings sections", () => {
+    const ctx = context();
+    const commands = buildCommands(ctx);
+
+    find(commands, "launchpad.open").run([]);
+
+    expect(ctx.app.openLaunchpad).toHaveBeenCalledTimes(1);
+    expect(find(commands, "launchpad.open").title).toBe("Open Launchpad");
+    expect(commandIcon("launchpad.open")).toBe("launchpad");
+    expect(navigationTargets(context()).some((target) => target.title === "Settings: Jira")).toBe(true);
+    expect(commandIcon("go.settings.jira")).toBe("issue");
+  });
+
+  it("lists Git hosts among the settings sections with the identity glyph", () => {
+    expect(navigationTargets(context()).some((target) => target.id === "go.settings.git-hosts" && target.title === "Settings: Git hosts")).toBe(true);
+    expect(commandIcon("go.settings.git-hosts")).toBe("identity");
+  });
+
   it("lists Platforms among the settings sections a user can jump to", () => {
     expect(navigationTargets(context()).some((target) => target.id === "go.settings.platforms" && target.title === "Settings: Platforms")).toBe(true);
     expect(commandIcon("pulls.create")).toBe("pullrequest");
     expect(commandIcon("go.settings.platforms")).toBe("plug");
   });
 });
+
+describe("tab and menu-bar commands", () => {
+  it("reopens the last closed tab with ⌘⇧T, and says why it cannot while none was closed", () => {
+    expect(find(buildCommands(context()), "tab.reopen")).toMatchObject({ title: "Reopen closed tab", shortcut: SHORTCUTS.reopenClosedTab, disabledReason: "No closed tabs" });
+    const reopen = vi.fn();
+
+    const command = find(buildCommands(context({ app: { ...app(), canReopenClosedTab: () => true, reopenClosedTab: reopen } })), "tab.reopen");
+    command.run([]);
+
+    expect(command.disabledReason).toBeUndefined();
+    expect(reopen).toHaveBeenCalledOnce();
+  });
+
+  it("shows the next and previous tab with ⌃⇥ and ⌃⇧⇥", () => {
+    const next = vi.fn();
+    const previous = vi.fn();
+    const commands = buildCommands(context({ app: { ...app(), nextTab: next, previousTab: previous } }));
+
+    find(commands, "tab.next").run([]);
+    find(commands, "tab.previous").run([]);
+
+    expect([find(commands, "tab.next").shortcut, find(commands, "tab.previous").shortcut]).toEqual([SHORTCUTS.nextTab, SHORTCUTS.previousTab]);
+    expect([next, previous].map((spy) => spy.mock.calls.length)).toEqual([1, 1]);
+  });
+
+  it("checks for an update", () => {
+    const check = vi.fn();
+
+    find(buildCommands(context({ app: { ...app(), checkForUpdate: check } })), "update.check").run([]);
+
+    expect(check).toHaveBeenCalledOnce();
+    expect(find(buildCommands(context()), "update.check").title).toBe("Check for update…");
+  });
+
+  it("lists a repository by its alias with the folder path as the note, and by its path otherwise", () => {
+    const targets = navigationTargets(context({ app: { ...app(), aliasOf: (path) => (path === "/r" ? "Corp A · API" : undefined) } }));
+
+    const repositories = targets.filter((target) => target.mode === "/").map((target) => [target.title, target.note]);
+
+    expect(repositories).toEqual([
+      ["Corp A · API", "/r"],
+      ["/other", undefined],
+    ]);
+  });
+
+  it("takes every command shortcut from the shortcut registry and gives no two commands the same one", () => {
+    const shortcuts = buildCommands(context()).flatMap((command) => command.shortcut ?? []);
+
+    expect(shortcuts.filter((shortcut) => !Object.values(SHORTCUTS).includes(shortcut as never))).toEqual([]);
+    expect(new Set(shortcuts).size).toBe(shortcuts.length);
+  });
+
+  it("turns a control or tab shortcut into a hotkey", () => {
+    expect(hotkeyOf("⌃⇥")).toBe("Control+Tab");
+    expect(hotkeyOf("⌃⇧⇥")).toBe("Control+Shift+Tab");
+    expect(hotkeyOf("⌘⇧T")).toBe("Mod+Shift+T");
+  });
+});
+

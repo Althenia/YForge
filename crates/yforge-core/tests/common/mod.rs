@@ -5,7 +5,36 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use tempfile::TempDir;
+use yforge_core::{CoreError, PassphraseStore};
+
+#[derive(Default)]
+pub struct Vault {
+    pub saved: Mutex<HashMap<String, String>>,
+    pub refuse: bool,
+}
+
+impl PassphraseStore for Vault {
+    fn get(&self, key_path: &str) -> Result<Option<String>, CoreError> {
+        Ok(self.saved.lock().unwrap().get(key_path).cloned())
+    }
+
+    fn set(&self, key_path: &str, passphrase: &str) -> Result<(), CoreError> {
+        if self.refuse {
+            return Err(CoreError::InvalidRequest {
+                detail: "the Keychain is locked".to_owned(),
+            });
+        }
+        self.saved
+            .lock()
+            .unwrap()
+            .insert(key_path.to_owned(), passphrase.to_owned());
+        Ok(())
+    }
+}
 
 pub struct Fixture {
     _dir: TempDir,

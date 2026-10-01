@@ -2,11 +2,9 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{chat_reply, closed_port_url, http_input, Harness, HttpFake, Reply};
+use common::{chat_reply, closed_port_url, configure, http_input, Harness, HttpFake, Reply};
 use yforge_ai::{Ai, AiError, Endpoints, Limits, Selection};
-use yforge_core::{
-    ai_choose, AiFeature, CancelToken, CommitContext, CoreError, ErrorKind, ProviderKind,
-};
+use yforge_core::{AiFeature, CancelToken, CommitContext, CoreError, ErrorKind, ProviderKind};
 
 fn context() -> CommitContext {
     CommitContext {
@@ -22,7 +20,7 @@ async fn select(h: &Harness, ai: &Ai, url: &str, key: Option<&str>) -> Selection
         .add(h.dir(), http_input("Endpoint", url, key))
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&added.config.id), Some("model-x")).unwrap();
+    configure(h, ai, &added.config.id, "model-x").await;
     ai.resolve(h.dir(), AiFeature::GenerateCommit)
         .await
         .unwrap()
@@ -83,7 +81,7 @@ async fn openrouter_uses_its_own_endpoint_and_the_stored_key() {
         )
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&added.config.id), Some("vendor/model")).unwrap();
+    configure(&h, &ai, &added.config.id, "vendor/model").await;
     let selection = ai
         .resolve(h.dir(), AiFeature::GenerateCommit)
         .await

@@ -1,19 +1,27 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { NOTHING_TO_UNDO } from "../state/activityModel";
 import type { PaletteApp, PaletteContext } from "../state/palette";
 import type { RepoActions } from "../state/repoActions";
 import { CommandPalette } from "./CommandPalette";
 import { flush, mountWithApp, type } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
 
 Element.prototype.scrollIntoView = () => undefined;
 
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubScrollLayout({ viewport: 400, row: 32, total: 20_000 });
+});
+
 afterEach(() => {
   dispose?.();
   dispose = undefined;
+  restoreLayout?.();
   document.body.innerHTML = "";
   clearMocks();
 });
@@ -38,7 +46,7 @@ function mount(overrides: Partial<PaletteContext> = {}) {
   const startRebase = vi.fn();
   const openCreateBranchAt = vi.fn();
   const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt } as unknown as RepoActions;
-  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"] } as PaletteApp;
+  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), checkForUpdate: vi.fn() } as PaletteApp;
   const closed = vi.fn();
   const context: PaletteContext = {
     snapshot,
@@ -225,5 +233,59 @@ describe("command palette", () => {
 
     expect(closed).toHaveBeenCalled();
     expect(app.openClone).toHaveBeenCalled();
+  });
+});
+
+describe("command palette with thousands of branches", () => {
+  const TOTAL = 5000;
+  const branches = Array.from({ length: TOTAL }, (_, index) => `topic/branch-${index}`);
+  const many = { ...snapshot, branches, remote_branches: [] } as unknown as RepoSnapshot;
+  const optionIds = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>('[role="option"]')];
+
+  it("renders only the rows in view for @ mode and says which row is active", async () => {
+    const { input, host, labels } = mount({ snapshot: many });
+    await flush();
+
+    type(input(), "@");
+    await flush(60);
+
+    expect(optionIds(host).length).toBeGreaterThan(0);
+    expect(optionIds(host).length).toBeLessThan(60);
+    expect(labels()[0]).toBe("Go to topic/branch-0");
+    expect(input()?.getAttribute("aria-activedescendant")).toBe(optionIds(host)[0]?.id);
+  });
+
+  it("reaches the last branch with ↑, keeps the active descendant mounted, and runs it with Enter", async () => {
+    const { input, host, key, context } = mount({ snapshot: many });
+    await flush();
+    type(input(), "@");
+    await flush(60);
+
+    key("ArrowUp");
+    await flush(60);
+
+    const active = host.querySelector<HTMLElement>(`#${CSS.escape(input()?.getAttribute("aria-activedescendant") ?? "none")}`);
+    expect(active?.textContent).toContain(`Go to topic/branch-${TOTAL - 1}`);
+    expect(active?.getAttribute("aria-selected")).toBe("true");
+    expect(optionIds(host).length).toBeLessThan(60);
+    key("Enter");
+    await flush();
+    expect(context.revealRef).toHaveBeenCalledWith(`topic/branch-${TOTAL - 1}`);
+  });
+
+  it("walks down past the first window with ↓ keeping the active row in the list", async () => {
+    const { input, host, key } = mount({ snapshot: many });
+    await flush();
+    type(input(), "@");
+    await flush(60);
+
+    for (let step = 0; step < 100; step += 1) {
+      key("ArrowDown");
+      await flush(0);
+    }
+    await flush(60);
+
+    const active = host.querySelector<HTMLElement>(`#${CSS.escape(input()?.getAttribute("aria-activedescendant") ?? "none")}`);
+    expect(active?.textContent).toContain("Go to topic/branch-100");
   });
 });

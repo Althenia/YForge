@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use crate::activity;
 use crate::askpass::{self, Askpass, AuthHandler};
 use crate::error::CoreError;
+use crate::git_hosts::SshPlan;
+use crate::passphrase::PassphraseStore;
 
 const REQUIRED_MAJOR: u32 = 2;
 const REQUIRED_MINOR: u32 = 39;
@@ -188,6 +190,8 @@ pub(crate) fn run_with_input(dir: &Path, args: &[&str], input: &str) -> Result<S
 pub struct CancelToken {
     flag: Arc<AtomicBool>,
     auth: Option<AuthHandler>,
+    plan: SshPlan,
+    passphrases: Option<Arc<dyn PassphraseStore>>,
     ssh_key: Option<PathBuf>,
 }
 
@@ -209,13 +213,27 @@ impl CancelToken {
         Self {
             flag: Arc::default(),
             auth: Some(auth),
+            plan: SshPlan::default(),
+            passphrases: None,
             ssh_key: None,
         }
     }
 
-    pub fn with_ssh_key(mut self, key: Option<PathBuf>) -> Self {
-        self.ssh_key = key;
+    pub fn with_ssh_plan(mut self, plan: SshPlan) -> Self {
+        self.plan = plan;
         self
+    }
+
+    pub fn with_passphrases(mut self, passphrases: Arc<dyn PassphraseStore>) -> Self {
+        self.passphrases = Some(passphrases);
+        self
+    }
+
+    pub(crate) fn toward(&self, url: Option<&str>) -> Self {
+        Self {
+            ssh_key: self.plan.resolve(url).key,
+            ..self.clone()
+        }
     }
 
     pub fn cancel(&self) {
@@ -307,7 +325,11 @@ pub(crate) fn run_streaming_until(
     let description = describe(args);
     let started = Instant::now();
     let mut command = in_directory(dir, args);
-    let askpass = cancel.auth.clone().map(Askpass::start).transpose()?;
+    let askpass = cancel
+        .auth
+        .clone()
+        .map(|auth| Askpass::start(auth, cancel.plan.clone(), cancel.passphrases.clone()))
+        .transpose()?;
     if let Some(askpass) = &askpass {
         askpass.apply(&mut command);
     }

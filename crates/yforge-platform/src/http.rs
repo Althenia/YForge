@@ -15,6 +15,7 @@ pub(crate) struct Http {
     base: String,
     host: String,
     token: String,
+    basic_user: Option<String>,
     accept: &'static str,
 }
 
@@ -49,19 +50,58 @@ impl Http {
         base: String,
         accept: &'static str,
     ) -> Result<Self> {
+        Self::build(
+            &connection.host,
+            connection.insecure_tls,
+            token,
+            None,
+            base,
+            accept,
+        )
+    }
+
+    /// A client that signs in with `user` and `token` as HTTP Basic credentials.
+    pub(crate) fn basic(
+        host: &str,
+        user: &str,
+        token: &str,
+        base: String,
+        accept: &'static str,
+    ) -> Result<Self> {
+        Self::build(host, false, token, Some(user.to_owned()), base, accept)
+    }
+
+    pub(crate) fn bearer(
+        host: &str,
+        token: &str,
+        base: String,
+        accept: &'static str,
+    ) -> Result<Self> {
+        Self::build(host, false, token, None, base, accept)
+    }
+
+    fn build(
+        host: &str,
+        insecure_tls: bool,
+        token: &str,
+        basic_user: Option<String>,
+        base: String,
+        accept: &'static str,
+    ) -> Result<Self> {
         let client = Client::builder()
             .timeout(REQUEST_TIMEOUT)
-            .danger_accept_invalid_certs(connection.insecure_tls)
+            .danger_accept_invalid_certs(insecure_tls)
             .build()
             .map_err(|error| PlatformError::Network {
-                host: connection.host.clone(),
+                host: host.to_owned(),
                 detail: error.to_string(),
             })?;
         Ok(Self {
             client,
             base,
-            host: connection.host.clone(),
+            host: host.to_owned(),
             token: token.to_owned(),
+            basic_user,
             accept,
         })
     }
@@ -92,6 +132,7 @@ impl Http {
                 value.get("error"),
                 value.pointer("/error/message"),
                 value.pointer("/errors/0/message"),
+                value.pointer("/errorMessages/0"),
             ]
             .into_iter()
             .flatten()
@@ -114,7 +155,7 @@ impl Http {
         body: Option<Value>,
         missing: &str,
     ) -> Result<Value> {
-        Ok(self.exchange(method, path, body, missing, None).await?.0)
+        Ok(self.exchange(method, path, body, missing, &[]).await?.0)
     }
 
     pub(crate) async fn call_with_header(
@@ -123,8 +164,22 @@ impl Http {
         missing: &str,
         header: &str,
     ) -> Result<(Value, Option<String>)> {
-        self.exchange(Method::GET, path, None, missing, Some(header))
+        let (value, mut headers) = self.call_with_headers(path, missing, &[header]).await?;
+        Ok((value, headers.remove(0)))
+    }
+
+    pub(crate) async fn call_with_headers(
+        &self,
+        path: &str,
+        missing: &str,
+        headers: &[&str],
+    ) -> Result<(Value, Vec<Option<String>>)> {
+        self.exchange(Method::GET, path, None, missing, headers)
             .await
+    }
+
+    pub(crate) fn relative(&self, url: &str) -> Option<String> {
+        url.strip_prefix(&self.base).map(str::to_owned)
     }
 
     async fn exchange(
@@ -133,13 +188,14 @@ impl Http {
         path: &str,
         body: Option<Value>,
         missing: &str,
-        header: Option<&str>,
-    ) -> Result<(Value, Option<String>)> {
-        let mut request = self
-            .client
-            .request(method, format!("{}{path}", self.base))
-            .bearer_auth(&self.token)
-            .header("Accept", self.accept);
+        headers: &[&str],
+    ) -> Result<(Value, Vec<Option<String>>)> {
+        let request = self.client.request(method, format!("{}{path}", self.base));
+        let mut request = match &self.basic_user {
+            Some(user) => request.basic_auth(user, Some(&self.token)),
+            None => request.bearer_auth(&self.token),
+        }
+        .header("Accept", self.accept);
         if let Some(body) = body {
             request = request
                 .header("Content-Type", "application/json")
@@ -150,10 +206,16 @@ impl Http {
             .await
             .map_err(|error| self.transport(&error))?;
         let status = response.status();
-        let header = header
-            .and_then(|name| response.headers().get(name))
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned);
+        let header: Vec<Option<String>> = headers
+            .iter()
+            .map(|name| {
+                response
+                    .headers()
+                    .get(*name)
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned)
+            })
+            .collect();
         let text = response
             .text()
             .await

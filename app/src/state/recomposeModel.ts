@@ -3,10 +3,11 @@ import type { FileStatus } from "../ipc/bindings/FileStatus";
 import type { RecomposeChange } from "../ipc/bindings/RecomposeChange";
 import type { RecomposeGroup } from "../ipc/bindings/RecomposeGroup";
 import type { RecomposePreview } from "../ipc/bindings/RecomposePreview";
+import { fileList } from "./fileList";
 
 export type HunkUnit = { id: string; hunk: DiffHunk; changed: number[]; added: number; removed: number };
 
-export type FileUnit = { path: string; status: FileStatus; binary: boolean; whole: boolean; hunks: HunkUnit[] };
+export type FileUnit = { path: string; status: FileStatus; binary: boolean; whole: boolean; omitted: string | null; hunks: HunkUnit[] };
 
 export type Catalog = FileUnit[];
 
@@ -20,6 +21,7 @@ export function catalogOf(preview: RecomposePreview): Catalog {
     status: file.status,
     binary: file.binary,
     whole: file.whole_file_only || file.hunks.length === 0,
+    omitted: file.hunks_omitted,
     hunks: file.hunks.map(({ id, hunk }) => {
       const changed = hunk.lines.flatMap((line, index) => (line.kind === "context" ? [] : [index]));
       const added = changed.filter((index) => hunk.lines[index]?.kind === "added").length;
@@ -121,7 +123,7 @@ export function problemsOf(draft: Draft, catalog: Catalog): Problems {
   const general: string[] = [];
   const groups: Record<number, string> = {};
   const unassigned = catalog.filter((file) => slotsOfFile(file).some((slot) => draft.slots[slot] === undefined)).map((file) => file.path);
-  if (unassigned.length > 0) general.push(`Changes not assigned to any commit: ${unassigned.join(", ")}`);
+  if (unassigned.length > 0) general.push(`Changes not assigned to any commit: ${fileList(unassigned)}`);
   if (draft.groups.length === 0) general.push("Add at least one commit");
   for (const group of draft.groups) {
     if (group.message.trim() === "") groups[group.id] = "Enter a message";

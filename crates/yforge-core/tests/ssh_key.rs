@@ -6,7 +6,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use common::Fixture;
-use yforge_core::{fetch, AuthHandler, AuthReply, CancelToken};
+use yforge_core::{fetch, AuthHandler, AuthReply, CancelToken, SshPlan};
 
 fn install_fake_ssh(bin: &Path, log: &Path) {
     fs::create_dir_all(bin).unwrap();
@@ -20,6 +20,13 @@ fn install_fake_ssh(bin: &Path, log: &Path) {
     )
     .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+fn app_key_plan(key: &Path) -> SshPlan {
+    SshPlan {
+        app_key: Some(key.to_path_buf()),
+        ..SshPlan::default()
+    }
 }
 
 fn ssh_arguments(repo: &Fixture, log: &Path, cancel: &CancelToken) -> Vec<String> {
@@ -61,7 +68,7 @@ fn network_commands_pass_the_chosen_key_to_ssh_and_keep_the_agent_when_none_is_s
     let chosen = ssh_arguments(
         &repo,
         &log,
-        &CancelToken::new().with_ssh_key(Some(key.clone())),
+        &CancelToken::new().with_ssh_plan(app_key_plan(&key)),
     );
     let position = chosen.iter().position(|argument| argument == "-i").unwrap();
     assert_eq!(chosen[position + 1], key.display().to_string());
@@ -82,7 +89,7 @@ fn network_commands_pass_the_chosen_key_to_ssh_and_keep_the_agent_when_none_is_s
     let interactive = ssh_arguments(
         &repo,
         &log,
-        &CancelToken::with_auth(handler).with_ssh_key(Some(key.clone())),
+        &CancelToken::with_auth(handler).with_ssh_plan(app_key_plan(&key)),
     );
     assert!(interactive.contains(&"-i".to_owned()), "{interactive:?}");
     assert!(

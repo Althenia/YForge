@@ -2,4 +2,4 @@
 import type { AheadBehind } from "./AheadBehind";
 import type { ChangeCounts } from "./ChangeCounts";
 
-export type RecentStatus = { path: string, exists: boolean, branch: string | null, unborn: boolean, ahead_behind: AheadBehind | null, counts: ChangeCounts | null, worktrees: number, };
+export type RecentStatus = { path: string, exists: boolean, branch: string | null, unborn: boolean, ahead_behind: AheadBehind | null, counts: ChangeCounts | null, worktrees: number, unreadable: string | null, };

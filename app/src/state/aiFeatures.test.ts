@@ -1,27 +1,26 @@
 import { describe, expect, it } from "vitest";
 import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
-import { CONTEXT_TOKEN, FEATURE_ORDER, FEATURE_TITLES, featureDraft, featureFailure, featureProblems, featureSource } from "./aiFeatures";
+import { CONTEXT_TOKEN, FEATURE_ORDER, FEATURE_TITLES, featureAvailable, featureDraft, featureFailure, featureProblems, featureSwitchReason } from "./aiFeatures";
 import { IpcError } from "../ipc/client";
 
 const summary = (overrides: Partial<AiFeatureSummary> = {}): AiFeatureSummary => ({
   feature: "generate_commit",
   config: null,
+  enabled: false,
+  available: false,
   default_prompt_template: `Default ${CONTEXT_TOKEN} prompt`,
   ...overrides,
 });
 
 describe("feature drafts", () => {
   it("starts from the saved configuration when there is one", () => {
-    const draft = featureDraft(
-      summary({ config: { feature: "recompose", provider_id: "p2", model_id: "sonnet", prompt_template: "Group {context}" } }),
-      "p1",
-    );
+    const draft = featureDraft(summary({ config: { feature: "recompose", provider_id: "p2", model_id: "sonnet", prompt_template: "Group {context}" } }));
     expect(draft).toEqual({ providerId: "p2", modelId: "sonnet", promptTemplate: "Group {context}" });
   });
 
-  it("falls back to the active provider and the shipped prompt when unconfigured", () => {
-    expect(featureDraft(summary(), "p1")).toEqual({ providerId: "p1", modelId: "", promptTemplate: `Default ${CONTEXT_TOKEN} prompt` });
-    expect(featureDraft(undefined, undefined)).toEqual({ providerId: "", modelId: "", promptTemplate: "" });
+  it("starts with no provider or model and the shipped prompt when unconfigured", () => {
+    expect(featureDraft(summary())).toEqual({ providerId: "", modelId: "", promptTemplate: `Default ${CONTEXT_TOKEN} prompt` });
+    expect(featureDraft(undefined)).toEqual({ providerId: "", modelId: "", promptTemplate: "" });
   });
 });
 
@@ -40,11 +39,21 @@ describe("feature problems", () => {
   });
 });
 
-describe("feature source", () => {
-  it("names the fallback in words and marks a configured feature", () => {
-    expect(featureSource(summary())).toBe("Using the active provider and the default prompt");
-    expect(featureSource(undefined)).toBe("Using the active provider and the default prompt");
-    expect(featureSource(summary({ config: { feature: "generate_commit", provider_id: "p1", model_id: "m", prompt_template: "{context}" } }))).toBe("Configured for this feature");
+describe("feature switch and availability", () => {
+  const saved = { feature: "generate_commit" as const, provider_id: "p1", model_id: "m", prompt_template: "{context}" };
+
+  it("keeps the switch disabled with its reason until a provider and model are saved", () => {
+    expect(featureSwitchReason(summary())).toBe("Choose a provider and model to turn this on");
+    expect(featureSwitchReason(undefined)).toBe("Choose a provider and model to turn this on");
+    expect(featureSwitchReason(summary({ config: saved }))).toBeUndefined();
+  });
+
+  it("offers a feature's action only when the core reports it available", () => {
+    const list = [summary({ config: saved, enabled: true, available: true }), summary({ feature: "recompose", config: { ...saved, feature: "recompose" }, enabled: true, available: false })];
+    expect(featureAvailable(list, "generate_commit")).toBe(true);
+    expect(featureAvailable(list, "recompose")).toBe(false);
+    expect(featureAvailable(list, "conflict_fix")).toBe(false);
+    expect(featureAvailable(undefined, "generate_commit")).toBe(false);
   });
 });
 

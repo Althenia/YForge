@@ -48,7 +48,8 @@ async function mount(undone: number[] = []) {
   mockIPC(
     (cmd) => {
       if (cmd === "settings_load") return defaultSettings;
-      if (cmd === "session_load") return { tabs: ["/r"], active: 0 };
+      if (cmd === "repo_aliases_list") return [];
+      if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
       if (cmd === "launch_path") return "/nowhere";
       if (cmd === "repo_open") throw { kind: "not_a_repository", message: "no", output: null };
       if (cmd === "activity_list" || cmd === "recents_list") return [];

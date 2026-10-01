@@ -45,12 +45,19 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"] } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string } } = {}) {
   const selected: string[] = [];
   const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "commit_details") return { ...details(sha), author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
+    if (cmd === "jira_connections_list") return options.jira === undefined ? [] : [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
+    if (cmd === "jira_branch_name") return `${(args as { key: string }).key}-show-the-account-switcher`;
+    if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
+    if (cmd === "jira_issues_lookup") {
+      const found = options.jira?.summary ?? null;
+      return (args as { keys: string[] }).keys.map((key) => ({ key, issue: found === null ? null : { key, summary: found, status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: options.jira?.failure ?? null }));
+    }
+    if (cmd === "commit_details") return { ...details(sha), summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
     if (cmd === "integration_preview") return { incoming: { count: 0, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
@@ -79,6 +86,26 @@ const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>(
 const field = (host: HTMLElement, label: string) => host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
 
 const verb = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.ihead button[aria-label="${name}"]`);
+
+describe("commit age", () => {
+  it("ages the committer time as the clock ticks", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date((person.time + 20) * 1000));
+      const { host } = mount(OLDER);
+      await flush(60);
+      const age = () => host.querySelector(".ago")?.textContent;
+      expect(age()).toBe("· 20s ago");
+
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      await flush();
+
+      expect(age()).toBe("· 2h ago");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("commit verbs in the header", () => {
   it("offers Branch here, Cherry-pick, Revert, and Reset for any selected commit", async () => {
@@ -264,5 +291,53 @@ describe("author badge", () => {
     expect(rowOf(host, "Author").querySelector(".avatar")).not.toBeNull();
     expect(rowOf(host, "Author").textContent).toContain("Grace");
     expect(rowOf(host, "Committer").querySelector(".avatar")).toBeNull();
+  });
+});
+
+describe("Jira issue chips", () => {
+  it("shows the key as a chip with the issue summary and status word in the inspector", async () => {
+    const { host } = mount(OLDER, { jira: { summary: "Retry login when the refresh races" } });
+    await flush(100);
+
+    const row = host.querySelector(".issue-chips") as HTMLElement;
+    expect(row.querySelector(".chip.key .mono")?.textContent).toBe("ABC-142");
+    expect(row.querySelector(".chip.key")?.getAttribute("data-tip")).toBe("ABC-142 · Retry login when the refresh races · Done");
+    expect(row.textContent).toContain("ABC-142 Retry login when the refresh races · Done");
+  });
+
+  it("shows the key alone, with the failure in text, when the site could not be reached", async () => {
+    const { host } = mount(OLDER, { jira: { summary: null, failure: "Could not reach your-site.atlassian.net: could not connect" } });
+    await flush(100);
+
+    const row = host.querySelector(".issue-chips") as HTMLElement;
+    expect(row.querySelector(".chip.key")?.getAttribute("data-tip")).toBe("ABC-142 · issue details unavailable: Could not reach your-site.atlassian.net: could not connect");
+    expect(row.textContent).toContain("issue details unavailable: Could not reach your-site.atlassian.net");
+  });
+
+  it("shows no chip row without a Jira connection", async () => {
+    const { host } = mount(OLDER);
+    await flush(80);
+
+    expect(host.querySelector(".issue-chips")).toBeNull();
+  });
+});
+
+describe("create branch from an issue", () => {
+  it("opens the create-branch popover prefilled with the core's branch name, editable, and creates it from HEAD", async () => {
+    const { actions } = mount(OLDER);
+    await flush(60);
+
+    await actions.openCreateBranchFromIssue({ key: "ABC-155", summary: "Show the account switcher" }, { left: 10, top: 10 });
+    await flush(60);
+
+    const input = document.querySelector<HTMLInputElement>('input[aria-label="Branch name"]') as HTMLInputElement;
+    expect(input.value).toBe("ABC-155-show-the-account-switcher");
+    expect(calls.find((call) => call.cmd === "jira_branch_name")?.args).toEqual({ key: "ABC-155", summary: "Show the account switcher" });
+    type(input, "ABC-155-switcher");
+    await flush(60);
+    (document.querySelector("form.popform") as HTMLFormElement).requestSubmit();
+    await flush(80);
+
+    expect(calls.find((call) => call.cmd === "create_branch")?.args).toEqual({ path: "/r", name: "ABC-155-switcher", at: null, checkout: true });
   });
 });

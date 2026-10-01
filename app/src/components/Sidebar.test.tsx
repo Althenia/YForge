@@ -1,18 +1,29 @@
-import { clearMocks } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "../state/repoActions";
 import type { RepoUiPrefsStore } from "../state/repoUiPrefs";
 import type { Selection } from "../state/selection";
 import type { WorktreeActions } from "../state/worktreeActions";
 import { Sidebar } from "./Sidebar";
+import type { JiraConnection } from "../ipc/bindings/JiraConnection";
+import type { JiraIssue } from "../ipc/bindings/JiraIssue";
+import type { JiraIssueList } from "../ipc/bindings/JiraIssueList";
+import { createIssueChips, createJiraIssues, type JiraSidebar } from "../state/jiraIssues";
 import { flush, mountWithApp, testUiPrefs } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubScrollLayout({ viewport: 600, row: 28, total: 20_000 });
+});
 
 afterEach(async () => {
   dispose?.();
   dispose = undefined;
+  restoreLayout?.();
   await flush();
   document.body.innerHTML = "";
   clearMocks();
@@ -33,15 +44,17 @@ const snapshot = {
   worktrees: [],
 } as unknown as RepoSnapshot;
 
-function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot = snapshot, uiPrefs: RepoUiPrefsStore = testUiPrefs()) {
+function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot = snapshot, uiPrefs: RepoUiPrefsStore = testUiPrefs(), jira?: (calls: Array<[string, ...unknown[]]>) => JiraSidebar) {
   const calls: Array<[string, ...unknown[]]> = [];
   const actions = {
     openRefMenu: (...args: unknown[]) => calls.push(["ref-menu", ...args]),
     openStashMenu: (...args: unknown[]) => calls.push(["stash-menu", ...args]),
     checkoutRef: (...args: unknown[]) => calls.push(["checkout", ...args]),
     deleteBranches: (...args: unknown[]) => calls.push(["delete-branches", ...args]),
+    deleteTags: (...args: unknown[]) => calls.push(["delete-tags", ...args]),
     dropStashes: (...args: unknown[]) => calls.push(["drop-stashes", ...args]),
     fetchAll: (...args: unknown[]) => calls.push(["fetch-all", ...args]),
+    openCreateBranchFromIssue: (...args: unknown[]) => calls.push(["branch-from-issue", ...args]),
   } as unknown as RepoActions;
   const selected = vi.fn();
   const worktrees = {
@@ -52,9 +65,10 @@ function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot
     removeMany: (...args: unknown[]) => calls.push(["remove-many", ...args]),
     openCreate: () => calls.push(["create"]),
   } as unknown as WorktreeActions;
-  const mounted = mountWithApp(() => (
-    <Sidebar snapshot={shape} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} onOpenPanel={(panel) => calls.push(["panel", panel])} />
-  ));
+  const mounted = mountWithApp(() => {
+    const issues = jira?.(calls);
+    return <Sidebar snapshot={shape} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} onOpenPanel={(panel) => calls.push(["panel", panel])} jira={issues} />;
+  });
   dispose = mounted.dispose;
   return { ...mounted, calls, selected, uiPrefs };
 }
@@ -207,6 +221,7 @@ const row = (host: ParentNode, id: string) => host.querySelector<HTMLElement>(`[
 const click = (element: HTMLElement, init: MouseEventInit = {}) => element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
 const ctrlClick = (element: HTMLElement) => click(element, { ctrlKey: true });
 const shiftClick = (element: HTMLElement) => click(element, { shiftKey: true });
+const metaClick = (element: HTMLElement) => click(element, { metaKey: true });
 const menuItems = () => [...document.querySelectorAll<HTMLElement>('[role="menu"] [role="menuitem"]')];
 const rightClick = (element: HTMLElement) => element.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, clientX: 5, clientY: 6 }));
 
@@ -224,7 +239,8 @@ describe("sidebar section collapse", () => {
     expect(navIds(host, "Branches")).toEqual([]);
     expect(countOf(host, "Branches")).toBe("3");
     expect(section(host, "Branches").querySelector(".sec-title")?.textContent).toContain("Branches");
-    for (const title of ["Changes", "Branches", "Remotes", "Tags", "Stashes", "Worktrees", "Recovery"]) expect(headerOf(host, title).getAttribute("aria-expanded")).not.toBeNull();
+    for (const title of ["Branches", "Remotes", "Tags", "Stashes", "Worktrees", "Recovery"]) expect(headerOf(host, title).getAttribute("aria-expanded")).not.toBeNull();
+    expect(host.querySelector('section[aria-label="Changes"]')).toBeNull();
   });
 
   it("saves the collapsed section in the repository's preferences and restores it on the next mount", async () => {
@@ -328,7 +344,6 @@ describe("sidebar filter", () => {
     expect(countOf(host, "Remotes")).toBe("1/1");
     expect(countOf(host, "Tags")).toBe("0/1");
     expect(countOf(host, "Stashes")).toBe("0/1");
-    expect(countOf(host, "Changes")).toBe("0");
 
     await typeFilter(host, "wip");
     expect(navIds(host, "Stashes")).toEqual(["stash:s0"]);
@@ -444,17 +459,39 @@ describe("sidebar multi-select", () => {
     expect(pressed(host)).toEqual(["branch:feature/a", "branch:feature/b/deep", "branch:main"]);
   });
 
-  it("clears the selection with a plain click and keeps a single-row context menu for one row or a row outside the selection", async () => {
+  it("selects only the clicked row with a plain click, so a shift-click extends from it and a cmd-click adds to it", async () => {
     const { host, calls } = mount();
-    ctrlClick(row(host, "branch:feature/a"));
-    ctrlClick(row(host, "branch:main"));
-    await flush();
-
-    rightClick(row(host, "branch:feature/b/deep"));
-    expect(calls.map((call) => call[0])).toEqual(["ref-menu"]);
-
     click(row(host, "branch:feature/a"));
     await flush();
+    expect(pressed(host)).toEqual(["branch:feature/a"]);
+    shiftClick(row(host, "branch:main"));
+    await flush();
+    expect(pressed(host)).toEqual(["branch:feature/a", "branch:feature/b/deep", "branch:main"]);
+
+    click(row(host, "branch:feature/b/deep"));
+    metaClick(row(host, "branch:main"));
+    await flush();
+    expect(pressed(host)).toEqual(["branch:feature/b/deep", "branch:main"]);
+
+    rightClick(row(host, "branch:feature/a"));
+    expect(calls.map((call) => call[0])).toEqual(["ref-menu"]);
+  });
+
+  it("offers Delete N tags in the menu of a selected tag", async () => {
+    const tagged = { ...snapshot, tags: ["v1.0", "v1.1", "v2.0"] } as RepoSnapshot;
+    const { host, calls } = mount(undefined, tagged);
+    click(row(host, "tag:v1.0"));
+    shiftClick(row(host, "tag:v1.1"));
+    metaClick(row(host, "tag:v2.0"));
+    await flush();
+
+    rightClick(row(host, "tag:v2.0"));
+    await flush();
+    expect(menuItems().map((item) => item.textContent)).toEqual(["Delete 3 tags…"]);
+    menuItems()[0]?.click();
+    await flush();
+
+    expect(calls).toEqual([["delete-tags", ["v1.0", "v1.1", "v2.0"]]]);
     expect(pressed(host)).toEqual([]);
   });
 
@@ -522,5 +559,256 @@ describe("sidebar multi-select", () => {
     expect((calls[0]?.[1] as Array<{ sha: string }>).map((stash) => stash.sha)).toEqual(["s0", "s1"]);
     expect(calls[2]?.[1]).toEqual(["/w/a", "/w/b"]);
     expect(row(host, "folder:remote:origin").getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+const site = (overrides: Partial<JiraConnection> = {}): JiraConnection => ({
+  id: "j1",
+  kind: "cloud",
+  site: "https://your-site.atlassian.net",
+  host: "your-site.atlassian.net",
+  email: "you@example.com",
+  display_name: "Sam Lee",
+  projects: [{ key: "ABC", name: "Accounts" }],
+  created_at: 1,
+  ...overrides,
+});
+
+const issue = (overrides: Partial<JiraIssue> = {}): JiraIssue => ({
+  key: "ABC-155",
+  summary: "Show the account switcher on the login screen",
+  status: "In Progress",
+  status_category: "in_progress",
+  issue_type: "Story",
+  project: "ABC",
+  assignee: "Sam Lee",
+  updated_at: "2026-10-01T09:30:00.000+0000",
+  web_url: "https://your-site.atlassian.net/browse/ABC-155",
+  connection_id: "j1",
+  ...overrides,
+});
+
+function mountJira(connections: JiraConnection[], issues: Record<string, JiraIssue[] | { kind: string; message: string } | JiraIssueList>, shape: RepoSnapshot = snapshot, selection: Selection | undefined = undefined) {
+  mockIPC(
+    (cmd, args) => {
+      if (cmd === "jira_connections_list") return connections;
+      if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
+      if (cmd === "jira_issues_lookup") return (args as { keys: string[] }).keys.map((key) => ({ key, issue: issue({ key, summary: "Retry login" }), failure: null }));
+      if (cmd === "jira_my_issues") {
+        const found = issues[(args as { id: string }).id] ?? [];
+        if ("issues" in found) return found;
+        if (!Array.isArray(found)) throw { kind: found.kind, message: found.message, output: null };
+        return { issues: found, total: found.length, capped: false };
+      }
+      return null;
+    },
+    { shouldMockEvents: true },
+  );
+  return mount(selection, shape, testUiPrefs(), (calls) => ({
+    state: createJiraIssues(),
+    chips: createIssueChips(() => shape.branches),
+    openSettings: () => calls.push(["jira-settings"]),
+    select: (key) => calls.push(["jira-select", key]),
+    openInBrowser: (target) => calls.push(["jira-open", target.web_url]),
+  }));
+}
+
+const issuesSection = (host: ParentNode) => host.querySelector('section[aria-label="Jira issues"]') as HTMLElement | null;
+
+describe("sidebar Jira issues", () => {
+  it("counts the true total and says the list is capped, per site, when a site returned only the first 1,000", async () => {
+    const { host } = mountJira([site()], { j1: { issues: [issue()], total: 1500, capped: true } });
+    await flush(60);
+
+    const section = issuesSection(host) as HTMLElement;
+    expect(section.querySelector(".count")?.textContent).toBe("1500");
+    expect(section.textContent).toContain("your-site.atlassian.net: Showing 1,000 of 1,500");
+  });
+
+  it("is absent without a Jira connection", async () => {
+    const { host } = mountJira([], {});
+    await flush(40);
+
+    expect(issuesSection(host)).toBeNull();
+  });
+
+  it("lists each assigned issue with its key in mono, summary, status word, and icon actions named with the key", async () => {
+    const { host, calls } = mountJira([site()], { j1: [issue(), issue({ key: "ABC-9", summary: "Cookie banner copy", status: "To Do", status_category: "todo" })] });
+    await flush(60);
+
+    const section = issuesSection(host) as HTMLElement;
+    expect(section.querySelector(".count")?.textContent).toBe("2");
+    expect(names(section)).toEqual(["ABC-155 Show the account switcher on the login screen, In Progress", "ABC-9 Cookie banner copy, To Do"]);
+    const row = section.querySelector('[data-nav="issue:ABC-155"]') as HTMLElement;
+    expect(row.querySelector(".pull-number")?.textContent).toBe("ABC-155");
+    expect(row.querySelector(".chip")?.textContent).toBe("In Progress");
+    row.querySelector<HTMLButtonElement>('button[aria-label="Create branch from ABC-155"]')?.click();
+    row.querySelector<HTMLButtonElement>('button[aria-label="Open ABC-155 in browser"]')?.click();
+    expect(calls.find((call) => call[0] === "branch-from-issue")?.[1]).toMatchObject({ key: "ABC-155" });
+    expect(calls).toContainEqual(["jira-open", "https://your-site.atlassian.net/browse/ABC-155"]);
+  });
+
+  it("offers the same actions in the row menu opened from the keyboard", async () => {
+    const { host, calls } = mountJira([site()], { j1: [issue()] });
+    await flush(60);
+    const row = host.querySelector('[data-nav="issue:ABC-155"]') as HTMLElement;
+
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
+    await flush();
+
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((item) => item.textContent);
+    expect(items).toEqual(["Create branch from ABC-155…", "Open in browser"]);
+    (document.querySelectorAll('[role="menuitem"]')[0] as HTMLElement).click();
+    await flush();
+    expect(calls.some((call) => call[0] === "branch-from-issue")).toBe(true);
+  });
+
+  it("opens the issue inspector when a row is clicked or activated with Enter, and marks the open one", async () => {
+    const { host, calls } = mountJira([site()], { j1: [issue()] }, snapshot, { kind: "issue", key: "ABC-155" });
+    await flush(60);
+    const row = host.querySelector('[data-nav="issue:ABC-155"]') as HTMLElement;
+
+    row.click();
+    row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+
+    expect(calls.filter((call) => call[0] === "jira-select")).toEqual([["jira-select", "ABC-155"], ["jira-select", "ABC-155"]]);
+    expect(row.getAttribute("aria-current")).toBe("true");
+    expect(document.querySelector('[role="menuitem"]')).toBeNull();
+  });
+
+  it("says no open issues are assigned as text when the list is empty", async () => {
+    const { host } = mountJira([site()], { j1: [] });
+    await flush(60);
+
+    expect(issuesSection(host)?.textContent).toContain("No open issues assigned to you");
+  });
+
+  it("states a failing site in text, keeps the issues of the other sites, and offers Retry and Edit connection for a refused token", async () => {
+    const { host, calls } = mountJira([site(), site({ id: "j2", host: "jira.corp-b.internal", kind: "data_center", email: null })], {
+      j1: [issue()],
+      j2: { kind: "auth_failed", message: "Authentication failed for jira.corp-b.internal" },
+    });
+    await flush(80);
+
+    const section = issuesSection(host) as HTMLElement;
+    expect(names(section)).toHaveLength(1);
+    const alert = section.querySelector('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain("Authentication failed for jira.corp-b.internal");
+    [...alert.querySelectorAll("button")].find((button) => button.textContent === "Edit connection")?.click();
+    expect(calls).toContainEqual(["jira-settings"]);
+    expect([...alert.querySelectorAll("button")].map((button) => button.textContent)).toContain("Retry");
+  });
+
+  it("is narrowed by the sidebar filter", async () => {
+    const { host } = mountJira([site()], { j1: [issue(), issue({ key: "ABC-9", summary: "Cookie banner copy" })] });
+    await flush(60);
+    const filter = host.querySelector<HTMLInputElement>('input[type="text"]') as HTMLInputElement;
+
+    filter.value = "cookie";
+    filter.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+
+    expect(names(issuesSection(host) as HTMLElement)).toEqual(["ABC-9 Cookie banner copy, In Progress"]);
+  });
+
+  it("marks an issue key in a branch name with a chip that carries the summary and status", async () => {
+    const shape = { ...snapshot, branches: ["fix/ABC-142-retry-login", "main"] } as RepoSnapshot;
+    const { host } = mountJira([site()], { j1: [] }, shape);
+    await flush(80);
+
+    const row = host.querySelector('[data-nav="branch:fix/ABC-142-retry-login"]') as HTMLElement;
+    const chip = row.querySelector(".chip.key") as HTMLElement;
+    expect(chip.textContent).toBe("ABC-142");
+    expect(chip.querySelector(".mono")).not.toBeNull();
+    expect(chip.getAttribute("data-tip")).toBe("ABC-142 · Retry login · In Progress");
+    expect(host.querySelector('[data-nav="branch:main"] .chip.key')).toBeNull();
+  });
+});
+
+describe("sidebar with thousands of refs", () => {
+  const TOTAL = 5000;
+  const pad = (index: number) => String(index).padStart(4, "0");
+  const many = {
+    ...snapshot,
+    branches: Array.from({ length: TOTAL }, (_, index) => `b-${pad(index)}`),
+    remote_branches: Array.from({ length: TOTAL }, (_, index) => `origin/r-${pad(index)}`),
+    tags: Array.from({ length: TOTAL }, (_, index) => `t-${pad(index)}`),
+    stashes: [],
+  } as unknown as RepoSnapshot;
+  const press = (element: Element, key: string) => element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  const focusedId = () => document.activeElement?.getAttribute("data-nav");
+
+  it("renders only the rows in view in the branch, remote branch, and tag lists", async () => {
+    const { host } = mount(undefined, many);
+    await flush(60);
+
+    for (const title of ["Branches", "Remotes", "Tags"]) expect(navIds(host, title).length).toBeLessThan(60);
+    expect(navIds(host, "Branches")[0]).toBe("branch:b-0000");
+    expect(countOf(host, "Branches")).toBe(String(TOTAL));
+  });
+
+  it("steps with ↓ through every branch, then to the remote folder and its first branch", async () => {
+    const { host } = mount(undefined, many);
+    await flush(60);
+    (row(host, "branch:b-0000") as HTMLElement).focus();
+    expect(focusedId()).toBe("branch:b-0000");
+
+    for (let step = 0; step < TOTAL - 1; step += 1) {
+      const current = document.activeElement as HTMLElement;
+      press(current, "ArrowDown");
+      for (let wait = 0; wait < 40 && document.activeElement === current; wait += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(focusedId()).toBe(`branch:b-${pad(TOTAL - 1)}`);
+    expect(navIds(host, "Branches").length).toBeLessThan(60);
+
+    press(document.activeElement as HTMLElement, "ArrowDown");
+    await flush(60);
+    expect(focusedId()).toBe("folder:remote:origin");
+    press(document.activeElement as HTMLElement, "ArrowDown");
+    await flush(60);
+    expect(focusedId()).toBe("remote:origin/r-0000");
+    press(document.activeElement as HTMLElement, "ArrowUp");
+    await flush(60);
+    expect(focusedId()).toBe("folder:remote:origin");
+  }, 120_000);
+
+  it("keeps the focus on a branch row through 300 ↓ presses when the rows measure taller than the estimate", async () => {
+    const { host } = mount(undefined, many);
+    await flush(60);
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+      const measured = rect.call(this);
+      return this.hasAttribute("data-nav") ? { ...measured, height: 31, bottom: measured.top + 31 } : measured;
+    };
+    (row(host, "branch:b-0000") as HTMLElement).focus();
+
+    for (let step = 1; step <= 300; step += 1) {
+      const current = document.activeElement as HTMLElement;
+      press(current, "ArrowDown");
+      for (let wait = 0; wait < 40 && document.activeElement === current; wait += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(focusedId(), `after ${step} presses`).toBe(`branch:b-${pad(step)}`);
+    }
+  }, 60_000);
+
+  it("extends a selection from the first branch to the last across rows that are not rendered", async () => {
+    const { host, calls } = mount(undefined, many);
+    await flush(60);
+    click(row(host, "branch:b-0000"));
+    (host.querySelector(".sidebar-body") as HTMLElement).scrollTop = TOTAL * 28;
+    await flush(80);
+    await flush(80);
+
+    shiftClick(row(host, `branch:b-${pad(TOTAL - 1)}`));
+    await flush();
+    rightClick(row(host, `branch:b-${pad(TOTAL - 1)}`));
+    await flush();
+    expect(menuItems().map((item) => item.textContent)).toEqual([`Delete ${TOTAL} branches…`]);
+    menuItems()[0]?.click();
+    await flush();
+
+    const sent = calls.find((call) => call[0] === "delete-branches")?.[1] as string[];
+    expect(sent).toHaveLength(TOTAL);
+    expect(sent[0]).toBe("b-0000");
+    expect(sent[TOTAL - 1]).toBe(`b-${pad(TOTAL - 1)}`);
   });
 });

@@ -241,3 +241,33 @@ fn ignore_whitespace_hides_whitespace_only_changes_and_keeps_real_ones() {
         vec![(DiffLineKind::Removed, "three"), (DiffLineKind::Added, "3")]
     );
 }
+
+fn oversized_text() -> String {
+    (0..40_000)
+        .map(|number| format!("line {number:05} {}\n", "x".repeat(50)))
+        .collect()
+}
+
+#[test]
+fn a_diff_over_two_megabytes_is_refused_with_its_size_in_every_area() {
+    let repo = ready_repository();
+    repo.write("a.txt", &oversized_text());
+    repo.write("new.txt", &oversized_text());
+
+    for (file, area) in [
+        ("a.txt", ChangeArea::Unstaged),
+        ("new.txt", ChangeArea::Untracked),
+    ] {
+        let error = diff_file(&repo.path, file, area, false).expect_err("refused");
+        assert_eq!(error.kind(), ErrorKind::FileTooLarge, "{file}: {error:?}");
+        assert!(
+            yforge_core::ErrorPayload::from(error)
+                .output
+                .is_some_and(|size| size.parse::<u64>().is_ok_and(|size| size > 2 * 1024 * 1024)),
+            "{file}"
+        );
+    }
+    repo.git(&["add", "a.txt"]);
+    let staged = diff_file(&repo.path, "a.txt", ChangeArea::Staged, false).expect_err("refused");
+    assert_eq!(staged.kind(), ErrorKind::FileTooLarge);
+}

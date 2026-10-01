@@ -20,7 +20,7 @@ const BRANCH_PREFIX: &str = "refs/heads/";
 const INDEX_SUMMARY: &str = "index on ";
 const UNTRACKED_SUMMARY: &str = "untracked files on ";
 
-fn git_path(root: &Path, name: &str) -> Result<PathBuf, CoreError> {
+pub(crate) fn git_path(root: &Path, name: &str) -> Result<PathBuf, CoreError> {
     let output = git::run(root, &["rev-parse", "--git-path", name])?;
     Ok(root.join(output.trim_end_matches('\n')))
 }

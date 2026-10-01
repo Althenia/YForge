@@ -25,10 +25,10 @@ export type FeatureDraft = { providerId: string; modelId: string; promptTemplate
 
 export type FeatureProblems = { providerId?: string; modelId?: string; promptTemplate?: string };
 
-export function featureDraft(summary: AiFeatureSummary | undefined, activeProviderId: string | undefined): FeatureDraft {
+export function featureDraft(summary: AiFeatureSummary | undefined): FeatureDraft {
   const config = summary?.config;
   return {
-    providerId: config?.provider_id ?? activeProviderId ?? "",
+    providerId: config?.provider_id ?? "",
     modelId: config?.model_id ?? "",
     promptTemplate: config?.prompt_template ?? summary?.default_prompt_template ?? "",
   };
@@ -51,6 +51,12 @@ export function featureFailure(failure: unknown): string | undefined {
   return failure instanceof Error ? failure.message.replace(/^Error:\s*/, "") : String(failure);
 }
 
-export function featureSource(summary: AiFeatureSummary | undefined): string {
-  return summary?.config === null || summary?.config === undefined ? "Using the active provider and the default prompt" : "Configured for this feature";
+export const SWITCH_REASON = "Choose a provider and model to turn this on";
+
+export function featureSwitchReason(summary: AiFeatureSummary | undefined): string | undefined {
+  return summary?.config === null || summary?.config === undefined ? SWITCH_REASON : undefined;
+}
+
+export function featureAvailable(summaries: readonly AiFeatureSummary[] | undefined, feature: AiFeature): boolean {
+  return (summaries ?? []).some((summary) => summary.feature === feature && summary.available);
 }

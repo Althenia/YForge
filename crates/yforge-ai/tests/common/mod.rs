@@ -367,9 +367,21 @@ pub fn claude_blob(access: &str, refresh: &str, expires_at: i64) -> String {
     .to_string()
 }
 
-pub async fn add_active(h: &Harness, ai: &Ai, input: ProviderInput, model: &str) -> String {
+pub async fn configure(h: &Harness, ai: &Ai, id: &str, model: &str) {
+    for summary in ai.feature_configs(h.dir()).await.unwrap() {
+        let config = yforge_core::AiFeatureConfig {
+            feature: summary.feature,
+            provider_id: id.to_owned(),
+            model_id: model.to_owned(),
+            prompt_template: summary.default_prompt_template,
+        };
+        yforge_core::ai_feature_config_set(h.dir(), &config).unwrap();
+    }
+}
+
+pub async fn add_configured(h: &Harness, ai: &Ai, input: ProviderInput, model: &str) -> String {
     let added = ai.add(h.dir(), input).await.unwrap();
-    yforge_core::ai_choose(h.dir(), Some(&added.config.id), Some(model)).unwrap();
+    configure(h, ai, &added.config.id, model).await;
     added.config.id
 }
 
@@ -398,7 +410,7 @@ pub async fn use_provider(h: &Harness, ai: &Ai, reply: Reply) -> (HttpFake, yfor
         .add(h.dir(), http_input("Endpoint", &fake.url, None))
         .await
         .unwrap();
-    yforge_core::ai_choose(h.dir(), Some(&added.config.id), Some("model-x")).unwrap();
+    configure(h, ai, &added.config.id, "model-x").await;
     let selection = ai
         .resolve(h.dir(), yforge_core::AiFeature::GenerateCommit)
         .await

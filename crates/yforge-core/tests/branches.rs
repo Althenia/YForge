@@ -334,9 +334,10 @@ fn deletes_a_merged_branch_without_confirmation() {
     let repo = ready();
     repo.git(&["branch", "merged"]);
 
-    assert!(branch_delete_preview(&repo.path, "merged")
-        .unwrap()
-        .is_empty());
+    assert_eq!(
+        branch_delete_preview(&repo.path, "merged").unwrap().count,
+        0
+    );
     delete_branch(&repo.path, "merged", false).unwrap();
 
     assert_eq!(repo_snapshot(&repo.path).unwrap().branches, vec!["main"]);
@@ -351,8 +352,10 @@ fn an_unmerged_branch_needs_force_and_the_preview_names_the_commits_lost() {
     repo.git(&["switch", "-q", "main"]);
 
     let preview = branch_delete_preview(&repo.path, "topic").unwrap();
+    assert_eq!(preview.count, 2);
     assert_eq!(
         preview
+            .commits
             .iter()
             .map(|commit| (commit.sha.as_str(), commit.summary.as_str()))
             .collect::<Vec<_>>(),
@@ -373,6 +376,21 @@ fn an_unmerged_branch_needs_force_and_the_preview_names_the_commits_lost() {
 }
 
 #[test]
+fn the_delete_preview_lists_at_most_twenty_commits_and_counts_them_all() {
+    let repo = ready();
+    repo.git(&["switch", "-q", "-c", "topic"]);
+    for number in 0..25 {
+        repo.commit("t.txt", &format!("{number}\n"), &format!("Topic {number}"));
+    }
+    repo.git(&["switch", "-q", "main"]);
+
+    let preview = branch_delete_preview(&repo.path, "topic").unwrap();
+
+    assert_eq!(preview.commits.len(), 20);
+    assert_eq!(preview.count, 25);
+}
+
+#[test]
 fn commits_kept_by_another_branch_or_a_tag_are_not_lost() {
     let repo = ready();
     repo.git(&["switch", "-q", "-c", "topic"]);
@@ -380,9 +398,7 @@ fn commits_kept_by_another_branch_or_a_tag_are_not_lost() {
     repo.git(&["tag", "keep"]);
     repo.git(&["switch", "-q", "main"]);
 
-    assert!(branch_delete_preview(&repo.path, "topic")
-        .unwrap()
-        .is_empty());
+    assert_eq!(branch_delete_preview(&repo.path, "topic").unwrap().count, 0);
     delete_branch(&repo.path, "topic", false).unwrap();
 }
 

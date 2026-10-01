@@ -6,6 +6,7 @@ import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { AuthReply } from "../ipc/bindings/AuthReply";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
+import type { RepoAlias } from "../ipc/bindings/RepoAlias";
 import type { RepoSettings } from "../ipc/bindings/RepoSettings";
 import { client, IpcError } from "../ipc/client";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -21,13 +22,51 @@ import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } f
 import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext, type PanelRequest } from "./palette";
 import type { RepoActions } from "./repoActions";
 import type { PlatformActions } from "./platformActions";
+import { isEditable, menuChecked, menuEnabled, runMenuAction, type MenuDeps } from "./menuBar";
 import { SHORTCUTS } from "./shortcuts";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
-import { activateTab, closeTab, groupTabs, LAUNCHER_TAB_ID, openLauncherTab, openRepoTab, restoreTabs, sessionOf, tabGroups, tabId, type MainRoots, type Tab, type TabsState } from "./tabs";
+import type { TabGroupColor } from "../ipc/bindings/TabGroupColor";
+import type { Operation } from "../ipc/bindings/Operation";
+import {
+  activateTab,
+  addToGroup,
+  closedEntries,
+  closeGroup,
+  closeTabIds,
+  groupTabs,
+  idsOfOthers,
+  idsToTheRight,
+  LAUNCHER_TAB_ID,
+  newGroup,
+  nextClosed,
+  openLauncherTab,
+  openRepoTab,
+  pushClosed,
+  recolorGroup,
+  removeFromGroup,
+  renameGroup,
+  reopenTab,
+  restoreTabs,
+  sessionOf,
+  tabId,
+  tabSegments,
+  toggleGroup,
+  ungroup,
+  type Aliases,
+  type ClosedTab,
+  type MainRoots,
+  type Tab,
+  type TabsState,
+  type UserGroup,
+} from "./tabs";
 
 export type Screen = { kind: "workspace" } | { kind: "settings"; section: string };
 
 export type EntryDialog = "clone" | "create";
+
+export type Restoring = { tabs: number; groups: UserGroup[] };
+
+export type ClosePlan = { ids: string[]; busy: Array<{ path: string; operation: Operation }> };
 
 export type RepoBridge = {
   path: string;
@@ -48,13 +87,18 @@ export type RepoBridge = {
 const PALETTE_SHORTCUT = SHORTCUTS.palette;
 const UNDO_SHORTCUT = SHORTCUTS.undo;
 
+const aliasMap = (stored: readonly RepoAlias[]): Aliases => Object.fromEntries(stored.map((entry) => [entry.path, entry.alias]));
+
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
 export function createAppState(router: AppRouter) {
   const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
   const [tabList, setTabList] = createStoreValue<Tab[]>([{ kind: "launcher" }]);
+  const [groupList, setGroupList] = createStoreValue<UserGroup[]>([]);
   const [mainRoots, setMainRoots] = createStoreValue<MainRoots>({});
+  const [aliases, setAliases] = createStoreValue<Aliases>({});
   const [ready, setReady] = createSignal(false);
+  const [restoring, setRestoring] = createSignal<Restoring | undefined>();
   const [fatal, setFatal] = createSignal<string | undefined>();
   const [activity, setActivity] = createSignal<ActivityEntry[]>([]);
   const [drawerOpen, setDrawerOpen] = createSignal(false);
@@ -63,6 +107,9 @@ export function createAppState(router: AppRouter) {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
+  const [tabGroupSaveFailure, setTabGroupSaveFailure] = createSignal<string | undefined>();
+  const [closedTabs, setClosedTabs] = createSignal<ClosedTab[]>([]);
+  const [updateDialogOpen, setUpdateDialogOpen] = createSignal(false);
   const [bridge, setBridge] = createSignal<RepoBridge | undefined>();
   let platformAddRequested = false;
   const queryClient = createQueryClient();
@@ -75,9 +122,9 @@ export function createAppState(router: AppRouter) {
   const activeTabId = (): string | undefined => {
     const current = view();
     if (current.kind === "launcher") return LAUNCHER_TAB_ID;
-    return current.kind === "repo" || current.kind === "settings" ? current.tab : undefined;
+    return current.kind === "repo" || current.kind === "settings" || current.kind === "launchpad" ? current.tab : undefined;
   };
-  const tabs = createMemo((): TabsState => ({ tabs: tabList(), active: Math.max(tabList().findIndex((tab) => tabId(tab) === activeTabId()), 0) }));
+  const tabs = createMemo((): TabsState => ({ tabs: tabList(), active: Math.max(tabList().findIndex((tab) => tabId(tab) === activeTabId()), 0), groups: groupList() }));
   const screen = (): Screen => {
     const current = view();
     return current.kind === "settings" ? { kind: "settings", section: current.section } : { kind: "workspace" };
@@ -111,29 +158,93 @@ export function createAppState(router: AppRouter) {
     void router.navigate({ to: "/settings/$section", params: { section }, search: { tab: activeTabId() }, replace: true });
   }
 
+  function openLaunchpad(): void {
+    void router.navigate({ to: "/launchpad", search: { tab: activeTabId() }, replace: true });
+  }
+
   function addPlatformConnection(): void {
     platformAddRequested = true;
     openSettings("platforms");
   }
 
-  const tabGroupList = createMemo(() => tabGroups(tabs(), mainRoots()));
+  const segments = createMemo(() => tabSegments(tabs(), mainRoots()));
 
-  function applyTabs(requested: TabsState): void {
+  function persistSession(state: TabsState, onFailure: (message: string) => void): void {
+    client.sessionSave(sessionOf(state)).then(
+      () => setTabGroupSaveFailure(undefined),
+      (failure) => onFailure(asMessage(failure)),
+    );
+  }
+
+  function commitTabs(requested: TabsState): TabsState {
     const next = groupTabs(requested, mainRoots());
     setTabList(next.tabs);
+    setGroupList(next.groups);
+    return next;
+  }
+
+  function applyTabs(requested: TabsState): void {
+    const next = commitTabs(requested);
     showTab(next.tabs[next.active]);
-    client.sessionSave(sessionOf(next)).catch((failure) => setNotice(asMessage(failure)));
+    persistSession(next, setNotice);
+  }
+
+  function forget(ids: readonly string[]): void {
+    setClosedTabs(pushClosed(closedTabs(), closedEntries(tabs(), ids)));
+  }
+
+  function closeIds(ids: readonly string[]): void {
+    forget(ids);
+    applyTabs(closeTabIds(tabs(), ids));
+  }
+
+  const reopenable = () => nextClosed(closedTabs(), tabs());
+
+  async function reopenClosedTab(): Promise<void> {
+    const next = reopenable();
+    if (next === undefined) return;
+    setClosedTabs(next.rest);
+    await openRepository(next.entry.path, next.entry);
+  }
+
+  function showTabAt(offset: number): void {
+    const count = tabs().tabs.length;
+    applyTabs(activateTab(tabs(), (tabs().active + offset + count) % count));
+  }
+
+  function planClose(scope: "others" | "right", path: string): ClosePlan {
+    const state = tabs();
+    const index = state.tabs.findIndex((tab) => tab.kind === "repo" && tab.path === path);
+    if (index < 0) return { ids: [], busy: [] };
+    const ids = scope === "others" ? idsOfOthers(state, index) : idsToTheRight(state, index);
+    const busy = ids.flatMap((id) => {
+      const operation = id === LAUNCHER_TAB_ID ? undefined : queryClient.getQueryData<RepoSnapshot>(repoKeys.snapshot(id))?.operation;
+      return operation == null ? [] : [{ path: id, operation }];
+    });
+    return { ids, busy };
+  }
+
+  function applyGroups(requested: TabsState): void {
+    const next = commitTabs(requested);
+    const current = next.tabs[next.active];
+    if (current !== undefined && tabId(current) !== activeTabId()) showTab(current);
+    persistSession(next, setTabGroupSaveFailure);
+  }
+
+  function closeActive(): void {
+    const tab = tabs().tabs[tabs().active];
+    if (tab !== undefined) closeIds([tabId(tab)]);
   }
 
   const rememberMainRoot = (snapshot: RepoSnapshot): void => {
     if (typeof snapshot.main_root === "string") setMainRoots({ ...mainRoots(), [snapshot.root]: snapshot.main_root });
   };
 
-  async function openRepository(path: string): Promise<boolean> {
+  async function openRepository(path: string, closed?: ClosedTab): Promise<boolean> {
     try {
       const snapshot = await client.repoOpen(path);
       rememberMainRoot(snapshot);
-      applyTabs(openRepoTab(tabs(), snapshot.root));
+      applyTabs(closed === undefined ? openRepoTab(tabs(), snapshot.root) : reopenTab(tabs(), mainRoots(), { ...closed, path: snapshot.root }));
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
     } catch (failure) {
@@ -144,18 +255,23 @@ export function createAppState(router: AppRouter) {
 
   async function boot(): Promise<void> {
     try {
-      const [loaded, session, launch, entries] = await Promise.all([client.settingsLoad(), client.sessionLoad(), client.launchPath(), client.activityList()]);
+      const [loaded, session, launch, entries, stored] = await Promise.all([client.settingsLoad(), client.sessionLoad(), client.launchPath(), client.activityList(), client.repoAliasesList()]);
       setSettings(loaded);
+      setAliases(aliasMap(stored));
       setActivity(entries);
+      if (session.tabs.length > 0) setRestoring({ tabs: session.tabs.length, groups: session.groups });
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
       const opened = await Promise.all([launch, ...session.tabs].map((path) => client.repoOpen(path).then((snapshot) => snapshot, () => undefined)));
       opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
       const restored = groupTabs(restoreTabs(session, opened[0]?.root), mainRoots());
       setTabList(restored.tabs);
+      setGroupList(restored.groups);
       showTab(restored.tabs[restored.active]);
       setReady(true);
     } catch (failure) {
       setFatal(asMessage(failure));
+    } finally {
+      setRestoring(undefined);
     }
   }
 
@@ -175,6 +291,15 @@ export function createAppState(router: AppRouter) {
 
   function cancelOperationPrompts(operation: string): void {
     setPrompts((queue) => dropOperationPrompts(queue, operation));
+  }
+
+  async function setAlias(path: string, alias: string | null): Promise<string | undefined> {
+    try {
+      setAliases(aliasMap(await client.repoAliasSet(path, alias)));
+      return undefined;
+    } catch (failure) {
+      return asMessage(failure);
+    }
   }
 
   async function saveSettings(next: AppSettings): Promise<string | undefined> {
@@ -215,8 +340,15 @@ export function createAppState(router: AppRouter) {
     openFolder: pickFolderAndOpen,
     openClone: () => setEntryDialog("clone"),
     openCreate: () => setEntryDialog("create"),
-    closeTab: () => applyTabs(closeTab(tabs(), tabs().active)),
+    closeTab: () => closeActive(),
+    reopenClosedTab: () => void reopenClosedTab(),
+    canReopenClosedTab: () => reopenable() !== undefined,
+    nextTab: () => showTabAt(1),
+    previousTab: () => showTabAt(-1),
+    checkForUpdate: () => setUpdateDialogOpen(true),
+    aliasOf: (path: string) => aliases()[path],
     openSettings,
+    openLaunchpad,
     addPlatformConnection,
     toggleDrawer: () => setDrawerOpen((open) => !open),
     openSearch: () => bridge()?.openSearch(),
@@ -281,8 +413,45 @@ export function createAppState(router: AppRouter) {
     );
   }
 
+  function bindMenuBar(): void {
+    const [editable, setEditable] = createSignal(isEditable(document.activeElement));
+    const track = () => queueMicrotask(() => setEditable(isEditable(document.activeElement)));
+    document.addEventListener("focusin", track);
+    document.addEventListener("focusout", track);
+    onCleanup(() => {
+      document.removeEventListener("focusin", track);
+      document.removeEventListener("focusout", track);
+    });
+    let sent = "";
+    const push = (force: boolean) => {
+      const enabled = menuEnabled(buildCommands(paletteContext()), editable());
+      const checked = menuChecked(settings());
+      const state = JSON.stringify([enabled, checked]);
+      if (!force && state === sent) return;
+      sent = state;
+      client.menuUpdate(enabled, checked).catch((failure) => setNotice(asMessage(failure)));
+    };
+    createEffect(() => push(false));
+    const deps: MenuDeps = {
+      commands: () => buildCommands(paletteContext()),
+      settings,
+      saveSettings: async (next) => {
+        const failure = await saveSettings(next);
+        if (failure !== undefined) setNotice(failure);
+        push(true);
+      },
+      openPalette: () => setPaletteOpen(true),
+      openUrl: (url) => client.openUrl(url),
+      editableFocused: () => isEditable(document.activeElement),
+      editCommand: (name) => void document.execCommand(name),
+    };
+    const unlisten = client.onMenuAction((id) => runMenuAction(id, deps));
+    onCleanup(() => void unlisten.then((stop) => stop()));
+  }
+
   function bind(): void {
     bindShortcuts();
+    bindMenuBar();
     const colorScheme = window.matchMedia("(prefers-color-scheme: light)");
     const root = document.documentElement;
     const appearance = () => applyAppearance(root, settings(), colorScheme.matches);
@@ -307,11 +476,17 @@ export function createAppState(router: AppRouter) {
     uiPrefs,
     settings,
     tabs,
-    tabGroups: tabGroupList,
+    tabSegments: segments,
+    aliases,
+    aliasOf: (path: string): string | undefined => aliases()[path],
+    setAlias,
     ready,
+    restoring,
     fatal,
     screen,
     closeSettings: () => showTab(activeTab()),
+    openLaunchpad,
+    launchpadOpen: () => view().kind === "launchpad",
     activity,
     drawerOpen,
     toggleDrawer: () => setDrawerOpen((open) => !open),
@@ -338,13 +513,36 @@ export function createAppState(router: AppRouter) {
     bind,
     openRepository,
     openLauncher: () => applyTabs(openLauncherTab(tabs())),
-    closeActiveTab: () => applyTabs(closeTab(tabs(), tabs().active)),
-    closeTabAt: (index: number) => applyTabs(closeTab(tabs(), index)),
-    closeTabsAt: (path: string) => {
-      const index = tabs().tabs.findIndex((tab) => tab.kind === "repo" && tab.path === path);
-      if (index >= 0) applyTabs(closeTab(tabs(), index));
+    closeActiveTab: closeActive,
+    closeTabAt: (index: number) => {
+      const tab = tabs().tabs[index];
+      if (tab !== undefined) closeIds([tabId(tab)]);
     },
+    closeTabsAt: (path: string) => applyTabs(closeTabIds(tabs(), [path])),
+    closeTabIds: closeIds,
+    closedTabs,
+    planClose,
+    reopenClosedTab,
+    canReopenClosedTab: () => reopenable() !== undefined,
+    nextTab: () => showTabAt(1),
+    previousTab: () => showTabAt(-1),
+    updateDialogOpen,
+    checkForUpdate: () => setUpdateDialogOpen(true),
+    closeUpdateDialog: () => setUpdateDialogOpen(false),
     activate: (index: number) => applyTabs(activateTab(tabs(), index)),
+    tabGroupSaveFailure,
+    retryTabGroupSave: () => persistSession(tabs(), setTabGroupSaveFailure),
+    newTabGroup: (path: string, name: string, color: TabGroupColor) => applyGroups(newGroup(tabs(), mainRoots(), path, name, color)),
+    addToTabGroup: (path: string, group: number) => applyGroups(addToGroup(tabs(), mainRoots(), path, group)),
+    removeFromTabGroup: (path: string) => applyGroups(removeFromGroup(tabs(), mainRoots(), path)),
+    renameTabGroup: (group: number, name: string) => applyGroups(renameGroup(tabs(), group, name)),
+    recolorTabGroup: (group: number, color: TabGroupColor) => applyGroups(recolorGroup(tabs(), group, color)),
+    toggleTabGroup: (group: number) => applyGroups(toggleGroup(tabs(), group)),
+    ungroupTabs: (group: number) => applyGroups(ungroup(tabs(), group)),
+    closeTabGroup: (group: number) => {
+      forget(tabs().groups[group]?.tabs ?? []);
+      applyGroups(closeGroup(tabs(), group));
+    },
     openSettings,
     addPlatformConnection,
     takePlatformAddRequest: (): boolean => {

@@ -255,6 +255,7 @@ mod tests {
             status: FileStatus::Modified,
             binary: false,
             whole_file_only: whole,
+            hunks_omitted: None,
             hunks,
         }
     }

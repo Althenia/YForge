@@ -125,7 +125,7 @@ export function aiFailure(failure: unknown): AiFailure | undefined {
     case "cancelled":
       return undefined;
     case "ai_not_configured":
-      return { message: "No AI provider is set up. Choose one in Settings → AI.", action: "open_settings" };
+      return { message: `${failure.message}. Nothing was changed.`, action: "open_settings" };
     case "ai_auth_required":
       return { message: "The provider needs you to sign in again. Sign in from Settings → AI, then run this again.", detail, action: "sign_in" };
     case "ai_provider_unavailable":

@@ -4,9 +4,9 @@ import { createSignal, For, Show } from "solid-js";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { client } from "../ipc/client";
 import { cardOf, PRIVACY_LINES } from "../state/aiModel";
-import { providersOptions } from "../state/aiProviders";
+import { FEATURE_TITLES, featuresOptions } from "../state/aiFeatures";
+import { providersOptions, refreshProviders } from "../state/aiProviders";
 import { removeProviderCopy } from "../state/confirmCopy";
-import { aiKeys } from "../state/queryKeys";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { AiFeatures } from "./AiFeatures";
 import { Icon } from "./Icon";
@@ -28,13 +28,14 @@ export function PrivacyNotice() {
 export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
   const queryClient = useQueryClient();
   const providers = useQuery(providersOptions);
+  const features = useQuery(featuresOptions);
   const [dialog, setDialog] = createSignal<ProviderDialogStart | undefined>(props.initialDialog);
   const [removal, setRemoval] = createSignal<ProviderSummary | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
-  const refresh = () => queryClient.invalidateQueries({ queryKey: aiKeys.providers });
-  const activate = useMutation(() => ({ mutationFn: (summary: ProviderSummary) => client.aiSetActive(summary.config.id, summary.config.model ?? null), onSuccess: refresh }));
+  const refresh = () => refreshProviders(queryClient);
   const remove = useMutation(() => ({ mutationFn: (summary: ProviderSummary) => client.aiProviderRemove(summary.config.id), onSuccess: refresh }));
   const list = () => providers.data ?? [];
+  const usedBy = (id: string) => (features.data ?? []).filter((summary) => summary.config?.provider_id === id).map((summary) => FEATURE_TITLES[summary.feature]);
 
   const confirmRemoval = async () => {
     const summary = removal();
@@ -64,29 +65,15 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
         <For each={list()} fallback={<li class="setting-note">No providers yet. Add one to use Generate, Propose resolution, and Propose with AI.</li>}>
           {(summary) => {
             const card = () => cardOf(summary.config.kind);
-            const ready = () => summary.status.kind === "ready";
             return (
-              <li class="provider-row" classList={{ active: summary.active }}>
+              <li class="provider-row">
                 <ProviderLogo logo={card().logo} />
                 <span class="provider-name">
                   <strong>{summary.config.name}</strong>
-                  <span class="setting-note">
-                    {card().title} · <span class="mono">{summary.config.model ?? "default model"}</span>
-                  </span>
+                  <span class="setting-note">{card().title}</span>
                 </span>
                 <StatusBadge summary={summary} />
-                <Show when={summary.active}>
-                  <span class="chip chip-success">
-                    <Icon name="check" size={14} />
-                    Active
-                  </span>
-                </Show>
                 <span class="recent-acts">
-                  <Show when={!summary.active}>
-                    <button type="button" class="btn sm" disabled={!ready() || activate.isPending} title={ready() ? undefined : "Only a ready provider can be used"} onClick={() => activate.mutate(summary)}>
-                      Use
-                    </button>
-                  </Show>
                   <button type="button" class="icon-btn dense" {...tip(`Edit ${summary.config.name}`)} onClick={() => setDialog({ kind: "edit", id: summary.config.id })}>
                     <Icon name="edit" />
                   </button>
@@ -99,7 +86,7 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
           }}
         </For>
       </ul>
-      <Show when={failure() ?? (activate.error ? String(activate.error.message) : undefined)}>
+      <Show when={failure()}>
         {(text) => (
           <p class="field-note error" role="alert">
             {text()}
@@ -112,7 +99,7 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
         {(start) => <ProviderDialog start={start} onClose={() => setDialog(undefined)} onRemove={setRemoval} />}
       </Show>
       <Show when={removal()} keyed>
-        {(summary) => <ConfirmDialog copy={removeProviderCopy(summary.config.name, summary.config.has_api_key, summary.active)} onConfirm={() => void confirmRemoval()} onCancel={() => setRemoval(undefined)} />}
+        {(summary) => <ConfirmDialog copy={removeProviderCopy(summary.config.name, summary.config.has_api_key, usedBy(summary.config.id))} onConfirm={() => void confirmRemoval()} onCancel={() => setRemoval(undefined)} />}
       </Show>
     </>
   );

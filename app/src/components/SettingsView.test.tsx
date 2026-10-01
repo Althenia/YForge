@@ -30,7 +30,8 @@ function install(extra: (call: Call) => unknown = () => undefined) {
     if (custom !== undefined) return custom;
     if (cmd === "settings_save") return call.args.settings;
     if (cmd === "settings_load") return defaultSettings;
-    if (cmd === "session_load") return { tabs: ["/r"], active: 0 };
+    if (cmd === "repo_aliases_list") return [];
+    if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
     if (cmd === "launch_path") return "/nowhere";
     if (cmd === "repo_open") throw { kind: "not_a_repository", message: "not a repository", output: null };
     if (cmd === "activity_list" || cmd === "recents_list") return [];

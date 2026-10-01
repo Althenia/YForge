@@ -80,8 +80,6 @@ pub struct ProviderConfig {
     pub name: String,
     #[ts(optional = nullable)]
     pub base_url: Option<String>,
-    #[ts(optional = nullable)]
-    pub model: Option<String>,
     pub has_api_key: bool,
     pub created_at: i64,
 }
@@ -156,7 +154,6 @@ pub enum ProviderStatus {
 pub struct ProviderSummary {
     pub config: ProviderConfig,
     pub status: ProviderStatus,
-    pub active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -191,6 +188,14 @@ impl AiFeature {
             .into_iter()
             .find(|feature| feature.as_str() == text)
     }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::GenerateCommit => "Generate commit message",
+            Self::Recompose => "Propose with AI in Recompose",
+            Self::ConflictFix => "Propose conflict resolution",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -206,6 +211,8 @@ pub struct AiFeatureSummary {
     pub feature: AiFeature,
     #[ts(optional = nullable)]
     pub config: Option<AiFeatureConfig>,
+    pub enabled: bool,
+    pub available: bool,
     pub default_prompt_template: String,
 }
 

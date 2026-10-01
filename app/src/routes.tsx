@@ -1,6 +1,7 @@
 import { createHashHistory, createRootRoute, createRoute, createRouter, type RouterHistory } from "@tanstack/solid-router";
 import { Show } from "solid-js";
 import { Launcher } from "./components/Launcher";
+import { Launchpad } from "./components/Launchpad";
 import { SettingsView } from "./components/SettingsView";
 import { TabBar } from "./components/TabBar";
 import { RepositoryTab } from "./RepositoryTab";
@@ -17,6 +18,18 @@ const launcherRoute = createRoute({
     <div class="app launcher-app">
       <TabBar />
       <Launcher />
+    </div>
+  ),
+});
+
+const launchpadRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/launchpad",
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => (typeof search.tab === "string" ? { tab: search.tab } : {}),
+  component: () => (
+    <div class="app launchpad-app">
+      <TabBar />
+      <Launchpad />
     </div>
   ),
 });
@@ -51,7 +64,7 @@ const settingsRoute = createRoute({
 });
 
 export function createAppRouter(history: RouterHistory = createHashHistory()) {
-  return createRouter({ routeTree: rootRoute.addChildren([indexRoute, launcherRoute, repoRoute, settingsRoute]), history });
+  return createRouter({ routeTree: rootRoute.addChildren([indexRoute, launcherRoute, launchpadRoute, repoRoute, settingsRoute]), history });
 }
 
 export type AppRouter = ReturnType<typeof createAppRouter>;
@@ -65,6 +78,7 @@ declare module "@tanstack/solid-router" {
 export type View =
   | { kind: "none" }
   | { kind: "launcher" }
+  | { kind: "launchpad"; tab: string | undefined }
   | { kind: "repo"; tab: string }
   | { kind: "settings"; section: string; tab: string | undefined };
 
@@ -73,6 +87,10 @@ type Match = { routeId: string; params: Record<string, string>; search: Record<s
 export function viewOf(matches: readonly Match[]): View {
   const match = matches.at(-1);
   if (match?.routeId === launcherRoute.id) return { kind: "launcher" };
+  if (match?.routeId === launchpadRoute.id) {
+    const tab = match.search.tab;
+    return { kind: "launchpad", tab: typeof tab === "string" ? tab : undefined };
+  }
   if (match?.routeId === repoRoute.id) return { kind: "repo", tab: String(match.search.tab ?? "") };
   if (match?.routeId === settingsRoute.id) {
     const tab = match.search.tab;

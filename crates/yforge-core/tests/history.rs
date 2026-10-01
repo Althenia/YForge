@@ -583,6 +583,71 @@ fn the_recompose_preview_lists_the_combined_diff_with_stable_hunk_ids() {
     assert_eq!(preview.files[3].status, yforge_core::FileStatus::Added);
 }
 
+fn oversized() -> Regroup {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.write("small.txt", "one\ntwo\nthree\n");
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-q", "-m", "Base"]);
+    let base = repo.git(&["rev-parse", "HEAD"]);
+    repo.write("big.txt", &"payload line\n".repeat(200_000));
+    repo.write("small.txt", "one\nTWO\nthree\n");
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-q", "-m", "Add a big file and edit a small one"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    Regroup { repo, base, head }
+}
+
+#[test]
+fn the_recompose_preview_sends_no_hunks_for_a_file_over_the_view_limit_and_says_why() {
+    let Regroup { repo, base, .. } = oversized();
+
+    let preview = recompose_preview(&repo.path, &base).unwrap();
+
+    let big = preview
+        .files
+        .iter()
+        .find(|file| file.path == "big.txt")
+        .unwrap();
+    assert!(big.hunks.is_empty());
+    assert!(big.whole_file_only && !big.binary);
+    let reason = big.hunks_omitted.as_deref().unwrap();
+    assert!(reason.contains("2097152"), "{reason}");
+    let small = preview
+        .files
+        .iter()
+        .find(|file| file.path == "small.txt")
+        .unwrap();
+    assert_eq!(small.hunks.len(), 1);
+    assert!(!small.whole_file_only);
+    assert_eq!(small.hunks_omitted, None);
+}
+
+#[test]
+fn recompose_assigns_a_file_over_the_view_limit_whole_and_keeps_the_final_tree() {
+    let Regroup { repo, base, .. } = oversized();
+    let tree = repo.git(&["rev-parse", "HEAD^{tree}"]);
+    let preview = recompose_preview(&repo.path, &base).unwrap();
+    let small = hunk_ids(&preview, "small.txt");
+
+    recompose_apply(
+        &repo.path,
+        &base,
+        &[
+            group("Add big", vec![file_change("big.txt")]),
+            group("Edit small", vec![hunk_change(&small[0])]),
+        ],
+    )
+    .unwrap();
+
+    assert_eq!(repo.git(&["rev-parse", "HEAD^{tree}"]), tree);
+    assert_eq!(subjects(&repo), ["Edit small", "Add big", "Base"]);
+    assert_eq!(
+        repo.git(&["show", "--name-only", "--format=", "HEAD~1"]),
+        "big.txt"
+    );
+}
+
 #[test]
 fn recompose_regroups_files_and_hunks_into_new_commits_with_the_same_final_tree() {
     let Regroup { repo, base, head } = regroup();

@@ -16,6 +16,9 @@ import {
   type ResizableColumn,
 } from "../graph/columns";
 import { createGraphStore, PAGE_SIZE } from "../graph/graphStore";
+import { useNow } from "../state/clock";
+import { createIssueChips, type IssueChips as IssueChipState } from "../state/jiraIssues";
+import { IssueChips } from "./IssueChip";
 import type { Geometry } from "../graph/geometry";
 import { edgePath, laneClass, nodeX, rowY, visibleEdges } from "../graph/laneArt";
 import { groupRefs, rowLabels } from "../graph/refLabels";
@@ -67,6 +70,8 @@ function ExtraCell(props: { column: OptionalColumn; row: GraphRow; width: number
   );
 }
 
+const rowText = (row: GraphRow): string => [row.summary, ...row.refs.map((ref) => ref.name)].join("\n");
+
 function RowView(props: {
   index: number;
   row: GraphRow;
@@ -85,6 +90,7 @@ function RowView(props: {
   onMenu: (index: number, event: MouseEvent) => void;
   onOverflow: (index: number, anchor: Anchor) => void;
   onHighlight: (sha: string | undefined) => void;
+  chips: IssueChipState;
 }) {
   const labels = createMemo(() => rowLabels(groupRefs(props.row.refs, props.remotes)));
   const hidden = () => labels().moreBranches;
@@ -141,6 +147,7 @@ function RowView(props: {
         <span class="sum" title={props.row.summary}>
           {props.row.summary || "(no message)"}
         </span>
+        <IssueChips keys={props.chips.keysFor(rowText(props.row))} lookup={props.chips.lookup} />
       </div>
       <Show when={props.extras.length > 0}>
         <div class="gextra">
@@ -290,11 +297,11 @@ export function GraphPanel(props: {
   const app = useApp();
   const avatarsOn = () => app.ready() && app.settings().gravatar_avatars;
   const visibility = () => props.uiPrefs.prefs().branch_visibility;
-  const store = createGraphStore(props.path, useQueryClient(), visibility);
+  const store = createGraphStore(props.path, useQueryClient(), visibility, () => props.selection);
   // Re-render the nodes once a picture has loaded.
   createEffect(() => void graphAvatarRevision());
   const wide = createMinWidth(GRAPH_COLUMNS_MIN_WIDTH);
-  const now = Math.floor(Date.now() / 1000);
+  const now = useNow();
   let scroller: HTMLDivElement | undefined;
   const [preview, setPreview] = createSignal<{ id: ResizableColumn; size: number } | undefined>();
   const [settingsAnchor, setSettingsAnchor] = createSignal<Anchor | undefined>();
@@ -344,6 +351,7 @@ export function GraphPanel(props: {
     return { first: visible[0]?.index ?? 0, end: last === undefined ? 0 : last.index + 1 };
   });
   const edges = createMemo(() => visibleEdges(store.edges().values(), range().first, range().end));
+  const chips = createIssueChips(() => items().flatMap((item) => store.rows().get(item.index) ?? []).map(rowText));
 
   const selected = createMemo(() => indexOfSelection(store.rows(), props.selection));
   const chosen = createMemo(() => new Set(selectedShas(props.selection)));
@@ -370,7 +378,7 @@ export function GraphPanel(props: {
 
   createEffect(() => {
     const { first, end } = range();
-    store.ensure(first, Math.max(end, first + 1));
+    store.show(first, Math.max(end, first + 1));
   });
 
   createEffect(() => {
@@ -614,7 +622,7 @@ export function GraphPanel(props: {
                     total={store.total()}
                     remotes={props.snapshot.remotes}
                     actions={props.actions}
-                    now={now}
+                    now={now()}
                     selected={selected() === item.index || (row().sha !== null && row().kind !== "stash" && chosen().has(row().sha as string))}
                     conflicted={props.snapshot.counts.conflicted > 0}
                     dimmed={props.dimmed(item.index) || faded(item.index)}
@@ -622,6 +630,7 @@ export function GraphPanel(props: {
                     onMenu={openMenu}
                     onOverflow={(index, anchor) => setOverflow({ index, anchor })}
                     onHighlight={setHover}
+                    chips={chips}
                   />
                 )}
               </Show>

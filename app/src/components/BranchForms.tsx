@@ -26,7 +26,7 @@ export function BranchNameForm(props: { state: BranchPopover; session: RepoSessi
   const title = () => (props.state.kind === "rename_branch" ? `Rename ${props.state.name}` : "Create branch");
 
   const form = createForm(() => ({
-    defaultValues: { name: renaming() ?? "", checkOut: true },
+    defaultValues: { name: renaming() ?? (props.state.kind === "create_branch" ? (props.state.name ?? "") : ""), checkOut: true },
     onSubmit: ({ value }) => {
       const state = props.state;
       if (state.kind === "rename_branch") {

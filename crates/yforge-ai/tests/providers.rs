@@ -1,9 +1,11 @@
 mod common;
 
-use common::{closed_port_url, http_input, keyed_input, provider_input, Harness, HttpFake, Reply};
+use common::{
+    closed_port_url, configure, http_input, keyed_input, provider_input, Harness, HttpFake, Reply,
+};
 use yforge_core::{
-    ai_active_provider, ai_choose, ai_provider, AiFeature, ApiKeyChange, AuthMode, CoreError,
-    ErrorKind, ProviderInput, ProviderKind, ProviderStatus, ProviderUpdate,
+    ai_provider, AiFeature, ApiKeyChange, AuthMode, CoreError, ErrorKind, ProviderInput,
+    ProviderKind, ProviderStatus, ProviderUpdate,
 };
 
 fn kind_of(error: yforge_ai::AiError) -> ErrorKind {
@@ -106,12 +108,10 @@ async fn removing_a_provider_deletes_its_secret_and_clears_the_active_choice() {
         )
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&added.config.id), Some("m")).unwrap();
 
     ai.remove(h.dir(), &added.config.id).await.unwrap();
 
     assert_eq!(h.secrets.accounts(), std::slice::from_ref(&other.config.id));
-    assert_eq!(ai_active_provider(h.dir()).unwrap(), None);
     assert_eq!(
         ai_provider(h.dir(), &added.config.id).unwrap_err().kind(),
         ErrorKind::InvalidRequest
@@ -189,7 +189,7 @@ async fn openrouter_without_a_key_reports_key_missing_and_cannot_be_used() {
         ai.test(h.dir(), &added.config.id).await.unwrap(),
         ProviderStatus::KeyMissing
     );
-    ai_choose(h.dir(), Some(&added.config.id), Some("m/x")).unwrap();
+    configure(&h, &ai, &added.config.id, "m/x").await;
 
     let error = ai
         .resolve(h.dir(), AiFeature::GenerateCommit)
@@ -200,17 +200,9 @@ async fn openrouter_without_a_key_reports_key_missing_and_cannot_be_used() {
 }
 
 #[tokio::test]
-async fn resolving_needs_an_active_provider_and_for_http_a_model() {
+async fn resolving_needs_a_saved_feature_that_is_switched_on() {
     let h = Harness::new();
     let ai = h.ai();
-    assert_eq!(
-        kind_of(
-            ai.resolve(h.dir(), AiFeature::GenerateCommit)
-                .await
-                .unwrap_err()
-        ),
-        ErrorKind::AiNotConfigured
-    );
     let added = ai
         .add(
             h.dir(),
@@ -218,28 +210,42 @@ async fn resolving_needs_an_active_provider_and_for_http_a_model() {
         )
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&added.config.id), None).unwrap();
-    assert_eq!(
-        kind_of(
-            ai.resolve(h.dir(), AiFeature::GenerateCommit)
-                .await
-                .unwrap_err()
-        ),
-        ErrorKind::AiNotConfigured
+    let unset = CoreError::from(
+        ai.resolve(h.dir(), AiFeature::GenerateCommit)
+            .await
+            .unwrap_err(),
     );
-
-    ai_choose(h.dir(), Some(&added.config.id), Some("llama")).unwrap();
+    configure(&h, &ai, &added.config.id, "llama").await;
 
     let selection = ai
         .resolve(h.dir(), AiFeature::GenerateCommit)
         .await
         .unwrap();
-    assert_eq!(selection.config.model.as_deref(), Some("llama"));
+    ai.enable_feature(h.dir(), AiFeature::GenerateCommit, false)
+        .await
+        .unwrap();
+    let off = CoreError::from(
+        ai.resolve(h.dir(), AiFeature::GenerateCommit)
+            .await
+            .unwrap_err(),
+    );
+
+    assert_eq!(unset.kind(), ErrorKind::AiNotConfigured);
+    assert_eq!(
+        unset.to_string(),
+        "Choose a provider and model for Generate commit message in Settings → AI"
+    );
+    assert_eq!(selection.model, "llama");
     assert!(!format!("{selection:?}").contains("k-never-printed"));
+    assert_eq!(off.kind(), ErrorKind::AiNotConfigured);
+    assert_eq!(
+        off.to_string(),
+        "Generate commit message is turned off in Settings → AI"
+    );
 }
 
 #[tokio::test]
-async fn the_provider_list_marks_the_active_one_and_keeps_creation_order() {
+async fn the_provider_list_keeps_creation_order() {
     let h = Harness::new();
     let ai = h.ai();
     let one = ai
@@ -250,16 +256,15 @@ async fn the_provider_list_marks_the_active_one_and_keeps_creation_order() {
         .add(h.dir(), http_input("Two", "http://localhost:2/v1", None))
         .await
         .unwrap();
-    ai_choose(h.dir(), Some(&two.config.id), Some("m")).unwrap();
 
     let listed = ai.list(h.dir()).await.unwrap();
 
     assert_eq!(
         listed
             .iter()
-            .map(|s| (s.config.id.clone(), s.active))
+            .map(|s| s.config.id.clone())
             .collect::<Vec<_>>(),
-        [(one.config.id, false), (two.config.id, true)]
+        [one.config.id, two.config.id]
     );
 }
 

@@ -17,12 +17,19 @@ use yforge_core::{
     AuthMode, CommitDraft, ConflictProposal, ModelInfo, ProviderConfig, ProviderInput,
     ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal,
 };
+use yforge_core::{BatchOutcome, StashTarget};
 use yforge_core::{
-    CliInstall, FileAtRevision, GraphVisibility, OpenPathRequested, RepoUiPrefs, StashDetails,
+    CliInstall, FileAtRevision, GraphVisibility, OpenPathRequested, RepoAlias, RepoUiPrefs,
+    StashDetails, UpdateCheck,
 };
 use yforge_core::{
     CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
     PullRequest, RepoRef,
+};
+use yforge_core::{GitHost, GitHostDraft, GitHostProblem, IdentitySource, Transport, UrlIdentity};
+use yforge_core::{
+    JiraConnection, JiraIssue, JiraIssueList, JiraIssueLookup, JiraKind, JiraProject,
+    JiraStatusCategory, LaunchpadPull, LaunchpadPulls, PullList, PullRole, Wip,
 };
 use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
@@ -51,6 +58,8 @@ fn export_all(dir: &Path) {
     CheckoutOutcome::export_all(&config).expect("export CheckoutOutcome");
     CloneOptions::export_all(&config).expect("export CloneOptions");
     CommitBrief::export_all(&config).expect("export CommitBrief");
+    BatchOutcome::export_all(&config).expect("export BatchOutcome");
+    StashTarget::export_all(&config).expect("export StashTarget");
     StashRestore::export_all(&config).expect("export StashRestore");
     PullMode::export_all(&config).expect("export PullMode");
     PullOutcome::export_all(&config).expect("export PullOutcome");
@@ -83,6 +92,12 @@ fn export_all(dir: &Path) {
     PullReport::export_all(&config).expect("export PullReport");
     PushTarget::export_all(&config).expect("export PushTarget");
     SshKey::export_all(&config).expect("export SshKey");
+    GitHost::export_all(&config).expect("export GitHost");
+    GitHostDraft::export_all(&config).expect("export GitHostDraft");
+    GitHostProblem::export_all(&config).expect("export GitHostProblem");
+    IdentitySource::export_all(&config).expect("export IdentitySource");
+    Transport::export_all(&config).expect("export Transport");
+    UrlIdentity::export_all(&config).expect("export UrlIdentity");
     SwitchStash::export_all(&config).expect("export SwitchStash");
     WorktreeIntegration::export_all(&config).expect("export WorktreeIntegration");
     WorktreeStatus::export_all(&config).expect("export WorktreeStatus");
@@ -118,6 +133,8 @@ fn export_all(dir: &Path) {
     GraphVisibility::export_all(&config).expect("export GraphVisibility");
     StashDetails::export_all(&config).expect("export StashDetails");
     RepoUiPrefs::export_all(&config).expect("export RepoUiPrefs");
+    RepoAlias::export_all(&config).expect("export RepoAlias");
+    UpdateCheck::export_all(&config).expect("export UpdateCheck");
     AppUiPrefs::export_all(&config).expect("export AppUiPrefs");
     OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
     CliInstall::export_all(&config).expect("export CliInstall");
@@ -130,6 +147,18 @@ fn export_all(dir: &Path) {
     PrDetail::export_all(&config).expect("export PrDetail");
     CreatePull::export_all(&config).expect("export CreatePull");
     MatchedRepo::export_all(&config).expect("export MatchedRepo");
+    JiraKind::export_all(&config).expect("export JiraKind");
+    JiraProject::export_all(&config).expect("export JiraProject");
+    JiraConnection::export_all(&config).expect("export JiraConnection");
+    JiraStatusCategory::export_all(&config).expect("export JiraStatusCategory");
+    JiraIssue::export_all(&config).expect("export JiraIssue");
+    JiraIssueLookup::export_all(&config).expect("export JiraIssueLookup");
+    PullRole::export_all(&config).expect("export PullRole");
+    LaunchpadPull::export_all(&config).expect("export LaunchpadPull");
+    LaunchpadPulls::export_all(&config).expect("export LaunchpadPulls");
+    PullList::export_all(&config).expect("export PullList");
+    JiraIssueList::export_all(&config).expect("export JiraIssueList");
+    Wip::export_all(&config).expect("export Wip");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

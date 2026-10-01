@@ -2,12 +2,17 @@ import { keepPreviousData } from "@tanstack/solid-query";
 import { For, Show } from "solid-js";
 import { formatAbsolute, relativeAge, splitPath } from "../format";
 import { client, IpcError } from "../ipc/client";
+import { useNow } from "../state/clock";
 import type { PlatformActions } from "../state/platformActions";
+import { countOf, partialFilesNote } from "../state/listCount";
 import { changeTotals, epochSeconds, fileBadgeClass, fileLetter, fileWord, mergeabilityView, platformFailure, prStateView } from "../state/platformModel";
 import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
 import type { RepoSession } from "../state/repoSession";
+import { createIssueChips } from "../state/jiraIssues";
+import { pullText } from "../state/jiraModel";
 import { Delta } from "./CommitInspector";
+import { IssueChips } from "./IssueChip";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
 
@@ -32,7 +37,8 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
     queryFn: () => client.platformPrDetail(path, props.number),
     placeholderData: keepPreviousData,
   }));
-  const now = Math.floor(Date.now() / 1000);
+  const chips = createIssueChips(() => (details.data === undefined ? [] : [pullText(details.data.pull)]));
+  const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error == null ? undefined : platformFailure(details.error instanceof IpcError ? details.error : new IpcError({ kind: "internal", message: String(details.error) })));
 
@@ -64,12 +70,18 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
           const state = () => prStateView(pull().state);
           const merge = () => mergeabilityView(pull());
           const totals = () => changeTotals(detail().files);
+          const filesPaging = () => ({ total: detail().files_total, capped: detail().files_capped });
           return (
             <>
               <div class="ihead">
                 <h2>
                   #{pull().number} {pull().title}
                 </h2>
+                <Show when={chips.keysFor(pullText(pull())).length > 0}>
+                  <p class="issue-chips">
+                    <IssueChips keys={chips.keysFor(pullText(pull()))} lookup={chips.lookup} />
+                  </p>
+                </Show>
                 <p>
                   <span class="chip pull-state" classList={{ "chip-success": state().tone === "ok", "chip-danger": state().tone === "danger" }}>
                     <Icon name={state().icon} size={14} />
@@ -107,8 +119,8 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                     <span class="k">Author</span>
                     <span class="v">{pull().author}</span>
                   </div>
-                  <When label="Created" timestamp={pull().created_at} now={now} />
-                  <When label="Updated" timestamp={pull().updated_at} now={now} />
+                  <When label="Created" timestamp={pull().created_at} now={now()} />
+                  <When label="Updated" timestamp={pull().updated_at} now={now()} />
                   <div class="mrow">
                     <span class="k">Mergeable</span>
                     <span class="v" title={merge().detail}>
@@ -124,12 +136,13 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                   <div class="lhead">
                     <span class="lhead-title">
                       <Icon name="diff" />
-                      Files · {detail().files.length}
+                      Files · {countOf(detail().files.length, filesPaging())}
                     </span>
                     <span class="delta" aria-label={`${totals().additions} added, ${totals().deletions} removed`}>
                       <span class="plus">+{totals().additions}</span> <span class="minus">−{totals().deletions}</span>
                     </span>
                   </div>
+                  <Show when={partialFilesNote(detail().files.length, filesPaging())}>{(note) => <p class="field-note note-line" role="status">{note()}</p>}</Show>
                   <Show when={detail().files.length > 0} fallback={<div class="empty">The platform reported no file changes</div>}>
                     <ul class="flist" aria-label="Changed files">
                       <For each={detail().files}>

@@ -42,9 +42,9 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as unknown as RepoSnapshot;
 
-type Setup = { shape?: RepoSnapshot; sync?: SyncState; notices?: StripNotice[]; online?: boolean };
+type Setup = { shape?: RepoSnapshot; sync?: SyncState; notices?: StripNotice[]; online?: boolean; paused?: string };
 
-function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], online = true }: Setup = {}) {
+function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], online = true, paused }: Setup = {}) {
   const calls: Array<[string, ...unknown[]]> = [];
   const record =
     (name: string) =>
@@ -53,6 +53,7 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
   const [current, setNotices] = createSignal(notices);
   const actions = {
     sync: () => sync,
+    autoFetchPause: () => paused,
     notices: current,
     dismissNotice: (id: string) => {
       calls.push(["dismiss", id]);
@@ -127,6 +128,47 @@ describe("state strip chips", () => {
     const chip = button(offline.host, /^Fetched .* Fetch now/);
     expect(chip.disabled).toBe(true);
     expect(chip.title).toBe("You are offline");
+  });
+
+  it("reads Auto-fetch paused with the reason in text when an automatic fetch failed, and retries the fetch when activated", () => {
+    const { host, calls } = mount({ paused: "Authentication failed for origin" });
+    const chip = button(host, /^Auto-fetch paused/);
+
+    expect(chip.textContent).toContain("Auto-fetch paused: Authentication failed for origin");
+    expect(chip.classList.contains("chip-attention")).toBe(true);
+    expect(chip.disabled).toBe(false);
+    expect([...host.querySelectorAll("button")].some((entry) => /^Fetched /.test(entry.textContent ?? ""))).toBe(false);
+    chip.click();
+
+    expect(calls.map((call) => call[0])).toEqual(["fetch"]);
+  });
+
+  it("shows the Offline chip and a disabled fetched chip instead of the paused text while offline", () => {
+    const { host } = mount({ paused: "Authentication failed for origin", online: false });
+
+    expect(host.textContent).toContain("Offline");
+    expect(host.textContent).not.toContain("Auto-fetch paused");
+    const chip = button(host, /^Fetched .* Fetch now/);
+    expect(chip.disabled).toBe(true);
+    expect(chip.title).toBe("You are offline");
+  });
+
+  it("ages the fetched chip from fresh to stale as the clock ticks, without a new snapshot", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      const { host } = mount({ shape: snapshot({ last_fetch: Math.floor(Date.now() / 1000) - 5 }) });
+      const chip = () => button(host, /^Fetched .* Fetch now/);
+      expect(chip().textContent).toContain("Fetched just now");
+      expect(chip().classList.contains("chip-success")).toBe(true);
+
+      vi.advanceTimersByTime(3 * 60 * 60 * 1000);
+      await flush();
+
+      expect(chip().textContent).toContain("Fetched 3h ago");
+      expect(chip().classList.contains("chip-attention")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says detached HEAD at the short id and offers only the HEAD chip", () => {

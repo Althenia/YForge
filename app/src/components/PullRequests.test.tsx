@@ -82,6 +82,7 @@ type Call = { cmd: string; args: Record<string, unknown> };
 type Backend = {
   match?: unknown;
   pulls?: (state: string) => PullRequest[] | Error;
+  paging?: { total: number | null; capped: boolean };
   detail?: (number: number) => PrDetail;
   respond?: (call: Call) => unknown;
 };
@@ -95,7 +96,8 @@ async function mountWorkspace(backend: Backend = {}) {
       const custom = backend.respond?.(call);
       if (custom !== undefined) return custom;
       if (cmd === "settings_load") return defaultSettings;
-      if (cmd === "session_load") return { tabs: ["/r"], active: 0 };
+      if (cmd === "repo_aliases_list") return [];
+      if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
       if (cmd === "launch_path") return "/nowhere";
       if (cmd === "repo_open") return snapshot;
       if (cmd === "repo_graph") return { rows: [], carried: [], total: 0 };
@@ -106,9 +108,9 @@ async function mountWorkspace(backend: Backend = {}) {
       if (cmd === "platform_prs_list") {
         const listed = backend.pulls?.(String(call.args.state)) ?? [];
         if (listed instanceof Error) throw { kind: "auth_failed", message: listed.message, output: null };
-        return listed;
+        return { pulls: listed, ...(backend.paging ?? { total: listed.length, capped: false }) };
       }
-      if (cmd === "platform_pr_detail") return backend.detail?.(Number(call.args.number)) ?? { pull: pull(Number(call.args.number)), files: [] };
+      if (cmd === "platform_pr_detail") return backend.detail?.(Number(call.args.number)) ?? { pull: pull(Number(call.args.number)), files: [], files_total: 0, files_capped: false };
       if (cmd === "amend_info") return { sha: "a".repeat(40), summary: "Add retry helper", description: "", pushed: true };
       return null;
     },
@@ -152,6 +154,20 @@ describe("sidebar pull requests", () => {
     expect(first.querySelector(".pull-state")?.textContent).toBe("Open");
     expect(first.getAttribute("aria-label")).toBe("Pull request #7: Add retry helper, by chen, feature/retry to main, Open");
     expect(section(host)?.querySelector(".count")?.textContent).toBe("2");
+    expect(section(host)?.textContent).not.toContain("Showing");
+  });
+
+  it("counts the true total and says Showing 1,000 of <total> when the list is capped", async () => {
+    const { host } = await mountWorkspace({ pulls: () => [pull(7), pull(8)], paging: { total: 1500, capped: true } });
+
+    expect(section(host)?.querySelector(".count")?.textContent).toContain("1500");
+    expect(section(host)?.textContent).toContain("Showing 1,000 of 1,500");
+  });
+
+  it("says Showing the first 1,000 when the list is capped and the service gave no total", async () => {
+    const { host } = await mountWorkspace({ pulls: () => [pull(7), pull(8)], paging: { total: null, capped: true } });
+
+    expect(section(host)?.textContent).toContain("Showing the first 1,000");
   });
 
   it("says there are no open pull requests, and lists merged ones after Show merged and closed", async () => {
@@ -198,6 +214,8 @@ describe("pull request detail", () => {
         { filename: "src/app.ts", status: "modified", additions: 3, deletions: 4 },
         { filename: "old.ts", status: "removed", additions: 0, deletions: 9 },
       ],
+      files_total: 3,
+      files_capped: false,
     };
     const { host, calls } = await mountWorkspace({ pulls: () => [pull(7)], detail: () => detail });
 
@@ -218,10 +236,63 @@ describe("pull request detail", () => {
     expect(panel.querySelector('.flist .frow[aria-label="Modified src/app.ts"] .delta')?.textContent).toBe("+3 −4");
     expect(panel.querySelector('section[aria-label="Files"] .lhead .delta')?.textContent).toBe("+23 −13");
     expect(row(host, 7).getAttribute("aria-current")).toBe("true");
+    expect(panel.querySelector('section[aria-label="Files"] .lhead-title')?.textContent).toContain("Files · 3");
+    expect(panel.querySelector('section[aria-label="Files"] .field-note')).toBeNull();
+  });
+
+  describe("files beyond the loaded page (S44)", () => {
+    const files = (count: number) => Array.from({ length: count }, (_, index) => ({ filename: `src/f${index}.ts`, status: "modified", additions: 1, deletions: 2 }));
+    const open = async (loaded: number, files_total: number | null, files_capped: boolean) => {
+      const { host } = await mountWorkspace({ pulls: () => [pull(7)], detail: () => ({ pull: pull(7), files: files(loaded), files_total, files_capped }) });
+      row(host, 7).click();
+      await flush(60);
+      return (inspector(host) as HTMLElement).querySelector('section[aria-label="Files"]') as HTMLElement;
+    };
+
+    it("counts the true total of files and says the sums cover only the loaded ones when capped with a total", async () => {
+      const panel = await open(1000, 1500, true);
+
+      expect(panel.querySelector(".lhead-title")?.textContent).toContain("Files · 1500");
+      expect(panel.querySelector(".lhead .delta")?.textContent).toBe("+1000 −2000");
+      expect(panel.querySelector(".field-note")?.textContent).toBe("Showing 1,000 of 1,500. Additions and deletions cover only the 1,000 loaded files");
+    });
+
+    it("says Showing the first 1,000 when capped and the service gave no total", async () => {
+      const panel = await open(1000, null, true);
+
+      expect(panel.querySelector(".lhead-title")?.textContent).toContain("Files · 1000");
+      expect(panel.querySelector(".field-note")?.textContent).toBe("Showing the first 1,000. Additions and deletions cover only the 1,000 loaded files");
+    });
+
+    it("says the sums cover only the loaded files when the service reports more files than it listed, without claiming a cap", async () => {
+      const panel = await open(8, 12, false);
+
+      expect(panel.querySelector(".lhead-title")?.textContent).toContain("Files · 12");
+      expect(panel.querySelector(".field-note")?.textContent).toBe("Additions and deletions cover only the 8 loaded files");
+    });
+  });
+
+  it("ages the updated time as the clock ticks", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      vi.setSystemTime(new Date("2026-09-30T09:00:20Z"));
+      const { host } = await mountWorkspace({ pulls: () => [pull(7)] });
+      row(host, 7).click();
+      await flush(60);
+      const updated = () => [...(inspector(host) as HTMLElement).querySelectorAll(".ago")].map((entry) => entry.textContent);
+      expect(updated()).toContain("· 20s ago");
+
+      vi.advanceTimersByTime(2 * 60 * 60 * 1000);
+      await flush();
+
+      expect(updated()).toContain("· 2h ago");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders an unknown mergeability as a dash rather than a value", async () => {
-    const { host } = await mountWorkspace({ pulls: () => [pull(7)], detail: () => ({ pull: pull(7, { mergeable: null }), files: [] }) });
+    const { host } = await mountWorkspace({ pulls: () => [pull(7)], detail: () => ({ pull: pull(7, { mergeable: null }), files: [], files_total: 0, files_capped: false }) });
 
     row(host, 7).click();
     await flush(60);

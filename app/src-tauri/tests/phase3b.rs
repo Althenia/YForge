@@ -121,6 +121,34 @@ fn settings_default_persist_and_reject_invalid_values_with_a_tagged_error() {
 }
 
 #[test]
+fn tab_groups_persist_with_the_session_and_an_unnamed_group_is_refused() {
+    let h = harness();
+    let session = json!({
+        "tabs": ["/a", "/b", "/c"],
+        "active": 1,
+        "groups": [{ "name": "Backend", "color": "mint", "collapsed": true, "tabs": ["/b", "/c"] }]
+    });
+
+    invoke(&h.window, "session_save", json!({ "session": session })).unwrap();
+    let refused = invoke(
+        &h.window,
+        "session_save",
+        json!({ "session": {
+            "tabs": ["/a"],
+            "active": 0,
+            "groups": [{ "name": " ", "color": "red", "collapsed": false, "tabs": ["/a"] }]
+        } }),
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        invoke(&h.window, "session_load", json!({})).unwrap(),
+        session
+    );
+    assert_eq!(refused["kind"], "invalid_request");
+}
+
+#[test]
 fn recents_sessions_and_repository_overrides_persist_in_the_data_directory() {
     let h = harness();
     let repo = repository();
@@ -568,6 +596,144 @@ fn discard_is_undoable_and_delete_branch_recreates_the_branch() {
     )
     .unwrap();
     assert_eq!(git(repo.path(), &["rev-parse", "topic"]), topic);
+}
+
+fn branch_with_work(repo: &Path, name: &str) -> String {
+    git(repo, &["switch", "-q", "-c", name]);
+    std::fs::write(repo.join(format!("{name}.txt")), "x\n").unwrap();
+    git(repo, &["add", "."]);
+    git(repo, &["commit", "-q", "-m", &format!("{name} work")]);
+    let sha = git(repo, &["rev-parse", "HEAD"]);
+    git(repo, &["switch", "-q", "main"]);
+    sha
+}
+
+#[test]
+fn deleting_several_branches_is_one_toast_entry_whose_undo_restores_every_branch() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    let tips: Vec<String> = ["one", "two", "three"]
+        .iter()
+        .map(|name| branch_with_work(repo.path(), name))
+        .collect();
+
+    let outcome = invoke(
+        &h.window,
+        "delete_branches",
+        json!({ "path": path, "names": ["one", "two", "three"], "forced": ["one", "two", "three"] }),
+    )
+    .unwrap();
+
+    assert_eq!(outcome["done"], json!(["one", "two", "three"]));
+    let recorded = entries(&h);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["summary"], "Deleted 3 branches");
+    assert_eq!(recorded[0]["toast"], true);
+    assert_eq!(recorded[0]["ok"], true);
+    assert_eq!(recorded[0]["undo"]["kind"], "available");
+    invoke(
+        &h.window,
+        "undo_last",
+        json!({ "path": path, "id": recorded[0]["id"] }),
+    )
+    .unwrap();
+    for (name, tip) in ["one", "two", "three"].iter().zip(&tips) {
+        assert_eq!(&git(repo.path(), &["rev-parse", name]), tip);
+    }
+}
+
+#[test]
+fn a_partly_failed_branch_delete_is_one_entry_that_says_how_many_went_and_undoes_only_those() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    git(repo.path(), &["branch", "merged"]);
+    let kept_tip = branch_with_work(repo.path(), "unmerged");
+
+    let outcome = invoke(
+        &h.window,
+        "delete_branches",
+        json!({ "path": path, "names": ["merged", "unmerged"], "forced": [] }),
+    )
+    .unwrap();
+
+    assert_eq!(outcome["failed"][0]["name"], "unmerged");
+    let recorded = entries(&h);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["summary"], "Deleted 1 of 2 branches (1 failed)");
+    assert_eq!(recorded[0]["toast"], true);
+    assert_eq!(recorded[0]["ok"], true);
+    assert_eq!(git(repo.path(), &["rev-parse", "unmerged"]), kept_tip);
+    invoke(
+        &h.window,
+        "undo_last",
+        json!({ "path": path, "id": recorded[0]["id"] }),
+    )
+    .unwrap();
+    assert_eq!(
+        git(repo.path(), &["branch", "--list", "merged"]).trim(),
+        "merged"
+    );
+}
+
+#[test]
+fn a_branch_delete_where_every_branch_is_refused_is_one_failed_entry_and_an_error() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    branch_with_work(repo.path(), "unmerged");
+
+    let error = invoke(
+        &h.window,
+        "delete_branches",
+        json!({ "path": path, "names": ["unmerged"], "forced": [] }),
+    )
+    .unwrap_err();
+
+    assert_eq!(error["kind"], "unmerged_branch");
+    let recorded = entries(&h);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0]["ok"], false);
+}
+
+#[test]
+fn deleting_several_tags_and_dropping_several_stashes_are_one_toast_entry_each() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    for tag in ["v1", "v2", "v3"] {
+        git(repo.path(), &["tag", tag]);
+    }
+    for message in ["first", "second", "third"] {
+        std::fs::write(repo.path().join("a.txt"), format!("{message}\n")).unwrap();
+        git(repo.path(), &["stash", "push", "-q", "-m", message]);
+    }
+    let stashes: Vec<Value> = git(repo.path(), &["stash", "list", "--format=%H"])
+        .lines()
+        .enumerate()
+        .map(|(index, sha)| json!({ "index": index, "sha": sha }))
+        .collect();
+
+    invoke(
+        &h.window,
+        "delete_tags",
+        json!({ "path": path, "names": ["v1", "v2", "v3"] }),
+    )
+    .unwrap();
+    invoke(
+        &h.window,
+        "drop_stashes",
+        json!({ "path": path, "targets": [stashes[0], stashes[2]] }),
+    )
+    .unwrap();
+
+    let recorded = entries(&h);
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[0]["summary"], "Deleted 3 tags");
+    assert_eq!(recorded[1]["summary"], "Dropped 2 stashes");
+    assert!(recorded.iter().all(|entry| entry["toast"] == true));
+    assert_eq!(git(repo.path(), &["stash", "list"]).lines().count(), 1);
 }
 
 #[test]

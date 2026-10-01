@@ -78,7 +78,8 @@ function install() {
   mockIPC(
     (cmd) => {
       if (cmd === "settings_load") return defaultSettings;
-      if (cmd === "session_load") return { tabs: ["/r"], active: 0 };
+      if (cmd === "repo_aliases_list") return [];
+      if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
       if (cmd === "launch_path") return "/nowhere";
       if (cmd === "repo_open") return snapshot;
       if (cmd === "repo_graph") return { rows: [], carried: [], total: 0 };
@@ -153,7 +154,7 @@ describe("icon-driven controls (S15)", () => {
     const settings = mountWithApp(() => <SettingsView section="general" />);
     dispose = settings.dispose;
     await flush(40);
-    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(6);
+    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(8);
     for (const button of iconOnly(settings.host)) expect(button.dataset.tip).toBeTruthy();
   });
 
@@ -184,7 +185,6 @@ describe("icon-driven controls (S15)", () => {
 
     const sidebar = [...host.querySelectorAll(".sidebar .sec-title")].map((header) => [textOf(header), header.firstElementChild?.tagName]);
     expect(sidebar).toEqual([
-      ["Changes", "svg"],
       ["Branches", "svg"],
       ["Remotes", "svg"],
       ["Tags", "svg"],

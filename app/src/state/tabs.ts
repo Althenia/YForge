@@ -1,83 +1,275 @@
+import type { TabGroup as UserGroup } from "../ipc/bindings/TabGroup";
+import type { TabGroupColor } from "../ipc/bindings/TabGroupColor";
 import type { TabSession } from "../ipc/bindings/TabSession";
 import { basename } from "../format";
 
+export type { UserGroup };
+
 export type Tab = { kind: "repo"; path: string } | { kind: "launcher" };
 
-export type TabsState = { tabs: Tab[]; active: number };
+export type TabsState = { tabs: Tab[]; active: number; groups: UserGroup[] };
+
+export const GROUP_NAME_LIMIT = 40;
 
 const launcher: Tab = { kind: "launcher" };
 
 const isRepo = (tab: Tab, path: string): boolean => tab.kind === "repo" && tab.path === path;
 
+const pathOf = (tab: Tab): string | undefined => (tab.kind === "repo" ? tab.path : undefined);
+
+function revealTab(groups: UserGroup[], tab: Tab | undefined): UserGroup[] {
+  const path = tab === undefined ? undefined : pathOf(tab);
+  if (path === undefined || !groups.some((entry) => entry.collapsed && entry.tabs.includes(path))) return groups;
+  return groups.map((entry) => (entry.tabs.includes(path) ? { ...entry, collapsed: false } : entry));
+}
+
 export function openRepoTab(state: TabsState, path: string): TabsState {
   const existing = state.tabs.findIndex((tab) => isRepo(tab, path));
-  if (existing >= 0) return { ...state, active: existing };
+  if (existing >= 0) return { ...state, active: existing, groups: revealTab(state.groups, state.tabs[existing]) };
   const replaced = state.tabs[state.active]?.kind === "launcher" ? state.active : -1;
-  if (replaced >= 0) return { tabs: state.tabs.map((tab, index) => (index === replaced ? { kind: "repo", path } : tab)), active: replaced };
-  return { tabs: [...state.tabs, { kind: "repo", path }], active: state.tabs.length };
+  if (replaced >= 0) return { ...state, tabs: state.tabs.map((tab, index) => (index === replaced ? { kind: "repo", path } : tab)), active: replaced };
+  return { ...state, tabs: [...state.tabs, { kind: "repo", path }], active: state.tabs.length };
 }
 
 export function openLauncherTab(state: TabsState): TabsState {
   const existing = state.tabs.findIndex((tab) => tab.kind === "launcher");
   if (existing >= 0) return { ...state, active: existing };
-  return { tabs: [...state.tabs, launcher], active: state.tabs.length };
+  return { ...state, tabs: [...state.tabs, launcher], active: state.tabs.length };
+}
+
+function withoutTabs(groups: UserGroup[], tabs: Tab[]): UserGroup[] {
+  const open = new Set(tabs.flatMap((tab) => pathOf(tab) ?? []));
+  return groups.map((entry) => ({ ...entry, tabs: entry.tabs.filter((path) => open.has(path)) })).filter((entry) => entry.tabs.length > 0);
 }
 
 export function closeTab(state: TabsState, index: number): TabsState {
   const tabs = state.tabs.filter((_, position) => position !== index);
-  if (tabs.length === 0) return { tabs: [launcher], active: 0 };
+  if (tabs.length === 0) return { tabs: [launcher], active: 0, groups: [] };
   const active = index < state.active ? state.active - 1 : Math.min(state.active, tabs.length - 1);
-  return { tabs, active: index === state.active ? Math.min(index, tabs.length - 1) : active };
+  return { tabs, active: index === state.active ? Math.min(index, tabs.length - 1) : active, groups: withoutTabs(state.groups, tabs) };
 }
 
 export function activateTab(state: TabsState, index: number): TabsState {
-  return index >= 0 && index < state.tabs.length ? { ...state, active: index } : state;
+  return index >= 0 && index < state.tabs.length ? { ...state, active: index, groups: revealTab(state.groups, state.tabs[index]) } : state;
 }
 
 export const LAUNCHER_TAB_ID = "launcher";
 
 export const tabId = (tab: Tab): string => (tab.kind === "repo" ? tab.path : LAUNCHER_TAB_ID);
 
-export function tabLabel(tab: Tab): string {
-  return tab.kind === "launcher" ? "New tab" : basename(tab.path);
+export type Aliases = Readonly<Record<string, string>>;
+
+export const ALIAS_LIMIT = 40;
+
+export const repoName = (path: string, aliases: Aliases = {}): string => aliases[path] ?? basename(path);
+
+export function tabLabel(tab: Tab, aliases: Aliases = {}): string {
+  return tab.kind === "launcher" ? "New tab" : repoName(tab.path, aliases);
+}
+
+export function aliasProblem(alias: string): string | undefined {
+  if (alias.trim() === "") return "Enter an alias";
+  return [...alias.trim()].length > ALIAS_LIMIT ? `An alias is at most ${ALIAS_LIMIT} characters` : undefined;
 }
 
 export function sessionOf(state: TabsState): TabSession {
   const repos = state.tabs.filter((tab): tab is Extract<Tab, { kind: "repo" }> => tab.kind === "repo");
   const current = state.tabs[state.active];
   const active = current?.kind === "repo" ? repos.findIndex((tab) => tab.path === current.path) : repos.length - 1;
-  return { tabs: repos.map((tab) => tab.path), active: Math.max(active, 0) };
+  return { tabs: repos.map((tab) => tab.path), active: Math.max(active, 0), groups: state.groups.map((entry) => ({ ...entry, tabs: [...entry.tabs] })) };
 }
 
 export function restoreTabs(session: TabSession, launchPath: string | undefined): TabsState {
-  let state: TabsState = { tabs: session.tabs.map((path): Tab => ({ kind: "repo", path })), active: session.active };
-  if (state.tabs.length === 0) state = { tabs: [launcher], active: 0 };
+  let state: TabsState = { tabs: session.tabs.map((path): Tab => ({ kind: "repo", path })), active: session.active, groups: session.groups };
+  if (state.tabs.length === 0) state = { tabs: [launcher], active: 0, groups: [] };
   else state = { ...state, active: Math.min(session.active, state.tabs.length - 1) };
   return launchPath === undefined ? state : openRepoTab(state, launchPath);
 }
 
 export type MainRoots = Readonly<Record<string, string>>;
 
-export type TabGroup = { main: string; tabs: Array<{ tab: Tab; index: number; linked: boolean }> };
+export type TabCluster = { main: string; tabs: Array<{ tab: Tab; index: number; linked: boolean }> };
 
 const mainOf = (path: string, mains: MainRoots): string => mains[path] ?? path;
 
 const groupKey = (tab: Tab, mains: MainRoots): string => (tab.kind === "repo" ? mainOf(tab.path, mains) : LAUNCHER_TAB_ID);
 
-export function groupTabs(state: TabsState, mains: MainRoots): TabsState {
-  const keys = [...new Set(state.tabs.map((tab) => groupKey(tab, mains)))];
-  const ordered = keys.flatMap((key) => state.tabs.filter((tab) => groupKey(tab, mains) === key));
-  const current = state.tabs[state.active];
-  return { tabs: ordered, active: Math.max(ordered.indexOf(current as Tab), 0) };
+const firstSeen = (keys: string[]): Map<string, number> => {
+  const seen = new Map<string, number>();
+  keys.forEach((key) => seen.has(key) || seen.set(key, seen.size));
+  return seen;
+};
+
+function withTabs(state: TabsState, tabs: Tab[], groups: UserGroup[]): TabsState {
+  return { tabs, active: Math.max(tabs.indexOf(state.tabs[state.active] as Tab), 0), groups };
 }
 
-export function tabGroups(state: TabsState, mains: MainRoots): TabGroup[] {
-  const groups = new Map<string, TabGroup>();
+export function groupTabs(state: TabsState, mains: MainRoots): TabsState {
+  const clusterOf = state.tabs.map((tab) => groupKey(tab, mains));
+  const groupOfCluster = new Map<string, number>();
+  state.tabs.forEach((tab, position) => {
+    const path = pathOf(tab);
+    const owner = path === undefined ? -1 : state.groups.findIndex((entry) => entry.tabs.includes(path));
+    const key = clusterOf[position] as string;
+    if (owner >= 0 && !groupOfCluster.has(key)) groupOfCluster.set(key, owner);
+  });
+  const unitOf = clusterOf.map((key) => (groupOfCluster.has(key) ? `group:${groupOfCluster.get(key)}` : `cluster:${key}`));
+  const unitRank = firstSeen(unitOf);
+  const clusterRank = firstSeen(clusterOf);
+  const order = state.tabs
+    .map((tab, position) => ({ tab, unit: unitOf[position] as string, rank: [unitRank.get(unitOf[position] as string) as number, clusterRank.get(clusterOf[position] as string) as number, position] as const }))
+    .sort((left, right) => left.rank[0] - right.rank[0] || left.rank[1] - right.rank[1] || left.rank[2] - right.rank[2]);
+  const groups = [...unitRank.keys()].flatMap((unit) => {
+    const index = unit.startsWith("group:") ? Number(unit.slice("group:".length)) : -1;
+    const entry = state.groups[index];
+    return entry === undefined ? [] : [{ ...entry, tabs: order.filter((item) => item.unit === unit).flatMap((item) => pathOf(item.tab) ?? []) }];
+  });
+  return withTabs(state, order.map((item) => item.tab), groups);
+}
+
+export function tabGroups(state: TabsState, mains: MainRoots): TabCluster[] {
+  const clusters = new Map<string, TabCluster>();
   state.tabs.forEach((tab, index) => {
     const key = groupKey(tab, mains);
-    const group = groups.get(key) ?? { main: key, tabs: [] };
-    group.tabs.push({ tab, index, linked: tab.kind === "repo" && mainOf(tab.path, mains) !== tab.path });
-    groups.set(key, group);
+    const cluster = clusters.get(key) ?? { main: key, tabs: [] };
+    cluster.tabs.push({ tab, index, linked: tab.kind === "repo" && mainOf(tab.path, mains) !== tab.path });
+    clusters.set(key, cluster);
   });
-  return [...groups.values()];
+  return [...clusters.values()];
+}
+
+export type SegmentTab = TabCluster["tabs"][number] & { hidden: boolean };
+
+export type SegmentCluster = { main: string; tabs: SegmentTab[] };
+
+export type TabSegment = { kind: "cluster"; cluster: SegmentCluster } | { kind: "group"; index: number; group: UserGroup; clusters: SegmentCluster[] };
+
+export function tabSegments(state: TabsState, mains: MainRoots): TabSegment[] {
+  const visible = (cluster: TabCluster, collapsed: boolean): SegmentCluster => ({
+    main: cluster.main,
+    tabs: cluster.tabs.map((entry) => ({ ...entry, hidden: collapsed && entry.index !== state.active })),
+  });
+  const segments: TabSegment[] = [];
+  for (const cluster of tabGroups(state, mains)) {
+    const first = cluster.tabs[0]?.tab;
+    const path = first === undefined ? undefined : pathOf(first);
+    const index = path === undefined ? -1 : state.groups.findIndex((entry) => entry.tabs.includes(path));
+    const group = state.groups[index];
+    const open = segments.at(-1);
+    if (group === undefined) segments.push({ kind: "cluster", cluster: visible(cluster, false) });
+    else if (open?.kind === "group" && open.index === index) open.clusters.push(visible(cluster, group.collapsed));
+    else segments.push({ kind: "group", index, group, clusters: [visible(cluster, group.collapsed)] });
+  }
+  return segments;
+}
+
+export function groupNameProblem(name: string): string | undefined {
+  if (name.trim() === "") return "Enter a group name";
+  return [...name.trim()].length > GROUP_NAME_LIMIT ? `A group name is at most ${GROUP_NAME_LIMIT} characters` : undefined;
+}
+
+const clusterPaths = (state: TabsState, mains: MainRoots, path: string): Set<string> => {
+  const key = mainOf(path, mains);
+  return new Set(state.tabs.flatMap((tab) => (tab.kind === "repo" && mainOf(tab.path, mains) === key ? tab.path : [])));
+};
+
+function moveAfterGroup(state: TabsState, moving: Set<string>, group: UserGroup | undefined): Tab[] {
+  const moved = state.tabs.filter((tab) => tab.kind === "repo" && moving.has(tab.path));
+  const rest = state.tabs.filter((tab) => !moved.includes(tab));
+  const anchor = group === undefined ? -1 : rest.findLastIndex((tab) => tab.kind === "repo" && group.tabs.includes(tab.path));
+  return anchor < 0 ? state.tabs : [...rest.slice(0, anchor + 1), ...moved, ...rest.slice(anchor + 1)];
+}
+
+function leaveGroups(groups: UserGroup[], moving: Set<string>): UserGroup[] {
+  return groups.map((entry) => ({ ...entry, tabs: entry.tabs.filter((path) => !moving.has(path)) }));
+}
+
+const groupIndexOf = (state: TabsState, path: string): number => state.groups.findIndex((entry) => entry.tabs.includes(path));
+
+export function addToGroup(state: TabsState, mains: MainRoots, path: string, index: number): TabsState {
+  const target = state.groups[index];
+  if (target === undefined) return state;
+  const moving = clusterPaths(state, mains, path);
+  const others = { ...state, groups: leaveGroups(state.groups, moving) };
+  const tabs = moveAfterGroup(others, moving, others.groups[index]);
+  const groups = others.groups.map((entry, position) => (position === index ? { ...entry, tabs: [...entry.tabs, ...tabs.flatMap((tab) => (tab.kind === "repo" && moving.has(tab.path) ? tab.path : []))] } : entry));
+  return groupTabs(withTabs(state, tabs, groups.filter((entry) => entry.tabs.length > 0)), mains);
+}
+
+export function removeFromGroup(state: TabsState, mains: MainRoots, path: string): TabsState {
+  const index = groupIndexOf(state, path);
+  if (index < 0) return state;
+  const moving = clusterPaths(state, mains, path);
+  const groups = leaveGroups(state.groups, moving);
+  return groupTabs(withTabs(state, moveAfterGroup({ ...state, groups }, moving, groups[index]), groups.filter((entry) => entry.tabs.length > 0)), mains);
+}
+
+export function newGroup(state: TabsState, mains: MainRoots, path: string, name: string, color: TabGroupColor): TabsState {
+  const moving = clusterPaths(state, mains, path);
+  const previous = groupIndexOf(state, path);
+  const groups = leaveGroups(state.groups, moving);
+  const tabs = previous < 0 ? state.tabs : moveAfterGroup({ ...state, groups }, moving, groups[previous]);
+  const members = tabs.flatMap((tab) => (tab.kind === "repo" && moving.has(tab.path) ? tab.path : []));
+  return groupTabs(withTabs(state, tabs, [...groups.filter((entry) => entry.tabs.length > 0), { name: name.trim(), color, collapsed: false, tabs: members }]), mains);
+}
+
+const editGroup = (state: TabsState, index: number, change: Partial<UserGroup>): TabsState => ({
+  ...state,
+  groups: state.groups.map((entry, position) => (position === index ? { ...entry, ...change } : entry)),
+});
+
+export const renameGroup = (state: TabsState, index: number, name: string): TabsState => editGroup(state, index, { name: name.trim() });
+
+export const recolorGroup = (state: TabsState, index: number, color: TabGroupColor): TabsState => editGroup(state, index, { color });
+
+export const toggleGroup = (state: TabsState, index: number): TabsState => editGroup(state, index, { collapsed: !(state.groups[index]?.collapsed ?? false) });
+
+export const ungroup = (state: TabsState, index: number): TabsState => ({ ...state, groups: state.groups.filter((_, position) => position !== index) });
+
+export function closeTabIds(state: TabsState, ids: readonly string[]): TabsState {
+  const closing = new Set(ids);
+  const closed = (tab: Tab): boolean => closing.has(tabId(tab));
+  const tabs = state.tabs.filter((tab) => !closed(tab));
+  if (tabs.length === state.tabs.length) return state;
+  if (tabs.length === 0) return { tabs: [launcher], active: 0, groups: [] };
+  const current = state.tabs[state.active] as Tab;
+  const first = state.tabs.findIndex(closed);
+  const active = closed(current) ? Math.min(first, tabs.length - 1) : tabs.indexOf(current);
+  return { tabs, active, groups: withoutTabs(state.groups, tabs) };
+}
+
+export const closeGroup = (state: TabsState, index: number): TabsState => closeTabIds(state, state.groups[index]?.tabs ?? []);
+
+export const idsOfOthers = (state: TabsState, index: number): string[] => state.tabs.flatMap((tab, position) => (position === index ? [] : [tabId(tab)]));
+
+export const idsToTheRight = (state: TabsState, index: number): string[] => state.tabs.slice(index + 1).map(tabId);
+
+export const CLOSED_LIMIT = 20;
+
+export type ClosedTab = { path: string; siblings: string[] };
+
+export function closedEntries(state: TabsState, ids: readonly string[]): ClosedTab[] {
+  const closing = new Set(ids);
+  return state.tabs.flatMap((tab) => {
+    const path = pathOf(tab);
+    if (path === undefined || !closing.has(path)) return [];
+    const group = state.groups.find((entry) => entry.tabs.includes(path));
+    return [{ path, siblings: (group?.tabs ?? []).filter((member) => !closing.has(member)) }];
+  });
+}
+
+export const pushClosed = (stack: readonly ClosedTab[], entries: readonly ClosedTab[]): ClosedTab[] => [...stack, ...entries].slice(-CLOSED_LIMIT);
+
+export function nextClosed(stack: readonly ClosedTab[], state: TabsState): { entry: ClosedTab; rest: ClosedTab[] } | undefined {
+  const open = new Set(state.tabs.flatMap((tab) => pathOf(tab) ?? []));
+  const index = stack.findLastIndex((entry) => !open.has(entry.path));
+  const entry = stack[index];
+  return entry === undefined ? undefined : { entry, rest: stack.slice(0, index) };
+}
+
+export function reopenTab(state: TabsState, mains: MainRoots, closed: ClosedTab): TabsState {
+  const opened = openRepoTab(state, closed.path);
+  if (opened.groups.some((entry) => entry.tabs.includes(closed.path))) return opened;
+  const former = opened.groups.findIndex((entry) => closed.siblings.some((sibling) => entry.tabs.includes(sibling)));
+  return former < 0 ? opened : addToGroup(opened, mains, closed.path, former);
 }

@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use common::{
-    add_active, claude_blob, commit_context, messages_reply, provider_input, store_tokens, Harness,
-    HttpFake, Reply, FAR_FUTURE, GOOD,
+    add_configured, claude_blob, commit_context, messages_reply, provider_input, store_tokens,
+    Harness, HttpFake, Reply, FAR_FUTURE, GOOD,
 };
 use reqwest::Url;
 use serde_json::{json, Value};
@@ -16,7 +16,7 @@ use yforge_core::{
 };
 
 async fn claude_provider(h: &Harness, ai: &Ai) -> String {
-    add_active(
+    add_configured(
         h,
         ai,
         provider_input(ProviderKind::Claude, AuthMode::Subscription, "Claude"),

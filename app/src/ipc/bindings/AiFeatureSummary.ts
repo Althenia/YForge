@@ -2,4 +2,4 @@
 import type { AiFeature } from "./AiFeature";
 import type { AiFeatureConfig } from "./AiFeatureConfig";
 
-export type AiFeatureSummary = { feature: AiFeature, config?: AiFeatureConfig | null, default_prompt_template: string, };
+export type AiFeatureSummary = { feature: AiFeature, config?: AiFeatureConfig | null, enabled: boolean, available: boolean, default_prompt_template: string, };

@@ -15,17 +15,20 @@ import type { IdentityField } from "./bindings/IdentityField";
 import type { RecentRepo } from "./bindings/RecentRepo";
 import type { RecentStatus } from "./bindings/RecentStatus";
 import type { RemoteInfo } from "./bindings/RemoteInfo";
+import type { RepoAlias } from "./bindings/RepoAlias";
 import type { RepoSettings } from "./bindings/RepoSettings";
+import type { RevisionRange } from "./bindings/RevisionRange";
 import type { SearchResult } from "./bindings/SearchResult";
 import type { TabSession } from "./bindings/TabSession";
+import type { UpdateCheck } from "./bindings/UpdateCheck";
 import type { UsageRecord } from "./bindings/UsageRecord";
 import type { AmendInfo } from "./bindings/AmendInfo";
 import type { AppInfo } from "./bindings/AppInfo";
+import type { BatchOutcome } from "./bindings/BatchOutcome";
 import type { ChangeArea } from "./bindings/ChangeArea";
 import type { CheckoutOutcome } from "./bindings/CheckoutOutcome";
 import type { CloneOptions } from "./bindings/CloneOptions";
 import type { CheckoutTarget } from "./bindings/CheckoutTarget";
-import type { CommitBrief } from "./bindings/CommitBrief";
 import type { CommitDetails } from "./bindings/CommitDetails";
 import type { ConflictFile } from "./bindings/ConflictFile";
 import type { ConflictSide } from "./bindings/ConflictSide";
@@ -54,8 +57,13 @@ import type { RepoSnapshot } from "./bindings/RepoSnapshot";
 import type { ResetMode } from "./bindings/ResetMode";
 import type { PullReport } from "./bindings/PullReport";
 import type { PushTarget } from "./bindings/PushTarget";
+import type { GitHost } from "./bindings/GitHost";
+import type { GitHostDraft } from "./bindings/GitHostDraft";
+import type { GitHostProblem } from "./bindings/GitHostProblem";
 import type { SshKey } from "./bindings/SshKey";
+import type { UrlIdentity } from "./bindings/UrlIdentity";
 import type { StashRestore } from "./bindings/StashRestore";
+import type { StashTarget } from "./bindings/StashTarget";
 import type { SwitchStash } from "./bindings/SwitchStash";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
 import type { WorktreeIntegration } from "./bindings/WorktreeIntegration";
@@ -87,9 +95,17 @@ import type { MatchedRepo } from "./bindings/MatchedRepo";
 import type { PlatformConnection } from "./bindings/PlatformConnection";
 import type { PlatformKind } from "./bindings/PlatformKind";
 import type { PrDetail } from "./bindings/PrDetail";
+import type { PullList } from "./bindings/PullList";
 import type { PullRequest } from "./bindings/PullRequest";
+import type { JiraConnection } from "./bindings/JiraConnection";
+import type { JiraIssueList } from "./bindings/JiraIssueList";
+import type { JiraIssueLookup } from "./bindings/JiraIssueLookup";
+import type { JiraKind } from "./bindings/JiraKind";
+import type { LaunchpadPulls } from "./bindings/LaunchpadPulls";
+import type { Wip } from "./bindings/Wip";
 
 export const REPO_CHANGED_EVENT = "repo-changed";
+export const MENU_ACTION_EVENT = "menu-action";
 export const OPERATION_PROGRESS_EVENT = "operation-progress";
 export const AUTH_PROMPT_EVENT = "auth-prompt";
 export const ACTIVITY_EVENT = "activity-recorded";
@@ -164,12 +180,14 @@ export const client = {
   createBranch: (path: string, name: string, at: string | null, checkout: boolean) =>
     call<null>("create_branch", { path, name, at, checkout }),
   renameBranch: (path: string, from: string, to: string) => call<null>("rename_branch", { path, from, to }),
-  branchDeletePreview: (path: string, name: string) => call<CommitBrief[]>("branch_delete_preview", { path, name }),
+  branchDeletePreview: (path: string, name: string) => call<RevisionRange>("branch_delete_preview", { path, name }),
+  deleteBranches: (path: string, names: readonly string[], forced: readonly string[]) => call<BatchOutcome>("delete_branches", { path, names, forced }),
   deleteBranch: (path: string, name: string, force: boolean) => call<null>("delete_branch", { path, name, force }),
   stashPush: (path: string, message: string, untracked: boolean) => call<null>("stash_push", { path, message, untracked }),
   stashApply: (path: string, index: number, sha: string) => call<StashRestore>("stash_apply", { path, index, sha }),
   stashPop: (path: string, index: number, sha: string) => call<StashRestore>("stash_pop", { path, index, sha }),
   stashDrop: (path: string, index: number, sha: string) => call<null>("stash_drop", { path, index, sha }),
+  dropStashes: (path: string, targets: readonly StashTarget[]) => call<BatchOutcome>("drop_stashes", { path, targets }),
   fetch: (path: string, id: string, prune: boolean, interactive = true) =>
     call<null>("fetch", interactive ? { path, id, prune } : { path, id, prune, interactive }),
   pull: (path: string, id: string, mode: PullMode) => call<PullOutcome>("pull", { path, id, mode }),
@@ -183,6 +201,14 @@ export const client = {
   switchStashRestore: (path: string, branch: string, sha: string) => call<StashRestore>("switch_stash_restore", { path, branch, sha }),
   switchStashDismiss: (path: string, branch: string, sha: string) => call<null>("switch_stash_dismiss", { path, branch, sha }),
   sshKeysList: () => call<SshKey[]>("ssh_keys_list"),
+  sshPublicKey: (path: string) => call<string>("ssh_public_key", { path }),
+  gitHostsList: () => call<GitHost[]>("git_hosts_list"),
+  gitHostSave: (id: string | null, draft: GitHostDraft) => call<GitHost>("git_host_save", { id, draft }),
+  gitHostRemove: (id: string) => call<null>("git_host_remove", { id }),
+  gitHostFieldProblem: (field: "host" | "ssh_key" | "new_key", value: string) => call<GitHostProblem | null>("git_host_field_problem", { field, value }),
+  gitHostDefaultKeyPath: (host: string) => call<string>("git_host_default_key_path", { host }),
+  gitHostGenerateKey: (host: string, keyPath: string, passphrase: string | null) => call<string>("git_host_generate_key", { host, keyPath, passphrase }),
+  gitIdentityForUrl: (url: string) => call<UrlIdentity>("git_identity_for_url", { url }),
   worktreeList: (path: string) => call<WorktreeStatus[]>("worktree_list", { path }),
   worktreeSuggestPath: (path: string, branch: string) => call<string>("worktree_suggest_path", { path, branch }),
   worktreeCreate: (path: string, branch: string, create: boolean, start: string | null, destination: string) =>
@@ -222,6 +248,7 @@ export const client = {
   createTag: (path: string, name: string, at: string | null, message: string | null) =>
     call<null>("create_tag", { path, name, at, message }),
   deleteTag: (path: string, name: string) => call<null>("delete_tag", { path, name }),
+  deleteTags: (path: string, names: readonly string[]) => call<BatchOutcome>("delete_tags", { path, names }),
   pushTag: (path: string, id: string, remote: string, name: string) => call<null>("push_tag", { path, id, remote, name }),
   deleteRemoteTag: (path: string, id: string, remote: string, name: string) =>
     call<null>("delete_remote_tag", { path, id, remote, name }),
@@ -238,12 +265,12 @@ export const client = {
   aiProviderAdd: (input: ProviderInput) => call<ProviderSummary>("ai_provider_add", { input }),
   aiProviderUpdate: (update: ProviderUpdate) => call<ProviderSummary>("ai_provider_update", { update }),
   aiProviderRemove: (id: string) => call<null>("ai_provider_remove", { id }),
-  aiSetActive: (id: string | null, model: string | null) => call<null>("ai_set_active", { id, model }),
   aiProviderTest: (id: string) => call<ProviderStatus>("ai_provider_test", { id }),
   aiProviderModels: (id: string) => call<ModelInfo[]>("ai_models", { providerId: id }),
   aiFeatureConfigList: () => call<AiFeatureSummary[]>("ai_feature_config_list"),
   aiFeatureConfigSet: (feature: AiFeature, providerId: string, modelId: string, promptTemplate: string) =>
     call<AiFeatureSummary>("ai_feature_config_set", { feature, providerId, modelId, promptTemplate }),
+  aiFeatureConfigEnable: (feature: AiFeature, enabled: boolean) => call<AiFeatureSummary>("ai_feature_config_enable", { feature, enabled }),
   aiFeatureConfigReset: (feature: AiFeature) => call<AiFeatureSummary>("ai_feature_config_reset", { feature }),
   aiSignIn: (provider: string, id: string, method: AiSignInMethod) => call<ProviderStatus>("ai_sign_in", { provider, id, method }),
   aiGenerateCommitMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_commit_message", { path, id }),
@@ -255,10 +282,22 @@ export const client = {
   platformConnectionRemove: (id: string) => call<null>("platform_connection_remove", { id }),
   platformConnectionTest: (id: string) => call<string>("platform_connection_test", { id }),
   platformRepoMatch: (path: string) => call<MatchedRepo | null>("platform_repo_match", { path }),
-  platformPrsList: (path: string, state: PrListState) => call<PullRequest[]>("platform_prs_list", { path, state }),
+  platformPrsList: (path: string, state: PrListState) => call<PullList>("platform_prs_list", { path, state }),
   platformPrDetail: (path: string, number: number) => call<PrDetail>("platform_pr_detail", { path, number }),
   platformPrCreate: (path: string, input: CreatePull) => call<PullRequest>("platform_pr_create", { path, input }),
   platformPrMerge: (path: string, number: number) => call<PullRequest>("platform_pr_merge", { path, number }),
+  platformMyPulls: (id: string) => call<LaunchpadPulls>("platform_my_pulls", { id }),
+  launchpadWips: () => call<Wip[]>("launchpad_wips"),
+  jiraConnectionsList: () => call<JiraConnection[]>("jira_connections_list"),
+  jiraConnectionAdd: (kind: JiraKind, site: string, email: string | null, token: string) =>
+    call<JiraConnection>("jira_connection_add", { kind, site, email, token }),
+  jiraConnectionRemove: (id: string) => call<null>("jira_connection_remove", { id }),
+  jiraConnectionTest: (id: string) => call<string>("jira_connection_test", { id }),
+  jiraFieldProblem: (field: string, value: string) => call<string | null>("jira_field_problem", { field, value }),
+  jiraMyIssues: (id: string) => call<JiraIssueList>("jira_my_issues", { id }),
+  jiraIssuesLookup: (keys: string[]) => call<JiraIssueLookup[]>("jira_issues_lookup", { keys }),
+  jiraIssueKeys: (texts: string[]) => call<string[][]>("jira_issue_keys", { texts }),
+  jiraBranchName: (key: string, summary: string) => call<string>("jira_branch_name", { key, summary }),
   searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
     call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
   fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
@@ -297,6 +336,11 @@ export const client = {
   recentStatuses: (paths: string[]) => call<RecentStatus[]>("recent_statuses", { paths }),
   sessionLoad: () => call<TabSession>("session_load"),
   sessionSave: (session: TabSession) => call<null>("session_save", { session }),
+  repoAliasesList: () => call<RepoAlias[]>("repo_aliases_list"),
+  repoAliasSet: (path: string, alias: string | null) => call<RepoAlias[]>("repo_alias_set", { path, alias }),
+  updateCheck: () => call<UpdateCheck>("update_check"),
+  updateInstall: () => call<null>("update_install"),
+  menuUpdate: (enabled: Record<string, boolean>, checked: Record<string, boolean>) => call<null>("menu_update", { enabled, checked }),
   openPath: (path: string, with_: OpenWith) => call<null>("open_path", { path, with: with_ }),
   openUrl: (url: string): void => {
     if (!/^https?:\/\//i.test(url)) throw new IpcError({ kind: "invalid_request", message: `${url} is not an http or https address` });
@@ -338,6 +382,7 @@ export const client = {
     listen<AiSignInEvent>(AI_SIGN_IN_EVENT, (event) => handler(event.payload)),
   onOpenPathRequested: (handler: (request: OpenPathRequested) => void): Promise<UnlistenFn> =>
     listen<OpenPathRequested>(OPEN_PATH_REQUESTED_EVENT, (event) => handler(event.payload)),
+  onMenuAction: (handler: (id: string) => void): Promise<UnlistenFn> => listen<string>(MENU_ACTION_EVENT, (event) => handler(event.payload)),
   onRepoChanged: (handler: (change: RepoChanged) => void): Promise<UnlistenFn> =>
     listen<RepoChanged>(REPO_CHANGED_EVENT, (event) => handler(event.payload)),
 };

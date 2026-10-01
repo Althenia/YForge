@@ -5,6 +5,7 @@ import { client, type PrListState } from "../ipc/client";
 import type { ConfirmCopy } from "./confirmCopy";
 import { cardOfPlatform, defaultTarget, mergeCopy, platformFailure, type PlatformFailure, type PullDraft } from "./platformModel";
 import { matchOptions, pullsOptions } from "./platformQueries";
+import { cappedText, countOf } from "./listCount";
 import { platformKeys } from "./queryKeys";
 import { useQuery } from "./query";
 import type { RepoSession } from "./repoSession";
@@ -60,7 +61,9 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
   return {
     matched,
     matchFailure: (): PlatformFailure | undefined => (match.error == null ? undefined : platformFailure(match.error)),
-    pulls: (): PullRequest[] => pulls.data ?? [],
+    pulls: (): PullRequest[] => pulls.data?.pulls ?? [],
+    pullsTotal: (): number => (pulls.data === undefined ? 0 : countOf(pulls.data.pulls.length, pulls.data)),
+    pullsCappedText: (): string | undefined => (pulls.data === undefined ? undefined : cappedText(pulls.data)),
     loading: () => pulls.isFetching,
     failure: (): PlatformFailure | undefined => (pulls.error == null ? undefined : platformFailure(pulls.error)),
     listState,

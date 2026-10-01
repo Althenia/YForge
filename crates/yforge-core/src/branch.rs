@@ -1,9 +1,10 @@
 use std::path::Path;
 
-use crate::commit::{parse_briefs, validate_sha, BRIEF_FORMAT};
+use crate::commit::validate_sha;
 use crate::error::CoreError;
 use crate::git;
-use crate::model::{AutoStash, CheckoutOutcome, CheckoutTarget, CommitBrief, StashRestore};
+use crate::integrate;
+use crate::model::{AutoStash, CheckoutOutcome, CheckoutTarget, RevisionRange, StashRestore};
 use crate::refs;
 use crate::repo;
 use crate::snapshots::{self, Action};
@@ -339,15 +340,12 @@ pub fn rename_branch(path: &Path, from: &str, to: &str) -> Result<(), CoreError>
     git::run(&root, &["branch", "--move", from, to]).map(drop)
 }
 
-fn lost_commits(root: &Path, name: &str) -> Result<Vec<CommitBrief>, CoreError> {
+fn lost_range(root: &Path, name: &str) -> Result<RevisionRange, CoreError> {
     let branch = format!("refs/heads/{name}");
     let exclude = format!("--exclude={name}");
-    let output = git::run(
+    integrate::range(
         root,
         &[
-            "log",
-            "--no-show-signature",
-            BRIEF_FORMAT,
             &branch,
             "--not",
             &exclude,
@@ -355,14 +353,13 @@ fn lost_commits(root: &Path, name: &str) -> Result<Vec<CommitBrief>, CoreError> 
             "--remotes",
             "--tags",
         ],
-    )?;
-    parse_briefs(&output)
+    )
 }
 
-pub fn branch_delete_preview(path: &Path, name: &str) -> Result<Vec<CommitBrief>, CoreError> {
+pub fn branch_delete_preview(path: &Path, name: &str) -> Result<RevisionRange, CoreError> {
     let root = repo::open(path)?;
     require_local_branch(&root, name)?;
-    lost_commits(&root, name)
+    lost_range(&root, name)
 }
 
 pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreError> {
@@ -374,11 +371,11 @@ pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreErr
         )));
     }
     if !force {
-        let lost = lost_commits(&root, name)?;
-        if !lost.is_empty() {
+        let lost = lost_range(&root, name)?.count;
+        if lost > 0 {
             return Err(CoreError::UnmergedBranch {
                 branch: name.to_owned(),
-                commits: u32::try_from(lost.len()).unwrap_or(u32::MAX),
+                commits: lost,
             });
         }
     }

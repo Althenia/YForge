@@ -2,8 +2,10 @@ import { keepPreviousData, useMutation, useQueryClient } from "@tanstack/solid-q
 import { useQuery } from "../state/query";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { basename } from "../format";
+import { repoName } from "../state/tabs";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { useNow } from "../state/clock";
 import { appKeys } from "../state/queryKeys";
 import { displayPath, filterRecents, openedAgo, statusChips, type RecentRow } from "../state/launcher";
 import { Icon } from "./Icon";
@@ -38,8 +40,8 @@ export function Launcher() {
     const found = new Map((statuses.data ?? []).map((status) => [status.path, status]));
     return (recents.data ?? []).map((recent): RecentRow => ({ recent, status: found.get(recent.path) }));
   });
-  const visible = createMemo(() => filterRecents(rows(), query()));
-  const now = Math.floor(Date.now() / 1000);
+  const visible = createMemo(() => filterRecents(rows(), query(), app.aliases()));
+  const now = useNow();
 
   onMount(() => {
     filter?.focus();
@@ -105,6 +107,10 @@ export function Launcher() {
             <Icon name="plus" />
             Create…
           </button>
+          <button type="button" class="btn" onClick={app.openLaunchpad}>
+            <Icon name="launchpad" />
+            Launchpad
+          </button>
         </div>
         <div class="dropzone" role="group" aria-label="Drop a folder to open it">
           <Icon name="folder" />
@@ -150,7 +156,7 @@ export function Launcher() {
                       disabled={chips().missing}
                       onClick={() => void app.openRepository(row.recent.path)}
                     >
-                      <span class="recent-name">{basename(row.recent.path)}</span>
+                      <span class="recent-name">{repoName(row.recent.path, app.aliases())}</span>
                       <span class="recent-meta">
                         <span class="ref">{chips().branch}</span>
                         <Show when={chips().sync}>
@@ -158,6 +164,9 @@ export function Launcher() {
                         </Show>
                         <Show when={chips().changes}>
                           <span>· {chips().changes}</span>
+                        </Show>
+                        <Show when={chips().problem}>
+                          <span>· {chips().problem}</span>
                         </Show>
                         <Show when={chips().worktrees}>
                           <span>· {chips().worktrees}</span>
@@ -168,7 +177,7 @@ export function Launcher() {
                       </span>
                     </button>
                     <span class="recent-age" title={new Date(row.recent.opened_at * 1000).toLocaleString()}>
-                      {openedAgo(row.recent.opened_at, now)}
+                      {openedAgo(row.recent.opened_at, now())}
                     </span>
                     <span class="recent-acts">
                       <Show
@@ -178,7 +187,7 @@ export function Launcher() {
                             <button
                               type="button"
                               class="icon-btn dense"
-                              {...tip("Reveal in Finder", undefined, `Reveal ${basename(row.recent.path)} in Finder`)}
+                              {...tip("Reveal in Finder", undefined, `Reveal ${repoName(row.recent.path, app.aliases())} in Finder`)}
                               onClick={() => void client.openPath(row.recent.path, "finder")}
                             >
                               <Icon name="folder" />
@@ -186,7 +195,7 @@ export function Launcher() {
                             <button
                               type="button"
                               class="icon-btn dense"
-                              {...tip("Open in terminal", undefined, `Open ${basename(row.recent.path)} in terminal`)}
+                              {...tip("Open in terminal", undefined, `Open ${repoName(row.recent.path, app.aliases())} in terminal`)}
                               onClick={() => void client.openPath(row.recent.path, "terminal")}
                             >
                               <Icon name="terminal" />
@@ -201,7 +210,7 @@ export function Launcher() {
                       <button
                         type="button"
                         class="icon-btn dense"
-                        {...tip("Remove from recents; files stay untouched", undefined, `Remove ${basename(row.recent.path)} from recents`)}
+                        {...tip("Remove from recents; files stay untouched", undefined, `Remove ${repoName(row.recent.path, app.aliases())} from recents`)}
                         onClick={() => void remove(row.recent.path)}
                       >
                         <Icon name="close" />

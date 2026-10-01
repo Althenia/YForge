@@ -1,13 +1,21 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { defaultSettings } from "../state/settingsModel";
 import { ActivityDrawer } from "./ActivityDrawer";
 import { buttonNamed, flush, mountWithApp } from "./testkit";
+import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
 
+let restoreLayout: (() => void) | undefined;
+
+beforeEach(() => {
+  restoreLayout = stubScrollLayout({ viewport: 1500, row: 36, total: 2000 });
+});
+
 afterEach(() => {
+  restoreLayout?.();
   vi.unstubAllGlobals();
   dispose?.();
   dispose = undefined;
@@ -43,8 +51,10 @@ async function open(options: { history: ActivityEntry[]; session: ActivityEntry[
     switch (cmd) {
       case "settings_load":
         return defaultSettings;
+      case "repo_aliases_list":
+        return [];
       case "session_load":
-        return { tabs: [], active: 0 };
+        return { tabs: [], active: 0, groups: [] };
       case "launch_path":
         return "/nowhere";
       case "repo_open":
@@ -179,4 +189,62 @@ describe("activity drawer identity badge", () => {
     expect(calls.some((call) => call.cmd === "avatar_url")).toBe(true);
   });
 
+});
+
+describe("activity drawer with a full log", () => {
+  const LOG = 300;
+  const session = Array.from({ length: LOG }, (_, index) => entry(index + 1));
+
+  it("renders only the entries in view, newest first, and reaches the oldest by scrolling", async () => {
+    const { host } = await open({ history: [], session });
+
+    expect(rowsOf(host).length).toBeGreaterThan(0);
+    expect(rowsOf(host).length).toBeLessThan(60);
+    expect(rowsOf(host)[0]).toContain(`Committed change ${LOG}`);
+
+    (host.querySelector(".act-list") as HTMLElement).scrollTop = 1_000_000;
+    await flush(80);
+    await flush(80);
+
+    expect([...host.querySelectorAll(".act-summary")].some((summary) => summary.textContent === "Committed change 1")).toBe(true);
+    expect(rowsOf(host).length).toBeLessThan(60);
+  });
+
+  it("keeps an expanded entry expanded after it was scrolled out of view and back", async () => {
+    const { host } = await open({ history: [], session: session.map((each) => (each.id === LOG ? { ...each, commands: [{ command: "git commit -m X", status: 0, duration_ms: 3, output: "" }] } : each)) });
+    const list = host.querySelector(".act-list") as HTMLElement;
+    host.querySelector<HTMLButtonElement>("li.act-entry .act-head")?.click();
+    await flush();
+    expect(host.querySelector("li.act-entry .act-body")?.textContent).toContain("git commit -m X");
+
+    list.scrollTop = 1_000_000;
+    await flush(80);
+    await flush(80);
+    list.scrollTop = 0;
+    await flush(80);
+    await flush(80);
+
+    expect(host.querySelector("li.act-entry .act-head")?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector("li.act-entry .act-body")?.textContent).toContain("git commit -m X");
+  });
+});
+
+describe("activity drawer entry time", () => {
+  it("switches an entry from its time of day to its full date when the clock passes midnight", async () => {
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      const started = new Date(2026, 9, 1, 23, 59, 0);
+      vi.setSystemTime(new Date(2026, 9, 1, 23, 59, 30));
+      const { host } = await open({ history: [], session: [entry(1, { started_at: started.getTime() / 1000 })] });
+      const time = () => host.querySelector(".act-time")?.textContent ?? "";
+      expect(time()).not.toContain("Oct");
+
+      vi.advanceTimersByTime(60_000);
+      await flush();
+
+      expect(time()).toContain("1 Oct 2026");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

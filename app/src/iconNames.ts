@@ -46,4 +46,7 @@ export type IconName =
   | "github"
   | "gitlab"
   | "bitbucket"
-  | "pullrequest";
+  | "pullrequest"
+  | "issue"
+  | "launchpad"
+  | "identity";

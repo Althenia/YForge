@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use common::{
-    add_active, chatgpt_tokens, commit_context, jwt, provider_input, store_tokens, Harness,
+    add_configured, chatgpt_tokens, commit_context, jwt, provider_input, store_tokens, Harness,
     HttpFake, Recorded, Reply, GOOD,
 };
 use reqwest::Url;
@@ -58,7 +58,7 @@ fn auth_endpoints(fake: &HttpFake) -> Endpoints {
 }
 
 async fn chatgpt_provider(h: &Harness, ai: &Ai) -> String {
-    add_active(
+    add_configured(
         h,
         ai,
         provider_input(ProviderKind::Chatgpt, AuthMode::Subscription, "ChatGPT"),

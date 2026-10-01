@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use yforge_core::{
-    ai_active_provider, ai_feature_config, ai_feature_config_reset, ai_feature_config_set,
+    ai_feature_config, ai_feature_config_enable, ai_feature_config_reset, ai_feature_config_set,
     ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete, ai_provider_edit,
     ai_provider_key_flag, ai_providers, AiFeature, AiFeatureConfig, AiFeatureSummary,
     AiSignInMethod, AiSignInStage, ApiKeyChange, AuthMode, CancelToken, CommitContext, CommitDraft,
@@ -316,37 +316,27 @@ impl Ai {
 
     pub async fn list(&self, dir: &Path) -> Result<Vec<ProviderSummary>> {
         let owned = dir.to_owned();
-        let (configs, active) = blocking(move || {
-            Ok((
-                core(ai_providers(&owned))?,
-                core(ai_active_provider(&owned))?,
-            ))
-        })
-        .await?;
+        let configs = blocking(move || core(ai_providers(&owned))).await?;
         let mut summaries = Vec::with_capacity(configs.len());
         for config in configs {
             let status = self.configured_status(&config).await;
-            let active = active.as_deref() == Some(config.id.as_str());
-            summaries.push(ProviderSummary {
-                config,
-                status,
-                active,
-            });
+            summaries.push(ProviderSummary { config, status });
         }
         Ok(summaries)
     }
 
     async fn summary_of(&self, dir: &Path, id: &str) -> Result<ProviderSummary> {
         let config = self.find(dir, id).await?;
-        let owned = dir.to_owned();
-        let active = blocking(move || core(ai_active_provider(&owned))).await?;
         let status = self.configured_status(&config).await;
-        let active = active.as_deref() == Some(config.id.as_str());
-        Ok(ProviderSummary {
-            config,
-            status,
-            active,
-        })
+        Ok(ProviderSummary { config, status })
+    }
+
+    async fn feature_summary(&self, dir: &Path, feature: AiFeature) -> Result<AiFeatureSummary> {
+        let summaries = self.feature_configs(dir).await?;
+        Ok(summaries
+            .into_iter()
+            .find(|summary| summary.feature == feature)
+            .expect("every feature has a summary"))
     }
 }
 
@@ -498,9 +488,10 @@ impl Ai {
     pub async fn feature_configs(&self, dir: &Path) -> Result<Vec<AiFeatureSummary>> {
         let owned = dir.to_owned();
         let stored = blocking(move || core(ai_feature_configs(&owned))).await?;
+        let providers = self.list(dir).await?;
         Ok(AiFeature::ALL
             .into_iter()
-            .map(|feature| summary_of_feature(feature, &stored))
+            .map(|feature| summary_of_feature(feature, &stored, &providers))
             .collect())
     }
 
@@ -525,53 +516,48 @@ impl Ai {
         let saved = AiFeatureConfig { model_id, ..config };
         let (owned, feature) = (dir.to_owned(), saved.feature);
         blocking(move || core(ai_feature_config_set(&owned, &saved))).await?;
+        self.feature_summary(dir, feature).await
+    }
+
+    pub async fn enable_feature(
+        &self,
+        dir: &Path,
+        feature: AiFeature,
+        enabled: bool,
+    ) -> Result<AiFeatureSummary> {
         let owned = dir.to_owned();
-        let stored = blocking(move || core(ai_feature_configs(&owned))).await?;
-        Ok(summary_of_feature(feature, &stored))
+        blocking(move || core(ai_feature_config_enable(&owned, feature, enabled))).await?;
+        self.feature_summary(dir, feature).await
     }
 
     pub async fn reset_feature(&self, dir: &Path, feature: AiFeature) -> Result<AiFeatureSummary> {
         let owned = dir.to_owned();
         blocking(move || core(ai_feature_config_reset(&owned, feature))).await?;
-        Ok(summary_of_feature(feature, &[]))
+        self.feature_summary(dir, feature).await
     }
 
     pub async fn resolve(&self, dir: &Path, feature: AiFeature) -> Result<Selection> {
         let owned = dir.to_owned();
-        let (configured, active) = blocking(move || {
-            Ok((
-                core(ai_feature_config(&owned, feature))?,
-                core(ai_active_provider(&owned))?,
-            ))
-        })
-        .await?;
-        let (provider_id, model, template) = match configured {
-            Some(saved) => (
-                saved.provider_id,
-                Some(saved.model_id),
-                saved.prompt_template,
-            ),
-            None => {
-                let Some(id) = active else {
-                    return Err(AiError::NotConfigured {
-                        detail: "choose an AI provider in the settings".to_owned(),
-                    });
-                };
-                (id, None, default_template(feature).to_owned())
-            }
+        let saved = blocking(move || core(ai_feature_config(&owned, feature))).await?;
+        let Some((saved, enabled)) = saved else {
+            return Err(AiError::NotConfigured {
+                detail: format!(
+                    "Choose a provider and model for {} in Settings → AI",
+                    feature.title()
+                ),
+            });
         };
-        let config = self.find(dir, &provider_id).await?;
-        let model = model
-            .or_else(|| config.model.clone())
-            .filter(|model| !model.trim().is_empty())
-            .ok_or_else(|| AiError::NotConfigured {
-                detail: format!("choose a model for {}", config.name),
-            })?;
+        if !enabled {
+            return Err(AiError::NotConfigured {
+                detail: format!("{} is turned off in Settings → AI", feature.title()),
+            });
+        }
+        let config = self.find(dir, &saved.provider_id).await?;
         let connection = self.connection(&config).await?;
         Ok(Selection {
             config,
-            model,
-            template,
+            model: saved.model_id,
+            template: saved.prompt_template,
             connection,
         })
     }
@@ -700,13 +686,23 @@ async fn read_from(store: Arc<dyn SecretStore>, account: &str) -> Result<Option<
     .await
 }
 
-fn summary_of_feature(feature: AiFeature, stored: &[AiFeatureConfig]) -> AiFeatureSummary {
+fn summary_of_feature(
+    feature: AiFeature,
+    stored: &[(AiFeatureConfig, bool)],
+    providers: &[ProviderSummary],
+) -> AiFeatureSummary {
+    let saved = stored.iter().find(|(config, _)| config.feature == feature);
+    let enabled = saved.is_some_and(|(_, enabled)| *enabled);
+    let ready = saved.is_some_and(|(config, _)| {
+        providers.iter().any(|provider| {
+            provider.config.id == config.provider_id && provider.status == ProviderStatus::Ready
+        })
+    });
     AiFeatureSummary {
         feature,
-        config: stored
-            .iter()
-            .find(|saved| saved.feature == feature)
-            .cloned(),
+        config: saved.map(|(config, _)| config.clone()),
+        enabled,
+        available: enabled && ready,
         default_prompt_template: default_template(feature).to_owned(),
     }
 }

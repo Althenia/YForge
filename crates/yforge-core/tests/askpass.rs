@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 use std::thread;
 
-use common::Fixture;
+use common::{Fixture, Vault};
 use yforge_core::{
-    fetch, AuthHandler, AuthKind, AuthPrompt, AuthReply, CancelToken, ErrorKind, Progress,
+    fetch, AuthHandler, AuthKind, AuthPrompt, AuthReply, CancelToken, ErrorKind, GitHost, Progress,
+    SshPlan,
 };
 
 const EXPECTED: &str = "Basic eXVpOnMzY3JldA==";
@@ -173,6 +174,40 @@ fn https_credentials_round_trip_through_the_prompt_and_reach_the_server() {
 }
 
 #[test]
+fn the_https_user_of_a_matching_host_identity_prefills_only_that_hosts_prompt() {
+    let server = server(true);
+    let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
+    let identity = |host: String, user: &str| GitHost {
+        id: host.clone(),
+        host,
+        https_user: Some(user.to_owned()),
+        ..GitHost::default()
+    };
+    let plan = |host: String| SshPlan {
+        hosts: vec![identity(host, "yui")],
+        ..SshPlan::default()
+    };
+    let fetch_with = |plan: SshPlan| {
+        let (handler, prompts) = recording(vec![credentials("yui", "s3cret", false)]);
+        let token = CancelToken::with_auth(handler).with_ssh_plan(plan);
+        let mut ignore = |_: Progress| {};
+        fetch(&setup.repo.path, false, &token, &mut ignore).unwrap();
+        let seen = prompts.lock().unwrap().clone();
+        seen
+    };
+
+    let matched = fetch_with(plan(format!("127.0.0.1:{}", server.port)));
+    assert_eq!(matched.len(), 1);
+    assert_eq!(matched[0].kind, AuthKind::Credentials);
+    assert_eq!(matched[0].username.as_deref(), Some("yui"));
+
+    let other_port = fetch_with(plan(format!("127.0.0.1:{}", server.port + 1)));
+    assert_eq!(other_port[0].username, None);
+    let other_host = fetch_with(plan("localhost".to_owned()));
+    assert_eq!(other_host[0].username, None);
+}
+
+#[test]
 fn declining_to_save_rejects_the_credential_the_helper_just_stored() {
     let server = server(true);
     let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
@@ -208,6 +243,51 @@ fn cancelling_the_prompt_cancels_the_operation() {
 
     assert_eq!(error.kind(), ErrorKind::Cancelled, "{error:?}");
     assert_eq!(prompts.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn a_cancelled_fetch_keeps_the_time_and_record_of_the_last_fetch() {
+    let server = server(false);
+    let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
+    let fetch_head = setup.repo.path.join(".git/FETCH_HEAD");
+    let earlier = "1111111111111111111111111111111111111111\t\tbranch 'main' of example\n";
+    fs::write(&fetch_head, earlier).unwrap();
+    let fetched_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+    fs::File::options()
+        .write(true)
+        .open(&fetch_head)
+        .unwrap()
+        .set_modified(fetched_at)
+        .unwrap();
+    let (handler, _) = recording(vec![AuthReply::Cancel]);
+
+    let error = run_fetch(&setup, handler).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::Cancelled, "{error:?}");
+    assert_eq!(fs::read_to_string(&fetch_head).unwrap(), earlier);
+    assert_eq!(
+        yforge_core::repo_snapshot(&setup.repo.path)
+            .unwrap()
+            .last_fetch,
+        Some(1_700_000_000)
+    );
+}
+
+#[test]
+fn a_cancelled_first_fetch_still_reads_as_never_fetched() {
+    let server = server(false);
+    let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
+    let (handler, _) = recording(vec![AuthReply::Cancel]);
+
+    run_fetch(&setup, handler).unwrap_err();
+
+    assert!(!setup.repo.path.join(".git/FETCH_HEAD").exists());
+    assert_eq!(
+        yforge_core::repo_snapshot(&setup.repo.path)
+            .unwrap()
+            .last_fetch,
+        None
+    );
 }
 
 #[test]
@@ -268,6 +348,106 @@ fn an_ssh_passphrase_prompt_round_trips_through_ssh_askpass() {
     let prompts = prompts.lock().unwrap();
     assert_eq!(prompts[0].kind, AuthKind::Passphrase);
     assert!(prompts[0].message.contains("/k/id"));
+}
+
+fn fake_ssh_asking_twice(setup: &Setup, prompt: &str) -> PathBuf {
+    let captured = setup.repo.sibling("ssh-answers");
+    let prompt_file = setup.repo.sibling("ssh-prompt");
+    fs::write(&prompt_file, prompt).unwrap();
+    let script = executable(
+        setup.repo.sibling("").as_path(),
+        "ssh.sh",
+        &format!(
+            "for round in 1 2; do answer=$(SSH_ASKPASS_PROMPT=none \"$SSH_ASKPASS\" \"$(cat {prompt})\") || break; printf '%s\\n' \"$answer\" >> {out}; done\nexit 255",
+            prompt = prompt_file.display(),
+            out = captured.display()
+        ),
+    );
+    setup.repo.git(&["config", "ssh.variant", "simple"]);
+    setup
+        .repo
+        .git(&["config", "core.sshCommand", script.to_str().unwrap()]);
+    captured
+}
+
+fn run_fetch_with_vault(
+    setup: &Setup,
+    handler: AuthHandler,
+    vault: &Arc<Vault>,
+) -> Result<(), yforge_core::CoreError> {
+    let mut ignore = |_: Progress| {};
+    fetch(
+        &setup.repo.path,
+        false,
+        &CancelToken::with_auth(handler).with_passphrases(vault.clone()),
+        &mut ignore,
+    )
+}
+
+#[test]
+fn a_passphrase_saved_for_the_key_answers_its_prompt_without_asking() {
+    let setup = setup("ssh://git@example.test/repo.git");
+    let answer = fake_ssh(&setup, "Enter passphrase for key '/k/id': ", "none");
+    let vault = Arc::new(Vault::default());
+    vault
+        .saved
+        .lock()
+        .unwrap()
+        .insert("/k/id".to_owned(), "from the keychain".to_owned());
+    let (handler, prompts) = recording(vec![]);
+
+    run_fetch_with_vault(&setup, handler, &vault).unwrap_err();
+
+    assert_eq!(fs::read_to_string(answer).unwrap(), "from the keychain");
+    assert!(prompts.lock().unwrap().is_empty());
+}
+
+#[test]
+fn a_key_without_a_saved_passphrase_still_asks_the_user() {
+    let setup = setup("ssh://git@example.test/repo.git");
+    let answer = fake_ssh(&setup, "Enter passphrase for key '/k/other': ", "none");
+    let vault = Arc::new(Vault::default());
+    vault
+        .saved
+        .lock()
+        .unwrap()
+        .insert("/k/id".to_owned(), "not this key".to_owned());
+    let (handler, prompts) = recording(vec![credentials("", "typed", false)]);
+
+    run_fetch_with_vault(&setup, handler, &vault).unwrap_err();
+
+    assert_eq!(fs::read_to_string(answer).unwrap(), "typed");
+    let prompts = prompts.lock().unwrap();
+    assert_eq!(prompts.len(), 1);
+    assert_eq!(prompts[0].message, "Enter passphrase for key '/k/other':");
+}
+
+#[test]
+fn a_refused_saved_passphrase_falls_back_to_the_prompt_once_and_says_so() {
+    let setup = setup("ssh://git@example.test/repo.git");
+    let answers = fake_ssh_asking_twice(&setup, "Enter passphrase for key '/k/id': ");
+    let vault = Arc::new(Vault::default());
+    vault
+        .saved
+        .lock()
+        .unwrap()
+        .insert("/k/id".to_owned(), "stale".to_owned());
+    let (handler, prompts) = recording(vec![credentials("", "typed", false)]);
+
+    run_fetch_with_vault(&setup, handler, &vault).unwrap_err();
+
+    assert_eq!(fs::read_to_string(answers).unwrap(), "stale\ntyped\n");
+    let prompts = prompts.lock().unwrap();
+    assert_eq!(
+        prompts.len(),
+        1,
+        "the saved one is tried once, then the user is asked"
+    );
+    assert_eq!(prompts[0].kind, AuthKind::Passphrase);
+    assert_eq!(
+        prompts[0].message,
+        "The passphrase saved in the Keychain was not accepted. Enter passphrase for key '/k/id':"
+    );
 }
 
 #[test]

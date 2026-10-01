@@ -7,11 +7,11 @@ use common::Fixture;
 use yforge_core::{
     branch_snapshot, capture_state, cherry_pick, commit, create_branch, delete_branch,
     delete_remote_branch, discard_files, discard_hunk, head_ref, merge, plan_branch_create,
-    plan_branch_delete, plan_checkout, plan_commit, plan_discard, plan_force_push,
-    plan_integration, plan_remote_branch_delete, plan_reset, plan_stash_restore, plan_upstream,
-    push_force, push_plan, rebase, remote_branch_sha, reset, revert, set_upstream, snapshot_files,
-    stash_apply, stash_pop, undo, CancelToken, CheckoutTarget, ErrorKind, ForceLease, MergeMode,
-    Planned, ResetMode, UndoAction,
+    plan_branch_delete, plan_branches_delete, plan_checkout, plan_commit, plan_discard,
+    plan_force_push, plan_integration, plan_remote_branch_delete, plan_reset, plan_stash_restore,
+    plan_upstream, push_force, push_plan, rebase, remote_branch_sha, reset, revert, set_upstream,
+    snapshot_files, stash_apply, stash_pop, undo, CancelToken, CheckoutTarget, ErrorKind,
+    ForceLease, MergeMode, Planned, ResetMode, UndoAction,
 };
 
 fn repo() -> Fixture {
@@ -172,6 +172,51 @@ fn undoing_a_branch_delete_recreates_it_at_the_recorded_sha_with_its_upstream() 
     let again = undo(&repo.path, &action(plan_branch_delete("topic", &snapshot))).unwrap_err();
     assert_eq!(again.kind(), ErrorKind::InvalidRequest);
     drop(remote);
+}
+
+#[test]
+fn undoing_a_batch_branch_delete_recreates_every_branch_or_none() {
+    let repo = repo();
+    repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "origin", "main"]);
+    let mut deleted = Vec::new();
+    for name in ["alpha", "beta", "gamma"] {
+        repo.git(&["switch", "-q", "-c", name]);
+        repo.commit(&format!("{name}.txt"), "x\n", &format!("{name} work"));
+        repo.git(&["push", "-q", "-u", "origin", name]);
+        deleted.push((
+            name.to_owned(),
+            head(&repo),
+            branch_snapshot(&repo.path, name).unwrap().unwrap(),
+        ));
+        repo.git(&["switch", "-q", "main"]);
+    }
+    for (name, _, _) in &deleted {
+        delete_branch(&repo.path, name, true).unwrap();
+    }
+    let plan = plan_branches_delete(
+        &deleted
+            .iter()
+            .map(|(name, _, snapshot)| (name.clone(), snapshot))
+            .collect::<Vec<_>>(),
+    );
+    repo.git(&["branch", "gamma"]);
+
+    let refused = undo(&repo.path, &action(plan.clone())).unwrap_err();
+
+    assert_eq!(refused.kind(), ErrorKind::InvalidRequest);
+    assert!(repo.git(&["branch", "--list", "alpha", "beta"]).is_empty());
+    repo.git(&["branch", "-D", "gamma"]);
+
+    undo(&repo.path, &action(plan)).unwrap();
+
+    for (name, sha, _) in &deleted {
+        assert_eq!(&repo.git(&["rev-parse", name]), sha);
+        assert_eq!(
+            repo.git(&["rev-parse", "--abbrev-ref", &format!("{name}@{{upstream}}")]),
+            format!("origin/{name}")
+        );
+    }
 }
 
 #[test]

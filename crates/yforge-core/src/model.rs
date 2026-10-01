@@ -499,7 +499,7 @@ pub struct PushTarget {
 pub struct ForcePushPlan {
     pub lease: ForceLease,
     pub upstream: String,
-    pub replaced: Vec<CommitBrief>,
+    pub replaced: RevisionRange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -634,6 +634,7 @@ pub struct RecomposeFile {
     pub status: FileStatus,
     pub binary: bool,
     pub whole_file_only: bool,
+    pub hunks_omitted: Option<String>,
     pub hunks: Vec<RecomposeHunk>,
 }
 

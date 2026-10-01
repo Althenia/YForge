@@ -9,7 +9,7 @@ use crate::operation::{require_no_operation, settle};
 use crate::repo;
 use crate::snapshots::{self, Action};
 
-const PREVIEW_LIMIT: &str = "--max-count=20";
+pub(crate) const PREVIEW_LIMIT: &str = "--max-count=20";
 
 fn branch_ref(root: &Path, name: &str) -> Result<String, CoreError> {
     for prefix in ["refs/heads/", "refs/remotes/"] {
@@ -34,18 +34,13 @@ fn revision(root: &Path, name: &str) -> Result<String, CoreError> {
     Ok(name.to_owned())
 }
 
-fn range(root: &Path, spec: &str) -> Result<RevisionRange, CoreError> {
-    let count = git::run(root, &["rev-list", "--count", spec])?;
-    let listing = git::run(
-        root,
-        &[
-            "log",
-            "--no-show-signature",
-            PREVIEW_LIMIT,
-            BRIEF_FORMAT,
-            spec,
-        ],
-    )?;
+pub(crate) fn range(root: &Path, revisions: &[&str]) -> Result<RevisionRange, CoreError> {
+    let mut count_args = vec!["rev-list", "--count"];
+    count_args.extend(revisions);
+    let count = git::run(root, &count_args)?;
+    let mut log_args = vec!["log", "--no-show-signature", PREVIEW_LIMIT, BRIEF_FORMAT];
+    log_args.extend(revisions);
+    let listing = git::run(root, &log_args)?;
     Ok(RevisionRange {
         count: count.trim().parse().map_err(|_| {
             CoreError::invalid_output("git rev-list --count", format!("not a number: {count:?}"))
@@ -62,8 +57,8 @@ pub fn integration_preview(
     let root = repo::open(path)?;
     let base = revision(&root, base.unwrap_or("HEAD"))?;
     let other = revision(&root, other)?;
-    let incoming = range(&root, &format!("{base}..{other}"))?;
-    let outgoing = range(&root, &format!("{other}..{base}"))?;
+    let incoming = range(&root, &[&format!("{base}..{other}")])?;
+    let outgoing = range(&root, &[&format!("{other}..{base}")])?;
     let fast_forward = incoming.count > 0 && outgoing.count == 0;
     Ok(IntegrationPreview {
         incoming,

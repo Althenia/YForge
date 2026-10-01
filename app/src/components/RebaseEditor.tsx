@@ -26,12 +26,15 @@ import type { RepoSession } from "../state/repoSession";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
 import { tip } from "./Tooltip";
+import { fileRowHeight, spacingPx, VirtualRows } from "./VirtualRows";
 
 type DropAt = { index: number; after: boolean };
 
 const short = (sha: string) => sha.slice(0, 7);
 
 const KEY_ACTIONS: Record<string, RebaseAction> = { p: "pick", r: "reword", s: "squash", f: "fixup", d: "drop", e: "edit" };
+
+const sameOrder = (left: string[], right: string[]) => left.length === right.length && left.every((sha, index) => sha === right[index]);
 
 const isTyping = (target: EventTarget | null) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
 
@@ -46,14 +49,21 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
   const [messages, setMessages] = createSignal<Record<string, string>>({});
   const [dropAt, setDropAt] = createSignal<DropAt | undefined>();
   const [failure, setFailure] = createSignal<IpcError | undefined>();
-  let list: HTMLOListElement | undefined;
+  let list: HTMLDivElement | undefined;
+  let body: HTMLDivElement | undefined;
+  let pendingFocus: string | undefined;
+  const [tabStop, setTabStop] = createSignal<string | undefined>();
+  const [reveal, setReveal] = createSignal<{ nonce: number; index: number } | undefined>();
 
   const messageOf = (row: RebaseRow) => messages()[row.sha] ?? row.summary;
   const check = createMemo(() => {
     const current = loaded();
     return current === undefined ? undefined : validate(rows(), current, messageOf);
   });
-  const order = createMemo(() => rows().map((row) => row.sha));
+  const order = createMemo(() => rows().map((row) => row.sha), [], { equals: sameOrder });
+  const byId = createMemo(() => new Map(rows().map((row) => [row.sha, row])));
+  const positions = createMemo(() => new Map(order().map((sha, index) => [sha, index])));
+  const stopIndex = () => positions().get(tabStop() ?? "") ?? 0;
   const preview = createMemo(() => previewOf(rows(), messageOf));
   const editors = createMemo(() => editableMessages(rows(), messageOf));
   const upstream = () => props.session.snapshot().upstream?.name;
@@ -63,13 +73,19 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
     on(loaded, (current: RebasePlan | undefined) => {
       if (current === undefined) return;
       setRows(rowsOf(current));
-      for (const commit of current.commits) {
-        props.session
-          .read(["details", commit.sha], () => client.commitDetails(path, commit.sha))
-          .then((details) => setMessages((known) => ({ ...known, [commit.sha]: details.body === "" ? details.summary : `${details.summary}\n\n${details.body}` })))
-          .catch(props.session.report);
-      }
-      queueMicrotask(() => list?.querySelector<HTMLElement>(".rrow")?.focus());
+      void Promise.all(
+        current.commits.map((commit) =>
+          props.session
+            .read(["details", commit.sha], () => client.commitDetails(path, commit.sha))
+            .then((details): [string, string] => [commit.sha, details.body === "" ? details.summary : `${details.summary}\n\n${details.body}`])
+            .catch((error) => {
+              props.session.report(error);
+              return undefined;
+            }),
+        ),
+      ).then((loadedMessages) => setMessages((known) => ({ ...known, ...Object.fromEntries(loadedMessages.filter((entry) => entry !== undefined)) })));
+      const first = order()[0];
+      if (first !== undefined) focusRow(first);
     }),
   );
 
@@ -102,7 +118,27 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
     }
   }
 
-  const focusRow = (sha: string) => queueMicrotask(() => list?.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`)?.focus());
+  function focusRow(sha: string): void {
+    setTabStop(sha);
+    queueMicrotask(() => {
+      const element = list?.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`);
+      if (element !== null && element !== undefined) {
+        element.focus();
+        return;
+      }
+      const index = positions().get(sha);
+      if (index === undefined) return;
+      pendingFocus = sha;
+      setReveal((current) => ({ nonce: (current?.nonce ?? 0) + 1, index }));
+    });
+  }
+
+  const mountRow = (sha: string, element: HTMLElement, measure: (element: Element | null) => void) => {
+    measure(element);
+    if (pendingFocus !== sha) return;
+    pendingFocus = undefined;
+    queueMicrotask(() => element.focus());
+  };
 
   const move = (sha: string, delta: -1 | 1) => {
     setRows(moveRow(rows(), sha, delta));
@@ -121,7 +157,7 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
       hit: dropTarget,
       mark: setDropAt,
       drop: (target) => {
-        const from = rows().findIndex((row) => row.sha === sha);
+        const from = positions().get(sha) ?? 0;
         const insertion = target.index + (target.after ? 1 : 0);
         setRows(moveRowTo(rows(), sha, insertion > from ? insertion - 1 : insertion));
         focusRow(sha);
@@ -138,8 +174,8 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
       move(sha, event.key === "ArrowUp" ? -1 : 1);
     } else if (!event.altKey && !event.metaKey && !event.ctrlKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
       event.preventDefault();
-      const next = event.key === "ArrowUp" ? row.previousElementSibling : row.nextElementSibling;
-      if (next instanceof HTMLElement) next.focus();
+      const next = order()[(positions().get(sha) ?? 0) + (event.key === "ArrowUp" ? -1 : 1)];
+      if (next !== undefined) focusRow(next);
     } else if (!event.altKey && !event.metaKey && !event.ctrlKey && KEY_ACTIONS[event.key.toLowerCase()] !== undefined) {
       event.preventDefault();
       setRows(setAction(rows(), sha, KEY_ACTIONS[event.key.toLowerCase()] as RebaseAction));
@@ -169,7 +205,7 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
           Back to graph
         </button>
       </div>
-      <div class="rbody">
+      <div class="rbody" ref={body}>
         <Show when={plan.error}>
           {(error) => (
             <div class="graph-error" role="alert">
@@ -199,94 +235,101 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
         <p class="setting-note">
           Newest first. Each commit is combined with the one below it when you choose Squash or Fixup. Drag a handle, or use <span class="kbd">⌥↑</span> <span class="kbd">⌥↓</span>, to reorder; press <span class="kbd">P</span> <span class="kbd">R</span> <span class="kbd">S</span> <span class="kbd">F</span> <span class="kbd">D</span> <span class="kbd">E</span> to set the action.
         </p>
-        <ol class="rlist" aria-label="Commits, newest first" ref={list} onKeyDown={onKeyDown}>
-          <For each={order()}>
-            {(sha, index) => {
-              const row = () => rows().find((entry) => entry.sha === sha) as RebaseRow;
+        <div
+          ref={list}
+          onKeyDown={onKeyDown}
+          onFocusIn={(event) => {
+            const sha = event.target.closest<HTMLElement>(".rrow")?.dataset.sha;
+            if (sha !== undefined) setTabStop(sha);
+          }}
+        >
+          <VirtualRows as="ol" class="rlist" attrs={{ "aria-label": "Commits, newest first" }} items={order()} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} keepIndex={stopIndex()} reveal={reveal()} measured>
+            {(sha, virtual) => {
+              const row = () => byId().get(sha) as RebaseRow;
               return (
-              <li
-                class="rrow"
-                classList={{ dropped: row().action === "drop", "drop-before": dropAt()?.index === index() && dropAt()?.after === false, "drop-after": dropAt()?.index === index() && dropAt()?.after === true, invalid: check()?.rowProblems[sha] !== undefined }}
-                data-sha={sha}
-                data-index={index()}
-                tabindex={index() === 0 ? 0 : -1}
-              >
-                <button type="button" class="icon-btn dense rgrip" tabindex="-1" {...tip("Drag to reorder", "⌥↑ ⌥↓", `Drag ${row().summary} to reorder`)} onPointerDown={(event) => startDrag(event, sha)}>
-                  <Icon name="grip" />
-                </button>
-                <span class="rsha ref">{short(sha)}</span>
-                <span class="rsum" title={row().summary}>
-                  {row().summary}
-                </span>
-                <Show when={row().pushed}>
-                  <span class="chip chip-pushed" title="Already on the upstream">
-                    <Icon name="push" size={14} />
-                    Pushed
+                <li
+                  class="rrow"
+                  classList={{ dropped: row().action === "drop", "drop-before": dropAt()?.index === virtual.index && dropAt()?.after === false, "drop-after": dropAt()?.index === virtual.index && dropAt()?.after === true, invalid: check()?.rowProblems[sha] !== undefined }}
+                  data-sha={sha}
+                  data-index={virtual.index}
+                  aria-posinset={virtual.index + 1}
+                  aria-setsize={order().length}
+                  tabindex={virtual.index === stopIndex() ? 0 : -1}
+                  ref={(element) => mountRow(sha, element, virtual.measure)}
+                  style={virtual.style}
+                >
+                  <button type="button" class="icon-btn dense rgrip" tabindex="-1" {...tip("Drag to reorder", "⌥↑ ⌥↓", `Drag ${row().summary} to reorder`)} onPointerDown={(event) => startDrag(event, sha)}>
+                    <Icon name="grip" />
+                  </button>
+                  <span class="rsha ref">{short(sha)}</span>
+                  <span class="rsum" title={row().summary}>
+                    {row().summary}
                   </span>
-                </Show>
-                <Select
-                  label={`Action for ${row().summary}`}
-                  value={row().action}
-                  options={REBASE_ACTIONS.map((entry) => ({ value: entry.id, label: entry.label }))}
-                  onChange={(value) => setRows(setAction(rows(), sha, value as RebaseAction))}
-                />
-                <button type="button" class="icon-btn dense" disabled={index() === 0} title={index() === 0 ? "Already the newest commit" : undefined} {...tip("Move up", "⌥↑", `Move ${row().summary} up`)} onClick={() => move(sha, -1)}>
-                  <Icon name="previous" />
-                </button>
-                <button type="button" class="icon-btn dense" disabled={index() === rows().length - 1} title={index() === rows().length - 1 ? "Already the oldest commit" : undefined} {...tip("Move down", "⌥↓", `Move ${row().summary} down`)} onClick={() => move(sha, 1)}>
-                  <Icon name="next" />
-                </button>
-                <Show when={editors()[sha] !== undefined}>
-                  <label class="input area rmessage">
-                    <textarea
-                      aria-label={`Message for ${short(sha)}`}
-                      spellcheck={false}
-                      value={editors()[sha]}
-                      onInput={(event) => setRows(setMessage(rows(), sha, event.currentTarget.value))}
-                    />
-                  </label>
-                </Show>
-                <Show when={check()?.rowProblems[sha]}>{(text) => <span class="row-problem field-note error">{text()}</span>}</Show>
-              </li>
-              );
-            }}
-          </For>
-        </ol>
-        <section class="rpreview" aria-label="Resulting history">
-          <h4>Resulting history · {preview().commits.length} {preview().commits.length === 1 ? "commit" : "commits"}</h4>
-          <ol>
-            <For each={preview().commits}>
-              {(commit) => (
-                <li>
-                  <Icon name={commit.kind === "combined" ? "squash" : commit.kind === "reworded" ? "edit" : "commit"} />
-                  <span class="rsum">{commit.subject}</span>
-                  <span class="ref">{commit.from.map(short).join(" + ")}</span>
-                  <Show when={commit.kind !== "kept"}>
-                    <span class="chip">{commit.kind === "combined" ? "Combined" : "Reworded"}</span>
-                  </Show>
-                  <Show when={commit.stops}>
-                    <span class="chip chip-attention">
-                      <Icon name="warning" size={14} />
-                      Stops here so you can amend it
+                  <Show when={row().pushed}>
+                    <span class="chip chip-pushed" title="Already on the upstream">
+                      <Icon name="push" size={14} />
+                      Pushed
                     </span>
                   </Show>
+                  <Select
+                    label={`Action for ${row().summary}`}
+                    value={row().action}
+                    options={REBASE_ACTIONS.map((entry) => ({ value: entry.id, label: entry.label }))}
+                    onChange={(value) => setRows(setAction(rows(), sha, value as RebaseAction))}
+                  />
+                  <button type="button" class="icon-btn dense" disabled={virtual.index === 0} title={virtual.index === 0 ? "Already the newest commit" : undefined} {...tip("Move up", "⌥↑", `Move ${row().summary} up`)} onClick={() => move(sha, -1)}>
+                    <Icon name="previous" />
+                  </button>
+                  <button type="button" class="icon-btn dense" disabled={virtual.index === order().length - 1} title={virtual.index === order().length - 1 ? "Already the oldest commit" : undefined} {...tip("Move down", "⌥↓", `Move ${row().summary} down`)} onClick={() => move(sha, 1)}>
+                    <Icon name="next" />
+                  </button>
+                  <Show when={editors()[sha] !== undefined}>
+                    <label class="input area rmessage">
+                      <textarea
+                        aria-label={`Message for ${short(sha)}`}
+                        spellcheck={false}
+                        value={editors()[sha]}
+                        onInput={(event) => setRows(setMessage(rows(), sha, event.currentTarget.value))}
+                      />
+                    </label>
+                  </Show>
+                  <Show when={check()?.rowProblems[sha]}>{(text) => <span class="row-problem field-note error">{text()}</span>}</Show>
                 </li>
-              )}
-            </For>
-          </ol>
+              );
+            }}
+          </VirtualRows>
+        </div>
+        <section class="rpreview" aria-label="Resulting history">
+          <h4>Resulting history · {preview().commits.length} {preview().commits.length === 1 ? "commit" : "commits"}</h4>
+          <VirtualRows as="ol" items={preview().commits} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured>
+            {(commit, virtual) => (
+              <li ref={virtual.measure} style={virtual.style}>
+                <Icon name={commit.kind === "combined" ? "squash" : commit.kind === "reworded" ? "edit" : "commit"} />
+                <span class="rsum">{commit.subject}</span>
+                <span class="ref">{commit.from.map(short).join(" + ")}</span>
+                <Show when={commit.kind !== "kept"}>
+                  <span class="chip">{commit.kind === "combined" ? "Combined" : "Reworded"}</span>
+                </Show>
+                <Show when={commit.stops}>
+                  <span class="chip chip-attention">
+                    <Icon name="warning" size={14} />
+                    Stops here so you can amend it
+                  </span>
+                </Show>
+              </li>
+            )}
+          </VirtualRows>
           <Show when={preview().dropped.length > 0}>
             <h4>Dropped ({preview().dropped.length})</h4>
-            <ul class="rdropped">
-              <For each={preview().dropped}>
-                {(row) => (
-                  <li>
-                    <Icon name="trash" />
-                    <span class="rsum">{row.summary}</span>
-                    <span class="ref">{short(row.sha)}</span>
-                  </li>
-                )}
-              </For>
-            </ul>
+            <VirtualRows as="ul" class="rdropped" items={preview().dropped} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured>
+              {(row, virtual) => (
+                <li ref={virtual.measure} style={virtual.style}>
+                  <Icon name="trash" />
+                  <span class="rsum">{row.summary}</span>
+                  <span class="ref">{short(row.sha)}</span>
+                </li>
+              )}
+            </VirtualRows>
           </Show>
         </section>
       </div>

@@ -5,7 +5,7 @@ import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { AiSettings } from "./AiSettings";
-import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -17,10 +17,9 @@ afterEach(async () => {
   clearMocks();
 });
 
-const summary = (id: string, overrides: Partial<ProviderSummary["config"]> = {}, status: ProviderStatus = { kind: "ready" }, active = false): ProviderSummary => ({
-  config: { id, kind: "claude", auth_mode: "api_key", name: "Claude", base_url: null, model: null, has_api_key: false, created_at: 1, ...overrides },
+const summary = (id: string, overrides: Partial<ProviderSummary["config"]> = {}, status: ProviderStatus = { kind: "ready" }): ProviderSummary => ({
+  config: { id, kind: "claude", auth_mode: "api_key", name: "Claude", base_url: null, has_api_key: false, created_at: 1, ...overrides },
   status,
-  active,
 });
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -29,14 +28,15 @@ const featureList = (overrides: Partial<AiFeatureSummary>[] = []): AiFeatureSumm
   (["generate_commit", "recompose", "conflict_fix"] as const).map((feature, index) => ({
     feature,
     config: null,
+    enabled: false,
+    available: false,
     default_prompt_template: `Default ${feature} prompt with {context}`,
     ...overrides[index],
   }));
 
-async function mount(initial: ProviderSummary[], respond: (call: Call) => unknown = () => undefined) {
+async function mount(initial: ProviderSummary[], respond: (call: Call) => unknown = () => undefined, features: AiFeatureSummary[] = featureList()) {
   const calls: Call[] = [];
   let list = initial;
-  const features = featureList();
   mockIPC(
     (cmd, args) => {
       const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
@@ -62,9 +62,9 @@ async function mount(initial: ProviderSummary[], respond: (call: Call) => unknow
 const dialog = () => document.querySelector<HTMLElement>('[role="dialog"]');
 
 describe("AI providers", () => {
-  it("states what is sent, and lists each provider with its status word, model, and active marker", async () => {
+  it("states what is sent, and lists each provider with its status word and no model or active marker", async () => {
     const { host } = await mount([
-      summary("p1", { name: "Claude Code", model: "sonnet" }, { kind: "ready" }, true),
+      summary("p1", { name: "Claude Code" }, { kind: "ready" }),
       summary("p2", { kind: "openrouter", name: "OpenRouter", has_api_key: true }, { kind: "key_rejected" }),
     ]);
 
@@ -73,11 +73,10 @@ describe("AI providers", () => {
     const rows = [...host.querySelectorAll(".provider-row")];
     expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent).toContain("Ready");
-    expect(rows[0]?.textContent).toContain("sonnet");
-    expect(rows[0]?.textContent).toContain("Active");
+    expect(rows[0]?.textContent).not.toContain("Active");
     expect(rows[1]?.textContent).toContain("Key rejected");
-    expect(rows[1]?.textContent).toContain("default model");
-    expect(buttonNamed(rows[1] as HTMLElement, "Use")?.disabled).toBe(true);
+    expect(rows[1]?.textContent).not.toContain("default model");
+    expect(buttonNamed(rows[0] as HTMLElement, "Use")).toBeUndefined();
   });
 
   it("says there are no providers and that Git works without one", async () => {
@@ -94,6 +93,16 @@ describe("AI providers", () => {
 
     const cards = [...(dialog()?.querySelectorAll(".provider-card") ?? [])].map((card) => card.querySelector(".provider-card-title")?.textContent);
     expect(cards).toEqual(["ChatGPT", "Claude", "OpenRouter", "OpenAI-compatible"]);
+  });
+
+  it("tells the add dialog's reader that each feature picks its own provider and model, never one provider to use", async () => {
+    const { host } = await mount([]);
+
+    buttonNamed(host, "Add provider")?.click();
+    await flush();
+
+    expect(dialog()?.textContent).toContain("Each feature picks its own provider and model in its card.");
+    expect(dialog()?.textContent).not.toContain("choose one to use");
   });
 
   it("validates an OpenAI-compatible endpoint, then adds it with the trimmed key and moves to its panel", async () => {
@@ -201,17 +210,15 @@ describe("AI providers", () => {
     chatgpt.dispose();
   });
 
-  it("uses a ready provider with the typed model, and clears the model when it is left empty", async () => {
+  it("offers no model choice in the provider dialog, because each feature chooses its own", async () => {
     const { host, calls } = await mount([summary("p1", { name: "Claude" }, { kind: "ready" })]);
     host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
-    buttonNamed(dialog() as HTMLElement, "Load models")?.click();
-    await flush(60);
-    await choose(dialog() as HTMLElement, "Model", "Claude Sonnet");
-    buttonNamed(dialog() as HTMLElement, "Use this provider")?.click();
-    await flush();
-    expect(calls.find((call) => call.cmd === "ai_set_active")?.args).toEqual({ id: "p1", model: "sonnet" });
+    expect(dialog()?.querySelector('[aria-label="Model"]')).toBeNull();
+    expect(buttonNamed(dialog() as HTMLElement, "Load models")).toBeUndefined();
+    expect(buttonNamed(dialog() as HTMLElement, "Use this provider")).toBeUndefined();
+    expect(calls.some((call) => call.cmd === "ai_models")).toBe(false);
   });
 
   it("confirms before removing a provider and names the Keychain consequence", async () => {
@@ -226,5 +233,15 @@ describe("AI providers", () => {
     await flush();
 
     expect(calls.find((call) => call.cmd === "ai_provider_remove")?.args).toEqual({ id: "p2" });
+  });
+
+  it("names the features that lose their setup when their provider is removed", async () => {
+    const used = featureList([{ config: { feature: "generate_commit", provider_id: "p2", model_id: "m", prompt_template: "{context}" }, enabled: true, available: true }]);
+    const { host } = await mount([summary("p2", { kind: "openrouter", name: "OpenRouter", has_api_key: true })], () => undefined, used);
+
+    host.querySelector<HTMLElement>('[aria-label="Remove OpenRouter"]')?.click();
+    await flush();
+
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("It is set up for Generate commit message, so that feature loses its setup and turns off.");
   });
 });

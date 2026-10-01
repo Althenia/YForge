@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
@@ -13,6 +14,8 @@ use ts_rs::TS;
 
 use crate::error::CoreError;
 use crate::git;
+use crate::git_hosts::SshPlan;
+use crate::passphrase::PassphraseStore;
 
 const POLL: Duration = Duration::from_millis(25);
 const DIR_ENV: &str = "YFORGE_ASKPASS_DIR";
@@ -172,6 +175,7 @@ fn host_of(url: &str) -> Option<String> {
 #[derive(Default)]
 struct State {
     outcome: AskpassOutcome,
+    from_keychain: HashSet<String>,
     pending: Option<(String, String, String, bool)>,
 }
 
@@ -200,8 +204,21 @@ fn write_response(dir: &Path, id: &str, status: i32, answer: &str) -> io::Result
     fs::rename(&staged, dir.join(format!("res-{id}")))
 }
 
+#[derive(Clone, Copy)]
+struct Answerers<'a> {
+    handler: &'a AuthHandler,
+    plan: &'a SshPlan,
+    passphrases: Option<&'a Arc<dyn PassphraseStore>>,
+}
+
+const KEYCHAIN_REFUSED: &str = "The passphrase saved in the Keychain was not accepted. ";
+
 fn ask(
-    handler: &AuthHandler,
+    Answerers {
+        handler,
+        plan,
+        passphrases,
+    }: Answerers<'_>,
     state: &Mutex<State>,
     sequence: u64,
     parsed: Parsed,
@@ -218,12 +235,16 @@ fn ask(
     };
     match parsed {
         Parsed::Username { url } => {
+            let host = host_of(&url);
             let reply = handler(AuthPrompt {
                 id: prompt_id,
                 kind: AuthKind::Credentials,
-                host: host_of(&url),
+                username: host
+                    .as_deref()
+                    .and_then(|host| plan.https_user(host))
+                    .map(str::to_owned),
+                host,
                 url: Some(url.clone()),
-                username: None,
                 message: format!("{} needs credentials.", host_of(&url).unwrap_or_default()),
                 fingerprint: None,
             });
@@ -280,6 +301,19 @@ fn ask(
             }
         }
         Parsed::Passphrase { message } => {
+            let message = match (passphrases, quoted(&message)) {
+                (Some(store), Some(key)) => {
+                    if lock().from_keychain.contains(key) {
+                        format!("{KEYCHAIN_REFUSED}{message}")
+                    } else if let Ok(Some(saved)) = store.get(key) {
+                        lock().from_keychain.insert(key.to_owned());
+                        return (0, saved);
+                    } else {
+                        message
+                    }
+                }
+                _ => message,
+            };
             let reply = handler(AuthPrompt {
                 id: prompt_id,
                 kind: AuthKind::Passphrase,
@@ -316,7 +350,7 @@ fn ask(
     }
 }
 
-fn serve(dir: &Path, handler: &AuthHandler, state: &Mutex<State>, stop: &AtomicBool) {
+fn serve(dir: &Path, answerers: &Answerers<'_>, state: &Mutex<State>, stop: &AtomicBool) {
     let mut sequence = 0;
     while !stop.load(Ordering::SeqCst) {
         let requests: Vec<PathBuf> = fs::read_dir(dir)
@@ -335,7 +369,7 @@ fn serve(dir: &Path, handler: &AuthHandler, state: &Mutex<State>, stop: &AtomicB
             let _ = fs::remove_file(&request);
             let (kind, prompt) = content.split_once('\n').unwrap_or(("", &content));
             sequence += 1;
-            let (status, answer) = ask(handler, state, sequence, classify(kind, prompt));
+            let (status, answer) = ask(*answerers, state, sequence, classify(kind, prompt));
             let answer = answer.split('\n').next().unwrap_or_default();
             let _ = write_response(dir, &id, status, answer);
         }
@@ -345,7 +379,11 @@ fn serve(dir: &Path, handler: &AuthHandler, state: &Mutex<State>, stop: &AtomicB
 }
 
 impl Askpass {
-    pub(crate) fn start(handler: AuthHandler) -> Result<Self, CoreError> {
+    pub(crate) fn start(
+        handler: AuthHandler,
+        plan: SshPlan,
+        passphrases: Option<Arc<dyn PassphraseStore>>,
+    ) -> Result<Self, CoreError> {
         let failed = |error: io::Error| CoreError::GitFailed {
             command: "askpass".to_owned(),
             status: None,
@@ -358,7 +396,14 @@ impl Askpass {
         let stop = Arc::new(AtomicBool::new(false));
         let state = Arc::new(Mutex::new(State::default()));
         let (serving_dir, serving_stop, serving_state) = (dir.clone(), stop.clone(), state.clone());
-        thread::spawn(move || serve(&serving_dir, &handler, &serving_state, &serving_stop));
+        thread::spawn(move || {
+            let answerers = Answerers {
+                handler: &handler,
+                plan: &plan,
+                passphrases: passphrases.as_ref(),
+            };
+            serve(&serving_dir, &answerers, &serving_state, &serving_stop);
+        });
         Ok(Self { dir, stop, state })
     }
 

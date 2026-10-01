@@ -63,8 +63,10 @@ async function mountApp(session: { tabs: string[]; active: number }) {
       switch (cmd) {
         case "settings_load":
           return defaultSettings;
+        case "repo_aliases_list":
+          return [];
         case "session_load":
-          return session;
+          return { ...session, groups: [] };
         case "launch_path":
           return "/nowhere";
         case "repo_open": {
@@ -125,6 +127,38 @@ describe("routes", () => {
     expect(workspaces()).toBe(0);
   });
 
+  it("opens the Launchpad from the app, keeps the active tab addressed, and the tab bar button returns to it", async () => {
+    const { app, router, host } = await mountApp({ tabs: ["/a"], active: 0 });
+
+    app.openLaunchpad();
+    await flush(80);
+
+    expect(router.state.location.pathname).toBe("/launchpad");
+    expect(router.state.location.search).toEqual({ tab: "/a" });
+    expect(host.querySelector(".launchpad")).not.toBeNull();
+    expect(app.launchpadOpen()).toBe(true);
+    const button = host.querySelector<HTMLButtonElement>('.tabbar button[aria-label="Launchpad"]') as HTMLButtonElement;
+    expect(button.getAttribute("aria-current")).toBe("page");
+
+    button.click();
+    await flush(80);
+
+    expect(router.state.location.pathname).toBe("/repo");
+    expect(app.launchpadOpen()).toBe(false);
+  });
+
+  it("reaches the Launchpad from the launcher", async () => {
+    const { router, host } = await mountApp({ tabs: [], active: 0 });
+    await router.navigate({ to: "/launcher" });
+    await flush(60);
+
+    const launchpad = [...host.querySelectorAll<HTMLButtonElement>(".launcher-actions button")].find((button) => button.textContent?.trim() === "Launchpad");
+    launchpad?.click();
+    await flush(80);
+
+    expect(router.state.location.pathname).toBe("/launchpad");
+  });
+
   it("keeps only the active tab's workspace mounted and watches the active repository", async () => {
     const { app, watched, workspaces, router } = await mountApp({ tabs: ["/a", "/b"], active: 0 });
     expect(watched()).toEqual(["/a"]);
@@ -140,9 +174,10 @@ describe("routes", () => {
 
   it("keeps the focused control focused while the repository refreshes", async () => {
     const { app, host } = await mountApp({ tabs: ["/a"], active: 0 });
-    const summary = host.querySelector<HTMLInputElement>('input[aria-label="Summary"]');
-    summary?.focus();
-    expect(document.activeElement).toBe(summary);
+    const field = host.querySelector<HTMLInputElement>('input[aria-label="Filter sidebar"]');
+    expect(field).not.toBeNull();
+    field?.focus();
+    expect(document.activeElement).toBe(field);
     const detached: Node[] = [];
     new MutationObserver((records) => records.forEach((record) => detached.push(...record.removedNodes))).observe(host, { childList: true, subtree: true });
 
@@ -150,7 +185,7 @@ describe("routes", () => {
     await flush(60);
 
     expect(detached.filter((node) => node instanceof HTMLElement && node.classList.contains("app"))).toEqual([]);
-    expect(document.activeElement).toBe(summary);
+    expect(document.activeElement).toBe(field);
   });
 
   it("opens settings over the active tab through the router and closes back to that tab", async () => {

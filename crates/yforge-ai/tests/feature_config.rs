@@ -1,8 +1,7 @@
 mod common;
 
 use common::{
-    add_active, commit_context, http_input, keyed_input, provider_input, Harness, HttpFake, Reply,
-    GOOD,
+    commit_context, http_input, keyed_input, provider_input, Harness, HttpFake, Reply, GOOD,
 };
 use serde_json::{json, Value};
 use yforge_ai::{Ai, AiError, Endpoints};
@@ -128,14 +127,10 @@ async fn saving_needs_the_placeholder_a_listed_model_and_a_signed_in_provider() 
 }
 
 #[tokio::test]
-async fn a_saved_feature_runs_on_its_own_provider_model_and_prompt_while_others_use_the_active_one()
-{
+async fn a_saved_feature_runs_on_its_own_provider_model_and_prompt_and_others_stay_unset() {
     let h = Harness::new();
-    let active = model_list_fake();
     let feature_fake = model_list_fake();
     let ai = h.ai();
-    let active_id = endpoint_provider(&h, &ai, &active, "Active").await;
-    yforge_core::ai_choose(h.dir(), Some(&active_id), Some("active-model")).unwrap();
     let feature_id = endpoint_provider(&h, &ai, &feature_fake, "Feature").await;
 
     let saved = ai
@@ -154,7 +149,7 @@ async fn a_saved_feature_runs_on_its_own_provider_model_and_prompt_while_others_
         .resolve(h.dir(), AiFeature::GenerateCommit)
         .await
         .unwrap();
-    let other = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap();
+    let other = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap_err();
     ai.commit_message(&commit, &commit_context(), &CancelToken::new())
         .await
         .unwrap();
@@ -168,14 +163,12 @@ async fn a_saved_feature_runs_on_its_own_provider_model_and_prompt_while_others_
             "Be terse.\n{context}\nJSON only."
         )
     );
+    assert!(saved.enabled && saved.available);
     assert_eq!(
         (commit.config.id.as_str(), commit.model.as_str()),
         (feature_id.as_str(), "listed-model")
     );
-    assert_eq!(
-        (other.config.id.as_str(), other.model.as_str()),
-        (active_id.as_str(), "active-model")
-    );
+    assert_eq!(kind_of(other), ErrorKind::AiNotConfigured);
     let runs: Vec<_> = feature_fake
         .requests()
         .into_iter()
@@ -187,39 +180,74 @@ async fn a_saved_feature_runs_on_its_own_provider_model_and_prompt_while_others_
     assert_eq!(sent["messages"][0]["content"], "Be terse.");
     let user = sent["messages"][1]["content"].as_str().unwrap();
     assert!(user.contains("+DIFF-MARKER") && user.ends_with("\nJSON only."));
-    assert!(active
-        .requests()
-        .iter()
-        .all(|r| r.path.ends_with("/models")));
 }
 
 #[tokio::test]
-async fn a_feature_with_its_own_config_needs_no_active_provider() {
+async fn a_feature_is_available_only_while_switched_on_with_a_ready_provider() {
     let h = Harness::new();
     let fake = model_list_fake();
     let ai = h.ai();
-    let id = endpoint_provider(&h, &ai, &fake, "Local").await;
+    let ready = endpoint_provider(&h, &ai, &fake, "Local").await;
+    let keyless = ai
+        .add(
+            h.dir(),
+            provider_input(ProviderKind::Openrouter, AuthMode::ApiKey, "OR"),
+        )
+        .await
+        .unwrap()
+        .config
+        .id;
     ai.set_feature(
         h.dir(),
-        config(AiFeature::ConflictFix, &id, "listed-model", "{context}"),
+        config(AiFeature::Recompose, &ready, "listed-model", "{context}"),
     )
     .await
     .unwrap();
+    yforge_core::ai_feature_config_set(
+        h.dir(),
+        &config(AiFeature::ConflictFix, &keyless, "m", "{context}"),
+    )
+    .unwrap();
+    let unset = ai
+        .enable_feature(h.dir(), AiFeature::GenerateCommit, true)
+        .await
+        .unwrap_err();
 
-    let conflict = ai.resolve(h.dir(), AiFeature::ConflictFix).await.unwrap();
-    let unset = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap_err();
+    let off = ai
+        .enable_feature(h.dir(), AiFeature::Recompose, false)
+        .await
+        .unwrap();
+    let refused = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap_err();
+    let on = ai
+        .enable_feature(h.dir(), AiFeature::Recompose, true)
+        .await
+        .unwrap();
+    let listed = ai.feature_configs(h.dir()).await.unwrap();
 
-    assert_eq!(conflict.model, "listed-model");
-    assert_eq!(kind_of(unset), ErrorKind::AiNotConfigured);
+    assert_eq!(kind_of(unset), ErrorKind::InvalidRequest);
+    assert_eq!((off.enabled, off.available), (false, false));
+    assert_eq!(kind_of(refused), ErrorKind::AiNotConfigured);
+    assert_eq!((on.enabled, on.available), (true, true));
+    let flags: Vec<_> = listed
+        .iter()
+        .map(|s| (s.feature, s.enabled, s.available))
+        .collect();
+    assert_eq!(
+        flags,
+        [
+            (AiFeature::GenerateCommit, false, false),
+            (AiFeature::Recompose, true, true),
+            (AiFeature::ConflictFix, true, false),
+        ]
+    );
 }
 
 #[tokio::test]
-async fn resetting_a_feature_returns_it_to_the_active_provider_and_the_default_prompt() {
+async fn resetting_a_feature_restores_the_default_prompt_and_turns_it_off() {
     let h = Harness::new();
     let fake = model_list_fake();
     let ai = h.ai();
     let id = endpoint_provider(&h, &ai, &fake, "Local").await;
-    yforge_core::ai_choose(h.dir(), Some(&id), Some("active-model")).unwrap();
     ai.set_feature(
         h.dir(),
         config(
@@ -236,17 +264,16 @@ async fn resetting_a_feature_returns_it_to_the_active_provider_and_the_default_p
         .reset_feature(h.dir(), AiFeature::Recompose)
         .await
         .unwrap();
-    let selection = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap();
+    let refused = ai.resolve(h.dir(), AiFeature::Recompose).await.unwrap_err();
 
     assert_eq!(reset.config, None);
+    assert_eq!((reset.enabled, reset.available), (false, false));
     assert!(reset.default_prompt_template.contains("regroup"));
-    assert_eq!(selection.model, "active-model");
-    let listed = ai.feature_configs(h.dir()).await.unwrap();
-    assert!(listed.iter().all(|summary| summary.config.is_none()));
+    assert_eq!(kind_of(refused), ErrorKind::AiNotConfigured);
 }
 
 #[tokio::test]
-async fn removing_a_provider_drops_its_feature_configs() {
+async fn removing_a_provider_drops_only_its_feature_configs() {
     let h = Harness::new();
     let fake = model_list_fake();
     let ai = h.ai_at(Endpoints::default());
@@ -257,16 +284,29 @@ async fn removing_a_provider_drops_its_feature_configs() {
     )
     .await
     .unwrap();
-    add_active(
-        &h,
-        &ai,
-        keyed_input(ProviderKind::Openrouter, "OR", "k"),
-        "m",
+    let other = ai
+        .add(h.dir(), keyed_input(ProviderKind::Openrouter, "OR", "k"))
+        .await
+        .unwrap()
+        .config
+        .id;
+    yforge_core::ai_feature_config_set(
+        h.dir(),
+        &config(AiFeature::ConflictFix, &other, "m", "{context}"),
     )
-    .await;
+    .unwrap();
 
     ai.remove(h.dir(), &id).await.unwrap();
 
     let listed = ai.feature_configs(h.dir()).await.unwrap();
-    assert!(listed.iter().all(|summary| summary.config.is_none()));
+    let configured: Vec<_> = listed
+        .iter()
+        .filter_map(|summary| {
+            summary
+                .config
+                .as_ref()
+                .map(|c| (c.feature, c.provider_id.clone()))
+        })
+        .collect();
+    assert_eq!(configured, [(AiFeature::ConflictFix, other)]);
 }

@@ -1,23 +1,39 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show, type JSX } from "solid-js";
 import { formatAbsolute } from "../format";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { commandText, formatDuration, outputText } from "../state/activityModel";
+import { useNow } from "../state/clock";
 import { EARLIER_SESSION_TEXT } from "../state/diagnosticsModel";
 import { Icon } from "./Icon";
 
-export function ActivityEntryView(props: { entry: ActivityEntry; earlier: boolean; onUndo: (id: number) => void; undoId: number | undefined }) {
-  const [open, setOpen] = createSignal(!props.entry.ok);
+export function ActivityEntryView(props: {
+  entry: ActivityEntry;
+  earlier: boolean;
+  onUndo: (id: number) => void;
+  undoId: number | undefined;
+  initiallyOpen?: boolean | undefined;
+  onToggle?: (open: boolean) => void;
+  style?: JSX.CSSProperties | undefined;
+  measure?: ((element: Element | null) => void) | undefined;
+}) {
+  const [open, setOpen] = createSignal(props.initiallyOpen ?? !props.entry.ok);
+  const toggle = () => {
+    const next = !open();
+    setOpen(next);
+    props.onToggle?.(next);
+  };
   const copy = (text: string) => void navigator.clipboard.writeText(text);
+  const now = useNow();
   const time = () => {
     const started = new Date(props.entry.started_at * 1000);
-    return started.toDateString() === new Date().toDateString()
+    return started.toDateString() === new Date(now() * 1000).toDateString()
       ? started.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       : formatAbsolute(props.entry.started_at);
   };
   const status = () => (props.entry.ok ? "ok" : "failed");
   return (
-    <li class="act-entry" classList={{ failed: !props.entry.ok }}>
-      <button type="button" class="act-head" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
+    <li class="act-entry" classList={{ failed: !props.entry.ok }} ref={(element) => props.measure?.(element)} style={props.style}>
+      <button type="button" class="act-head" aria-expanded={open()} onClick={toggle}>
         <span class="act-status" classList={{ bad: !props.entry.ok }}>
           <Icon name={props.entry.ok ? "check" : "warning"} size={14} /> <span class="sr">{status()}</span>
         </span>

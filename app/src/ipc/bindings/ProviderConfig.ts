@@ -2,4 +2,4 @@
 import type { AuthMode } from "./AuthMode";
 import type { ProviderKind } from "./ProviderKind";
 
-export type ProviderConfig = { id: string, kind: ProviderKind, auth_mode: AuthMode, name: string, base_url?: string | null, model?: string | null, has_api_key: boolean, created_at: number, };
+export type ProviderConfig = { id: string, kind: ProviderKind, auth_mode: AuthMode, name: string, base_url?: string | null, has_api_key: boolean, created_at: number, };

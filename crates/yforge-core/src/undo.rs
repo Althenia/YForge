@@ -33,6 +33,13 @@ pub struct SnapshotFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RestoredBranch {
+    pub name: String,
+    pub sha: String,
+    pub upstream: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UndoAction {
     ResetHard {
         branch: Option<String>,
@@ -53,6 +60,9 @@ pub enum UndoAction {
         name: String,
         sha: String,
         upstream: Option<String>,
+    },
+    RecreateBranches {
+        branches: Vec<RestoredBranch>,
     },
     SwitchBack {
         from: HeadRef,
@@ -290,6 +300,25 @@ pub fn plan_branch_delete(name: &str, snapshot: &BranchSnapshot) -> Planned {
     )
 }
 
+pub fn plan_branches_delete(deleted: &[(String, &BranchSnapshot)]) -> Planned {
+    available(
+        UndoAction::RecreateBranches {
+            branches: deleted
+                .iter()
+                .map(|(name, snapshot)| RestoredBranch {
+                    name: name.clone(),
+                    sha: snapshot.sha.clone(),
+                    upstream: snapshot.upstream.clone(),
+                })
+                .collect(),
+        },
+        format!(
+            "Undo delete branches: recreates {} at the commits they had, with their upstreams",
+            counted(deleted.len(), "branch", "branches")
+        ),
+    )
+}
+
 pub fn plan_force_push(lease: &ForceLease, pushed: &str) -> Planned {
     if lease.expected_sha == pushed {
         return unavailable("The force push did not move the remote branch");
@@ -516,6 +545,24 @@ fn switch_to(root: &Path, head: &HeadRef) -> Result<(), CoreError> {
     }
 }
 
+fn recreate_branch(
+    root: &Path,
+    name: &str,
+    sha: &str,
+    upstream: Option<&str>,
+) -> Result<(), CoreError> {
+    git::run(root, &["branch", "--quiet", name, sha])?;
+    if let Some(upstream) = upstream {
+        let upstream_ref = format!("--set-upstream-to={upstream}");
+        git::run_unchecked(root, &["branch", "--quiet", &upstream_ref, name], None)?;
+    }
+    Ok(())
+}
+
+fn counted(count: usize, one: &str, many: &str) -> String {
+    format!("{count} {}", if count == 1 { one } else { many })
+}
+
 pub fn undo(path: &Path, action: &UndoAction) -> Result<String, CoreError> {
     undo_with(path, action, &CancelToken::new(), &mut |_| {})
 }
@@ -579,12 +626,28 @@ pub fn undo_with(
             if branch_snapshot(&root, name)?.is_some() {
                 return Err(refuse(format!("{name} exists again")));
             }
-            git::run(&root, &["branch", "--quiet", name, sha])?;
-            if let Some(upstream) = upstream {
-                let upstream_ref = format!("--set-upstream-to={upstream}");
-                git::run_unchecked(&root, &["branch", "--quiet", &upstream_ref, name], None)?;
-            }
+            recreate_branch(&root, name, sha, upstream.as_deref())?;
             Ok(format!("Recreated branch {name} at {}", short(sha)))
+        }
+        UndoAction::RecreateBranches { branches } => {
+            if let Some(existing) = branches
+                .iter()
+                .find(|restored| branch_snapshot(&root, &restored.name).is_ok_and(|b| b.is_some()))
+            {
+                return Err(refuse(format!("{} exists again", existing.name)));
+            }
+            for restored in branches {
+                recreate_branch(
+                    &root,
+                    &restored.name,
+                    &restored.sha,
+                    restored.upstream.as_deref(),
+                )?;
+            }
+            Ok(format!(
+                "Recreated {}",
+                counted(branches.len(), "branch", "branches")
+            ))
         }
         UndoAction::SwitchBack { from, to } => {
             let here = match from {
