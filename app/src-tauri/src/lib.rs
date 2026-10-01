@@ -22,12 +22,12 @@ use yforge_core::{
     GraphPage, GraphVisibility, Identity, IdentityField, IntegrationPreview, LostCommit,
     MatchedRepo, MergeMode, MessageEdit, ModelInfo, OperationKind, OperationOutcome,
     OperationProgress, Planned, PlatformConnection, PlatformKind, PrDetail, Progress,
-    ProviderInput, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode, PullOutcome,
-    PullReport, PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep,
-    RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
-    ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs, RepoWatcher,
-    ResetMode, SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails, StashRestore,
-    SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
+    ProviderInput, ProviderKind, ProviderStatus, ProviderSummary, ProviderUpdate, PullMode,
+    PullOutcome, PullReport, PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult,
+    RebaseStep, RecentRepo, RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal,
+    RecomposeResult, ReflogEntry, RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs,
+    RepoWatcher, ResetMode, SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails,
+    StashRestore, SwitchStash, TabSession, UsageRecord, WorktreeIntegration, WorktreeStatus,
 };
 use yforge_platform::{NewConnection, PlatformService, PrFilter};
 
@@ -2046,6 +2046,51 @@ async fn cli_install() -> Result<CliInstall, ErrorPayload> {
 }
 
 #[tauri::command]
+async fn provider_field_problem(
+    kind: ProviderKind,
+    field: String,
+    value: String,
+) -> Result<Option<String>, ErrorPayload> {
+    let result =
+        blocking(move || Ok::<_, CoreError>(yforge_ai::field_problem(kind, &field, &value))).await;
+    log_outcome("provider_field_problem", &result, |problem| {
+        format!("problem={}", problem.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn connection_field_problem(
+    field: String,
+    value: String,
+) -> Result<Option<String>, ErrorPayload> {
+    let result = blocking(move || {
+        Ok::<_, CoreError>(yforge_platform::connection_field_problem(&field, &value))
+    })
+    .await;
+    log_outcome("connection_field_problem", &result, |problem| {
+        format!("problem={}", problem.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn avatar_url(email: String) -> Result<Option<String>, ErrorPayload> {
+    let result = blocking(move || Ok::<_, CoreError>(yforge_core::gravatar_url(&email))).await;
+    log_outcome("avatar_url", &result, |url| {
+        format!("resolved={}", url.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn avatar_initial(name: String) -> Result<String, ErrorPayload> {
+    let result = blocking(move || Ok::<_, CoreError>(yforge_core::initial_of(&name))).await;
+    log_outcome("avatar_initial", &result, |initial| initial.clone());
+    result
+}
+
+#[tauri::command]
 async fn identity_read(path: Option<String>) -> Result<Identity, ErrorPayload> {
     log::debug!("identity_read path={path:?}");
     let result = blocking(move || yforge_core::read_identity(path.as_deref().map(Path::new))).await;
@@ -3863,6 +3908,10 @@ pub fn register_with<R: Runtime>(
             repo_settings_load,
             repo_settings_save,
             identity_read,
+            avatar_url,
+            avatar_initial,
+            provider_field_problem,
+            connection_field_problem,
             identity_write,
             remotes_list,
             remote_add,

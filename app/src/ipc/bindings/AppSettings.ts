@@ -3,4 +3,4 @@ import type { Density } from "./Density";
 import type { PullMode } from "./PullMode";
 import type { Theme } from "./Theme";
 
-export type AppSettings = { theme: Theme, density: Density, default_branch: string, pull_mode: PullMode, auto_fetch_minutes: number, editor_command: string, terminal_command: string, telemetry_opt_in: boolean, ssh_key_path?: string | null, };
+export type AppSettings = { theme: Theme, density: Density, default_branch: string, pull_mode: PullMode, auto_fetch_minutes: number, editor_command: string, terminal_command: string, telemetry_opt_in: boolean, gravatar_avatars: boolean, ssh_key_path?: string | null, };

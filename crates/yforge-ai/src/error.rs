@@ -33,6 +33,14 @@ impl AiError {
             detail: detail.into(),
         }
     }
+
+    /// The message a form shows for the field, without the error prefix.
+    pub fn message(&self) -> String {
+        match self {
+            AiError::Invalid { detail } => detail.clone(),
+            other => other.to_string(),
+        }
+    }
 }
 
 impl From<AiError> for CoreError {

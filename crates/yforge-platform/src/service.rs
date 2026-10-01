@@ -27,6 +27,20 @@ pub struct PlatformService {
     secrets: Arc<dyn SecretStore>,
 }
 
+/// The problem the form must show with a field, or `None` when the value is acceptable.
+///
+/// The rules live here, next to the ones the service enforces when it saves, so the
+/// form and the save can never disagree.
+pub fn connection_field_problem(field: &str, value: &str) -> Option<String> {
+    let outcome = match field {
+        "host" => valid_host(value).map(|_| ()),
+        "name" => valid_name(value).map(|_| ()),
+        "token" => valid_token(value).map(|_| ()),
+        _ => return Some(format!("unknown field `{field}`")),
+    };
+    outcome.err().map(|error| error.detail())
+}
+
 fn account(id: &str) -> String {
     format!("platform.{id}")
 }

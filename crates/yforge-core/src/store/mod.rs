@@ -46,6 +46,7 @@ const AUTO_FETCH: &str = "git.auto_fetch_minutes";
 const EDITOR: &str = "tools.editor_command";
 const TERMINAL: &str = "tools.terminal_command";
 const TELEMETRY: &str = "privacy.telemetry_opt_in";
+const AVATARS: &str = "privacy.gravatar_avatars";
 const SSH_KEY: &str = "git.ssh_key_path";
 
 const STATE: Database = Database {
@@ -91,6 +92,7 @@ pub struct AppSettings {
     pub editor_command: String,
     pub terminal_command: String,
     pub telemetry_opt_in: bool,
+    pub gravatar_avatars: bool,
     #[ts(optional = nullable)]
     pub ssh_key_path: Option<String>,
 }
@@ -106,6 +108,7 @@ impl Default for AppSettings {
             editor_command: String::new(),
             terminal_command: String::new(),
             telemetry_opt_in: false,
+            gravatar_avatars: true,
             ssh_key_path: None,
         }
     }
@@ -214,6 +217,7 @@ pub(crate) fn read_settings(conn: &Connection, dir: &Path) -> Result<AppSettings
         editor_command: parse(dir, &stored, EDITOR, defaults.editor_command)?,
         terminal_command: parse(dir, &stored, TERMINAL, defaults.terminal_command)?,
         telemetry_opt_in: parse(dir, &stored, TELEMETRY, defaults.telemetry_opt_in)?,
+        gravatar_avatars: parse(dir, &stored, AVATARS, defaults.gravatar_avatars)?,
         ssh_key_path: parse(dir, &stored, SSH_KEY, defaults.ssh_key_path)?,
     })
 }
@@ -227,6 +231,7 @@ pub(crate) fn write_settings(conn: &Connection, settings: &AppSettings) -> rusql
     put_setting(conn, EDITOR, &settings.editor_command)?;
     put_setting(conn, TERMINAL, &settings.terminal_command)?;
     put_setting(conn, TELEMETRY, &settings.telemetry_opt_in)?;
+    put_setting(conn, AVATARS, &settings.gravatar_avatars)?;
     put_setting(conn, SSH_KEY, &settings.ssh_key_path)
 }
 

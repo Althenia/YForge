@@ -26,6 +26,7 @@ fn settings_default_then_persist_across_reloads() {
         editor_command: "code".to_owned(),
         terminal_command: "open -a iTerm".to_owned(),
         telemetry_opt_in: true,
+        gravatar_avatars: false,
         ssh_key_path: None,
     };
     save_settings(dir.path(), &changed).unwrap();
@@ -189,6 +190,7 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
     assert_eq!(settings.default_branch, "trunk");
     assert_eq!(settings.editor_command, "code");
     assert!(!settings.telemetry_opt_in);
+    assert!(settings.gravatar_avatars);
     let recents = load_recents(dir.path()).unwrap();
     assert_eq!(
         recents
@@ -214,7 +216,7 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
     let stored: i64 = database(dir.path())
         .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(stored, 9);
+    assert_eq!(stored, 10);
 }
 
 #[test]

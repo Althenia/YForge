@@ -2,6 +2,7 @@ mod activity;
 mod ai;
 mod ai_context;
 mod askpass;
+mod avatar;
 mod branch;
 mod cli;
 mod clone;
@@ -49,6 +50,7 @@ pub use ai_context::{
     commit_context, cut_at_line, is_secret_file, render_hunk, status_word, CommitContext,
 };
 pub use askpass::{AuthHandler, AuthKind, AuthPrompt, AuthReply};
+pub use avatar::{gravatar_url, initial_of, md5_hex};
 pub use branch::{
     branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
     delete_branch, rename_branch, set_upstream,

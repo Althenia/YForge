@@ -22,4 +22,4 @@ pub use secret::{
     ClaudeCodeKeychain, KeychainStore, MemoryStore, SecretError, SecretStore, CLAUDE_CODE_SERVICE,
     KEYCHAIN_SERVICE,
 };
-pub use service::{Ai, Selection};
+pub use service::{field_problem, Ai, Selection};

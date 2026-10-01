@@ -31,6 +31,14 @@ impl PlatformError {
             detail: detail.into(),
         }
     }
+
+    /// The message a form shows for the field, without the error prefix.
+    pub fn detail(&self) -> String {
+        match self {
+            PlatformError::Invalid { detail } => detail.clone(),
+            other => other.to_string(),
+        }
+    }
 }
 
 impl From<PlatformError> for CoreError {

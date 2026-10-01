@@ -55,6 +55,16 @@ fn blank_to_none(text: Option<&str>) -> Option<&str> {
     text.map(str::trim).filter(|text| !text.is_empty())
 }
 
+fn validate_name(text: &str) -> Result<()> {
+    let name = text.trim();
+    if name.is_empty() || name.chars().count() > NAME_LIMIT || name.chars().any(char::is_control) {
+        return Err(AiError::invalid(format!(
+            "the provider name must be 1 to {NAME_LIMIT} characters"
+        )));
+    }
+    Ok(())
+}
+
 fn normalize(
     kind: ProviderKind,
     auth_mode: AuthMode,
@@ -62,11 +72,7 @@ fn normalize(
     base_url: Option<&str>,
 ) -> Result<Normalized> {
     let name = name.trim();
-    if name.is_empty() || name.chars().count() > NAME_LIMIT || name.chars().any(char::is_control) {
-        return Err(AiError::invalid(format!(
-            "the provider name must be 1 to {NAME_LIMIT} characters"
-        )));
-    }
+    validate_name(name)?;
     if auth_mode == AuthMode::Subscription && !kind.supports_subscription() {
         return Err(AiError::invalid(format!(
             "{} takes an API key only",
@@ -342,7 +348,32 @@ impl Ai {
             active,
         })
     }
+}
 
+/// The problem a form must show for one field, or `None` when the value is acceptable.
+///
+/// The rules live beside the ones the service enforces when it saves, so a form and
+/// its save can never disagree.
+pub fn field_problem(kind: ProviderKind, field: &str, value: &str) -> Option<String> {
+    let outcome = match field {
+        "name" => validate_name(value),
+        "base_url" => match kind {
+            ProviderKind::OpenaiCompatible => validate_base_url(value).map(|_| ()),
+            _ => Ok(()),
+        },
+        "api_key" => {
+            if value.trim().is_empty() {
+                Err(AiError::invalid("the API key is empty"))
+            } else {
+                Ok(())
+            }
+        }
+        _ => return Some(format!("unknown field `{field}`")),
+    };
+    outcome.err().map(|error| error.message())
+}
+
+impl Ai {
     pub async fn add(&self, dir: &Path, input: ProviderInput) -> Result<ProviderSummary> {
         let normalized = normalize(
             input.kind,

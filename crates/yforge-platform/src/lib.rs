@@ -16,5 +16,5 @@ mod url;
 pub use adapter::PrFilter;
 pub use client::Client;
 pub use error::{PlatformError, Result};
-pub use service::{NewConnection, PlatformService};
+pub use service::{connection_field_problem, NewConnection, PlatformService};
 pub use url::parse_remote;

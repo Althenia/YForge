@@ -85,6 +85,10 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `repo_settings_load`, `repo_settings_save` | `path`; `settings: RepoSettings` (save) | `RepoSettings { pull_mode, ssh_key_path }` / `null` |
 | `identity_read` | `path: string \| null` (`null` is the global scope) | `Identity { name, email }`, each `{ value, source }` with `source` one of `repository`, `global`, `system`, `other`, `unset` |
 | `identity_write` | `path: string \| null`, `field: "name" \| "email"`, `value: string \| null` (`null` unsets; an empty string is `invalid_request`) | `null` |
+| `avatar_url` | `email` | `string \| null`: the Gravatar address for the trimmed, lower-cased email (MD5 hashed in Rust, so the renderer never hashes), or `null` when the email is blank |
+| `avatar_initial` | `name` | `string`: the first character upper-cased, or `?` |
+| `provider_field_problem` | `kind: ProviderKind`, `field: "name" \| "base_url" \| "api_key"`, `value` | `string \| null`: the problem the provider form shows, from the same rules `ai_provider_add` and `ai_provider_update` enforce |
+| `connection_field_problem` | `field: "host" \| "name" \| "token"`, `value` | `string \| null`: the problem the connection form shows, from the same rules `platform_connection_add` enforces |
 | `remotes_list` | `path` | `RemoteInfo[] { name, fetch_url, push_url }` |
 | `remote_add`, `remote_edit`, `remote_remove` | `path`, `name`, `url` (add); `path`, `name`, `newName`, `url` (edit); `path`, `name` (remove) | `null`; names and addresses are validated (`invalid_request`) |
 | `recents_list`, `recent_add`, `recent_remove` | none; `path`; `path` | `RecentRepo[] { path, opened_at }`, newest first, at most 30 |
