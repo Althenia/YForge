@@ -24,7 +24,7 @@ const commits: Record<string, { summary: string; body: string; parents: string[]
   ccccccc3: { summary: "Third", body: "Why third", parents: ["bbbbbbb2"] },
   eeeeeee5: { summary: "Fifth", body: "", parents: ["ddddddd4"] },
 };
-const todo = (sha: string, summary: string, pushed = false) => ({ sha, summary, author: { name: "Yui", initials: "Y" }, is_merge: false, pushed });
+const todo = (sha: string, summary: string, pushed = false) => ({ sha, summary, author: { name: "Yui", email: "a@example.test", initials: "Y" }, is_merge: false, pushed });
 
 type Call = { cmd: string; args: Record<string, unknown> };
 

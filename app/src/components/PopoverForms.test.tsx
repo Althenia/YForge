@@ -334,7 +334,7 @@ describe("Push to… form", () => {
 });
 
 describe("rename stash form", () => {
-  const stash = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: half done", time: 0 };
+  const stash = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: half done", time: 0 };
 
   function mountRename(message = stash.message) {
     const { calls, actions } = actionsStub();

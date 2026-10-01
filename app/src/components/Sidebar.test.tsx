@@ -29,7 +29,7 @@ const snapshot = {
   remote_branches: ["origin/feature/a", "origin/main"],
   remotes: ["origin"],
   tags: ["v1"],
-  stashes: [{ index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "On main: wip", time: 0 }],
+  stashes: [{ index: 0, sha: "s0", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: wip", time: 0 }],
   worktrees: [],
 } as unknown as RepoSnapshot;
 
@@ -261,12 +261,16 @@ describe("sidebar tree connectors", () => {
     const lastFolder = row(host, "folder:local:feature/b");
     const deep = row(host, "branch:feature/b/deep");
 
-    expect(leaf.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
+    // A root-level branch is a child of the section: it draws an elbow at the first level.
+    expect(row(host, "branch:main").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
+    // A branch inside a folder sits one level deeper.
+    expect(leaf.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
     expect(leaf.querySelector(".tree-elbow")?.classList.contains("last")).toBe(false);
     expect(lastFolder.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    expect(deep.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
-    expect(deep.querySelector(".tree-guide")).toBeNull();
-    expect(row(host, "branch:main").querySelector(".tree-elbow, .tree-guide")).toBeNull();
+    expect(deep.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("2");
+    // Every ancestor that still has later siblings keeps a guide above the elbow,
+    // so the connector reaches the section line instead of floating.
+    expect(deep.querySelector('.tree-guide[data-level="0"]')).not.toBeNull();
     expect(host.querySelector(".tree-elbow")?.textContent).toBe("");
   });
 
@@ -274,18 +278,33 @@ describe("sidebar tree connectors", () => {
     const { host } = mount();
     const nested = row(host, "remote:origin/feature/a");
 
-    expect(nested.querySelector('.tree-guide[data-level="0"]')).not.toBeNull();
-    expect(nested.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
+    expect(nested.querySelector('.tree-guide[data-level="1"]')).not.toBeNull();
+    expect(nested.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("2");
     expect(nested.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    expect(row(host, "remote:origin/main").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
-    expect(row(host, "folder:remote:origin").querySelector(".tree-elbow, .tree-guide")).toBeNull();
+    expect(row(host, "remote:origin/main").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
+    // The remote itself is a child of the section, so it draws the first elbow
+    // and its branches hang one level under it.
+    expect(row(host, "folder:remote:origin").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
   });
 
-  it("keeps tags and stashes flat", () => {
+  it("draws every section's rows as tree children, so they share one hierarchy", () => {
     const { host } = mount();
 
-    expect(section(host, "Tags").querySelector(".tree-elbow, .tree-guide")).toBeNull();
-    expect(section(host, "Stashes").querySelector(".tree-elbow, .tree-guide")).toBeNull();
+    for (const title of ["Branches", "Remotes", "Tags", "Stashes"]) {
+      expect(section(host, title).querySelector(".tree-elbow")).not.toBeNull();
+    }
+    expect(section(host, "Tags").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
+    expect(section(host, "Stashes").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
+    // The last row of a section ends its line instead of continuing down; the one
+    // before it continues, so the connector reaches the row below.
+    const branches = [...section(host, "Branches").querySelectorAll("[data-nav]")];
+    expect(branches.at(-1)?.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
+    expect(row(host, "branch:feature/a").querySelector(".tree-elbow")?.classList.contains("last")).toBe(false);
+    expect(row(host, "branch:feature/b/deep").querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
+    // A section with a single row draws that row as its last child.
+    const tags = [...section(host, "Tags").querySelectorAll("[data-nav]")];
+    expect(tags).toHaveLength(1);
+    expect(tags[0]?.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
   });
 });
 
@@ -398,16 +417,31 @@ describe("sidebar multi-select", () => {
     expect(calls).toEqual([]);
   });
 
-  it("treats a macOS ctrl-click, which arrives as a context menu on the primary button, as a toggle", async () => {
+  it("treats a macOS ctrl-click, which arrives as a context menu, as a toggle with either button number", async () => {
+    for (const button of [0, 2]) {
+      const { host, dispose } = mount();
+
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ctrlKey: true, button });
+      row(host, "branch:feature/a").dispatchEvent(event);
+      await flush();
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(pressed(host)).toEqual(["branch:feature/a"]);
+      expect(menuItems()).toEqual([]);
+      dispose();
+    }
+  });
+
+  it("extends from the anchor when a shift-click follows a ctrl-click, so a range needs no plain click first", async () => {
     const { host } = mount();
 
-    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ctrlKey: true, button: 0 });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, ctrlKey: true, button: 2 });
     row(host, "branch:feature/a").dispatchEvent(event);
     await flush();
+    shiftClick(row(host, "branch:main"));
+    await flush();
 
-    expect(event.defaultPrevented).toBe(true);
-    expect(pressed(host)).toEqual(["branch:feature/a"]);
-    expect(menuItems()).toEqual([]);
+    expect(pressed(host)).toEqual(["branch:feature/a", "branch:feature/b/deep", "branch:main"]);
   });
 
   it("clears the selection with a plain click and keeps a single-row context menu for one row or a row outside the selection", async () => {
@@ -453,8 +487,8 @@ describe("sidebar multi-select", () => {
       remotes: ["origin", "upstream"],
       remote_branches: ["origin/main", "upstream/main"],
       stashes: [
-        { index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "one", time: 0 },
-        { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "two", time: 0 },
+        { index: 0, sha: "s0", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "one", time: 0 },
+        { index: 1, sha: "s1", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "two", time: 0 },
       ],
       worktrees: [
         { path: "/w/repo", head: "a", branch: "main", bare: false, locked: false, prunable: false, current: true },

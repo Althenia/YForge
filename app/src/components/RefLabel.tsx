@@ -19,7 +19,7 @@ export function RefLabel(props: { group: LabelGroup; sha: string | null; actions
       onPointerDown={(event) => {
         const current = target();
         if (current !== undefined && !props.group.tag) {
-          beginLabelDrag(event, current, labelAt, (dragged, dropped, at) => void props.actions.openDropMenu(dragged, dropped, at));
+          beginLabelDrag(event, current, labelAt, (dragged, dropped, at) => void props.actions.openDropMenu(dragged, dropped, at), props.group.title);
         }
       }}
       onContextMenu={(event) => {

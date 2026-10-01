@@ -206,6 +206,35 @@ describe("clone dialog", () => {
     expect(calls.find((call) => call.cmd === "app_ui_prefs_save")?.args).toEqual({ prefs: { palette_recents: ["tab.new"], last_parent_folder: "/Users/yui/code" } });
   });
 
+  it("sends shallow and sparse only when they are chosen, and names what each one costs", async () => {
+    const { host, calls } = await mountClone();
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    expect(host.textContent).toContain("Fetches only the latest commit of one branch");
+    expect(host.textContent).toContain("checks nothing out");
+
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "clone_repo")?.args).toMatchObject({ options: { shallow: false, sparse: false } });
+  });
+
+  it("sends shallow and sparse when they are chosen", async () => {
+    const { host, calls } = await mountClone();
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    const boxNamed = (name: string) =>
+      [...host.querySelectorAll<HTMLLabelElement>("label.check")].find((label) => label.textContent?.trim() === name)?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    boxNamed("Shallow clone")?.click();
+    boxNamed("Sparse checkout")?.click();
+    await flush();
+
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "clone_repo")?.args).toMatchObject({ options: { shallow: true, sparse: true } });
+  });
+
   it("streams progress with Cancel, keeps the dialog open, and opens the repository when the clone finishes", async () => {
     let finish: (root: string) => void = () => undefined;
     const { host, calls, app } = await mountClone((call) => (call.cmd === "clone_repo" ? new Promise((resolve) => (finish = resolve)) : undefined));

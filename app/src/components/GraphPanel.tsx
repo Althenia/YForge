@@ -33,6 +33,8 @@ import { Icon } from "./Icon";
 import { RefLabel } from "./RefLabel";
 import { RefOverflow } from "./RefOverflow";
 import { tip } from "./Tooltip";
+import { useApp } from "../state/app";
+import { ensureGraphAvatar, graphAvatarRevision } from "../state/avatar";
 
 const OVERSCAN = 8;
 const SHORT_AUTHOR_WIDTH = 40;
@@ -155,6 +157,7 @@ function PlaceholderRow(props: { index: number; geometry: Geometry }) {
 
 function LaneArt(props: {
   geometry: Geometry;
+  avatarsOn: () => boolean;
   firstRow: number;
   endRow: number;
   rows: ReadonlyMap<number, GraphRow>;
@@ -209,6 +212,7 @@ function LaneArt(props: {
               const x = () => nodeX(row().column, geometry());
               const y = () => rowY(index - props.firstRow, geometry());
               const radius = () => (geometry().node - geometry().line) / 2;
+              const avatarOf = () => (props.avatarsOn() ? ensureGraphAvatar(row().author?.email) : undefined);
               return (
                 <g class={laneClass(row().column, geometry())} classList={{ faded: props.faded(index) }}>
                   <Show when={row().kind === "changes" || row().kind === "clean_changes"}>
@@ -239,9 +243,24 @@ function LaneArt(props: {
                       r={geometry().node / 2 - geometry().line / 2}
                       stroke-width={geometry().line}
                     />
-                    <text class="initials" x={x()} y={y()} dy="0.35em" text-anchor="middle">
-                      {row().author?.initials ?? "?"}
-                    </text>
+                    <Show when={avatarOf()}>
+                      {(source) => (
+                        <image
+                          class="node-avatar"
+                          href={source()}
+                          x={x() - radius()}
+                          y={y() - radius()}
+                          width={radius() * 2}
+                          height={radius() * 2}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </Show>
+                    <Show when={!avatarOf()}>
+                      <text class="initials" x={x()} y={y()} dy="0.35em" text-anchor="middle">
+                        {row().author?.initials ?? "?"}
+                      </text>
+                    </Show>
                   </Show>
                 </g>
               );
@@ -268,8 +287,12 @@ export function GraphPanel(props: {
   onSelect: (selection: Selection) => void;
   onRevealHead: () => void;
 }) {
+  const app = useApp();
+  const avatarsOn = () => app.ready() && app.settings().gravatar_avatars;
   const visibility = () => props.uiPrefs.prefs().branch_visibility;
   const store = createGraphStore(props.path, useQueryClient(), visibility);
+  // Re-render the nodes once a picture has loaded.
+  createEffect(() => void graphAvatarRevision());
   const wide = createMinWidth(GRAPH_COLUMNS_MIN_WIDTH);
   const now = Math.floor(Date.now() / 1000);
   let scroller: HTMLDivElement | undefined;
@@ -604,7 +627,7 @@ export function GraphPanel(props: {
               </Show>
             )}
           </For>
-          <LaneArt geometry={view()} firstRow={range().first} endRow={range().end} rows={store.rows()} edges={edges()} width={messageLeft()} faded={faded} />
+          <LaneArt geometry={view()} avatarsOn={avatarsOn} firstRow={range().first} endRow={range().end} rows={store.rows()} edges={edges()} width={messageLeft()} faded={faded} />
         </div>
       </div>
       <Show when={summary()}>

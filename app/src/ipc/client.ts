@@ -23,6 +23,7 @@ import type { AmendInfo } from "./bindings/AmendInfo";
 import type { AppInfo } from "./bindings/AppInfo";
 import type { ChangeArea } from "./bindings/ChangeArea";
 import type { CheckoutOutcome } from "./bindings/CheckoutOutcome";
+import type { CloneOptions } from "./bindings/CloneOptions";
 import type { CheckoutTarget } from "./bindings/CheckoutTarget";
 import type { CommitBrief } from "./bindings/CommitBrief";
 import type { CommitDetails } from "./bindings/CommitDetails";
@@ -269,7 +270,8 @@ export const client = {
   repoUiPrefsSave: (path: string, prefs: RepoUiPrefs) => call<null>("repo_ui_prefs_save", { path, prefs }),
   appUiPrefsLoad: () => call<AppUiPrefs>("app_ui_prefs_load"),
   appUiPrefsSave: (prefs: AppUiPrefs) => call<null>("app_ui_prefs_save", { prefs }),
-  cloneRepo: (id: string, url: string, destination: string) => call<string>("clone_repo", { id, url, destination }),
+  cloneRepo: (id: string, url: string, destination: string, options: CloneOptions) =>
+    call<string>("clone_repo", { id, url, destination, options }),
   initRepo: (path: string) => call<string>("init_repo", { path }),
   settingsLoad: () => call<AppSettings>("settings_load"),
   settingsSave: (settings: AppSettings) => call<AppSettings>("settings_save", { settings }),

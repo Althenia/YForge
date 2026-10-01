@@ -371,7 +371,7 @@ describe("sync", () => {
 });
 
 describe("stash", () => {
-  const stash: StashEntry = { index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "On main: wip", time: 1 };
+  const stash: StashEntry = { index: 0, sha: "s0", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: wip", time: 1 };
 
   it("applies, pops, and reports conflicts", async () => {
     const { actions, calls, session } = setup((call) => (call.cmd === "stash_pop" ? "conflicts" : "applied"));
@@ -848,7 +848,7 @@ describe("pull with a dirty working tree", () => {
   });
 
   describe("a pull that stopped on conflicts with the changes kept in the stash", () => {
-    const stashes = [{ index: 2, sha: "abc123", base_sha: "b", author_name: "Ada", message: "On main: YForge: auto-stash before pulling origin/main", time: 1 }];
+    const stashes = [{ index: 2, sha: "abc123", base_sha: "b", author_name: "Ada", author_email: "a@example.test", message: "On main: YForge: auto-stash before pulling origin/main", time: 1 }];
     const resting = () => snapshot({ counts: { ...counts, modified: 2 }, operation: "merge", operation_detail: { current: "main", incoming: "origin/main", message: "Merge", step: null, resolved: [] }, stashes });
     const kept = { outcome: "conflicts", stash: { kind: "kept", reference: "stash@{2}", sha: "abc123", reason: "pull_conflicts" } };
 
@@ -1096,7 +1096,7 @@ describe("upstream and Push to…", () => {
 });
 
 describe("stash rename and inspect", () => {
-  const stash: StashEntry = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: wip", time: 1 };
+  const stash: StashEntry = { index: 1, sha: "s1", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: wip", time: 1 };
 
   it("opens the rename form and renames through the stash command", async () => {
     const { actions, calls } = setup(() => null);
@@ -1287,9 +1287,9 @@ describe("checkout of a branch owned by another worktree", () => {
 
 describe("bulk branch and stash actions", () => {
   const stashes = [
-    { index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "On main: one", time: 0 },
-    { index: 1, sha: "s1", base_sha: null, author_name: "Yui", message: "On main: two", time: 0 },
-    { index: 2, sha: "s2", base_sha: null, author_name: "Yui", message: "On main: three", time: 0 },
+    { index: 0, sha: "s0", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: one", time: 0 },
+    { index: 1, sha: "s1", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: two", time: 0 },
+    { index: 2, sha: "s2", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "On main: three", time: 0 },
   ];
 
   it("confirms deleting several branches once, naming them and the commits that would lose their name, then forces only those", async () => {

@@ -251,7 +251,7 @@ describe("cursors on the graph", () => {
       sha: "sha0",
       parents: [],
       summary: "first",
-      author: { name: "Yui", initials: "Y" },
+      author: { name: "Yui", email: "a@example.test", initials: "Y" },
       time: 1_700_000_000,
       refs: [
         { name: "main", kind: "local_branch", is_head: false },
@@ -322,7 +322,7 @@ describe("cursors on the graph", () => {
   });
 
   it("shows the drag cursor on a rebase row's handle, the action cursor on its select, the disabled cursor on Move up of the first row, and the text cursor on a message editor", async () => {
-    const todo = (sha: string, summary: string) => ({ sha, summary, author: { name: "Y", initials: "Y" }, is_merge: false, pushed: false });
+    const todo = (sha: string, summary: string) => ({ sha, summary, author: { name: "Y", email: "a@example.test", initials: "Y" }, is_merge: false, pushed: false });
     const plan = { base: "b", commits: [todo("aaaaaaa1", "First"), todo("bbbbbbb2", "Second")], pushed: false };
     mockIPC((cmd) => {
       if (cmd === "rebase_plan") return plan;

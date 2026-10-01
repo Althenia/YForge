@@ -28,7 +28,7 @@ afterEach(async () => {
 });
 
 const SHA = "5".repeat(40);
-const entry: StashEntry = { index: 1, sha: SHA, base_sha: "a".repeat(40), author_name: "Ada", message: "On main: half done", time: 1_700_000_000 };
+const entry: StashEntry = { index: 1, sha: SHA, base_sha: "a".repeat(40), author_name: "Ada", author_email: "a@example.test", message: "On main: half done", time: 1_700_000_000 };
 const details = (files: StashDetails["files"]): StashDetails => ({ index: 1, sha: SHA, message: "On main: half done", base_sha: entry.base_sha, untracked_sha: files.some((file) => file.untracked) ? "7".repeat(40) : null, files });
 const tracked = { path: "src/a.ts", original_path: null, status: "modified", additions: 3, deletions: 1, untracked: false } as const;
 const untracked = { path: "notes.txt", original_path: null, status: "untracked", additions: 4, deletions: 0, untracked: true } as const;

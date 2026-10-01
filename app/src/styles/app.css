@@ -957,6 +957,11 @@ svg.lanes {
   font: var(--font-graph-initials);
 }
 
+.node-avatar {
+  clip-path: circle(50%);
+  pointer-events: none;
+}
+
 .inspector {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -2152,6 +2157,28 @@ svg.lanes {
 body.dragging {
   cursor: var(--cursors-dragging);
   user-select: none;
+}
+
+/* The card the pointer picked up follows the cursor while a drag runs. */
+.drag-ghost {
+  position: fixed;
+  z-index: 90;
+  pointer-events: none;
+  padding: 2px 10px;
+  border-radius: var(--rounded-md);
+  background: var(--colors-surface-raised);
+  color: var(--colors-text);
+  box-shadow: var(--elevation-overlay, 0 8px 24px rgb(0 0 0 / 45%)), inset 0 0 0 1px var(--colors-rule-panel);
+  font: var(--font-ref);
+  white-space: nowrap;
+  animation: overlay-enter var(--motion-quick) var(--ease-standard);
+}
+
+/* A draggable source dims while its own drag runs, so the lift is visible. */
+body.dragging [data-ref-label].drag-source,
+body.dragging .rrow.drag-source,
+body.dragging .rfile.drag-source {
+  opacity: 0.45;
 }
 
 body.dragging * {
@@ -3413,7 +3440,7 @@ button.cmd {
   position: fixed;
   z-index: 80;
   right: var(--spacing-4);
-  bottom: calc(var(--activity-h) + var(--spacing-3) + 56px);
+  top: calc(var(--spacing-4) + 44px);
   display: grid;
   gap: var(--spacing-2);
   justify-items: end;
@@ -3421,7 +3448,7 @@ button.cmd {
 
 .toast.stacked {
   position: static;
-  animation: overlay-enter var(--motion-quick) var(--ease-standard);
+  animation: toast-enter var(--motion-quick) var(--ease-standard);
 }
 
 .dnav {

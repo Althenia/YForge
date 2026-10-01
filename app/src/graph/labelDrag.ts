@@ -24,9 +24,12 @@ export function beginLabelDrag(
   source: RefTarget,
   hitAt: (x: number, y: number) => LabelHit | undefined,
   onDrop: (dragged: RefTarget, dropped: RefTarget, at: DropPoint) => void,
+  label?: string,
 ): void {
   let marked: Element | undefined;
   beginPointerDrag<LabelHit>(down, {
+    source: down.currentTarget instanceof Element ? down.currentTarget : undefined,
+    ghost: () => label ?? source.name,
     hit: (x, y) => {
       const hit = hitAt(x, y);
       return hit !== undefined && hit.target.name !== source.name ? hit : undefined;

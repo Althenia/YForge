@@ -20,7 +20,7 @@ import {
   type RebaseRow,
 } from "./rebaseModel";
 
-const todo = (sha: string, summary: string, extra: Partial<RebasePlan["commits"][number]> = {}) => ({ sha, summary, author: { name: "Yui", initials: "Y" }, is_merge: false, pushed: false, ...extra });
+const todo = (sha: string, summary: string, extra: Partial<RebasePlan["commits"][number]> = {}) => ({ sha, summary, author: { name: "Yui", email: "a@example.test", initials: "Y" }, is_merge: false, pushed: false, ...extra });
 const plan = (overrides: Partial<RebasePlan> = {}): RebasePlan => ({
   base: "base000",
   commits: [todo("aaa1111", "First"), todo("bbb2222", "Second"), todo("ccc3333", "Third")],

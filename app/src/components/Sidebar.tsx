@@ -184,8 +184,14 @@ export function Sidebar(props: {
   }
 
   function selectFromContext(group: BulkGroup, id: string, event: MouseEvent): boolean {
-    if (event.ctrlKey && event.button === 0) setMulti(toggleRow(chosen(), group, id));
-    else if (!openBulk(group, id, { left: event.clientX, top: event.clientY })) return false;
+    // macOS delivers a ctrl-click as a context menu on the secondary button, and some
+    // drivers keep the primary button number; both must toggle instead of opening a menu.
+    if (event.ctrlKey) {
+      setMulti(toggleRow(chosen(), group, id));
+      event.preventDefault();
+      return true;
+    }
+    if (!openBulk(group, id, { left: event.clientX, top: event.clientY })) return false;
     event.preventDefault();
     return true;
   }
@@ -417,9 +423,10 @@ export function Sidebar(props: {
         path={row.id.slice("local:".length)}
         count={row.count}
         open={row.open}
-        depth={row.depth}
+        depth={row.depth + 1}
+        base={6}
         noun="Folder"
-        tree={{ last: row.last, lines: row.trail.slice(1) }}
+        tree={{ last: row.last, lines: row.trail }}
       />
     ) : (
       <NavRow
@@ -427,9 +434,10 @@ export function Sidebar(props: {
         title={row.path}
         label={`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`}
         current={row.path === currentBranch()}
-        depth={row.depth}
+        depth={row.depth + 1}
+        base={6}
         group="branches"
-        tree={{ last: row.last, lines: row.trail.slice(1) }}
+        tree={{ last: row.last, lines: row.trail }}
         onOpen={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
         onActivate={checkoutOf(branchTarget(row.path))}
@@ -449,8 +457,11 @@ export function Sidebar(props: {
       </NavRow>
     );
 
-  const remoteRow = (remote: string, row: TreeRow) =>
-    row.kind === "folder" ? (
+  const remoteRow = (remote: string, row: TreeRow, remoteLast: boolean) => {
+    // The remote itself is the section's child, so its branches sit one level deeper.
+    const lines = [!remoteLast, ...row.trail];
+    const chrome = { depth: row.depth + 2, base: 6, tree: { last: row.last, lines } };
+    return row.kind === "folder" ? (
       <FolderRow
         id={`folder:${row.id}`}
         scopeId={row.id}
@@ -458,19 +469,15 @@ export function Sidebar(props: {
         path={`${remote}/${row.id.slice(remote.length + 1)}`}
         count={row.count}
         open={row.open}
-        depth={row.depth + 1}
-        base={6}
         noun="Folder"
-        tree={{ last: row.last, lines: row.trail }}
+        {...chrome}
       />
     ) : (
       <NavRow
         id={`remote:${remote}/${row.path}`}
         title={`${remote}/${row.path}`}
         label={`Remote branch ${remote}/${row.path}`}
-        depth={row.depth + 1}
-        base={14}
-        tree={{ last: row.last, lines: row.trail }}
+        {...chrome}
         onOpen={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
         onActivate={checkoutOf(remoteTarget(`${remote}/${row.path}`))}
@@ -478,6 +485,7 @@ export function Sidebar(props: {
         <span class="name">{row.label}</span>
       </NavRow>
     );
+  };
 
   return (
     <aside class="panel sidebar" aria-label="Repository" onKeyDown={onKeyDown}>
@@ -505,8 +513,9 @@ export function Sidebar(props: {
         </Section>
         <Section id="remotes" icon="remote" title="Remotes" total={snapshot().remotes.length} shown={visibleRemotes().length}>
           <For each={visibleRemotes()}>
-            {(remote) => {
+            {(remote, index) => {
               const open = () => filtering() || !collapsedFolders().has(`remote:${remote}`);
+              const last = () => index() === visibleRemotes().length - 1;
               return (
                 <>
                   <FolderRow
@@ -516,13 +525,14 @@ export function Sidebar(props: {
                     path={remote}
                     count={visibleRemoteBranches(remote).length}
                     open={open()}
-                    depth={0}
+                    depth={1}
                     base={6}
                     noun="Remote"
                     group="remotes"
+                    tree={{ last: last(), lines: [] }}
                   />
                   <Show when={open()}>
-                    <For each={remoteRows(remote)}>{(row) => remoteRow(remote, row)}</For>
+                    <For each={remoteRows(remote)}>{(row) => remoteRow(remote, row, last())}</For>
                   </Show>
                 </>
               );
@@ -531,13 +541,16 @@ export function Sidebar(props: {
         </Section>
         <Section id="tags" icon="tag" title="Tags" total={snapshot().tags.length} shown={visibleTags().length}>
           <For each={visibleTags()}>
-            {(name) => {
+            {(name, index) => {
               const target = () => tagTarget(name);
               return (
                 <NavRow
                   id={`tag:${name}`}
                   title={name}
                   label={`Tag ${name}`}
+                  depth={1}
+                  base={6}
+                  tree={{ last: index() === visibleTags().length - 1, lines: [] }}
                   onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onActivate={checkoutOf(target())}
@@ -550,13 +563,16 @@ export function Sidebar(props: {
         </Section>
         <Section id="stashes" icon="stash" title="Stashes" total={snapshot().stashes.length} shown={visibleStashes().length}>
           <For each={visibleStashes()}>
-            {(stash) => (
+            {(stash, index) => (
               <NavRow
                 id={`stash:${stash.sha}`}
                 title={stash.message}
                 label={`Stash ${stash.index}: ${stash.message}`}
                 current={props.selection?.kind === "stash" && props.selection.sha === stash.sha}
                 group="stashes"
+                depth={1}
+                base={6}
+                tree={{ last: index() === visibleStashes().length - 1, lines: [] }}
                 onClick={() => props.onSelectStash(stash.sha)}
                 onOpen={(anchor) => props.actions.openStashMenu(stash, anchor)}
                 onMenu={(anchor) => props.actions.openStashMenu(stash, anchor)}
@@ -578,13 +594,16 @@ export function Sidebar(props: {
           add={{ label: "Create worktree", run: props.worktrees.openCreate }}
         >
           <For each={visibleWorktrees()}>
-            {(worktree) => (
+            {(worktree, index) => (
               <NavRow
                 id={`worktree:${worktree.path}`}
                 title={worktree.path}
                 label={`Worktree ${basename(worktree.path)}, branch ${branchLabel(worktree)}`}
                 current={worktree.current}
                 group="worktrees"
+                depth={1}
+                base={6}
+                tree={{ last: index() === visibleWorktrees().length - 1, lines: [] }}
                 onOpen={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
                 onMenu={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
                 onClick={() => !worktree.current && void props.worktrees.open(worktree.path)}
@@ -607,7 +626,7 @@ export function Sidebar(props: {
               add={{ label: "New pull request", run: () => void platform.openCreate() }}
             >
               <For each={visiblePulls()}>
-                {(pull) => {
+                {(pull, index) => {
                   const state = () => prStateView(pull.state);
                   const select = () => props.onSelectPull?.(pull.number);
                   return (
@@ -617,6 +636,9 @@ export function Sidebar(props: {
                       label={`Pull request #${pull.number}: ${pull.title}, by ${pull.author}, ${pull.source_ref} to ${pull.target_ref}, ${state().label}`}
                       current={props.selection?.kind === "pull" && props.selection.number === pull.number}
                       pull
+                      depth={1}
+                      base={6}
+                      tree={{ last: index() === visiblePulls().length - 1, lines: [] }}
                       onClick={select}
                       onActivate={select}
                       onOpen={(anchor) => openPullMenu(pull, anchor)}
@@ -694,8 +716,18 @@ export function Sidebar(props: {
         </Show>
         <Section id="recovery" icon="history" title="Recovery">
           <For each={visibleRecovery()}>
-            {(entry) => (
-              <div class="srow" role="button" tabindex="0" aria-label={entry.label} title={entry.note} onClick={() => props.onOpenPanel(entry.panel)} onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}>
+            {(entry, index) => (
+              <div
+                class="srow"
+                role="button"
+                tabindex="0"
+                aria-label={entry.label}
+                title={entry.note}
+                style={{ "padding-left": `${6 + 14}px` }}
+                onClick={() => props.onOpenPanel(entry.panel)}
+                onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}
+              >
+                <TreeLines depth={1} last={index() === visibleRecovery().length - 1} lines={[]} />
                 <span class="name">{entry.title}</span>
               </div>
             )}

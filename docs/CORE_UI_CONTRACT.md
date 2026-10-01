@@ -76,7 +76,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `conflict_reset` | `path`, `file: string` | `null` |
 
 | `publish` | `path`, `id: string`, `remote: string` | `null`; `git push --set-upstream <remote> <branch>`; needs a commit and an existing remote |
-| `clone_repo` | `id: string`, `url: string`, `destination: string` (absolute, the full target path) | `string`: the opened repository root. The destination must not exist or be empty; a failed or cancelled clone removes what it created |
+| `clone_repo` | `id: string`, `url: string`, `destination: string` (absolute, the full target path), `options: CloneOptions` (`shallow` fetches only the latest commit of each branch, `sparse` clones without checking the working tree out) | `string`: the opened repository root. The destination must not exist or be empty; a failed or cancelled clone removes what it created |
 | `init_repo` | `path: string` (absolute; created when missing) | `string`: the root. Uses the default branch from the app settings; `already_a_repository` when `path` is a repository root |
 | `search_commits` | `path`, `query: string`, `visibility?: GraphVisibility` (default `{ kind: "all" }`; rows index the graph that visibility renders) | `SearchResult { total, rows }`: `rows` are graph row indexes of commits (and stashes) whose message, author name or email, or SHA prefix match, case-insensitive; `author:` and `sha:` restrict the field; an empty query matches nothing |
 | `auth_respond` | `id: string` (the prompt id), `reply: AuthReply` | `boolean`: true when a prompt with that id was waiting |

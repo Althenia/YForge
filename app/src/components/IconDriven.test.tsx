@@ -68,7 +68,7 @@ const snapshot: RepoSnapshot = {
   remote_branches: ["origin/main"],
   remotes: ["origin"],
   tags: ["v0.1.0"],
-  stashes: [{ index: 0, sha: "b".repeat(40), base_sha: null, author_name: "Yui", message: "wip", time: 0 }],
+  stashes: [{ index: 0, sha: "b".repeat(40), base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "wip", time: 0 }],
 };
 
 const recent = { path: "/Users/yui/dev/sample", opened_at: Math.floor(Date.now() / 1000) };

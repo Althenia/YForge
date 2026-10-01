@@ -20,7 +20,7 @@ const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, co
 const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
   ({ root: "/r", head: { kind: "branch", name: "main", sha: "c" }, upstream: { name: "origin/main", ahead_behind: { ahead: 3, behind: 0 } }, counts, files: [], operation: null, operation_detail: null, remotes: ["origin"], ...overrides }) as RepoSnapshot;
 
-const todo = (sha: string, summary: string, extra: Record<string, unknown> = {}) => ({ sha, summary, author: { name: "Yui", initials: "Y" }, is_merge: false, pushed: false, ...extra });
+const todo = (sha: string, summary: string, extra: Record<string, unknown> = {}) => ({ sha, summary, author: { name: "Yui", email: "a@example.test", initials: "Y" }, is_merge: false, pushed: false, ...extra });
 const plan = (overrides: Partial<RebasePlan> = {}): RebasePlan => ({ base: "base0000", commits: [todo("aaaaaaa1", "First"), todo("bbbbbbb2", "Second"), todo("ccccccc3", "Third")], pushed: false, ...overrides });
 const bodies: Record<string, string> = { aaaaaaa1: "Why first", bbbbbbb2: "", ccccccc3: "Why third" };
 

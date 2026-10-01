@@ -283,7 +283,7 @@ describe("typed IPC client", () => {
     await client.publish("/r", "op-2", "origin");
     await client.authRespond("op-1/auth-1", { kind: "trust" });
     await client.searchCommits("/r", "fix");
-    await client.cloneRepo("op-3", "https://example.test/a.git", "/d/a");
+    await client.cloneRepo("op-3", "https://example.test/a.git", "/d/a", { shallow: true, sparse: false });
     await client.initRepo("/d/new");
     await client.settingsLoad();
     await client.settingsSave(settings);
@@ -311,7 +311,7 @@ describe("typed IPC client", () => {
       { cmd: "publish", args: { path: "/r", id: "op-2", remote: "origin" } },
       { cmd: "auth_respond", args: { id: "op-1/auth-1", reply: { kind: "trust" } } },
       { cmd: "search_commits", args: { path: "/r", query: "fix" } },
-      { cmd: "clone_repo", args: { id: "op-3", url: "https://example.test/a.git", destination: "/d/a" } },
+      { cmd: "clone_repo", args: { id: "op-3", url: "https://example.test/a.git", destination: "/d/a", options: { shallow: true, sparse: false } } },
       { cmd: "init_repo", args: { path: "/d/new" } },
       { cmd: "settings_load", args: {} },
       { cmd: "settings_save", args: { settings } },

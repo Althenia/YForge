@@ -36,7 +36,7 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     remote_branches: ["origin/main", "origin/remote-only"],
     remotes: ["origin"],
     tags: ["v1"],
-    stashes: [{ index: 0, sha: "s0", base_sha: null, author_name: "Yui", message: "WIP", time: 0 }],
+    stashes: [{ index: 0, sha: "s0", base_sha: null, author_name: "Yui", author_email: "a@example.test", message: "WIP", time: 0 }],
     worktrees: [],
     ...overrides,
   }) as RepoSnapshot;

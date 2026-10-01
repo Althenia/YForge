@@ -71,7 +71,7 @@ const baseRow = (index: number): GraphRow => ({
   sha: `sha${index}`,
   parents: index + 1 < TOTAL ? [`sha${index + 1}`] : [],
   summary: `commit ${index}`,
-  author: { name: "Yui", initials: "Y" },
+  author: { name: "Yui", email: "a@example.test", initials: "Y" },
   time: 1_700_000_000,
   refs: [],
   kind: "commit",

@@ -43,7 +43,7 @@ function ParentField(props: { label: string; value: string; onChange: (value: st
 export function CloneDialog(props: { onClose: () => void }) {
   const app = useApp();
   const form = createForm(() => ({
-    defaultValues: { url: "", parent: "", openAfter: true },
+    defaultValues: { url: "", parent: "", openAfter: true, shallow: false, sparse: false },
     onSubmit: ({ value }) => clone(value),
   }));
   const url = form.useSelector((state) => state.values.url);
@@ -68,14 +68,14 @@ export function CloneDialog(props: { onClose: () => void }) {
   const canSubmit = form.useSelector((state) => state.canSubmit);
   const ready = () => canSubmit() && running() === undefined;
 
-  async function clone(values: { url: string; parent: string; openAfter: boolean }): Promise<void> {
+  async function clone(values: { url: string; parent: string; openAfter: boolean; shallow: boolean; sparse: boolean }): Promise<void> {
     const id = nextId();
     announceOperation(id, "clone");
     setFailure(undefined);
     setRunning({ id, phase: "Starting clone", percent: null });
     app.uiPrefs.update((prefs) => withParentFolder(prefs, values.parent));
     try {
-      const root = await client.cloneRepo(id, values.url.trim(), cloneDestination(values.parent, values.url));
+      const root = await client.cloneRepo(id, values.url.trim(), cloneDestination(values.parent, values.url), { shallow: values.shallow, sparse: values.sparse });
       setRunning(undefined);
       props.onClose();
       if (values.openAfter) await app.openRepository(root);
@@ -130,6 +130,20 @@ export function CloneDialog(props: { onClose: () => void }) {
           </form.Field>
           Open after clone
         </label>
+        <label class="check">
+          <form.Field name="shallow">
+            {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
+          </form.Field>
+          Shallow clone
+        </label>
+        <span class="field-note">Fetches only the latest commit of one branch; the rest of the history stays on the server and arrives when a page or a search needs it.</span>
+        <label class="check">
+          <form.Field name="sparse">
+            {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
+          </form.Field>
+          Sparse checkout
+        </label>
+        <span class="field-note">Clones and checks nothing out, so you can choose the folders you want before any file is written.</span>
         <Show when={running()}>
           {(state) => (
             <div class="entry-progress" role="status">
