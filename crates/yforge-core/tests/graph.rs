@@ -46,10 +46,10 @@ fn merge_history_has_merge_row_lanes_and_refs() {
 
     let page = graph_page(&history.repo.path, 0, 100, &GraphVisibility::All).unwrap();
 
-    assert_eq!(page.total, 5);
-    assert_eq!(page.rows.len(), 5);
+    assert_eq!(page.total, 4);
+    assert_eq!(page.rows.len(), 4);
     let (merge_index, merge) = row_of(&page, &history.merge);
-    assert_eq!(merge_index, 1);
+    assert_eq!(merge_index, 0);
     assert_eq!(merge.kind, NodeKind::Merge);
     assert_eq!(merge.summary, "Merge feature");
     assert_eq!(
@@ -77,7 +77,7 @@ fn merge_history_has_merge_row_lanes_and_refs() {
     assert_eq!(main_row.column, 0);
     assert_eq!(feature_row.column, 1);
     assert_eq!(base_row.column, 0);
-    assert_eq!(base_index, 4);
+    assert_eq!(base_index, 3);
     assert_eq!(merge.edges[0].parent_row, Some(main_index as u32));
     assert_eq!(merge.edges[1].parent_row, Some(feature_index as u32));
     assert_eq!(feature_row.edges[0].lane, 1);
@@ -106,30 +106,25 @@ fn pages_are_windows_of_one_consistent_layout() {
     let past_end = graph_page(&history.repo.path, 10, 5, &GraphVisibility::All).unwrap();
     let empty = graph_page(&history.repo.path, 0, 0, &GraphVisibility::All).unwrap();
 
-    assert_eq!(middle.total, 5);
+    assert_eq!(middle.total, 4);
     assert_eq!(middle.rows, all.rows[2..4].to_vec());
-    assert_eq!(all.rows[1].kind, NodeKind::Merge);
+    assert_eq!(all.rows[0].kind, NodeKind::Merge);
     let carried: Vec<_> = middle
         .carried
         .iter()
-        .filter(|carried| carried.row == 1)
+        .filter(|carried| carried.row == 0)
         .map(|carried| (carried.row, carried.column, carried.kind, carried.edge))
         .collect();
-    let expected: Vec<_> = all.rows[1]
-        .edges
-        .iter()
-        .map(|edge| (1, 0, NodeKind::Merge, *edge))
-        .collect();
-    assert_eq!(carried, expected);
+    assert_eq!(carried.len(), 1);
+    assert_eq!(carried[0].0, 0);
+    assert_eq!(carried[0].2, NodeKind::Merge);
+    assert_eq!(carried[0].3, all.rows[0].edges[0]);
     let last = graph_page(&history.repo.path, 4, 10, &GraphVisibility::All).unwrap();
-    assert!(last
-        .carried
-        .iter()
-        .all(|carried| carried.edge.parent_row == Some(4)));
-    assert_eq!(last.carried.len(), 2);
-    assert_eq!(past_end.total, 5);
+    assert!(last.carried.is_empty());
+    assert_eq!(last.carried.len(), 0);
+    assert_eq!(past_end.total, 4);
     assert!(past_end.rows.is_empty());
-    assert_eq!(empty.total, 5);
+    assert_eq!(empty.total, 4);
     assert!(empty.rows.is_empty());
 }
 
@@ -180,37 +175,43 @@ fn dirty_tree_adds_a_changes_row_above_head_and_stashes_add_stash_rows() {
 }
 
 #[test]
-fn clean_tree_has_a_clean_changes_row_above_head() {
+fn a_clean_tree_has_no_working_tree_row() {
     let history = merged_history();
 
     let page = graph_page(&history.repo.path, 0, 100, &GraphVisibility::All).unwrap();
 
-    assert_eq!(page.total, 5);
-    let clean = &page.rows[0];
-    assert_eq!(clean.kind, NodeKind::CleanChanges);
-    assert_eq!(clean.sha, None);
-    assert_eq!(clean.summary, "Working tree clean");
-    assert_eq!(clean.parents, vec![history.merge.clone()]);
-    assert_eq!(clean.author, None);
-    assert_eq!(clean.time, None);
-    assert!(clean.refs.is_empty());
-    let (merge_index, merge) = row_of(&page, &history.merge);
-    assert_eq!(clean.edges[0].parent_row, Some(merge_index as u32));
-    assert_eq!(clean.column, merge.column);
+    assert_eq!(page.total, 4);
+    assert!(page
+        .rows
+        .iter()
+        .all(|row| row.kind != NodeKind::CleanChanges));
     assert!(page.rows.iter().all(|row| row.kind != NodeKind::Changes));
+    assert_eq!(page.rows[0].sha.as_deref(), Some(history.merge.as_str()));
 }
 
 #[test]
-fn the_working_tree_row_switches_between_clean_and_changes_as_the_tree_changes() {
+fn the_working_tree_row_appears_only_while_the_tree_has_changes() {
     let history = merged_history();
     let path = &history.repo.path;
-    let kind = || graph_page(path, 0, 1, &GraphVisibility::All).unwrap().rows[0].kind;
+    let rows = || {
+        graph_page(path, 0, 100, &GraphVisibility::All)
+            .unwrap()
+            .rows
+    };
+    let has_changes = || {
+        rows()
+            .first()
+            .is_some_and(|row| row.kind == NodeKind::Changes)
+    };
 
-    assert_eq!(kind(), NodeKind::CleanChanges);
+    assert!(!has_changes());
     history.repo.write("a.txt", "edited\n");
-    assert_eq!(kind(), NodeKind::Changes);
+    let page = rows();
+    assert_eq!(page[0].kind, NodeKind::Changes);
+    assert_eq!(page[0].sha, None);
+    assert_eq!(page[0].author, None);
     history.repo.git(&["checkout", "--", "a.txt"]);
-    assert_eq!(kind(), NodeKind::CleanChanges);
+    assert!(!has_changes());
 }
 
 #[test]
@@ -256,12 +257,12 @@ fn remote_and_local_branches_on_one_commit_are_both_labelled() {
 
     let page = graph_page(&clone, 0, 10, &GraphVisibility::All).unwrap();
 
-    let labels: Vec<(&str, RefKind, bool)> = page.rows[1]
+    let labels: Vec<(&str, RefKind, bool)> = page.rows[0]
         .refs
         .iter()
         .map(|label| (label.name.as_str(), label.kind, label.is_head))
         .collect();
-    assert_eq!(page.rows[1].sha.as_deref(), Some(tip.as_str()));
+    assert_eq!(page.rows[0].sha.as_deref(), Some(tip.as_str()));
     assert_eq!(
         labels,
         vec![
@@ -347,9 +348,9 @@ fn current_and_upstream_lays_out_only_the_checked_out_branch_its_upstream_and_th
     let all = graph_page(path, 0, 100, &GraphVisibility::All).unwrap();
     let current = graph_page(path, 0, 100, &GraphVisibility::CurrentAndUpstream).unwrap();
 
-    assert_eq!(all.total, 5);
+    assert_eq!(all.total, 4);
     assert_eq!(widest_lane(&all), 2);
-    assert_eq!(current.total, 4);
+    assert_eq!(current.total, 3);
     let mut shown: Vec<&str> = current
         .rows
         .iter()
@@ -369,7 +370,10 @@ fn current_and_upstream_lays_out_only_the_checked_out_branch_its_upstream_and_th
     let (_, local) = row_of(&current, &history.local);
     let (_, upstream) = row_of(&current, &history.upstream);
     assert_ne!(local.column, upstream.column);
-    assert!(current.rows[0].kind == NodeKind::CleanChanges);
+    assert!(current
+        .rows
+        .iter()
+        .all(|row| row.kind != NodeKind::CleanChanges));
 }
 
 #[test]
@@ -404,20 +408,16 @@ fn an_explicit_ref_list_shows_only_those_refs_and_the_changes_row_keeps_its_head
 
     let page = graph_page(path, 0, 100, &visibility).unwrap();
 
-    assert_eq!(summaries(&page)[1..], ["Feature work", "Base commit"]);
+    assert_eq!(summaries(&page), ["Feature work", "Base commit"]);
     assert_eq!(labels(&page), vec!["feature"]);
     assert!(page
         .rows
         .iter()
         .flat_map(|row| row.refs.iter())
         .all(|label| !label.is_head));
-    assert_eq!(page.rows[0].kind, NodeKind::CleanChanges);
-    assert_eq!(page.rows[0].parents, vec![history.local.clone()]);
-    assert_eq!(page.rows[0].edges[0].parent_row, None);
-    let (_, feature) = row_of(&page, &history.feature);
+    let (feature_index, _) = row_of(&page, &history.feature);
     let (_, base) = row_of(&page, &history.base);
-    assert_eq!(feature.column, base.column);
-    assert_ne!(feature.column, page.rows[0].column);
+    assert_eq!(page.rows[feature_index].column, base.column);
 }
 
 #[test]
@@ -435,9 +435,9 @@ fn an_explicit_tag_selector_shows_that_tag_and_an_empty_list_shows_only_the_chan
     let nothing = graph_page(path, 0, 100, &GraphVisibility::Refs { refs: Vec::new() }).unwrap();
 
     assert_eq!(labels(&tagged), vec!["v-feature"]);
-    assert_eq!(summaries(&tagged)[1..], ["Feature work", "Base commit"]);
-    assert_eq!(nothing.total, 1);
-    assert_eq!(nothing.rows[0].kind, NodeKind::CleanChanges);
+    assert_eq!(summaries(&tagged), ["Feature work", "Base commit"]);
+    assert_eq!(nothing.total, 0);
+    assert!(nothing.rows.is_empty());
 }
 
 #[test]
@@ -455,8 +455,8 @@ fn a_detached_head_shows_its_own_history_under_current_and_upstream() {
     )
     .unwrap();
 
-    assert_eq!(page.total, 2);
-    assert_eq!(page.rows[1].sha.as_deref(), Some(history.base.as_str()));
+    assert_eq!(page.total, 1);
+    assert_eq!(page.rows[0].sha.as_deref(), Some(history.base.as_str()));
 }
 
 #[test]

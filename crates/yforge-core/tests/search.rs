@@ -24,8 +24,7 @@ fn history() -> (Fixture, Vec<String>) {
 }
 
 #[test]
-fn matches_message_body_sha_and_author_case_insensitively_as_graph_row_indexes_below_the_clean_row()
-{
+fn matches_message_body_sha_and_author_case_insensitively_as_graph_row_indexes() {
     let (repo, shas) = history();
 
     let by_message = search_commits(&repo.path, "GREETING", &GraphVisibility::All).unwrap();
@@ -34,10 +33,10 @@ fn matches_message_body_sha_and_author_case_insensitively_as_graph_row_indexes_b
     let by_sha = search_commits(&repo.path, &shas[2][..8], &GraphVisibility::All).unwrap();
     let none = search_commits(&repo.path, "no such text", &GraphVisibility::All).unwrap();
 
-    assert_eq!(by_message.rows, [2, 3]);
-    assert_eq!(by_author.rows, [2]);
-    assert_eq!(by_email.rows, [2]);
-    assert_eq!(by_sha.rows, [1]);
+    assert_eq!(by_message.rows, [1, 2]);
+    assert_eq!(by_author.rows, [1]);
+    assert_eq!(by_email.rows, [1]);
+    assert_eq!(by_sha.rows, [0]);
     assert!(none.rows.is_empty());
     assert_eq!(none.total, 3);
     let page = graph_page(&repo.path, 0, 10, &GraphVisibility::All).unwrap();
@@ -61,9 +60,9 @@ fn scope_prefixes_restrict_the_fields_searched() {
     .unwrap();
     let sha_miss = search_commits(&repo.path, "sha:greeting", &GraphVisibility::All).unwrap();
 
-    assert_eq!(author_only.rows, [1, 3]);
+    assert_eq!(author_only.rows, [0, 2]);
     assert!(author_miss.rows.is_empty());
-    assert_eq!(sha_only.rows, [3]);
+    assert_eq!(sha_only.rows, [2]);
     assert!(sha_miss.rows.is_empty());
 }
 

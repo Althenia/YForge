@@ -61,7 +61,7 @@ fn parse_range_commit(line: &str) -> Result<RangeCommit, CoreError> {
     Ok(RangeCommit {
         sha: sha.to_owned(),
         summary: summary.to_owned(),
-        author: graph::author(author),
+        author: graph::author(author, ""),
         is_merge: parents
             .split(' ')
             .filter(|parent| !parent.is_empty())

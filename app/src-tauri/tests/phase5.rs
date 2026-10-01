@@ -113,7 +113,7 @@ fn summaries(page: &Value) -> Vec<String> {
 }
 
 #[test]
-fn repo_graph_and_search_take_an_optional_visibility_and_a_clean_tree_has_a_clean_changes_row() {
+fn repo_graph_and_search_take_an_optional_visibility_and_a_clean_tree_has_no_changes_row() {
     let h = harness();
     let repo = repository();
     git(&repo.path, &["checkout", "-q", "-b", "feature"]);
@@ -136,11 +136,11 @@ fn repo_graph_and_search_take_an_optional_visibility_and_a_clean_tree_has_a_clea
     }));
 
     assert_eq!(default, all);
-    assert_eq!(default["rows"][0]["kind"], "clean_changes");
-    assert_eq!(default["total"], 3);
-    assert_eq!(current["total"], 2);
-    assert_eq!(summaries(&current)[1], "First commit");
-    assert_eq!(summaries(&listed)[1..], ["Feature work", "First commit"]);
+    assert_eq!(default["rows"][0]["kind"], "commit");
+    assert_eq!(default["total"], 2);
+    assert_eq!(current["total"], 1);
+    assert_eq!(summaries(&current)[0], "First commit");
+    assert_eq!(summaries(&listed), ["Feature work", "First commit"]);
     let search = |visibility: Value| {
         call(
             &h,
@@ -151,7 +151,7 @@ fn repo_graph_and_search_take_an_optional_visibility_and_a_clean_tree_has_a_clea
     };
     assert_eq!(
         search(json!({ "kind": "all" })),
-        json!({ "total": 2, "rows": [1] })
+        json!({ "total": 2, "rows": [0] })
     );
     assert_eq!(
         search(json!({ "kind": "current_and_upstream" })),

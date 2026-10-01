@@ -126,6 +126,7 @@ pub struct StashEntry {
     pub sha: String,
     pub base_sha: Option<String>,
     pub author_name: String,
+    pub author_email: String,
     pub message: String,
     pub time: i64,
 }
@@ -231,6 +232,7 @@ pub enum GraphVisibility {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct Author {
     pub name: String,
+    pub email: String,
     pub initials: String,
 }
 

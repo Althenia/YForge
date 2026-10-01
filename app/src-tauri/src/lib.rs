@@ -1875,10 +1875,13 @@ async fn clone_repo<R: Runtime>(
     id: String,
     url: String,
     destination: String,
+    options: yforge_core::CloneOptions,
 ) -> Result<String, ErrorPayload> {
     log::debug!(
-        "clone_repo id={id} url={} destination={destination}",
-        yforge_core::redact(&url)
+        "clone_repo id={id} url={} destination={destination} shallow={} sparse={}",
+        yforge_core::redact(&url),
+        options.shallow,
+        options.sparse
     );
     let meta = track(&destination, OperationKind::Clone, false, false);
     let label = format!("Cloned into {destination}");
@@ -1889,7 +1892,13 @@ async fn clone_repo<R: Runtime>(
             true,
             move |_: &String| label,
             move |cancel, progress| {
-                yforge_core::clone_repository(&url, Path::new(&destination), cancel, progress)
+                yforge_core::clone_repository(
+                    &url,
+                    Path::new(&destination),
+                    &options,
+                    cancel,
+                    progress,
+                )
             },
         )
         .await;

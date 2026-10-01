@@ -56,7 +56,7 @@ pub use branch::{
     delete_branch, rename_branch, set_upstream,
 };
 pub use cli::install_cli;
-pub use clone::{clone_repository, init_repository};
+pub use clone::{clone_repository, init_repository, CloneOptions};
 pub use commit::{amend_info, commit, commit_details, commit_file_diff, edit_head_message};
 pub use config::{
     add_remote, edit_remote, list_remotes, read_identity, remove_remote, write_identity,

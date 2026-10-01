@@ -26,9 +26,18 @@ fn io_failure(verb: &str, path: &Path, error: &std::io::Error) -> CoreError {
     CoreError::invalid_request(format!("could not {verb} {}: {error}", path.display()))
 }
 
+#[derive(Debug, Default, Clone, Copy, serde::Deserialize, ts_rs::TS)]
+pub struct CloneOptions {
+    /// Fetch only the latest commit of each branch.
+    pub shallow: bool,
+    /// Clone without checking out the working tree, for a sparse checkout later.
+    pub sparse: bool,
+}
+
 pub fn clone_repository(
     url: &str,
     destination: &Path,
+    options: &CloneOptions,
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<String, CoreError> {
@@ -57,13 +66,15 @@ pub fn clone_repository(
         .ok_or_else(|| CoreError::invalid_request("the clone destination has no parent folder"))?;
     fs::create_dir_all(parent).map_err(|error| io_failure("create", parent, &error))?;
     let target = destination.to_string_lossy();
-    let result = run_network(
-        parent,
-        &["clone", "--progress", "--", url, &target],
-        &redact(url),
-        cancel,
-        on_progress,
-    );
+    let mut args = vec!["clone", "--progress"];
+    if options.shallow {
+        args.extend(["--depth", "1", "--single-branch"]);
+    }
+    if options.sparse {
+        args.push("--no-checkout");
+    }
+    args.extend(["--", url, &target]);
+    let result = run_network(parent, &args, &redact(url), cancel, on_progress);
     if let Err(error) = result {
         if destination.exists() {
             let removal = if existed {

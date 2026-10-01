@@ -193,7 +193,7 @@ fn clone_streams_progress_records_activity_and_init_uses_the_default_branch() {
     let root = invoke(
         &h.window,
         "clone_repo",
-        json!({ "id": "clone-1", "url": format!("file://{}", bare.path().display()), "destination": destination }),
+        json!({ "id": "clone-1", "url": format!("file://{}", bare.path().display()), "destination": destination, "options": { "shallow": false, "sparse": false } }),
     )
     .unwrap();
 
@@ -235,7 +235,7 @@ fn a_failed_clone_records_a_failed_entry_without_the_url_credentials() {
     let error = invoke(
         &h.window,
         "clone_repo",
-        json!({ "id": "clone-2", "url": "https://yui:hunter2@127.0.0.1:9/r.git", "destination": parent.path().join("x") }),
+        json!({ "id": "clone-2", "url": "https://yui:hunter2@127.0.0.1:9/r.git", "destination": parent.path().join("x"), "options": { "shallow": false, "sparse": false } }),
     )
     .unwrap_err();
 
@@ -329,7 +329,7 @@ fn search_commits_returns_row_indexes_and_the_searched_total() {
     )
     .unwrap();
 
-    assert_eq!(found, json!({ "total": 2, "rows": [1] }));
+    assert_eq!(found, json!({ "total": 2, "rows": [0] }));
 }
 
 #[test]

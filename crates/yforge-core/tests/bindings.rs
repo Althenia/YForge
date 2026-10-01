@@ -5,11 +5,12 @@ use std::path::{Path, PathBuf};
 use ts_rs::{Config, TS};
 use yforge_core::{
     ActivityEntry, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthPromptEvent, AuthReply,
-    CheckoutOutcome, CheckoutTarget, CommitBrief, CommitDetails, ConflictFile, ConflictSide,
-    CrashRecord, CrashReport, ErrorPayload, FileDiff, ForceLease, ForcePushPlan, GraphPage,
-    Identity, IdentityField, IntegrationPreview, MergeMode, OperationKind, OperationOutcome,
-    OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus, RemoteInfo, RepoChanged,
-    RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore, TabSession, UsageRecord,
+    CheckoutOutcome, CheckoutTarget, CloneOptions, CommitBrief, CommitDetails, ConflictFile,
+    ConflictSide, CrashRecord, CrashReport, ErrorPayload, FileDiff, ForceLease, ForcePushPlan,
+    GraphPage, Identity, IdentityField, IntegrationPreview, MergeMode, OperationKind,
+    OperationOutcome, OperationProgress, PullMode, PullOutcome, RecentRepo, RecentStatus,
+    RemoteInfo, RepoChanged, RepoSettings, RepoSnapshot, ResetMode, SearchResult, StashRestore,
+    TabSession, UsageRecord,
 };
 use yforge_core::{
     AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod, ApiKeyChange,
@@ -48,6 +49,7 @@ fn export_all(dir: &Path) {
     RepoChanged::export_all(&config).expect("export RepoChanged");
     CheckoutTarget::export_all(&config).expect("export CheckoutTarget");
     CheckoutOutcome::export_all(&config).expect("export CheckoutOutcome");
+    CloneOptions::export_all(&config).expect("export CloneOptions");
     CommitBrief::export_all(&config).expect("export CommitBrief");
     StashRestore::export_all(&config).expect("export StashRestore");
     PullMode::export_all(&config).expect("export PullMode");

@@ -76,7 +76,11 @@ fn parse_refs(output: &str) -> Result<Vec<RefEntry>, CoreError> {
 pub(crate) fn read_stashes(root: &Path) -> Result<Vec<StashEntry>, CoreError> {
     let output = git::run(
         root,
-        &["stash", "list", "--format=%H%x1f%P%x1f%an%x1f%ct%x1f%gs"],
+        &[
+            "stash",
+            "list",
+            "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%ct%x1f%gs",
+        ],
     )?;
     parse_stashes(&output)
 }
@@ -85,10 +89,10 @@ fn parse_stashes(output: &str) -> Result<Vec<StashEntry>, CoreError> {
     let mut stashes = Vec::new();
     for (index, line) in output.lines().filter(|line| !line.is_empty()).enumerate() {
         let fields: Vec<&str> = line.split('\u{1f}').collect();
-        let [sha, parents, author_name, time, message] = fields[..] else {
+        let [sha, parents, author_name, author_email, time, message] = fields[..] else {
             return Err(CoreError::invalid_output(
                 STASH_COMMAND,
-                format!("expected 5 fields in {line:?}"),
+                format!("expected 6 fields in {line:?}"),
             ));
         };
         let time = time.parse::<i64>().map_err(|_| {
@@ -103,6 +107,7 @@ fn parse_stashes(output: &str) -> Result<Vec<StashEntry>, CoreError> {
                 .filter(|sha| !sha.is_empty())
                 .map(str::to_owned),
             author_name: author_name.to_owned(),
+            author_email: author_email.to_owned(),
             message: message.to_owned(),
             time,
         });
@@ -178,8 +183,8 @@ mod tests {
 
     #[test]
     fn parses_stashes_with_base_commit() {
-        let output = "s1\u{1f}b1 i1\u{1f}Yui\u{1f}1700000000\u{1f}WIP on main: b1 msg\n\
-                      s0\u{1f}b0\u{1f}Yui\u{1f}1600000000\u{1f}On main: named\n";
+        let output = "s1\u{1f}b1 i1\u{1f}Yui\u{1f}yui@example.test\u{1f}1700000000\u{1f}WIP on main: b1 msg\n\
+                      s0\u{1f}b0\u{1f}Yui\u{1f}yui@example.test\u{1f}1600000000\u{1f}On main: named\n";
         let stashes = parse_stashes(output).unwrap();
         assert_eq!(stashes.len(), 2);
         assert_eq!(stashes[0].index, 0);
@@ -187,6 +192,7 @@ mod tests {
         assert_eq!(stashes[1].index, 1);
         assert_eq!(stashes[1].message, "On main: named");
         assert_eq!(stashes[1].time, 1_600_000_000);
+        assert_eq!(stashes[1].author_email, "yui@example.test");
     }
 
     #[test]

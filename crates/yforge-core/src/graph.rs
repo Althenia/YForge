@@ -35,9 +35,10 @@ fn initials(name: &str) -> String {
     letters.to_uppercase()
 }
 
-pub(crate) fn author(name: &str) -> Author {
+pub(crate) fn author(name: &str, email: &str) -> Author {
     Author {
         name: name.to_owned(),
+        email: email.to_owned(),
         initials: initials(name),
     }
 }
@@ -45,11 +46,11 @@ pub(crate) fn author(name: &str) -> Author {
 fn parse_commits(output: &str) -> Result<Vec<RowSeed>, CoreError> {
     let mut seeds = Vec::new();
     for record in output.split('\0').filter(|record| !record.is_empty()) {
-        let fields: Vec<&str> = record.splitn(5, '\u{1f}').collect();
-        let [sha, parents, author_name, time, summary] = fields[..] else {
+        let fields: Vec<&str> = record.splitn(6, '\u{1f}').collect();
+        let [sha, parents, author_name, author_email, time, summary] = fields[..] else {
             return Err(CoreError::invalid_output(
                 LOG_COMMAND,
-                format!("expected 5 fields in {record:?}"),
+                format!("expected 6 fields in {record:?}"),
             ));
         };
         let time = time.parse::<i64>().map_err(|_| {
@@ -69,7 +70,7 @@ fn parse_commits(output: &str) -> Result<Vec<RowSeed>, CoreError> {
             },
             parents,
             summary: summary.to_owned(),
-            author: Some(author(author_name)),
+            author: Some(author(author_name, author_email)),
             time: Some(time),
         });
     }
@@ -132,7 +133,7 @@ fn scope_of(
 }
 
 fn read_commits(root: &Path, scope: Option<&Visible>) -> Result<Vec<RowSeed>, CoreError> {
-    const FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%at%x1f%s";
+    const FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s";
     let mut args = vec!["log", "--topo-order", "--no-show-signature"];
     match scope {
         None => args.extend(["--exclude=refs/stash", "--exclude=refs/yforge/*", "--all"]),
@@ -148,7 +149,7 @@ fn stash_seed(stash: &StashEntry) -> RowSeed {
         sha: Some(stash.sha.clone()),
         parents: stash.base_sha.iter().cloned().collect(),
         summary: stash.message.clone(),
-        author: Some(author(&stash.author_name)),
+        author: Some(author(&stash.author_name, &stash.author_email)),
         time: Some(stash.time),
         kind: NodeKind::Stash,
     }
@@ -289,8 +290,6 @@ fn ordered_seeds(
     };
     let working_tree = if status.counts.total() > 0 {
         Some(NodeKind::Changes)
-    } else if head_sha.is_some() {
-        Some(NodeKind::CleanChanges)
     } else {
         None
     };
@@ -581,7 +580,7 @@ mod tests {
     use super::*;
 
     fn record(sha: &str, parents: &str, name: &str, time: &str, summary: &str) -> String {
-        format!("{sha}\u{1f}{parents}\u{1f}{name}\u{1f}{time}\u{1f}{summary}\0")
+        format!("{sha}\u{1f}{parents}\u{1f}{name}\u{1f}{name}@example.test\u{1f}{time}\u{1f}{summary}\0")
     }
 
     #[test]
@@ -609,6 +608,7 @@ mod tests {
         assert_eq!(seeds[1].summary, "Add\u{1f}odd");
         assert!(seeds[2].parents.is_empty());
         assert_eq!(seeds[2].author.as_ref().unwrap().initials, "BO");
+        assert_eq!(seeds[2].author.as_ref().unwrap().email, "Bo@example.test");
     }
 
     #[test]
@@ -634,6 +634,7 @@ mod tests {
             sha: sha.to_owned(),
             base_sha: Some(base.to_owned()),
             author_name: "Yui".to_owned(),
+            author_email: "yui@example.test".to_owned(),
             message: "WIP".to_owned(),
             time,
         }
@@ -713,7 +714,7 @@ mod tests {
         let second = cached(&root);
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert_eq!(first.layouts.len(), 3);
+        assert_eq!(first.layouts.len(), 2);
     }
 
     #[test]
@@ -724,12 +725,12 @@ mod tests {
         git_in(&root, &["branch", "topic"]);
         let with_ref = cached(&root);
         assert!(!Arc::ptr_eq(&first, &with_ref));
-        assert_eq!(with_ref.layouts.len(), 3);
+        assert_eq!(with_ref.layouts.len(), 2);
 
         git_in(&root, &["commit", "-q", "--allow-empty", "-m", "Third"]);
         let with_commit = cached(&root);
         assert!(!Arc::ptr_eq(&with_ref, &with_commit));
-        assert_eq!(with_commit.layouts.len(), 4);
+        assert_eq!(with_commit.layouts.len(), 3);
 
         std::fs::write(root.join("a.txt"), "a\n").unwrap();
         git_in(&root, &["add", "a.txt"]);
@@ -739,7 +740,7 @@ mod tests {
         git_in(&root, &["stash", "push", "-q"]);
         let with_stash = cached(&root);
         assert!(!Arc::ptr_eq(&with_changes, &with_stash));
-        assert_eq!(with_stash.layouts.len(), 5);
+        assert_eq!(with_stash.layouts.len(), 4);
     }
 
     #[test]
@@ -766,12 +767,12 @@ mod tests {
         let only_current = history(&root, &status, &stashes, current.as_ref()).unwrap();
         let topic_again = history(&root, &status, &stashes, topic.as_ref()).unwrap();
 
-        assert_eq!(everything.layouts.len(), 3);
-        assert_eq!(only_topic.layouts.len(), 2);
-        assert_eq!(only_current.layouts.len(), 3);
+        assert_eq!(everything.layouts.len(), 2);
+        assert_eq!(only_topic.layouts.len(), 1);
+        assert_eq!(only_current.layouts.len(), 2);
         assert!(!Arc::ptr_eq(&everything, &only_topic));
         assert!(!Arc::ptr_eq(&only_topic, &only_current));
-        assert_eq!(topic_again.layouts.len(), 2);
+        assert_eq!(topic_again.layouts.len(), 1);
     }
 
     #[test]

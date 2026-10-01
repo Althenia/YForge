@@ -1,11 +1,12 @@
 mod common;
 
 use std::fs;
+use std::path::PathBuf;
 
 use common::Fixture;
 use yforge_core::{
-    clone_repository, init_repository, publish, repo_snapshot, CancelToken, ErrorKind, Head,
-    Progress,
+    clone_repository, init_repository, publish, repo_snapshot, CancelToken, CloneOptions,
+    ErrorKind, Head, Progress,
 };
 
 fn source() -> (Fixture, String) {
@@ -14,6 +15,20 @@ fn source() -> (Fixture, String) {
     repo.commit("a.txt", "one\n", "First");
     let remote = repo.add_bare_remote("origin.git");
     repo.git(&["push", "-q", "-u", "origin", "main"]);
+    let url = format!("file://{}", remote.display());
+    (repo, url)
+}
+
+/// Pushes so the bare remote's main carries the commits, for the shallow-clone cases.
+fn source_with_three_commits() -> (Fixture, String) {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "one\n", "First");
+    let remote = repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "-u", "origin", "main"]);
+    repo.commit("b.txt", "two\n", "Second");
+    repo.commit("c.txt", "three\n", "Third");
+    repo.git(&["push", "-q", "origin", "main"]);
     let url = format!("file://{}", remote.display());
     (repo, url)
 }
@@ -27,6 +42,7 @@ fn clone_from_a_bare_repository_reports_progress_and_returns_the_opened_root() {
     let root = clone_repository(
         &url,
         &destination,
+        &CloneOptions::default(),
         &CancelToken::new(),
         &mut |progress: Progress| phases.push(progress.phase),
     )
@@ -56,7 +72,14 @@ fn cancelling_a_clone_removes_the_partial_folder() {
     let token = CancelToken::new();
     token.cancel();
 
-    let error = clone_repository(&url, &destination, &token, &mut |_| {}).unwrap_err();
+    let error = clone_repository(
+        &url,
+        &destination,
+        &CloneOptions::default(),
+        &token,
+        &mut |_| {},
+    )
+    .unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::Cancelled);
     assert!(!destination.exists());
@@ -71,6 +94,7 @@ fn a_failed_clone_into_an_empty_existing_folder_leaves_the_folder_empty() {
     let error = clone_repository(
         &format!("file://{}", repo.sibling("missing.git").display()),
         &destination,
+        &CloneOptions::default(),
         &CancelToken::new(),
         &mut |_| {},
     )
@@ -88,11 +112,18 @@ fn clone_refuses_a_non_empty_destination_and_an_unrecognised_address() {
     fs::create_dir(&destination).unwrap();
     fs::write(destination.join("keep.txt"), "keep").unwrap();
 
-    let occupied =
-        clone_repository(&url, &destination, &CancelToken::new(), &mut |_| {}).unwrap_err();
+    let occupied = clone_repository(
+        &url,
+        &destination,
+        &CloneOptions::default(),
+        &CancelToken::new(),
+        &mut |_| {},
+    )
+    .unwrap_err();
     let malformed = clone_repository(
         "not a url",
         &repo.sibling("x"),
+        &CloneOptions::default(),
         &CancelToken::new(),
         &mut |_| {},
     )
@@ -110,12 +141,75 @@ fn clone_refuses_a_non_empty_destination_and_an_unrecognised_address() {
 }
 
 #[test]
+fn a_shallow_clone_carries_only_the_latest_commit_of_one_branch() {
+    let (repo, url) = source_with_three_commits();
+    let depth = repo.sibling("shallow");
+
+    let root = clone_repository(
+        &url,
+        &depth,
+        &CloneOptions {
+            shallow: true,
+            sparse: false,
+        },
+        &CancelToken::new(),
+        &mut |_| {},
+    )
+    .unwrap();
+    let root = PathBuf::from(root);
+
+    assert!(
+        root.join(".git/shallow").exists(),
+        "root={}",
+        root.display()
+    );
+    let commits = std::process::Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["rev-list", "--count", "HEAD"])
+        .output()
+        .expect("git rev-list");
+    assert_eq!(String::from_utf8_lossy(&commits.stdout).trim(), "1");
+    let snapshot = repo_snapshot(&root).unwrap_or_else(|error| {
+        panic!(
+            "snapshot of a shallow clone at {}: {error:?}",
+            root.display()
+        )
+    });
+    assert_eq!(snapshot.remotes, ["origin"]);
+    assert_eq!(fs::read_to_string(root.join("c.txt")).unwrap(), "three\n");
+}
+
+#[test]
+fn a_sparse_clone_leaves_the_working_tree_unchecked_out() {
+    let (repo, url) = source();
+    let sparse = repo.sibling("sparse");
+
+    clone_repository(
+        &url,
+        &sparse,
+        &CloneOptions {
+            shallow: false,
+            sparse: true,
+        },
+        &CancelToken::new(),
+        &mut |_| {},
+    )
+    .unwrap();
+
+    assert!(!sparse.join("a.txt").exists());
+    let snapshot = repo_snapshot(&sparse).unwrap();
+    assert!(matches!(snapshot.head, Head::Branch { ref name, .. } if name == "main"));
+}
+
+#[test]
 fn clone_errors_never_echo_credentials_from_the_address() {
     let (repo, _) = source();
 
     let error = clone_repository(
         "https://yui:hunter2@127.0.0.1:9/repo.git",
         &repo.sibling("secret-target"),
+        &CloneOptions::default(),
         &CancelToken::new(),
         &mut |_| {},
     )
