@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { PrFile } from "../ipc/bindings/PrFile";
 import type { PullRequest } from "../ipc/bindings/PullRequest";
 import { IpcError } from "../ipc/client";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import {
   cardOfPlatform,
-  connectionProblems,
+  CONNECTION_FIELDS,
+  connectionFieldProblem,
   defaultTarget,
   fileLetter,
-  hostProblem,
   mergeabilityView,
   mergeCopy,
   platformFailure,
@@ -44,23 +45,26 @@ describe("platform cards", () => {
 });
 
 describe("connection form validation", () => {
-  it.each(["github.com", "ghe.example.com", "git.example.com:8443", "localhost:3000", "127.0.0.1:9000", " GitHub.com "])("accepts the host %s", (host) => {
-    expect(hostProblem(host)).toBeUndefined();
+  it("asks the core for each field's problem, so the form and the save agree", async () => {
+    const asked: Array<[string, string]> = [];
+    mockIPC((cmd, args) => {
+      if (cmd !== "connection_field_problem") return null;
+      const { field, value } = args as { field: string; value: string };
+      asked.push([field, value]);
+      if (field === "host" && value.includes("://")) return "enter the host only, such as github.com or git.example.com:8443, without https:// or a path";
+      if (field === "token" && value.trim() === "") return "the access token is required";
+      return null;
+    }, { shouldMockEvents: true });
+
+    expect(await connectionFieldProblem("host", "https://github.com")).toContain("without https://");
+    expect(await connectionFieldProblem("host", "github.com")).toBeUndefined();
+    expect(await connectionFieldProblem("token", "  ")).toBe("the access token is required");
+    expect(asked).toEqual([["host", "https://github.com"], ["host", "github.com"], ["token", "  "]]);
+    clearMocks();
   });
 
-  it.each(["", "https://github.com", "github.com/team", "git@github.com", "github.com:", "github.com:70000", "git hub.com"])("rejects the host %j", (host) => {
-    expect(hostProblem(host)).toBe("Enter the host only, such as github.com or git.example.com:8443, without https:// or a path");
-  });
-
-  it("requires a name of 1 to 80 characters and a non-empty token, trimmed", () => {
-    const draft = { kind: "github" as const, host: "github.com", name: "Work", token: "ghp_x", insecureTls: false };
-
-    expect(connectionProblems(draft)).toEqual({});
-    expect(connectionProblems({ ...draft, name: "   " })).toEqual({ name: "Enter a name" });
-    expect(connectionProblems({ ...draft, name: "x".repeat(81) })).toEqual({ name: "Use at most 80 characters" });
-    expect(connectionProblems({ ...draft, name: "x".repeat(80) })).toEqual({});
-    expect(connectionProblems({ ...draft, token: "  " })).toEqual({ token: "Paste an access token" });
-    expect(connectionProblems({ ...draft, host: "" }).host).toContain("host only");
+  it("names the fields the core validates in form order", () => {
+    expect(CONNECTION_FIELDS).toEqual(["host", "name", "token"]);
   });
 });
 

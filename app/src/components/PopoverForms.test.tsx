@@ -7,7 +7,7 @@ import { createRepoSession } from "../state/repoSession";
 import { BranchNameForm, StashForm } from "./BranchForms";
 import { TagForm } from "./IntegrationForms";
 import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
-import { buttonNamed, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -241,14 +241,22 @@ describe("set upstream form", () => {
     dispose = mounted.dispose;
     return { ...mounted, calls };
   }
-  const select = (host: ParentNode) => host.querySelector<HTMLSelectElement>('select[aria-label="Upstream branch"]');
+  const selectLabel = (host: ParentNode) =>
+    host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]')?.getAttribute("aria-label") ?? "Upstream branch";
+  const chosenLabel = (host: ParentNode) =>
+    host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"] .select-value')?.textContent;
 
   it("offers every remote branch, preselects the one with the branch's name on the preferred remote, and sets it", async () => {
     const { host, calls } = mountUpstream("feature");
     await flush();
 
-    expect([...(select(host)?.options ?? [])].map((option) => option.value)).toEqual(["backup/feature", "origin/main", "origin/feature"]);
-    expect(select(host)?.value).toBe("origin/feature");
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+    trigger?.click();
+    await flush();
+    expect([...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual(["backup/feature", "origin/main", "origin/feature"]);
+    trigger?.click();
+    await flush();
+    expect(chosenLabel(host)).toBe("origin/feature");
     submit(host)?.click();
     await flush();
 
@@ -258,10 +266,7 @@ describe("set upstream form", () => {
   it("sets the chosen remote branch", async () => {
     const { host, calls } = mountUpstream("feature");
     await flush();
-    const chooser = select(host) as HTMLSelectElement;
-    chooser.value = "origin/main";
-    chooser.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush();
+    await choose(host, selectLabel(host), "origin/main");
     submit(host)?.click();
     await flush();
 
@@ -290,7 +295,7 @@ describe("Push to… form", () => {
     const { host, calls } = mountPushTo();
     await flush();
 
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Remote"]')?.value).toBe("origin");
+    expect(host.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"] .select-value')?.textContent).toBe("origin");
     expect(input(host, "Remote branch name")?.value).toBe("feature");
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Set as upstream"]')?.checked).toBe(true);
     submit(host)?.click();
@@ -302,9 +307,7 @@ describe("Push to… form", () => {
   it("pushes to the typed name on the chosen remote without the upstream when unchecked", async () => {
     const { host, calls } = mountPushTo(remoteSnapshot({ upstream: { name: "origin/feature", ahead_behind: null } }));
     await flush();
-    const remote = host.querySelector<HTMLSelectElement>('select[aria-label="Remote"]') as HTMLSelectElement;
-    remote.value = "backup";
-    remote.dispatchEvent(new Event("change", { bubbles: true }));
+    await choose(host, "Remote", "backup");
     type(input(host, "Remote branch name"), "topic");
     await flush();
 

@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { RebasePlan } from "../ipc/bindings/RebasePlan";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { RebaseEditor } from "./RebaseEditor";
-import { buttonNamed, flush, mountWithApp, testSession, type } from "./testkit";
+import { buttonNamed, flush, mountWithApp, testSession, type, choose } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -49,11 +49,13 @@ async function mount(config: { plan?: RebasePlan; snapshot?: RepoSnapshot; apply
   await flush(60);
   const rows = () => [...mounted.host.querySelectorAll<HTMLElement>(".rrow")];
   const order = () => rows().map((row) => row.dataset.sha);
-  const action = (sha: string, value: string) => {
-    const select = mounted.host.querySelector<HTMLSelectElement>(`.rrow[data-sha="${sha}"] select`);
-    if (select === null) throw new Error(`no select for ${sha}`);
-    select.value = value;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+  const action = async (sha: string, value: string) => {
+    const row = mounted.host.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`);
+    if (row === null) throw new Error(`no row for ${sha}`);
+    const trigger = row.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+    if (trigger === null) throw new Error(`no select for ${sha}`);
+    const label = trigger.getAttribute("aria-label") ?? "";
+    await choose(mounted.host, label, value, 30);
   };
   const apply = () => buttonNamed(mounted.host, "Rewrite history");
   const stepsSent = () => calls.find((call) => call.cmd === "rebase_interactive")?.args;
@@ -89,7 +91,7 @@ describe("interactive rebase editor", () => {
   it("rewords a commit with its full message prefilled, then sends the steps oldest first", async () => {
     const { host, action, apply, stepsSent, closed } = await mount();
 
-    action("aaaaaaa1", "reword");
+    await action("aaaaaaa1", "reword");
     await flush(40);
     const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message for aaaaaaa"]');
     expect(editor?.value).toBe("First\n\nWhy first");
@@ -112,7 +114,7 @@ describe("interactive rebase editor", () => {
 
   it("keeps the same message editor, and its focus, while the user types", async () => {
     const { host, action } = await mount();
-    action("aaaaaaa1", "reword");
+    await action("aaaaaaa1", "reword");
     await flush(40);
     const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message for aaaaaaa"]') as HTMLTextAreaElement;
     editor.focus();
@@ -129,7 +131,7 @@ describe("interactive rebase editor", () => {
   it("squashes into the commit below, edits the combined message once, and previews the result", async () => {
     const { host, action, apply, stepsSent } = await mount();
 
-    action("ccccccc3", "squash");
+    await action("ccccccc3", "squash");
     await flush(40);
     const preview = host.querySelector('[aria-label="Resulting history"]')?.textContent ?? "";
     expect(preview).toContain("Second");
@@ -149,7 +151,7 @@ describe("interactive rebase editor", () => {
   it("refuses a squash with nothing below it and names the row", async () => {
     const { host, action, apply } = await mount();
 
-    action("aaaaaaa1", "fixup");
+    await action("aaaaaaa1", "fixup");
     await flush(40);
 
     expect(host.querySelector('.rrow[data-sha="aaaaaaa1"] .row-problem')?.textContent).toBe("Nothing below to combine with. Move it above another kept commit, or pick it.");
@@ -184,14 +186,19 @@ describe("interactive rebase editor", () => {
     press("bbbbbbb2", "e");
     await flush();
 
-    expect(rows().map((row) => row.querySelector("select")?.value)).toEqual(["drop", "edit", "pick"]);
+    expect(
+      rows().map((row) => {
+        const trigger = row.querySelector<HTMLButtonElement>('button[aria-haspopup="listbox"]');
+        return trigger?.textContent?.replace(/\s+/g, " ").trim();
+      }),
+    ).toEqual(["Drop", "Edit", "Pick"]);
   });
 
   it("previews dropped commits and the stop for an edit", async () => {
     const { host, action } = await mount();
 
-    action("ccccccc3", "drop");
-    action("bbbbbbb2", "edit");
+    await action("ccccccc3", "drop");
+    await action("bbbbbbb2", "edit");
     await flush(40);
 
     const preview = host.querySelector('[aria-label="Resulting history"]')?.textContent ?? "";
@@ -203,7 +210,7 @@ describe("interactive rebase editor", () => {
   it("refuses a range with a merge commit and states why", async () => {
     const { host, action, apply } = await mount({ plan: plan({ commits: [todo("aaaaaaa1", "First"), todo("bbbbbbb2", "Merge", { is_merge: true })] }) });
 
-    action("aaaaaaa1", "drop");
+    await action("aaaaaaa1", "drop");
     await flush(40);
 
     expect(host.querySelector(".note.danger")?.textContent).toContain("This range contains a merge commit. Interactive rebase does not support merge commits.");
@@ -213,7 +220,7 @@ describe("interactive rebase editor", () => {
   it("blocks Rewrite history while tracked files have changes", async () => {
     const { action, apply, host } = await mount({ snapshot: snapshot({ counts: { ...counts, modified: 1 } }) });
 
-    action("ccccccc3", "drop");
+    await action("ccccccc3", "drop");
     await flush(40);
 
     expect(apply()?.disabled).toBe(true);
@@ -222,7 +229,7 @@ describe("interactive rebase editor", () => {
 
   it("leaves the editor open with the core's message when the rewrite is refused", async () => {
     const { action, apply, host, closed } = await mount({ apply: { reject: { kind: "local_changes", message: "Your local changes would be overwritten", output: null } } });
-    action("ccccccc3", "drop");
+    await action("ccccccc3", "drop");
     await flush(40);
     apply()?.click();
     await flush(60);
@@ -234,7 +241,7 @@ describe("interactive rebase editor", () => {
   it("reports a stop on conflicts and closes so the banner and resolver take over", async () => {
     const { action, apply, closed, view } = await mount({ apply: { outcome: "conflicts", pushed: false, dropped_all: false } });
 
-    action("ccccccc3", "drop");
+    await action("ccccccc3", "drop");
     await flush(40);
     apply()?.click();
     await flush(80);
@@ -246,7 +253,7 @@ describe("interactive rebase editor", () => {
   it("reports a stop to edit", async () => {
     const { action, apply, view } = await mount({ apply: { outcome: "stopped_to_edit", pushed: false, dropped_all: false } });
 
-    action("ccccccc3", "edit");
+    await action("ccccccc3", "edit");
     await flush(40);
     apply()?.click();
     await flush(80);

@@ -6,7 +6,7 @@ import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import { createWorktreeActions, type WorktreeActions } from "../state/worktreeActions";
 import { CreateWorktreeDialog, IntegrateWorktreeDialog } from "./WorktreeDialogs";
 import { WorktreePanel } from "./WorktreePanel";
-import { buttonNamed, flush, mountWithApp, type, testSession } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, type, testSession } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -139,8 +139,9 @@ describe("create worktree dialog", () => {
     await flush(60);
     expect(field("Folder").value).toBe("/w/repo-fresh");
     expect(calls.find((call) => call.cmd === "worktree_suggest_path")?.args).toEqual({ path: "/w/repo", branch: "fresh" });
-    field("Start from").value = "refs/heads/main";
-    field("Start from").dispatchEvent(new Event("change", { bubbles: true }));
+    const start = [...document.querySelectorAll("[role=\"option\"]")].find((option) => option.textContent?.includes("main"));
+    expect(start).toBeUndefined();
+    await choose(document.body, "Start from", "main");
     await flush();
     expect(create.disabled).toBe(false);
     create.click();
@@ -171,7 +172,11 @@ describe("create worktree dialog", () => {
 
     buttonNamed(document, "Existing branch")?.click();
     await flush(60);
-    expect([...field("Branch").options].map((option) => option.value)).toEqual(["spare"]);
+    document.querySelector<HTMLButtonElement>('button[aria-label="Branch"]')?.click();
+    await flush(40);
+    expect([...document.querySelectorAll("[role=\"option\"]")].map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual(["spare"]);
+    document.querySelector<HTMLButtonElement>('button[aria-label="Branch"]')?.click();
+    await flush(40);
     expect(field("Folder").value).toBe("/w/repo-spare");
     buttonNamed(document, "Create worktree")?.click();
     await flush(60);
@@ -193,9 +198,12 @@ describe("integrate worktree dialog", () => {
   it("defaults to main with the removal ticked and states the exact sequence, and changes the statement when it is unticked", async () => {
     await mountIntegrate();
 
-    const target = document.querySelector<HTMLSelectElement>('select[aria-label="Target branch"]') as HTMLSelectElement;
-    expect([...target.options].map((option) => option.value)).toEqual(["main", "fix"]);
-    expect(target.value).toBe("main");
+    document.querySelector<HTMLButtonElement>('button[aria-label="Target branch"]')?.click();
+    await flush(40);
+    expect([...document.querySelectorAll("[role=\"option\"]")].map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual(["main", "fix"]);
+    document.querySelector<HTMLButtonElement>('button[aria-label="Target branch"]')?.click();
+    await flush(40);
+    expect(document.querySelector('button[aria-label="Target branch"] .select-value')?.textContent).toBe("main");
     const cleanup = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
     expect(cleanup.checked).toBe(true);
     expect(document.body.textContent).toContain("Rebase feature/x onto main in /w/repo-feature, fast-forward main to it");

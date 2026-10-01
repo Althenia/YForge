@@ -22,6 +22,7 @@ import { Icon } from "./Icon";
 import { PlatformSettings } from "./PlatformSettings";
 import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
 import { SettingRow } from "./SettingRow";
+import { Select } from "./Select";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -122,13 +123,16 @@ function SshKeyPicker(props: { label: string; value: string | null | undefined; 
   };
   return (
     <>
-      <span class="input">
-        <select aria-label={props.label} value={chosen()} onChange={(event) => props.onChange(event.currentTarget.value === "" ? null : event.currentTarget.value)}>
-          <option value="">{props.blankLabel}</option>
-          <For each={listed()}>{(key) => <option value={key.path}>{key.name} · {key.algorithm}</option>}</For>
-          <Show when={custom()}>{(path) => <option value={path()}>{path()}</option>}</Show>
-        </select>
-      </span>
+      <Select
+        label={props.label}
+        value={chosen() ?? ""}
+        options={[
+          { value: "", label: props.blankLabel },
+          ...listed().map((key) => ({ value: key.path, label: `${key.name} · ${key.algorithm}` })),
+          ...(custom() === undefined ? [] : [{ value: custom() as string, label: custom() as string }]),
+        ]}
+        onChange={(value) => props.onChange(value === "" ? null : value)}
+      />
       <button type="button" class="btn sm" onClick={() => void browse()}>
         Browse…
       </button>
@@ -377,14 +381,15 @@ export function SettingsView(props: { section: string }) {
                 <Remotes path={path()} />
                 <h3>Pull mode override</h3>
                 <SettingRow title="Pull mode" note="Strategy used when pulling into branches of this repository.">
-                  <select
-                    aria-label="Pull mode override"
+                  <Select
+                    label="Pull mode override"
                     value={overrideMode()?.pull_mode ?? ""}
-                    onChange={(event) => void setOverride(event.currentTarget.value === "" ? null : (event.currentTarget.value as PullMode))}
-                  >
-                    <option value="">Inherit · {pullModeLabel(effectivePullMode(settings(), undefined).mode)}</option>
-                    <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
-                  </select>
+                    options={[
+                      { value: "", label: `Inherit · ${pullModeLabel(effectivePullMode(settings(), undefined).mode)}` },
+                      ...pullOptions,
+                    ]}
+                    onChange={(value) => void setOverride(value === "" ? null : (value as PullMode))}
+                  />
                 </SettingRow>
                 <h3>SSH</h3>
                 <SettingRow title="SSH key" note="Key used to reach this repository's remotes over SSH. It overrides the app-wide key.">
@@ -417,9 +422,12 @@ export function SettingsView(props: { section: string }) {
               <TextSetting label="Default branch" value={settings().default_branch} onCommit={(value) => void change({ default_branch: value })} />
             </SettingRow>
             <SettingRow title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
-              <select aria-label="Pull mode" value={settings().pull_mode} onChange={(event) => void change({ pull_mode: event.currentTarget.value as PullMode })}>
-                <For each={pullOptions}>{(option) => <option value={option.value}>{option.label}</option>}</For>
-              </select>
+              <Select
+                label="Pull mode"
+                value={settings().pull_mode}
+                options={pullOptions}
+                onChange={(value) => void change({ pull_mode: value as PullMode })}
+              />
             </SettingRow>
             <SettingRow title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
               <Segmented

@@ -1,6 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
-import { gravatarEnabled, setGravatarEnabled } from "../state/avatar";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { CrashRecord } from "../ipc/bindings/CrashRecord";
@@ -12,7 +11,6 @@ import { buttonNamed, flush, mountWithApp } from "./testkit";
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
-  setGravatarEnabled(true);
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
@@ -351,13 +349,13 @@ describe("profile pictures setting", () => {
 
     pictureSwitch(host)?.click();
     await flush();
-    expect(gravatarEnabled()).toBe(false);
+    expect(host.textContent).toContain("Off");
     expect(pictureSwitch(host)?.getAttribute("aria-checked")).toBe("false");
     expect(section.textContent).toContain("Off");
 
     pictureSwitch(host)?.click();
     await flush();
-    expect(gravatarEnabled()).toBe(true);
+    expect(host.textContent).toContain("On");
   });
 
   it("no longer claims that nothing is sent anywhere, since the pictures are fetched when on", async () => {

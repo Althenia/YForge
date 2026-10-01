@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import { defaultSettings } from "../state/settingsModel";
 import { SettingsView } from "./SettingsView";
-import { buttonNamed, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, flush, mountWithApp, type, choose } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -100,15 +100,11 @@ describe("settings view", () => {
     dispose = mounted.dispose;
     await flush();
     const branch = mounted.host.querySelector<HTMLInputElement>('input[aria-label="Default branch"]');
-    const pull = mounted.host.querySelector<HTMLSelectElement>('select[aria-label="Pull mode"]');
 
     type(branch, "trunk");
     branch?.dispatchEvent(new FocusEvent("blur"));
     await flush();
-    if (pull !== null) {
-      pull.value = "rebase";
-      pull.dispatchEvent(new Event("change", { bubbles: true }));
-    }
+    await choose(mounted.host, "Pull mode", "Rebase");
     await flush();
     type(branch, "bad name");
     branch?.dispatchEvent(new FocusEvent("blur"));
@@ -208,17 +204,9 @@ describe("settings view", () => {
     dispose = mounted.dispose;
     await mounted.app.boot();
     await flush();
-    const select = mounted.host.querySelector<HTMLSelectElement>('select[aria-label="Pull mode override"]');
-
-    if (select !== null) {
-      select.value = "rebase";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    }
+    await choose(mounted.host, "Pull mode override", "Rebase");
     await flush();
-    if (select !== null) {
-      select.value = "";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-    }
+    await choose(mounted.host, "Pull mode override", "Inherit");
     await flush();
 
     expect(calls.filter((call) => call.cmd === "repo_settings_save").map((call) => call.args)).toEqual([
@@ -228,24 +216,25 @@ describe("settings view", () => {
     expect(defaultSettings.pull_mode).toBe("fast_forward_or_merge");
   });
 
-  const sshSelect = (host: ParentNode, label: string) => host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`) as HTMLSelectElement;
-  const choose = async (select: HTMLSelectElement, value: string) => {
-    select.value = value;
-    select.dispatchEvent(new Event("change", { bubbles: true }));
+  const sshOptions = async (host: ParentNode, label: string) => {
+    host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
     await flush();
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.textContent?.replace(/\s+/g, " ").trim());
+    host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    await flush();
+    return options;
   };
 
   it("lists the keys of ~/.ssh with ssh-agent as the default and saves the chosen key for every repository", async () => {
     const { host, calls } = await open("git");
 
-    const select = sshSelect(host, "SSH key");
-    expect([...select.options].map((option) => [option.value, option.textContent])).toEqual([
-      ["", "ssh-agent (default)"],
-      ["/Users/yui/.ssh/id_ed25519", "id_ed25519 · ssh-ed25519"],
-      ["/Users/yui/.ssh/work", "work · ssh-rsa"],
+    expect(await sshOptions(host, "SSH key")).toEqual([
+      "ssh-agent (default)",
+      "id_ed25519 · ssh-ed25519",
+      "work · ssh-rsa",
     ]);
-    await choose(select, "/Users/yui/.ssh/work");
-    await choose(sshSelect(host, "SSH key"), "");
+    await choose(host, "SSH key", "work · ssh-rsa");
+    await choose(host, "SSH key", "ssh-agent (default)");
 
     expect(savedSettings(calls).map((settings) => settings.ssh_key_path)).toEqual(["/Users/yui/.ssh/work", null]);
   });
@@ -261,8 +250,7 @@ describe("settings view", () => {
 
     expect(calls.find((call) => call.cmd === "plugin:dialog|open")?.args.options).toMatchObject({ directory: false, defaultPath: "/Users/yui/.ssh" });
     expect(savedSettings(calls).at(-1)?.ssh_key_path).toBe("/keys/deploy");
-    expect(sshSelect(mounted.host, "SSH key").value).toBe("/keys/deploy");
-    expect([...sshSelect(mounted.host, "SSH key").options].map((option) => option.textContent)).toContain("/keys/deploy");
+    expect(mounted.host.querySelector('button[aria-label="SSH key"] .select-value')?.textContent).toBe("/keys/deploy");
   });
 
   it("keeps the current key when the file picker is cancelled", async () => {
@@ -298,13 +286,12 @@ describe("settings view", () => {
     await mounted.app.boot();
     await flush();
 
-    const select = sshSelect(mounted.host, "SSH key override");
-    expect(select.value).toBe("/Users/yui/.ssh/work");
-    expect(select.options[0]?.textContent).toBe("Inherit · ssh-agent (default)");
-    await choose(select, "");
-    await choose(sshSelect(mounted.host, "SSH key override"), "/Users/yui/.ssh/id_ed25519");
-    const mode = mounted.host.querySelector<HTMLSelectElement>('select[aria-label="Pull mode override"]') as HTMLSelectElement;
-    await choose(mode, "fast_forward_only");
+    const label = () => mounted.host.querySelector('button[aria-label="SSH key override"] .select-value')?.textContent;
+    expect(label()).toBe("work · ssh-rsa");
+    expect((await sshOptions(mounted.host, "SSH key override"))[0]).toBe("Inherit · ssh-agent (default)");
+    await choose(mounted.host, "SSH key override", "Inherit · ssh-agent (default)");
+    await choose(mounted.host, "SSH key override", "id_ed25519 · ssh-ed25519");
+    await choose(mounted.host, "Pull mode override", "Fast-forward only");
 
     expect(calls.filter((call) => call.cmd === "repo_settings_save").map((call) => call.args.settings)).toEqual([
       { pull_mode: "rebase", ssh_key_path: null },
@@ -321,7 +308,7 @@ describe("settings view", () => {
     mounted.app.saveSettings({ ...defaultSettings, ssh_key_path: "/Users/yui/.ssh/work" });
     await flush();
 
-    expect(sshSelect(mounted.host, "SSH key override").options[0]?.textContent).toBe("Inherit · work");
+    expect((await sshOptions(mounted.host, "SSH key override"))[0]).toBe("Inherit · work");
     expect(calls.length).toBeGreaterThan(0);
   });
 

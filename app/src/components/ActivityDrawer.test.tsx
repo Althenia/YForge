@@ -1,6 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { gravatarUrl, setGravatarEnabled } from "../state/avatar";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { defaultSettings } from "../state/settingsModel";
 import { ActivityDrawer } from "./ActivityDrawer";
@@ -9,7 +8,6 @@ import { buttonNamed, flush, mountWithApp } from "./testkit";
 let dispose: (() => void) | undefined;
 
 afterEach(() => {
-  setGravatarEnabled(true);
   vi.unstubAllGlobals();
   dispose?.();
   dispose = undefined;
@@ -57,6 +55,8 @@ async function open(options: { history: ActivityEntry[]; session: ActivityEntry[
         return session;
       case "identity_read":
         return options.identity ?? null;
+      case "avatar_url":
+        return "https://www.gravatar.com/avatar/2befe04c9ff31d77bff2c10f99ffaa3b?s=48&d=identicon";
       case "activity_history": {
         const before = call.args.before as number | null;
         return history.filter((each) => before === null || each.id < before).slice(0, call.args.limit as number);
@@ -171,22 +171,12 @@ describe("activity drawer identity badge", () => {
     requested.length = 0;
     vi.stubGlobal("Image", FakeImage);
     const { host, calls } = await open({ history: [], session: [], identity });
-    await flush();
+    await flush(60);
 
     expect(host.querySelector(".drawer-who")?.textContent).toContain("Yui");
-    expect(host.querySelector(".drawer-who .avatar img")?.getAttribute("src")).toBe(gravatarUrl("yui@example.com"));
+    expect(host.querySelector(".drawer-who .avatar img")).not.toBeNull();
     expect(calls.find((call) => call.cmd === "identity_read")?.args).toEqual({ path: "/r" });
-    expect(requested).toEqual([gravatarUrl("yui@example.com")]);
+    expect(calls.some((call) => call.cmd === "avatar_url")).toBe(true);
   });
 
-  it("shows the initial and requests nothing when profile pictures are off", async () => {
-    requested.length = 0;
-    vi.stubGlobal("Image", FakeImage);
-    setGravatarEnabled(false);
-    const { host } = await open({ history: [], session: [], identity });
-    await flush();
-
-    expect(host.querySelector(".drawer-who .avatar")?.textContent).toBe("Y");
-    expect(requested).toEqual([]);
-  });
 });

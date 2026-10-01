@@ -6,6 +6,7 @@ import type { WorktreeActions } from "../state/worktreeActions";
 import { createBlock, defaultIntegrationTarget, existingBranchChoices, integrateCopy, integrationTargets, newBranchProblem, startPointChoices, type CreateMode } from "../state/worktreeModel";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 
 export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: WorktreeActions }) {
   const existing = () => existingBranchChoices(props.snapshot.branches, props.snapshot.worktrees);
@@ -67,15 +68,19 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
           fallback={
             <label class="field">
               <span class="field-label">Branch</span>
-              <span class="input">
-                <form.Field name="branch">
-                  {(field) => (
-                    <select aria-label="Branch" value={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                      <For each={existing()}>{(name) => <option value={name}>{name}</option>}</For>
-                    </select>
-                  )}
-                </form.Field>
-              </span>
+              <form.Field name="branch">
+                {(field) => (
+                  <Select
+                    label="Branch"
+                    value={field().state.value}
+                    options={existing().map((name) => ({ value: name, label: name }))}
+                    placeholder="Choose a branch…"
+                    disabled={existing().length === 0}
+                    disabledReason="Every local branch is already checked out in a worktree"
+                    onChange={(value) => field().handleChange(value)}
+                  />
+                )}
+              </form.Field>
               <Show when={existing().length === 0}>
                 <span class="field-note">Every local branch is already checked out in a worktree.</span>
               </Show>
@@ -93,15 +98,17 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
           </label>
           <label class="field">
             <span class="field-label">Start from</span>
-            <span class="input">
-              <form.Field name="start">
-                {(field) => (
-                  <select aria-label="Start from" value={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                    <For each={startPointChoices(props.snapshot.branches, props.snapshot.remote_branches)}>{(choice) => <option value={choice.value}>{choice.label}</option>}</For>
-                  </select>
-                )}
-              </form.Field>
-            </span>
+            <form.Field name="start">
+              {(field) => (
+                <Select
+                  label="Start from"
+                  value={field().state.value}
+                  options={startPointChoices(props.snapshot.branches, props.snapshot.remote_branches).map((choice) => ({ value: choice.value, label: choice.label }))}
+                  placeholder="Choose a start point…"
+                  onChange={(value) => field().handleChange(value)}
+                />
+              )}
+            </form.Field>
           </label>
         </Show>
         <label class="field">
@@ -174,11 +181,13 @@ export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: 
       >
         <label class="field">
           <span class="field-label">Integrate into</span>
-          <span class="input">
-            <select aria-label="Target branch" value={target()} onChange={(event) => setTarget(event.currentTarget.value)}>
-              <For each={targets()}>{(entry) => <option value={entry.branch}>{entry.branch}</option>}</For>
-            </select>
-          </span>
+          <Select
+            label="Target branch"
+            value={target()}
+            options={targets().map((entry) => ({ value: entry.branch, label: entry.branch }))}
+            placeholder="Choose a target…"
+            onChange={(value) => setTarget(value)}
+          />
           <span class="field-note">
             The target must be checked out in a worktree: <span class="ref">{targets().find((entry) => entry.branch === target())?.path}</span>
           </span>

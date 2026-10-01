@@ -17,7 +17,7 @@ import { WorktreePanel } from "../components/WorktreePanel";
 import { GraphPanel } from "../components/GraphPanel";
 import { Switch } from "../components/Switch";
 import { TabBar } from "../components/TabBar";
-import { flush, mountWithApp, stubLayout, testSession, testUiPrefs } from "../components/testkit";
+import { choose, flush, mountWithApp, stubLayout, testSession, testUiPrefs } from "../components/testkit";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -333,10 +333,8 @@ describe("cursors on the graph", () => {
     const mounted = mountWithApp(() => <RebaseEditor session={session} base="b" from="aaaaaaa1" onClose={() => undefined} />);
     dispose = mounted.dispose;
     await flush(60);
-    const select = mounted.host.querySelector<HTMLSelectElement>(".rrow select") as HTMLSelectElement;
-    select.value = "reword";
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush(40);
+    await choose(mounted.host, "Action for Second", "Reword");
+    const select = mounted.host.querySelector<HTMLButtonElement>('.rrow button[aria-haspopup="listbox"]') as HTMLButtonElement;
 
     const first = mounted.host.querySelector(".rrow");
     expectCursor(first?.querySelector(".rgrip"), "drag");

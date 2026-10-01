@@ -8,7 +8,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { defaultSettings } from "../state/settingsModel";
 import { TooltipHost } from "./Tooltip";
 import { Workspace } from "./Workspace";
-import { buttonNamed, flush, mountWithApp, stubLayout, type } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, stubLayout, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
@@ -250,23 +250,31 @@ describe("create pull request", () => {
     await flush(60);
     return mounted;
   };
-  const control = (label: string) => dialog()?.querySelector<HTMLInputElement & HTMLSelectElement>(`[aria-label="${label}"]`);
+  const control = (label: string) => dialog()?.querySelector<HTMLInputElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`) as HTMLInputElement | null;
+  const chosen = (label: string) => dialog()?.querySelector(`button[aria-label="${label}"] .select-value`)?.textContent;
+  const optionsOf = async (label: string) => {
+    dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    await flush();
+    const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.textContent?.replace(/\s+/g, " ").trim());
+    dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    await flush();
+    return options;
+  };
 
   it("defaults the source to the current branch, the target to the remote's main, and the title to the HEAD subject", async () => {
     await openDialog();
 
     expect(dialog()?.textContent).toContain("team/app");
-    expect(control("Source branch")?.value).toBe("feature/retry");
-    expect(control("Target branch")?.value).toBe("main");
+    expect(chosen("Source branch")).toBe("feature/retry");
+    expect(chosen("Target branch")).toBe("main");
     expect(control("Title")?.value).toBe("Add retry helper");
-    expect([...(control("Target branch")?.options ?? [])].map((option) => option.value)).toEqual(["", "develop", "feature/retry", "main"]);
+    expect(await optionsOf("Target branch")).toEqual(["develop", "feature/retry", "main"]);
   });
 
   it("requires a title and a different target before it calls the platform", async () => {
     const { calls } = await openDialog();
     type(control("Title"), " ");
-    control("Target branch")!.value = "feature/retry";
-    control("Target branch")!.dispatchEvent(new Event("change", { bubbles: true }));
+    await choose(dialog() as HTMLElement, "Target branch", "feature/retry");
     buttonNamed(dialog() as HTMLElement, "Create pull request")?.click();
     await flush();
 

@@ -31,6 +31,7 @@ import type { MenuState } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 import { tip } from "./Tooltip";
 
 const short = (sha: string) => sha.slice(0, 7);
@@ -323,18 +324,19 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
         <div class="rtool" role="toolbar" aria-label="Recompose tools">
           <label class="base-pick">
             <span class="field-label">Base</span>
-            <span class="input">
-              <select aria-label="Base" value={choice() ?? ""} onChange={(event) => setChoice(event.currentTarget.value === "" ? undefined : event.currentTarget.value)}>
-                <Show when={choice() === undefined}>
-                  <option value="">Choose a base…</option>
-                </Show>
-                <Show when={upstream()}>{(name) => <option value={UPSTREAM} selected={choice() === UPSTREAM}>Upstream · {name()}</option>}</Show>
-                <Show when={props.base !== undefined && !chain().some((entry) => entry.sha === props.base)}>
-                  <option value={props.base} selected={choice() === props.base}>{short(props.base as string)} · chosen commit</option>
-                </Show>
-                <For each={chain()}>{(entry) => <option value={entry.sha} selected={choice() === entry.sha}>{short(entry.sha)} · {entry.summary}</option>}</For>
-              </select>
-            </span>
+            <Select
+              label="Base"
+              value={choice() ?? ""}
+              options={[
+                ...(choice() === undefined ? [{ value: "", label: "Choose a base…" }] : []),
+                ...(upstream() === undefined ? [] : [{ value: UPSTREAM, label: `Upstream · ${upstream()}` }]),
+                ...(props.base !== undefined && !chain().some((entry) => entry.sha === props.base)
+                  ? [{ value: props.base as string, label: `${short(props.base as string)} · chosen commit` }]
+                  : []),
+                ...chain().map((entry) => ({ value: entry.sha, label: `${short(entry.sha)} · ${entry.summary}` })),
+              ]}
+              onChange={(value) => setChoice(value === "" ? undefined : value)}
+            />
           </label>
           <span class="reason" role="status" aria-live="polite">
             {progress().assigned} of {progress().total} changes assigned

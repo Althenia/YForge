@@ -1,10 +1,11 @@
 import { createForm } from "@tanstack/solid-form";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { PlatformActions } from "../state/platformActions";
 import { pullProblems, type PullDraft } from "../state/platformModel";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 
 export function CreatePullDialog(props: { snapshot: RepoSnapshot; platform: PlatformActions; draft: PullDraft }) {
   const [touched, setTouched] = createSignal(false);
@@ -44,16 +45,17 @@ export function CreatePullDialog(props: { snapshot: RepoSnapshot; platform: Plat
         </p>
         <label class="field">
           <span class="field-label">Source branch</span>
-          <span class="input" classList={{ invalid: shown("source") !== undefined }}>
-            <form.Field name="source">
-              {(field) => (
-                <select aria-label="Source branch" value={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                  <option value="">Choose…</option>
-                  <For each={props.snapshot.branches}>{(name) => <option value={name}>{name}</option>}</For>
-                </select>
-              )}
-            </form.Field>
-          </span>
+          <form.Field name="source">
+            {(field) => (
+              <Select
+                label="Source branch"
+                value={field().state.value}
+                options={props.snapshot.branches.map((name) => ({ value: name, label: name }))}
+                placeholder="Choose…"
+                onChange={(value) => field().handleChange(value)}
+              />
+            )}
+          </form.Field>
           <Show when={shown("source")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
           <Show when={unpushed()}>
             <span class="field-note">
@@ -63,16 +65,17 @@ export function CreatePullDialog(props: { snapshot: RepoSnapshot; platform: Plat
         </label>
         <label class="field">
           <span class="field-label">Target branch</span>
-          <span class="input" classList={{ invalid: shown("target") !== undefined }}>
-            <form.Field name="target">
-              {(field) => (
-                <select aria-label="Target branch" value={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                  <option value="">Choose…</option>
-                  <For each={targets()}>{(name) => <option value={name}>{name}</option>}</For>
-                </select>
-              )}
-            </form.Field>
-          </span>
+          <form.Field name="target">
+            {(field) => (
+              <Select
+                label="Target branch"
+                value={field().state.value}
+                options={targets().map((name) => ({ value: name, label: name }))}
+                placeholder="Choose…"
+                onChange={(value) => field().handleChange(value)}
+              />
+            )}
+          </form.Field>
           <Show when={shown("target")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
         <label class="field">

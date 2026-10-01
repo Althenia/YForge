@@ -35,6 +35,15 @@ async function mount(initial: PlatformConnection[], respond: (call: Call) => unk
       const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
       calls.push(call);
       if (cmd === "platform_connections_list") return list;
+      if (cmd === "connection_field_problem") {
+        const { field, value } = call.args as { field: string; value: string };
+        if (field === "host" && (value.trim() === "" || value.includes("://") || value.includes("/"))) {
+          return "enter the host only, such as github.com or git.example.com:8443, without https:// or a path";
+        }
+        if (field === "name" && value.trim() === "") return "the connection name must be 1 to 80 characters";
+        if (field === "token" && value.trim() === "") return "the access token is required";
+        return null;
+      }
       const custom = respond(call);
       if (cmd === "platform_connection_add" && custom !== undefined) list = [...list, custom as PlatformConnection];
       if (cmd === "platform_connection_remove") list = list.filter((entry) => entry.id !== call.args.id);
@@ -81,12 +90,13 @@ describe("Settings → Platforms", () => {
     expect(kinds).toEqual(["GitHub", "GitLab", "Bitbucket"]);
     type(field("Host"), "https://github.com/team");
     type(field("Name"), "  ");
+    await flush(40);
     buttonNamed(dialog() as HTMLElement, "Add and test connection")?.click();
     await flush();
 
-    expect(dialog()?.textContent).toContain("Enter the host only, such as github.com or git.example.com:8443, without https:// or a path");
-    expect(dialog()?.textContent).toContain("Enter a name");
-    expect(dialog()?.textContent).toContain("Paste an access token");
+    expect(dialog()?.textContent).toContain("enter the host only, such as github.com or git.example.com:8443, without https:// or a path");
+    expect(dialog()?.textContent).toContain("the connection name must be 1 to 80 characters");
+    expect(dialog()?.textContent).toContain("the access token is required");
     expect(calls.some((call) => call.cmd === "platform_connection_add")).toBe(false);
   });
 
@@ -112,6 +122,7 @@ describe("Settings → Platforms", () => {
     type(field("Host"), " Git.Example.com:8443 ");
     type(field("Access token"), " glpat-secret ");
     dialog()?.querySelector<HTMLInputElement>('input[type="checkbox"]')?.click();
+    await flush(40);
     buttonNamed(dialog() as HTMLElement, "Add and test connection")?.click();
     await flush(60);
 
@@ -129,6 +140,7 @@ describe("Settings → Platforms", () => {
     await flush();
     type(field("Host"), "github.com");
     type(field("Access token"), "bad");
+    await flush(40);
     buttonNamed(dialog() as HTMLElement, "Add and test connection")?.click();
     await flush(60);
 
@@ -162,6 +174,7 @@ describe("Settings → Platforms", () => {
     expect(field("Host")?.value).toBe("github.com");
     expect(field("Access token")?.value).toBe("");
     type(field("Access token"), "ghp_new");
+    await flush(40);
     buttonNamed(dialog() as HTMLElement, "Save and test connection")?.click();
     await flush(60);
 
@@ -180,6 +193,7 @@ describe("Settings → Platforms", () => {
     host.querySelector<HTMLElement>('[aria-label="Edit GitHub"]')?.click();
     await flush();
     type(field("Access token"), "ghp_bad");
+    await flush(40);
     buttonNamed(dialog() as HTMLElement, "Save and test connection")?.click();
     await flush(60);
 

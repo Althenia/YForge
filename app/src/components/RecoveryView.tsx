@@ -19,6 +19,7 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { Popover } from "./Popover";
+import { Select } from "./Select";
 import { tip } from "./Tooltip";
 
 export type RecoveryTab = "reflog" | "lost" | "snapshots";
@@ -140,11 +141,13 @@ function ReflogTab(props: { session: RepoSession; restore: RestoreActions }) {
     <>
       <label class="field reflog-pick">
         <span class="field-label">Reference</span>
-        <span class="input">
-          <select aria-label="Reference" value={reference()} onChange={(event) => setReference(event.currentTarget.value)}>
-            <For each={choices()}>{(name) => <option value={name}>{referenceLabel(name)}</option>}</For>
-          </select>
-        </span>
+        <Select
+          label="Reference"
+          value={reference()}
+          options={choices().map((name) => ({ value: name, label: referenceLabel(name) }))}
+          placeholder="Choose a reference…"
+          onChange={(value) => setReference(value)}
+        />
       </label>
       <Show when={log.error}>
         {(error) => (

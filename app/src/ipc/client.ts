@@ -70,6 +70,7 @@ import type { AiSignInMethod } from "./bindings/AiSignInMethod";
 import type { CommitDraft } from "./bindings/CommitDraft";
 import type { ConflictProposal } from "./bindings/ConflictProposal";
 import type { ProviderInput } from "./bindings/ProviderInput";
+import type { ProviderKind } from "./bindings/ProviderKind";
 import type { ProviderStatus } from "./bindings/ProviderStatus";
 import type { ProviderSummary } from "./bindings/ProviderSummary";
 import type { ProviderUpdate } from "./bindings/ProviderUpdate";
@@ -275,6 +276,12 @@ export const client = {
   repoSettingsLoad: (path: string) => call<RepoSettings>("repo_settings_load", { path }),
   repoSettingsSave: (path: string, settings: RepoSettings) => call<null>("repo_settings_save", { path, settings }),
   identityRead: (path: string | null) => call<Identity>("identity_read", { path }),
+  avatarUrl: (email: string) => call<string | null>("avatar_url", { email }),
+  avatarInitial: (name: string) => call<string>("avatar_initial", { name }),
+  providerFieldProblem: (kind: ProviderKind, field: string, value: string) =>
+    call<string | null>("provider_field_problem", { kind, field, value }),
+  connectionFieldProblem: (field: string, value: string) =>
+    call<string | null>("connection_field_problem", { field, value }),
   identityWrite: (path: string | null, field: IdentityField, value: string | null) =>
     call<null>("identity_write", { path, field, value }),
   remotesList: (path: string) => call<RemoteInfo[]>("remotes_list", { path }),

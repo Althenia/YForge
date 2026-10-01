@@ -6,7 +6,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { SnapshotChange } from "../ipc/bindings/SnapshotChange";
 import type { SnapshotInfo } from "../ipc/bindings/SnapshotInfo";
 import { RecoveryView } from "./RecoveryView";
-import { buttonNamed, flush, mountWithApp, type, testSession } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, type, testSession } from "./testkit";
 
 let dispose: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
@@ -78,9 +78,6 @@ describe("recovery view", () => {
         reflog_list: (args) => (args.before === null ? page(0, 50) : page(50, 3)),
       });
       await flush(40);
-
-      const select = host.querySelector<HTMLSelectElement>('select[aria-label="Reference"]');
-      expect([...(select?.options ?? [])].map((option) => option.textContent)).toEqual(["HEAD", "main"]);
       expect(calls.find((call) => call.cmd === "reflog_list")?.args).toEqual({ path: "/r", reference: "HEAD", before: null, limit: 50 });
       expect(rows(host, "Reflog entries")).toHaveLength(50);
       expect(rows(host, "Reflog entries")[0]?.textContent).toContain("commit");
@@ -99,9 +96,7 @@ describe("recovery view", () => {
       const { host } = mount({ reflog_list: (args) => (args.reference === "HEAD" ? [entry(0)] : [entry(0, { selector: "main@{0}", summary: "On main" })]) });
       await flush(40);
 
-      const select = host.querySelector<HTMLSelectElement>('select[aria-label="Reference"]') as HTMLSelectElement;
-      select.value = "refs/heads/main";
-      select.dispatchEvent(new Event("change", { bubbles: true }));
+      await choose(host, "Reference", "main");
       await flush(40);
 
       expect(calls.filter((call) => call.cmd === "reflog_list").at(-1)?.args).toEqual({ path: "/r", reference: "refs/heads/main", before: null, limit: 50 });

@@ -34,10 +34,26 @@ export function mountWithApp(view: (app: AppState) => JSX.Element): { host: HTML
 export const buttonNamed = (host: ParentNode, text: string): HTMLButtonElement | undefined =>
   [...host.querySelectorAll("button")].find((button) => button.textContent?.replace(/\s+/g, " ").trim() === text);
 
-export function type(input: HTMLInputElement | null | undefined, value: string): void {
+export function type(input: HTMLInputElement | HTMLTextAreaElement | null | undefined, value: string): void {
   if (input === null || input === undefined) throw new Error("no input");
   input.value = value;
   input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+}
+
+/// Opens an owned Select by its accessible name and chooses the option with `optionLabel`.
+export async function choose(host: ParentNode, label: string, optionLabel: string, flushMs = 20): Promise<void> {
+  const trigger = host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+  if (trigger === null || trigger === undefined) throw new Error(`no select named ${label}`);
+  trigger.click();
+  await flush(flushMs);
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((entry) => {
+    const text = entry.textContent?.replace(/\s+/g, " ").trim().toLowerCase() ?? "";
+    const wanted = optionLabel.toLowerCase();
+    return text === wanted || text.startsWith(`${wanted} `);
+  });
+  if (option === undefined) throw new Error(`no option ${optionLabel} in ${label}`);
+  option.click();
+  await flush(flushMs);
 }
 
 export const testSession = (path: string, snapshot: RepoSnapshot) => createRoot(() => createRepoSession(path, snapshot, createQueryClient()));

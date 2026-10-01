@@ -1,12 +1,15 @@
 import { createResource, Show } from "solid-js";
-import { gravatarEnabled, initialOf, loadAvatar } from "../state/avatar";
+import { useApp } from "../state/app";
+import { avatarsEnabled, avatarInitial, loadAvatar } from "../state/avatar";
 
 export function AuthorBadge(props: { name: string; email?: string | null }) {
-  const [address] = createResource(() => (gravatarEnabled() && props.email ? props.email : undefined), loadAvatar);
+  const app = useApp();
+  const requested = () => (app.ready() && avatarsEnabled(app.settings()) && props.email ? props.email : undefined);
+  const [address] = createResource(requested, loadAvatar);
   return (
     <span class="avatar" aria-hidden="true">
-      <Show when={gravatarEnabled() ? address() : undefined} fallback={initialOf(props.name)}>
-        {(source) => <img src={source()} alt="" referrerPolicy="no-referrer" decoding="async" />}
+      <Show when={address()} fallback={avatarInitial(props.name)}>
+        {(url) => <img src={url()} alt="" referrerPolicy="no-referrer" decoding="async" />}
       </Show>
     </span>
   );

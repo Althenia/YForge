@@ -276,6 +276,7 @@ describe("typed IPC client", () => {
       editor_command: "",
       terminal_command: "",
       telemetry_opt_in: false,
+        gravatar_avatars: true,
     } as const;
 
     await client.fetch("/r", "op-1", false, false);

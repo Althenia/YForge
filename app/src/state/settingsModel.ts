@@ -21,6 +21,7 @@ export const defaultSettings: AppSettings = {
   editor_command: "",
   terminal_command: "",
   telemetry_opt_in: false,
+    gravatar_avatars: true,
   ssh_key_path: null,
 };
 

@@ -1,5 +1,5 @@
 import type { IconName } from "../iconNames";
-import { IpcError } from "../ipc/client";
+import { client, IpcError } from "../ipc/client";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import type { PrFile } from "../ipc/bindings/PrFile";
 import type { PrState } from "../ipc/bindings/PrState";
@@ -20,29 +20,14 @@ export type ConnectionDraft = { kind: PlatformKind; host: string; name: string; 
 
 export type ConnectionProblems = { host?: string; name?: string; token?: string };
 
-const NAME_LIMIT = 80;
+export type ConnectionProblem = keyof ConnectionProblems;
 
-const HOST_PROBLEM = "Enter the host only, such as github.com or git.example.com:8443, without https:// or a path";
+/// The field labels the core validates, in the order the form shows them.
+export const CONNECTION_FIELDS: readonly ConnectionProblem[] = ["host", "name", "token"];
 
-export function hostProblem(value: string): string | undefined {
-  const host = value.trim().toLowerCase();
-  const separator = host.lastIndexOf(":");
-  const name = separator < 0 ? host : host.slice(0, separator);
-  const port = separator < 0 ? undefined : host.slice(separator + 1);
-  const nameOk = name !== "" && /^[a-z0-9._-]+$/.test(name);
-  const portOk = port === undefined || (/^\d+$/.test(port) && Number(port) <= 65535);
-  return nameOk && portOk ? undefined : HOST_PROBLEM;
-}
-
-export function connectionProblems(draft: ConnectionDraft): ConnectionProblems {
-  const problems: ConnectionProblems = {};
-  const host = hostProblem(draft.host);
-  if (host !== undefined) problems.host = host;
-  const name = draft.name.trim();
-  if (name === "") problems.name = "Enter a name";
-  else if (Array.from(name).length > NAME_LIMIT) problems.name = `Use at most ${NAME_LIMIT} characters`;
-  if (draft.token.trim() === "") problems.token = "Paste an access token";
-  return problems;
+/// Asks the core which problem (if any) a field has, so the form and the save agree.
+export async function connectionFieldProblem(field: ConnectionProblem, value: string): Promise<string | undefined> {
+  return (await client.connectionFieldProblem(field, value)) ?? undefined;
 }
 
 export type PlatformFailure = { message: string; action?: "edit_connection" };

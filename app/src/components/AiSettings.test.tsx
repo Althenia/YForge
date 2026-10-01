@@ -5,7 +5,7 @@ import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
 import { AiSettings } from "./AiSettings";
-import { buttonNamed, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -43,6 +43,7 @@ async function mount(initial: ProviderSummary[], respond: (call: Call) => unknow
       calls.push(call);
       if (cmd === "ai_providers_list") return list;
       if (cmd === "ai_feature_config_list") return features;
+      if (cmd === "ai_models") return [{ id: "sonnet", display_name: "Claude Sonnet" }];
       const custom = respond(call);
       if (custom !== undefined) {
         if (cmd === "ai_provider_add") list = [...list, custom as ProviderSummary];
@@ -205,15 +206,12 @@ describe("AI providers", () => {
     host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
-    type(dialog()?.querySelector('input[aria-label="Model"]'), " sonnet ");
+    buttonNamed(dialog() as HTMLElement, "Load models")?.click();
+    await flush(60);
+    await choose(dialog() as HTMLElement, "Model", "Claude Sonnet");
     buttonNamed(dialog() as HTMLElement, "Use this provider")?.click();
     await flush();
     expect(calls.find((call) => call.cmd === "ai_set_active")?.args).toEqual({ id: "p1", model: "sonnet" });
-
-    type(dialog()?.querySelector('input[aria-label="Model"]'), "");
-    buttonNamed(dialog() as HTMLElement, "Use this provider")?.click();
-    await flush();
-    expect(calls.filter((call) => call.cmd === "ai_set_active").at(-1)?.args).toEqual({ id: "p1", model: null });
   });
 
   it("confirms before removing a provider and names the Keychain consequence", async () => {

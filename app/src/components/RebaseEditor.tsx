@@ -24,6 +24,7 @@ import {
 } from "../state/rebaseModel";
 import type { RepoSession } from "../state/repoSession";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
 import { tip } from "./Tooltip";
 
 type DropAt = { index: number; after: boolean };
@@ -223,15 +224,12 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
                     Pushed
                   </span>
                 </Show>
-                <span class="input">
-                  <select
-                    aria-label={`Action for ${row().summary}`}
-                    value={row().action}
-                    onChange={(event) => setRows(setAction(rows(), sha, event.currentTarget.value as RebaseAction))}
-                  >
-                    <For each={REBASE_ACTIONS}>{(entry) => <option value={entry.id}>{entry.label}</option>}</For>
-                  </select>
-                </span>
+                <Select
+                  label={`Action for ${row().summary}`}
+                  value={row().action}
+                  options={REBASE_ACTIONS.map((entry) => ({ value: entry.id, label: entry.label }))}
+                  onChange={(value) => setRows(setAction(rows(), sha, value as RebaseAction))}
+                />
                 <button type="button" class="icon-btn dense" disabled={index() === 0} title={index() === 0 ? "Already the newest commit" : undefined} {...tip("Move up", "⌥↑", `Move ${row().summary} up`)} onClick={() => move(sha, -1)}>
                   <Icon name="previous" />
                 </button>

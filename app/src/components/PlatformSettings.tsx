@@ -1,12 +1,12 @@
 import { createForm } from "@tanstack/solid-form";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, createResource, For, Show } from "solid-js";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import { removeConnectionCopy } from "../state/confirmCopy";
-import { cardOfPlatform, connectionProblems, PLATFORM_CARDS, platformFailure, type PlatformFailure } from "../state/platformModel";
+import { cardOfPlatform, CONNECTION_FIELDS, connectionFieldProblem, PLATFORM_CARDS, platformFailure, type ConnectionProblem, type ConnectionProblems, type PlatformFailure } from "../state/platformModel";
 import { platformConnectionsOptions } from "../state/platformQueries";
 import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
@@ -66,8 +66,18 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
     },
   }));
   const values = form.useSelector((state) => state.values);
-  const problems = () => connectionProblems(values());
-  const shown = (field: keyof ReturnType<typeof problems>) => (touched() ? problems()[field] : undefined);
+  const [problems] = createResource(
+    () => ({ host: values().host, name: values().name, token: values().token }),
+    async (draft) => {
+      const entries = await Promise.all(
+        CONNECTION_FIELDS.map(async (field) => [field, await connectionFieldProblem(field, draft[field])] as const),
+      );
+      return Object.fromEntries(entries.filter(([, problem]) => problem !== undefined)) as ConnectionProblems;
+    },
+  );
+  const shown = (field: ConnectionProblem) => (touched() ? problems()?.[field] : undefined);
+  const latestProblems = () => problems() ?? {};
+  const blocked = () => problems.loading === true || Object.keys(latestProblems()).length > 0;
   const choose = (kind: PlatformKind) => {
     form.setFieldValue("kind", kind);
     if (!nameEdited()) form.setFieldValue("name", cardOfPlatform(kind).title);
@@ -80,7 +90,7 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
         onSubmit={(event) => {
           event.preventDefault();
           setTouched(true);
-          if (Object.keys(problems()).length === 0 && !form.state.isSubmitting) void form.handleSubmit();
+          if (!blocked() && !form.state.isSubmitting) void form.handleSubmit();
         }}
       >
         <div class="segmented" role="radiogroup" aria-label="Platform">

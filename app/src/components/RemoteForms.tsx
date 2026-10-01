@@ -1,10 +1,11 @@
 import { createForm } from "@tanstack/solid-form";
-import { For, Show } from "solid-js";
+import { Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { pushRemote } from "../state/refMenu";
 import type { PopoverState, RepoActions } from "../state/repoActions";
 import { bareStashMessage } from "../state/stashName";
 import { Popover } from "./Popover";
+import { Select } from "./Select";
 
 type SetUpstreamState = Extract<PopoverState, { kind: "set_upstream" }>;
 type PushToState = Extract<PopoverState, { kind: "push_to" }>;
@@ -33,12 +34,18 @@ export function SetUpstreamForm(props: { state: SetUpstreamState; snapshot: Repo
         }}
       >
         <h3>Set upstream of {props.state.branch}</h3>
-        <label class="input">
+        <label class="field">
           <form.Field name="upstream">
             {(field) => (
-              <select aria-label="Upstream branch" value={field().state.value} disabled={choices().length === 0} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                <For each={choices()}>{(name) => <option value={name}>{name}</option>}</For>
-              </select>
+              <Select
+                label="Upstream branch"
+                value={field().state.value}
+                options={choices().map((name) => ({ value: name, label: name }))}
+                placeholder="Choose a branch…"
+                disabled={choices().length === 0}
+                disabledReason="This repository has no remote branch to track"
+                onChange={(value) => field().handleChange(value)}
+              />
             )}
           </form.Field>
         </label>
@@ -83,12 +90,16 @@ export function PushToForm(props: { state: PushToState; snapshot: RepoSnapshot; 
         }}
       >
         <h3>Push {head.kind === "branch" ? head.name : "HEAD"} to…</h3>
-        <label class="input">
+        <label class="field">
           <form.Field name="remote">
             {(field) => (
-              <select aria-label="Remote" value={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.value)}>
-                <For each={props.snapshot.remotes}>{(name) => <option value={name}>{name}</option>}</For>
-              </select>
+              <Select
+                label="Remote"
+                value={field().state.value}
+                options={props.snapshot.remotes.map((name) => ({ value: name, label: name }))}
+                placeholder="Choose a remote…"
+                onChange={(value) => field().handleChange(value)}
+              />
             )}
           </form.Field>
         </label>

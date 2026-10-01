@@ -9,6 +9,8 @@ import { CONTEXT_TOKEN, FEATURE_BLURBS, FEATURE_ORDER, FEATURE_TITLES, featureDr
 import { providersOptions } from "../state/aiProviders";
 import { aiKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
+import { TextArea } from "./TextArea";
 
 function FeatureCard(props: { feature: AiFeature; summary: AiFeatureSummary | undefined; providers: readonly ProviderSummary[] }) {
   const queryClient = useQueryClient();
@@ -25,7 +27,6 @@ function FeatureCard(props: { feature: AiFeature; summary: AiFeatureSummary | un
   });
   const problems = createMemo(() => featureProblems(draft()));
   const shown = (field: keyof ReturnType<typeof problems>) => (touched() ? problems()[field] : undefined);
-  const chosen = () => props.providers.find((entry) => entry.config.id === draft().providerId);
   const models = useQuery(() => ({
     queryKey: aiKeys.models(draft().providerId === "" ? "none" : draft().providerId),
     queryFn: () => client.aiProviderModels(draft().providerId),
@@ -60,59 +61,44 @@ function FeatureCard(props: { feature: AiFeature; summary: AiFeatureSummary | un
       <div class="feature-grid">
         <label class="field">
           <span class="field-label">Provider</span>
-          <span class="input" classList={{ invalid: shown("providerId") !== undefined }}>
-            <select
-              aria-label={`${FEATURE_TITLES[props.feature]} provider`}
-              value={draft().providerId}
-              onChange={(event) => {
-                setDraft({ ...draft(), providerId: event.currentTarget.value, modelId: "" });
-              }}
-            >
-              <option value="">Choose…</option>
-              <For each={props.providers}>{(entry) => <option value={entry.config.id} selected={entry.config.id === draft().providerId}>{entry.config.name}</option>}</For>
-            </select>
-          </span>
+          <Select
+            label={`${FEATURE_TITLES[props.feature]} provider`}
+            value={draft().providerId}
+            options={props.providers.map((entry) => ({ value: entry.config.id, label: entry.config.name }))}
+            placeholder="Choose…"
+            onChange={(value) => setDraft({ ...draft(), providerId: value, modelId: "" })}
+          />
           <Show when={shown("providerId")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
         <label class="field">
           <span class="field-label">Model</span>
-          <span class="input" classList={{ invalid: shown("modelId") !== undefined }}>
-            <input
-              type="text"
-              class="mono"
-              aria-label={`${FEATURE_TITLES[props.feature]} model`}
-              placeholder={models.isFetching ? "Loading…" : "Model id"}
-              value={draft().modelId}
-              onInput={(event) => setDraft({ ...draft(), modelId: event.currentTarget.value })}
-            />
-          </span>
-          <Show when={shown("modelId")} fallback={<span class="field-note">{chosen() === undefined ? "Choose a provider first." : `${(models.data ?? []).length} models available.`}</span>}>
-            {(text) => <span class="field-note error">{text()}</span>}
-          </Show>
+          <Select
+            label={`${FEATURE_TITLES[props.feature]} model`}
+            value={draft().modelId}
+            options={(models.data ?? []).map((entry) => ({
+              value: entry.id,
+              label: entry.display_name,
+              hint: entry.context_window === null || entry.context_window === undefined ? undefined : `${Math.round(entry.context_window / 1000)}k`,
+            }))}
+            placeholder={models.isFetching ? "Loading…" : "Choose a model…"}
+            disabled={draft().providerId === ""}
+            disabledReason="Choose a provider first"
+            onChange={(value) => setDraft({ ...draft(), modelId: value })}
+          />
+          <Show when={shown("modelId")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
       </div>
-      <Show when={(models.data ?? []).length > 0}>
-        <label class="field">
-          <span class="field-label">Available models</span>
-          <span class="input">
-            <select aria-label={`${FEATURE_TITLES[props.feature]} available models`} value={draft().modelId} onChange={(event) => setDraft({ ...draft(), modelId: event.currentTarget.value })}>
-              <option value="">Choose…</option>
-              <For each={models.data ?? []}>{(entry) => <option value={entry.id}>{entry.display_name}</option>}</For>
-            </select>
-          </span>
-        </label>
-      </Show>
-      <Show when={models.error}>{(error) => <p class="field-note error">{featureFailure(error())}</p>}</Show>      <label class="field">
+      <Show when={models.error}>{(error) => <p class="field-note error">{featureFailure(error())}</p>}</Show>
+      <label class="field">
         <span class="field-label">Prompt</span>
-        <span class="input" classList={{ invalid: shown("promptTemplate") !== undefined }}>
-          <textarea
-            class="prompt-editor"
-            aria-label={`${FEATURE_TITLES[props.feature]} prompt`}
-            rows={4}
-            value={draft().promptTemplate}
-            onInput={(event) => setDraft({ ...draft(), promptTemplate: event.currentTarget.value })}
-          />
-        </span>
+        <TextArea
+          label={`${FEATURE_TITLES[props.feature]} prompt`}
+          value={draft().promptTemplate}
+          minRows={5}
+          maxRows={14}
+          invalid={shown("promptTemplate") !== undefined}
+          onInput={(value) => setDraft({ ...draft(), promptTemplate: value })}
+        />
         <Show when={shown("promptTemplate")} fallback={<span class="field-note">Keep <code>{CONTEXT_TOKEN}</code> where YForge inserts the repository content.</span>}>
           {(text) => <span class="field-note error">{text()}</span>}
         </Show>

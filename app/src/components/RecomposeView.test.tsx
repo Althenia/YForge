@@ -88,7 +88,7 @@ describe("recompose view", () => {
     const { host, calls } = await mount({ base: "g" });
 
     expect(calls.find((call) => call.cmd === "recompose_preview")?.args).toEqual({ path: "/r", base: "g" });
-    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Base"]')?.value).toBe("g");
+    expect(host.querySelector('button[aria-label="Base"] .select-value')?.textContent).toContain("Older commit");
   });
 
   it("assigns a file, a hunk, and a whole-file unit through the menu and shows the commit each belongs to", async () => {

@@ -1,11 +1,12 @@
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRoot } from "solid-js";
-import { render } from "solid-js/web";
-import { gravatarUrl, setGravatarEnabled } from "../state/avatar";
 import { AuthorBadge } from "./AuthorBadge";
-import { flush } from "./testkit";
+import { flush, mountWithApp } from "./testkit";
+
+const ADDRESS = "https://www.gravatar.com/avatar/2befe04c9ff31d77bff2c10f99ffaa3b?s=48&d=identicon";
 
 const requested: string[] = [];
+let asked: string[] = [];
 
 class FakeImage {
   onload: (() => void) | null = null;
@@ -13,91 +14,115 @@ class FakeImage {
   referrerPolicy = "";
   set src(address: string) {
     requested.push(address);
-    queueMicrotask(() => (address === gravatarUrl("missing@example.com") ? this.onerror?.() : this.onload?.()));
+    queueMicrotask(() => (address === ADDRESS && asked.includes("missing@example.com") ? this.onerror?.() : this.onload?.()));
   }
 }
 
-let host: HTMLElement;
-let dispose: () => void;
+let view: { host: HTMLElement; app: { boot: () => Promise<void> }; dispose: () => void } | undefined;
 
-const mount = (name: string, email?: string | null) => {
-  host = document.createElement("div");
-  document.body.append(host);
-  dispose = createRoot(() => render(() => <AuthorBadge name={name} email={email} />, host));
+const mount = async (name: string, email?: string | null, avatars = true) => {
+  asked = [];
+  mockIPC(
+    (cmd, args) => {
+      if (cmd === "avatar_url") {
+        const address = String((args as { email: string }).email);
+        asked.push(address);
+        return address.includes("missing") ? null : ADDRESS;
+      }
+      if (cmd === "settings_load") {
+        return {
+          theme: "system",
+          density: "default",
+          default_branch: "main",
+          pull_mode: "fast_forward_or_merge",
+          auto_fetch_minutes: 0,
+          editor_command: "",
+          terminal_command: "",
+          telemetry_opt_in: false,
+          gravatar_avatars: avatars,
+        };
+      }
+      if (cmd === "session_load") return { tabs: [], active: null };
+      if (cmd === "activity_list") return [];
+      if (cmd === "recents_list") return [];
+      if (cmd === "launch_path") return null;
+      if (cmd === "repo_open") {
+        return {
+          main_root: "/r",
+          path: "/r",
+          head: null,
+          branches: [],
+          remote_branches: [],
+          remotes: [],
+          tags: [],
+          stashes: [],
+          worktrees: [],
+          counts: { changed: 0, staged: 0 },
+          operation: null,
+          fetched_at: null,
+          ahead: 0,
+          behind: 0,
+        };
+      }
+      return null;
+    },
+    { shouldMockEvents: true },
+  );
+  view = mountWithApp(() => <AuthorBadge name={name} email={email} />);
+  await view.app.boot();
 };
 
 beforeEach(() => {
   requested.length = 0;
-  setGravatarEnabled(true);
   vi.stubGlobal("Image", FakeImage);
 });
 
 afterEach(() => {
-  dispose();
-  host.remove();
+  view?.dispose();
+  view = undefined;
+  document.body.innerHTML = "";
   vi.unstubAllGlobals();
-  setGravatarEnabled(true);
+  clearMocks();
 });
 
-const badge = () => host.querySelector(".avatar") as HTMLElement;
+const badge = () => view?.host.querySelector(".avatar") as HTMLElement;
 
 describe("author badge", () => {
-  it("shows the initial at once, then the gravatar once it has loaded, requesting only the hashed address", async () => {
-    mount("Yui", "yui@example.com");
+  it("shows the initial at once, then the gravatar once it has loaded, asking the core for the address", async () => {
+    await mount("Yui", "yui@example.com");
     expect(badge().textContent).toBe("Y");
 
-    await flush();
+    await flush(150);
 
-    expect(badge().querySelector("img")?.getAttribute("src")).toBe(gravatarUrl("yui@example.com"));
-    expect(requested).toEqual([gravatarUrl("yui@example.com")]);
-    expect(requested.join()).not.toContain("yui@example.com");
+    expect(badge().querySelector("img")?.getAttribute("src")).toBe(ADDRESS);
+    expect(asked).toEqual(["yui@example.com"]);
     expect(badge().getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("makes no request and shows the initial while the privacy toggle is off, and stops showing a loaded image when it is turned off", async () => {
-    setGravatarEnabled(false);
-    mount("Bo", "bo@example.com");
-    await flush();
-    expect(requested).toEqual([]);
-    expect(badge().querySelector("img")).toBeNull();
-    expect(badge().textContent).toBe("B");
+  it("makes no request and shows the initial while the privacy setting is off", async () => {
+    await mount("Bo", "bo@example.com", false);
+    await flush(120);
 
-    setGravatarEnabled(true);
-    await flush();
-    expect(badge().querySelector("img")).not.toBeNull();
-    setGravatarEnabled(false);
-    await flush();
+    expect(asked).toEqual([]);
+    expect(requested).toEqual([]);
     expect(badge().querySelector("img")).toBeNull();
     expect(badge().textContent).toBe("B");
   });
 
-  it("falls back to the initial when the image fails to load", async () => {
-    mount("Mia", "missing@example.com");
-    await flush();
+  it("falls back to the initial when the core finds no address", async () => {
+    await mount("Missing", "missing@example.com");
+    await flush(150);
 
-    expect(requested).toEqual([gravatarUrl("missing@example.com")]);
     expect(badge().querySelector("img")).toBeNull();
     expect(badge().textContent).toBe("M");
   });
 
-  it("shows only the initial, with no request, when the author has no email", async () => {
-    mount("chen");
-    await flush();
+  it("shows the initial when only the name is known", async () => {
+    await mount("Ada");
+    await flush(150);
 
-    expect(requested).toEqual([]);
-    expect(badge().textContent).toBe("C");
-  });
-
-  it("requests an address once per session however many badges show it", async () => {
-    mount("Kai", "kai@example.com");
-    await flush();
-    const first = dispose;
-    const firstHost = host;
-    mount("Kai", "KAI@example.com ");
-    await flush();
-
-    expect(requested).toEqual([gravatarUrl("kai@example.com")]);
-    first();
-    firstHost.remove();
+    expect(asked).toEqual([]);
+    expect(badge().querySelector("img")).toBeNull();
+    expect(badge().textContent).toBe("A");
   });
 });

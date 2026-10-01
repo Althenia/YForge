@@ -70,17 +70,21 @@ describe("per-feature AI settings", () => {
     );
 
     const target = card("Propose with AI in Recompose") as HTMLElement;
-    const selects = [...target.querySelectorAll("select")];
-    selects[0]?.setAttribute("value", "p2");
-    selects[0]!.value = "p2";
-    selects[0]!.dispatchEvent(new Event("change", { bubbles: true }));
+    const trigger = target.querySelector<HTMLButtonElement>('button[aria-label="Propose with AI in Recompose provider"]');
+    trigger?.click();
     await flush();
-    type(target.querySelector('input[aria-label="Propose with AI in Recompose model"]'), "m");
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("Local"))?.click();
+    await flush();
+    const modelTrigger = target.querySelector<HTMLButtonElement>('button[aria-label="Propose with AI in Recompose model"]');
+    modelTrigger?.click();
+    await flush();
+    [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("Claude Sonnet"))?.click();
+    await flush();
     type(target.querySelector('textarea[aria-label="Propose with AI in Recompose prompt"]'), "Do {context}");
     buttonNamed(target, "Save")?.click();
     await flush(60);
 
-    expect(calls.find((call) => call.cmd === "ai_feature_config_set")?.args).toEqual({ feature: "recompose", providerId: "p2", modelId: "m", promptTemplate: "Do {context}" });
+    expect(calls.find((call) => call.cmd === "ai_feature_config_set")?.args).toEqual({ feature: "recompose", providerId: "p2", modelId: "sonnet", promptTemplate: "Do {context}" });
     expect(calls.filter((call) => call.cmd === "ai_feature_config_set")).toHaveLength(1);
   });
 

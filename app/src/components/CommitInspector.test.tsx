@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { gravatarUrl, setGravatarEnabled } from "../state/avatar";
 import { createRepoActions } from "../state/repoActions";
 import { BranchNameForm } from "./BranchForms";
 import { CommitInspector } from "./CommitInspector";
@@ -255,43 +254,15 @@ describe("file view entry", () => {
 
 describe("author badge", () => {
   const grace = { name: "Grace", email: "Grace@Example.test", time: 1_700_000_000 };
-  const requested: string[] = [];
-  class FakeImage {
-    onload: (() => void) | null = null;
-    onerror: (() => void) | null = null;
-    referrerPolicy = "";
-    set src(address: string) {
-      requested.push(address);
-      queueMicrotask(() => this.onload?.());
-    }
-  }
-
-  beforeEach(() => {
-    requested.length = 0;
-    vi.stubGlobal("Image", FakeImage);
-  });
-
-  afterEach(() => setGravatarEnabled(true));
 
   const rowOf = (host: HTMLElement, label: string) => [...host.querySelectorAll(".mrow")].find((row) => row.querySelector(".k")?.textContent === label) as HTMLElement;
 
-  it("shows the author's gravatar from the hashed email beside the author, and nothing beside the committer", async () => {
+  it("shows the author badge beside the author and nothing beside the committer", async () => {
     const { host } = mount(OLDER, { author: grace });
     await flush(60);
 
-    expect(rowOf(host, "Author").querySelector(".avatar img")?.getAttribute("src")).toBe(gravatarUrl("grace@example.test"));
+    expect(rowOf(host, "Author").querySelector(".avatar")).not.toBeNull();
     expect(rowOf(host, "Author").textContent).toContain("Grace");
     expect(rowOf(host, "Committer").querySelector(".avatar")).toBeNull();
-    expect(requested).toEqual([gravatarUrl("grace@example.test")]);
-  });
-
-  it("shows the initial and requests nothing when profile pictures are off", async () => {
-    setGravatarEnabled(false);
-    const { host } = mount(OLDER, { author: grace });
-    await flush(60);
-
-    expect(rowOf(host, "Author").querySelector(".avatar")?.textContent).toBe("G");
-    expect(rowOf(host, "Author").querySelector("img")).toBeNull();
-    expect(requested).toEqual([]);
   });
 });

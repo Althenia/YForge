@@ -13,6 +13,7 @@ import { aiKeys } from "../state/queryKeys";
 import { Icon } from "./Icon";
 import { ProviderLogo } from "./ProviderLogo";
 import { SignInPanel } from "./SignInPanel";
+import { Select } from "./Select";
 import { tip } from "./Tooltip";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
@@ -260,30 +261,29 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
               <label class="field">
                 <span class="field-label">Model</span>
                 <span class="field-row">
-                  <span class="input">
-                    <input type="text" aria-label="Model" class="mono" placeholder="Model id" value={chosenModel()} onInput={(event) => setModel(event.currentTarget.value)} />
-                  </span>
+                  <Select
+                    label="Model"
+                    value={chosenModel()}
+                    options={(models.data ?? []).map((entry) => ({
+                      value: entry.id,
+                      label: entry.display_name,
+                      hint: entry.context_window === null || entry.context_window === undefined ? undefined : `${Math.round(entry.context_window / 1000)}k`,
+                    }))}
+                    placeholder={models.isFetching ? "Loading…" : "Choose a model…"}
+                    disabled={!ready()}
+                    disabledReason="Ready status is required: sign in or check the key first"
+                    onChange={(value) => setModel(value)}
+                  />
                   <button type="button" class="btn sm" aria-busy={models.isFetching} disabled={models.isFetching || !ready()} onClick={() => void models.refetch()}>
                     Load models
                   </button>
                 </span>
-                <span class="field-note">Type a model id, or load the list from the provider.</span>
+                <span class="field-note">Load the list from the provider, then choose the model this provider should use.</span>
                 <Show when={models.error}>{(error) => <span class="field-note error">{message(error())}</span>}</Show>
                 <Show when={models.isSuccess && (models.data ?? []).length === 0}>
-                  <span class="field-note">The provider listed no models. You can still type an id.</span>
+                  <span class="field-note">The provider listed no models. Check the provider account, then load again.</span>
                 </Show>
               </label>
-              <Show when={(models.data ?? []).length > 0}>
-                <label class="field">
-                  <span class="field-label">Available models</span>
-                  <span class="input">
-                    <select aria-label="Available models" value={chosenModel()} onChange={(event) => setModel(event.currentTarget.value)}>
-                      <option value="">Choose…</option>
-                      <For each={models.data ?? []}>{(entry) => <option value={entry.id}>{entry.display_name}</option>}</For>
-                    </select>
-                  </span>
-                </label>
-              </Show>
               <div class="hrow">
                 <button
                   type="button"

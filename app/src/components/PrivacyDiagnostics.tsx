@@ -10,7 +10,7 @@ import { useApp } from "../state/app";
 import { clearCrashesCopy, clearHistoryCopy, clearUsageCopy, type ConfirmCopy } from "../state/confirmCopy";
 import { commandCount, eventLabel, firstLine, usageOutcome } from "../state/diagnosticsModel";
 import { createPagedList, type PagedList } from "../state/pagedList";
-import { gravatarEnabled, setGravatarEnabled } from "../state/avatar";
+import { forgetAvatars } from "../state/avatar";
 import { diagnosticsKeys } from "../state/queryKeys";
 import { ActivityEntryView } from "./ActivityEntryView";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -126,6 +126,8 @@ function UsageRow(props: { record: UsageRecord }) {
 }
 
 function ProfilePictures() {
+  const app = useApp();
+  const enabled = () => app.settings().gravatar_avatars;
   return (
     <section aria-label="Profile pictures" class="diag">
       <h3>Profile pictures</h3>
@@ -133,8 +135,15 @@ function ProfilePictures() {
         title="Show profile pictures from Gravatar"
         note="When on, YForge asks gravatar.com for each author's picture in the commit inspector, the pull request list, and the Activity drawer. Only the MD5 hash of the author's email is sent, never the email itself. Pictures are kept in memory for the session. When off, nothing is requested and each author shows their initial."
       >
-        <Switch label="Show profile pictures from Gravatar" checked={gravatarEnabled()} onChange={setGravatarEnabled} />
-        <span class="setting-title">{gravatarEnabled() ? "On" : "Off"}</span>
+        <Switch
+          label="Show profile pictures from Gravatar"
+          checked={enabled()}
+          onChange={(value) => {
+            forgetAvatars();
+            void app.saveSettings({ ...app.settings(), gravatar_avatars: value });
+          }}
+        />
+        <span class="setting-title">{enabled() ? "On" : "Off"}</span>
       </SettingRow>
     </section>
   );
