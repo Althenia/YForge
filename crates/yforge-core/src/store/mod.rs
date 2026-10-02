@@ -59,6 +59,7 @@ const TERMINAL: &str = "tools.terminal_command";
 const TELEMETRY: &str = "privacy.telemetry_opt_in";
 const AVATARS: &str = "privacy.gravatar_avatars";
 const SSH_KEY: &str = "git.ssh_key_path";
+const SUBMODULE_UPDATE_ON_FETCH: &str = "git.submodule_update_on_fetch";
 
 const STATE: Database = Database {
     file: "yforge.db",
@@ -136,6 +137,10 @@ pub struct RepoSettings {
     #[serde(default)]
     #[ts(optional = nullable)]
     pub ssh_key_path: Option<String>,
+    /// Missing or false: fetch does not move submodules.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional = nullable)]
+    pub submodule_update_on_fetch: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -305,6 +310,12 @@ pub(crate) fn write_repo_settings(
             params![repository, SSH_KEY, encode(key)?],
         )?;
     }
+    if settings.submodule_update_on_fetch == Some(true) {
+        conn.execute(
+            "INSERT INTO repo_settings (repository, key, value) VALUES (?1, ?2, ?3)",
+            params![repository, SUBMODULE_UPDATE_ON_FETCH, encode(&true)?],
+        )?;
+    }
     Ok(())
 }
 
@@ -319,6 +330,7 @@ pub fn load_repo_settings(dir: &Path, repository: &str) -> Result<RepoSettings, 
     Ok(RepoSettings {
         pull_mode: parse(dir, &stored, PULL_MODE, None)?,
         ssh_key_path: parse(dir, &stored, SSH_KEY, None)?,
+        submodule_update_on_fetch: parse(dir, &stored, SUBMODULE_UPDATE_ON_FETCH, None)?,
     })
 }
 

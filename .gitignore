@@ -4,3 +4,4 @@ dist/
 .DS_Store
 *.log
 app/src-tauri/gen/
+docs/design/proposals/

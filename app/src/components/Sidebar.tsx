@@ -31,6 +31,7 @@ import { IssueChips } from "./IssueChip";
 import { prStateView } from "../state/platformModel";
 import type { MenuState } from "../state/repoActions";
 import { AuthorBadge } from "./AuthorBadge";
+import { SubmoduleSection } from "./Submodules";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -717,6 +718,7 @@ export function Sidebar(props: {
             )}
           </For>
         </Section>
+        <SubmoduleSection root={snapshot().root} expanded={isSectionOpen(props.uiPrefs.prefs(), "submodules")} onToggle={() => props.uiPrefs.update((current) => toggleSection(current, "submodules"))} filter={filter()} />
         <Show when={props.platform?.matched() !== undefined ? props.platform : undefined} keyed>
           {(platform) => (
             <Section

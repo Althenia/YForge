@@ -301,6 +301,20 @@ describe("settings view", () => {
     ]);
   });
 
+  it("keeps update on fetch when the repository key changes", async () => {
+    const calls = install((call) => (call.cmd === "repo_settings_load" ? { pull_mode: "rebase", ssh_key_path: "/Users/yui/.ssh/work", submodule_update_on_fetch: true } : undefined));
+    const mounted = mountWithApp(() => <SettingsView section="repository" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush();
+
+    await choose(mounted.host, "SSH key override", "Inherit · ssh-agent (default)");
+
+    expect(calls.filter((call) => call.cmd === "repo_settings_save").map((call) => call.args.settings)).toEqual([
+      { pull_mode: "rebase", ssh_key_path: null, submodule_update_on_fetch: true },
+    ]);
+  });
+
   it("names the app-wide key in the inherit choice", async () => {
     const calls = install();
     const mounted = mountWithApp(() => <SettingsView section="repository" />);

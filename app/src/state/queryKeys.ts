@@ -69,6 +69,7 @@ export const repoKeys = {
   uiPrefs: (path: string) => ["repo-ui-prefs", path] as const,
   remotes: (path: string) => ["repo", path, "remotes"] as const,
   worktrees: (path: string) => ["repo", path, "worktrees"] as const,
+  submodules: (path: string) => ["repo", path, "submodules"] as const,
   reflogRefs: (path: string) => ["repo", path, "reflog-refs"] as const,
   reflog: (path: string, reference: string) => ["repo", path, "reflog", reference] as const,
   snapshots: (path: string) => ["repo", path, "snapshots"] as const,

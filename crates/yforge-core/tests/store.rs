@@ -107,6 +107,7 @@ fn the_tab_session_and_repository_overrides_round_trip() {
         &RepoSettings {
             pull_mode: Some(PullMode::Rebase),
             ssh_key_path: None,
+            submodule_update_on_fetch: None,
         },
     )
     .unwrap();

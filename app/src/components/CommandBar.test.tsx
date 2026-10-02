@@ -133,6 +133,17 @@ describe("fetch, pull, and push", () => {
     expect(dirty.host.querySelector<HTMLButtonElement>('button[aria-label="Pull menu"]')?.disabled).toBe(true);
   });
 
+  it("disables Push when the branch has diverged and leaves force push out of the toolbar", () => {
+    const { button, host } = mountActions(tracked({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } }, counts: { ...clean, modified: 1 } }));
+
+    expect(button("Push")?.disabled).toBe(true);
+    expect(button("Push")?.title).toBe("This branch has diverged. Force push with lease is in the status strip.");
+    expect(button("Pull")?.disabled).toBe(false);
+    expect(button("Fetch")?.disabled).toBe(false);
+    expect(button("Stash")?.disabled).toBe(false);
+    expect(host.textContent).not.toContain("Force push");
+  });
+
   it("disables Pull when the branch has no upstream and offers Publish instead of Push", () => {
     const { button } = mountActions(tracked({ upstream: null }));
 

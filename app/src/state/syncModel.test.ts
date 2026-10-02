@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, fetchMenu, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullMenu, pullModes, runningText, syncMenu } from "./syncModel";
+import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, DIVERGED_PUSH_REASON, divergedPushDetail, fetchMenu, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullMenu, pullModes, runningText, syncMenu } from "./syncModel";
 import type { MenuEntry } from "./refMenu";
 
 const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
@@ -134,6 +134,17 @@ describe("diverged branches", () => {
     expect(isDiverged(counts(0, 3))).toBe(false);
     expect(isDiverged(snapshot({ upstream: null }))).toBe(false);
     expect(isDiverged(snapshot({ upstream: { name: "o/m", ahead_behind: null } }))).toBe(false);
+  });
+
+  it("disables Push when the branch has diverged and names the remote commit a force push would replace", () => {
+    const diverged = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } } });
+    const state = reasons(syncMenu(diverged, false));
+
+    expect(state.push).toBe(DIVERGED_PUSH_REASON);
+    expect(state.push_to).toBeUndefined();
+    expect(state["pull:rebase"]).toBeUndefined();
+    expect(divergedPushDetail([{ sha: "c4d5e6f", summary: "Fix the proxy timeout" }], 1)).toBe("c4d5e6f Fix the proxy timeout would be replaced");
+    expect(divergedPushDetail([{ sha: "c4d5e6fabcdef", summary: "Fix the proxy timeout" }], 3)).toBe("c4d5e6f Fix the proxy timeout and 2 more would be replaced");
   });
 });
 

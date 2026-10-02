@@ -1,8 +1,10 @@
 import { createEffect, createSignal, Index, Match, on, Show, Switch } from "solid-js";
 import { basename } from "../format";
 import { useApp } from "../state/app";
+import { beginPointerDrag } from "../state/pointerDrag";
 import type { Anchor } from "../state/repoActions";
-import { repoName, tabLabel, type SegmentCluster, type SegmentTab, type Tab, type TabSegment, type UserGroup } from "../state/tabs";
+import { tabDragHit } from "../state/tabDrag";
+import { repoName, tabLabel, type SegmentCluster, type SegmentTab, type Tab, type TabDragHit, type TabDragSource, type TabSegment, type UserGroup } from "../state/tabs";
 import { Icon } from "./Icon";
 import { Mark } from "./Mark";
 import { anchorBelow, laneOf, opensMenu, tabCountText, TabGroupLayer, type TabGroupOverlay } from "./TabGroupLayer";
@@ -14,9 +16,22 @@ const groupSegment = (segment: TabSegment): GroupSegment | undefined => (segment
 
 const clusterSegment = (segment: TabSegment): SegmentCluster | undefined => (segment.kind === "cluster" ? segment.cluster : undefined);
 
+const marksEnd = (hit: TabDragHit | undefined, count: number): boolean => hit?.kind === "end" || (hit?.kind === "before" && hit.index >= count);
+
+const marksTab = (hit: TabDragHit | undefined, index: number): boolean => hit?.kind === "before" && hit.index === index;
+
+const marksChip = (hit: TabDragHit | undefined, index: number): boolean => hit?.kind === "group" && hit.index === index;
+
 const repositoryPath = (tab: Tab): string | undefined => (tab.kind === "repo" ? tab.path : undefined);
 
-function TabItem(props: { entry: SegmentTab; count: number | undefined; onMenu: (path: string, anchor: Anchor) => void }) {
+function TabItem(props: {
+  entry: SegmentTab;
+  count: number | undefined;
+  drop: () => TabDragHit | undefined;
+  onMenu: (path: string, anchor: Anchor) => void;
+  onAlias: (path: string, anchor: Anchor) => void;
+  onDragStart: (event: PointerEvent, source: TabDragSource, label: string, element: Element) => void;
+}) {
   const app = useApp();
   const settingsOpen = () => app.screen().kind === "settings";
   const active = () => props.entry.index === app.tabs().active && !settingsOpen() && !app.launchpadOpen();
@@ -32,7 +47,8 @@ function TabItem(props: { entry: SegmentTab; count: number | undefined; onMenu: 
   return (
     <span
       class="tab"
-      classList={{ active: active(), linked: props.entry.linked }}
+      data-tab-index={props.entry.index}
+      classList={{ active: active(), linked: props.entry.linked, "drop-before": marksTab(props.drop(), props.entry.index) }}
       onContextMenu={(event) => {
         if (path() === undefined) return;
         event.preventDefault();
@@ -47,7 +63,18 @@ function TabItem(props: { entry: SegmentTab; count: number | undefined; onMenu: 
         aria-current={active() ? "page" : undefined}
         title={path()}
         aria-description={aliased() ? basename(path() ?? "") : undefined}
+        onPointerDown={(event) => {
+          const repository = path();
+          if (repository === undefined || event.button !== 0) return;
+          props.onDragStart(event, { kind: "tab", path: repository }, tabLabel(props.entry.tab, app.aliases()), event.currentTarget);
+        }}
         onClick={() => app.activate(props.entry.index)}
+        onDblClick={(event) => {
+          const repository = path();
+          if (repository === undefined) return;
+          event.preventDefault();
+          props.onAlias(repository, anchorBelow(event.currentTarget));
+        }}
         onKeyDown={(event) => {
           if (!opensMenu(event)) return;
           event.preventDefault();
@@ -78,7 +105,14 @@ function TabItem(props: { entry: SegmentTab; count: number | undefined; onMenu: 
   );
 }
 
-function ClusterView(props: { cluster: SegmentCluster; count: number | undefined; onMenu: (path: string, anchor: Anchor) => void }) {
+function ClusterView(props: {
+  cluster: SegmentCluster;
+  count: number | undefined;
+  drop: () => TabDragHit | undefined;
+  onMenu: (path: string, anchor: Anchor) => void;
+  onAlias: (path: string, anchor: Anchor) => void;
+  onDragStart: (event: PointerEvent, source: TabDragSource, label: string, element: Element) => void;
+}) {
   const shown = () => props.cluster.tabs.filter((entry) => !entry.hidden);
   return (
     <Show when={shown().length > 0}>
@@ -88,13 +122,13 @@ function ClusterView(props: { cluster: SegmentCluster; count: number | undefined
         role={shown().length > 1 ? "group" : undefined}
         aria-label={shown().length > 1 ? `${basename(props.cluster.main)} and its worktrees` : undefined}
       >
-        <Index each={shown()}>{(entry) => <TabItem entry={entry()} count={props.count} onMenu={props.onMenu} />}</Index>
+        <Index each={shown()}>{(entry) => <TabItem entry={entry()} count={props.count} drop={props.drop} onMenu={props.onMenu} onAlias={props.onAlias} onDragStart={props.onDragStart} />}</Index>
       </span>
     </Show>
   );
 }
 
-function GroupChip(props: { index: number; group: UserGroup; onMenu: (anchor: Anchor) => void }) {
+function GroupChip(props: { index: number; group: UserGroup; drop: () => TabDragHit | undefined; onMenu: (anchor: Anchor) => void; onDragStart: (event: PointerEvent, source: TabDragSource, label: string, element: Element) => void }) {
   const app = useApp();
   const openName = () => {
     if (!props.group.collapsed) return undefined;
@@ -107,10 +141,16 @@ function GroupChip(props: { index: number; group: UserGroup; onMenu: (anchor: An
     <button
       type="button"
       class={`gchip lane-${laneOf(props.group.color)}`}
+      classList={{ "drop-target": marksChip(props.drop(), props.index) }}
       data-group={props.index}
+      data-drop="chip"
       aria-expanded={!props.group.collapsed}
       aria-current={openName() === undefined ? undefined : "true"}
       aria-label={openName() === undefined ? undefined : `${props.group.name}, ${count()}, open repository ${openName()}`}
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        props.onDragStart(event, { kind: "group", index: props.index }, props.group.name, event.currentTarget);
+      }}
       onClick={() => app.toggleTabGroup(props.index)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -137,8 +177,19 @@ function GroupChip(props: { index: number; group: UserGroup; onMenu: (anchor: An
 export function TabBar(props: { count?: number }) {
   const app = useApp();
   const [overlay, setOverlay] = createSignal<TabGroupOverlay | undefined>();
+  const [drop, setDrop] = createSignal<TabDragHit | undefined>();
+  const startDrag = (event: PointerEvent, source: TabDragSource, label: string, element: Element) => {
+    beginPointerDrag(event, {
+      source: element,
+      ghost: () => label,
+      hit: (x, y) => tabDragHit(document.elementFromPoint(x, y), x),
+      mark: setDrop,
+      drop: (hit) => app.applyTabDrag(source, hit),
+    });
+  };
   const settingsOpen = () => app.screen().kind === "settings";
   const tabMenu = (path: string, anchor: Anchor) => setOverlay({ kind: "tab-menu", path, anchor });
+  const aliasTab = (path: string, anchor: Anchor) => setOverlay({ kind: "alias", path, anchor });
   let scroller: HTMLDivElement | undefined;
   const returnFocus = (closed: TabGroupOverlay) => {
     if (document.activeElement !== null && document.activeElement !== document.body) return;
@@ -167,6 +218,7 @@ export function TabBar(props: { count?: number }) {
       <div class="bar tabbar" role="tablist" aria-label="Repositories">
         <div
           class="tab-scroll"
+          classList={{ "drop-end": marksEnd(drop(), app.tabs().tabs.length) }}
           ref={scroller}
           onWheel={(event) => {
             if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) event.currentTarget.scrollLeft += event.deltaY;
@@ -178,12 +230,12 @@ export function TabBar(props: { count?: number }) {
                 <Match when={groupSegment(segment())}>
                   {(grouped) => (
                     <span class="tgroup" role="group" aria-label={`${grouped().group.name} tab group`}>
-                      <GroupChip index={grouped().index} group={grouped().group} onMenu={(anchor) => setOverlay({ kind: "chip-menu", group: grouped().index, anchor })} />
-                      <Index each={grouped().clusters}>{(cluster) => <ClusterView cluster={cluster()} count={props.count} onMenu={tabMenu} />}</Index>
+                      <GroupChip index={grouped().index} group={grouped().group} drop={drop} onMenu={(anchor) => setOverlay({ kind: "chip-menu", group: grouped().index, anchor })} onDragStart={startDrag} />
+                      <Index each={grouped().clusters}>{(cluster) => <ClusterView cluster={cluster()} count={props.count} drop={drop} onMenu={tabMenu} onAlias={aliasTab} onDragStart={startDrag} />}</Index>
                     </span>
                   )}
                 </Match>
-                <Match when={clusterSegment(segment())}>{(cluster) => <ClusterView cluster={cluster()} count={props.count} onMenu={tabMenu} />}</Match>
+                <Match when={clusterSegment(segment())}>{(cluster) => <ClusterView cluster={cluster()} count={props.count} drop={drop} onMenu={tabMenu} onAlias={aliasTab} onDragStart={startDrag} />}</Match>
               </Switch>
             )}
           </Index>

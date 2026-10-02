@@ -4,6 +4,14 @@ import {
   activateTab,
   addToGroup,
   aliasProblem,
+  GROUPS_CANNOT_NEST,
+  groupCanMove,
+  moveGroupStep,
+  moveTabStep,
+  placeGroup,
+  placeTab,
+  resolveTabDrag,
+  tabCanMove,
   CLOSED_LIMIT,
   closedEntries,
   closeGroup,
@@ -400,6 +408,57 @@ describe("user tab groups", () => {
       [1, true],
       [2, true],
     ]);
+  });
+
+  it("reorders a loose tab without creating a group, and moves a repository with its worktree tabs", () => {
+    const loose = repos("/a", "/b", "/c");
+
+    expect(paths(placeTab(loose, {}, "/c", 0))).toEqual(["/c", "/a", "/b"]);
+    expect(placeTab(loose, {}, "/c", 0).groups).toEqual([]);
+    expect(resolveTabDrag(loose, {}, { kind: "tab", path: "/b" }, { kind: "before", index: 0 })).toEqual({ kind: "place-tab", path: "/b", before: 0 });
+
+    const linked = groupTabs(repos("/w/repo", "/other", "/w/repo-feature"), mains);
+    const moved = moveTabStep(linked, mains, "/w/repo-feature", 1);
+
+    expect(paths(moved)).toEqual(["/other", "/w/repo", "/w/repo-feature"]);
+    expect(moved.groups).toEqual([]);
+  });
+
+  it("reorders inside a group, drops a member outside it, and moves the whole group with its hidden members", () => {
+    const state = grouped(["/a", "/b", "/c", "/d"], [group("G", ["/b", "/c"], { collapsed: true })]);
+
+    const inside = moveTabStep(state, {}, "/c", -1);
+    expect(paths(inside)).toEqual(["/a", "/c", "/b", "/d"]);
+    expect(inside.groups[0]?.tabs).toEqual(["/c", "/b"]);
+    expect(inside.groups[0]?.collapsed).toBe(true);
+
+    const outside = placeTab(state, {}, "/c", 4);
+    expect(paths(outside)).toEqual(["/a", "/b", "/d", "/c"]);
+    expect(outside.groups[0]?.tabs).toEqual(["/b"]);
+
+    const block = moveGroupStep(state, {}, 0, 1);
+    expect(paths(block)).toEqual(["/a", "/d", "/b", "/c"]);
+    expect(block.groups[0]?.tabs).toEqual(["/b", "/c"]);
+    expect(block.groups[0]?.collapsed).toBe(true);
+  });
+
+  it("adds a dropped tab to a chip, refuses to nest groups, and does not join a group by landing on a tab", () => {
+    const state = grouped(["/a", "/b", "/c"], [group("G", ["/a", "/b"])]);
+
+    expect(resolveTabDrag(state, {}, { kind: "tab", path: "/c" }, { kind: "group", index: 0 })).toEqual({ kind: "add", path: "/c", group: 0 });
+    expect(resolveTabDrag(state, {}, { kind: "group", index: 0 }, { kind: "group", index: 0 })).toEqual({ kind: "none" });
+    expect(resolveTabDrag(grouped(["/a", "/b", "/c", "/d"], [group("One", ["/a"]), group("Two", ["/d"])]), {}, { kind: "group", index: 0 }, { kind: "group", index: 1 })).toEqual({
+      kind: "refuse",
+      reason: GROUPS_CANNOT_NEST,
+    });
+    expect(resolveTabDrag(state, {}, { kind: "tab", path: "/c" }, { kind: "before", index: 0 }).kind).toBe("place-tab");
+    expect(placeTab(state, {}, "/c", 0).groups[0]?.tabs).toEqual(["/a", "/b"]);
+
+    expect(tabCanMove(repos("/a", "/b"), {}, "/a", -1)).toBe(false);
+    expect(tabCanMove(repos("/a", "/b"), {}, "/a", 1)).toBe(true);
+    expect(groupCanMove(state, {}, 0, -1)).toBe(false);
+    expect(groupCanMove(state, {}, 0, 1)).toBe(true);
+    expect(paths(placeGroup(state, {}, 0, 3))).toEqual(["/c", "/a", "/b"]);
   });
 
   it("validates a group name as 1 to 40 characters", () => {

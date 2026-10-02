@@ -2,7 +2,7 @@ import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
 import type { MenuEntry } from "./refMenu";
 import { toggleFolder } from "./repoUiPrefs";
 
-export type SectionId = "branches" | "remotes" | "tags" | "stashes" | "worktrees" | "pulls" | "issues" | "recovery";
+export type SectionId = "branches" | "remotes" | "tags" | "stashes" | "worktrees" | "submodules" | "pulls" | "issues" | "recovery";
 
 export type BulkGroup = "branches" | "remotes" | "tags" | "stashes" | "worktrees";
 

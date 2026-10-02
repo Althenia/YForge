@@ -60,7 +60,7 @@ import {
 } from "./refMenu";
 import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
-import { authFailure, authFix, fetchMenu, isDiverged, pullMenu, type AuthFix, type SyncState } from "./syncModel";
+import { authFailure, authFix, divergedPushDetail, fetchMenu, isDiverged, pullMenu, type AuthFix, type SyncState } from "./syncModel";
 
 const PREVIEW_CONCURRENCY = 4;
 
@@ -91,7 +91,7 @@ export type HistoryView =
 
 export type HistoryRow = { root?: boolean; squashReason?: string };
 
-export type StripNotice = { id: string; text: string; icon?: IconName; detail?: string; actions: Array<{ label: string; run: () => void | Promise<void> }> };
+export type StripNotice = { id: string; text: string; icon?: IconName; detail?: string; dismiss?: boolean; actions: Array<{ label: string; run: () => void | Promise<void> }> };
 
 export type DialogState = { copy: ConfirmCopy; run: () => void | Promise<void> };
 
@@ -162,6 +162,7 @@ export type RepoActionDeps = {
   inspectStash: (sha: string) => void;
   openWorktree: (path: string) => Promise<boolean>;
   undoEntry: (id: number) => ActivityEntry | undefined;
+  submoduleUpdateOnFetch?: () => boolean;
 };
 
 export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
@@ -171,7 +172,51 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [dialog, setDialog] = createSignal<DialogState | undefined>();
   const [sync, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
-  const [notices, setNotices] = createSignal<StripNotice[]>([]);
+  const [noticeList, setNotices] = createSignal<StripNotice[]>([]);
+  const [replaced, setReplaced] = createSignal<{ key: string; count: number; commits: Array<{ sha: string; summary: string }> } | undefined>();
+  let pendingKey = "";
+  const DIVERGED_NOTICE = "diverged-push";
+  const divergedKey = () => {
+    const counts = snapshot().upstream?.ahead_behind;
+    return isDiverged(snapshot()) && counts != null ? `${counts.ahead}:${counts.behind}:${snapshot().upstream?.name ?? ""}` : "";
+  };
+  const refreshDiverged = () => {
+    const key = divergedKey();
+    if (key === "") {
+      pendingKey = "";
+      if (replaced() !== undefined) queueMicrotask(() => setReplaced(undefined));
+      return;
+    }
+    if (pendingKey === key || replaced()?.key === key) return;
+    pendingKey = key;
+    void session
+      .read(["push-plan"], () => client.pushPlan(path))
+      .then((plan) => {
+        if (divergedKey() !== key) return;
+        setReplaced({ key, count: plan.replaced.count, commits: plan.replaced.commits.map((commit) => ({ sha: commit.sha, summary: commit.summary })) });
+      })
+      .catch(() => {
+        if (pendingKey === key) pendingKey = "";
+      });
+  };
+  const notices = (): StripNotice[] => {
+    refreshDiverged();
+    const list = noticeList();
+    const key = divergedKey();
+    if (key === "") return list;
+    const plan = replaced();
+    return [
+      {
+        id: DIVERGED_NOTICE,
+        icon: "warning",
+        text: "This branch has diverged",
+        detail: plan?.key === key ? divergedPushDetail(plan.commits, plan.count) : "Remote commits would be replaced.",
+        dismiss: false,
+        actions: [{ label: "Force push with lease", run: () => openForcePush() }],
+      },
+      ...list,
+    ];
+  };
   const [autoFetchPause, setAutoFetchPause] = createSignal<string | undefined>();
   const [history, setHistory] = createSignal<HistoryView | undefined>();
   let retry: (() => Promise<void>) | undefined;
@@ -233,7 +278,14 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function fetchAll(prune = false): Promise<void> {
-    await runSync("Fetch", (id) => client.fetch(path, id, prune));
+    const result = await runSync("Fetch", (id) => client.fetch(path, id, prune));
+    if (!("value" in result) || deps.submoduleUpdateOnFetch?.() !== true) return;
+    try {
+      await client.submoduleUpdate(path, null);
+      await session.refresh();
+    } catch (failure) {
+      fail(failure);
+    }
   }
 
   function reportPull(outcome: PullOutcome): void {
@@ -326,10 +378,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function push(): Promise<void> {
-    if (isDiverged(snapshot())) {
-      await openForcePush();
-      return;
-    }
+    if (isDiverged(snapshot())) return;
     await runSync("Push", (id) => client.push(path, id), (error) => {
       if (error.kind !== "push_rejected") return false;
       if ((snapshot().upstream?.ahead_behind?.ahead ?? 0) > 0) void openForcePush();

@@ -123,7 +123,7 @@ function AliasForm(props: { path: string; anchor: Anchor; onClose: () => void })
   return (
     <Popover anchor={props.anchor} label={`Alias ${current}`} onClose={props.onClose}>
       <form class="popform" onSubmit={(event) => void submit(event)}>
-        <h3>Alias repository</h3>
+        <h3>Alias tab</h3>
         <label class="field">
           <span class="field-label">
             Name shown for <span class="ref">{props.path}</span>
@@ -174,10 +174,13 @@ export function TabGroupLayer(props: { overlay: TabGroupOverlay | undefined; onC
       right: app.planClose("right", overlay.path).ids.length,
       aliased: app.aliasOf(overlay.path) !== undefined,
       canReopen: app.canReopenClosedTab(),
+      canMoveLeft: app.tabCanMove(overlay.path, -1),
+      canMoveRight: app.tabCanMove(overlay.path, 1),
     }),
     run: (id) => {
       const action = id as TabMenuAction;
       if (action === "close-tab") app.closeTabIds([overlay.path]);
+      else if (action === "move-left" || action === "move-right") app.moveTab(overlay.path, action === "move-left" ? -1 : 1);
       else if (action === "close-others" || action === "close-right") closeMany(action === "close-others" ? "others" : "right", overlay.path);
       else if (action === "new-group") props.onOpen({ kind: "new-group", path: overlay.path, anchor: overlay.anchor });
       else if (action === "add-to-group") props.onOpen({ kind: "add-to-group", path: overlay.path, anchor: overlay.anchor });
@@ -204,22 +207,30 @@ export function TabGroupLayer(props: { overlay: TabGroupOverlay | undefined; onC
     };
   };
 
-  const chipMenu = (overlay: Extract<TabGroupOverlay, { kind: "chip-menu" }>, entry: UserGroup): MenuState => ({
-    anchor: overlay.anchor,
-    entries: [
-      item("rename", "Rename…", { icon: "edit" }),
-      item("color", "Color…", { note: colorWord(entry.color) }),
-      item("ungroup", "Ungroup", { icon: "minus" }),
-      { kind: "separator" },
-      item("close", "Close group…", { icon: "trash", danger: true }),
-    ],
-    run: (id) => {
-      if (id === "rename") props.onOpen({ kind: "rename-group", group: overlay.group, anchor: overlay.anchor });
-      else if (id === "color") props.onOpen({ kind: "group-color", group: overlay.group, anchor: overlay.anchor });
-      else if (id === "ungroup") app.ungroupTabs(overlay.group);
-      else props.onOpen({ kind: "close-group", group: overlay.group });
-    },
-  });
+  const chipMenu = (overlay: Extract<TabGroupOverlay, { kind: "chip-menu" }>, entry: UserGroup): MenuState => {
+    const hidden = entry.collapsed ? entry.tabs : [];
+    return {
+      anchor: overlay.anchor,
+      entries: [
+        item("move-left", "Move left", { icon: "previous", ...(app.groupCanMove(overlay.group, -1) ? {} : { disabledReason: "This group is already first" }) }),
+        item("move-right", "Move right", { icon: "next", ...(app.groupCanMove(overlay.group, 1) ? {} : { disabledReason: "This group is already last" }) }),
+        item("rename", "Rename…", { icon: "edit" }),
+        ...hidden.map((path) => item(`alias:${path}`, `Alias ${repoName(path, app.aliases())}…`, { icon: "edit" })),
+        item("color", "Color…", { note: colorWord(entry.color) }),
+        item("ungroup", "Ungroup", { icon: "minus" }),
+        { kind: "separator" },
+        item("close", "Close group…", { icon: "trash", danger: true }),
+      ],
+      run: (id) => {
+        if (id === "move-left" || id === "move-right") app.moveGroup(overlay.group, id === "move-left" ? -1 : 1);
+        else if (id === "rename") props.onOpen({ kind: "rename-group", group: overlay.group, anchor: overlay.anchor });
+        else if (id.startsWith("alias:")) props.onOpen({ kind: "alias", path: id.slice("alias:".length), anchor: overlay.anchor });
+        else if (id === "color") props.onOpen({ kind: "group-color", group: overlay.group, anchor: overlay.anchor });
+        else if (id === "ungroup") app.ungroupTabs(overlay.group);
+        else props.onOpen({ kind: "close-group", group: overlay.group });
+      },
+    };
+  };
 
   const body = (overlay: TabGroupOverlay): JSX.Element => {
     switch (overlay.kind) {

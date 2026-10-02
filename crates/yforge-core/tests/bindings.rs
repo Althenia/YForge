@@ -33,7 +33,7 @@ use yforge_core::{
 };
 use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
-    MessageEdit, PullReport, PushTarget, SshKey, SwitchStash, WorktreeIntegration, WorktreeStatus,
+    MessageEdit, PullReport, PushTarget, SshKey, Submodule, SwitchStash, WorktreeIntegration, WorktreeStatus,
 };
 use yforge_core::{
     RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecomposeChange, RecomposeGroup,
@@ -101,6 +101,7 @@ fn export_all(dir: &Path) {
     SwitchStash::export_all(&config).expect("export SwitchStash");
     WorktreeIntegration::export_all(&config).expect("export WorktreeIntegration");
     WorktreeStatus::export_all(&config).expect("export WorktreeStatus");
+    Submodule::export_all(&config).expect("export Submodule");
     RebasePlan::export_all(&config).expect("export RebasePlan");
     RebaseStep::export_all(&config).expect("export RebaseStep");
     RebaseOutcome::export_all(&config).expect("export RebaseOutcome");

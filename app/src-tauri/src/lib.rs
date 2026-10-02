@@ -31,7 +31,7 @@ use yforge_core::{
     RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
     ReflogEntry, RemoteInfo, RepoAlias, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs,
     RepoWatcher, ResetMode, RevisionRange, SearchResult, SnapshotChange, SnapshotInfo, SshKey,
-    StashDetails, StashRestore, StashTarget, SwitchStash, TabSession, UrlIdentity, UsageRecord,
+    StashDetails, StashRestore, StashTarget, Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord,
     WorktreeIntegration, WorktreeStatus,
 };
 use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilter};
@@ -3109,6 +3109,50 @@ async fn git_identity_for_url(
 }
 
 #[tauri::command]
+async fn submodule_list(path: String) -> Result<Vec<Submodule>, ErrorPayload> {
+    log::debug!("submodule_list path={path}");
+    let result = blocking(move || yforge_core::list_submodules(Path::new(&path))).await;
+    log_outcome("submodule_list", &result, |rows| format!("submodules={}", rows.len()));
+    result
+}
+
+#[tauri::command]
+async fn submodule_add(path: String, url: String, submodule_path: String, branch: Option<String>) -> Result<(), ErrorPayload> {
+    log::debug!("submodule_add path={path} url={url} submodule_path={submodule_path} branch={branch:?}");
+    let result = blocking(move || yforge_core::add_submodule(Path::new(&path), &url, &submodule_path, branch.as_deref())).await;
+    log_outcome("submodule_add", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn submodule_update(path: String, submodule_path: Option<String>) -> Result<(), ErrorPayload> {
+    log::debug!("submodule_update path={path} submodule_path={submodule_path:?}");
+    let result = blocking(move || match &submodule_path {
+        Some(target) => yforge_core::update_submodule(Path::new(&path), target),
+        None => yforge_core::update_submodules(Path::new(&path)),
+    })
+    .await;
+    log_outcome("submodule_update", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn submodule_deinit(path: String, submodule_path: String) -> Result<(), ErrorPayload> {
+    log::debug!("submodule_deinit path={path} submodule_path={submodule_path}");
+    let result = blocking(move || yforge_core::deinit_submodule(Path::new(&path), &submodule_path)).await;
+    log_outcome("submodule_deinit", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn submodule_stage(path: String, submodule_path: String) -> Result<(), ErrorPayload> {
+    log::debug!("submodule_stage path={path} submodule_path={submodule_path}");
+    let result = blocking(move || yforge_core::stage_submodule(Path::new(&path), &submodule_path)).await;
+    log_outcome("submodule_stage", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
 async fn worktree_list(path: String) -> Result<Vec<WorktreeStatus>, ErrorPayload> {
     log::debug!("worktree_list path={path}");
     let result = blocking(move || yforge_core::list_worktrees(Path::new(&path))).await;
@@ -4410,6 +4454,11 @@ pub fn register_with_passphrases<R: Runtime>(
             git_host_default_key_path,
             git_host_generate_key,
             git_identity_for_url,
+            submodule_list,
+            submodule_add,
+            submodule_update,
+            submodule_deinit,
+            submodule_stage,
             worktree_list,
             worktree_suggest_path,
             worktree_create,

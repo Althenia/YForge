@@ -97,6 +97,28 @@ describe("state strip chips", () => {
     expect(calls.map((call) => call[0])).toEqual(["branch-picker"]);
   });
 
+  it("shows a force-push-with-lease notice that names the remote commit and cannot be dismissed", () => {
+    const { host, calls } = mount({
+      notices: [
+        {
+          id: "diverged-push",
+          icon: "warning",
+          text: "This branch has diverged",
+          detail: "c4d5e6f Fix the proxy timeout would be replaced",
+          dismiss: false,
+          actions: [{ label: "Force push with lease", run: () => void calls.push(["force"]) }],
+        },
+      ],
+    });
+    const notice = host.querySelector(".strip-notice") as HTMLElement;
+
+    expect(notice.textContent).toContain("This branch has diverged");
+    expect(notice.textContent).toContain("c4d5e6f Fix the proxy timeout would be replaced");
+    button(notice, /^Force push with lease/).click();
+    expect(calls.map((call) => call[0])).toEqual(["force"]);
+    expect(notice.querySelector("button[aria-label='Dismiss']")).toBeNull();
+  });
+
   it("opens the pull menu from the ahead and behind chip, which states diverged in text", () => {
     const { host, calls } = mount();
     const pull = button(host, /^Pull menu/);

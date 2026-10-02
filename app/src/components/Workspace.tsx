@@ -82,6 +82,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     inspectStash: (sha) => inspectStash(sha),
     openWorktree: worktrees.open,
     undoEntry: (id) => app.activity().find((entry) => entry.id === id),
+    submoduleUpdateOnFetch: () => repoSettings()?.submodule_update_on_fetch === true,
   });
   const platform = createPlatformActions(session, {
     notify: session.inform,

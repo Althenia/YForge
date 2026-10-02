@@ -34,6 +34,7 @@ mod sqlite;
 mod ssh;
 mod stage;
 mod stash;
+mod submodule;
 mod status;
 mod store;
 mod sync;
@@ -107,7 +108,7 @@ pub use model::{
     RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RebaseTodo, RecomposeChange,
     RecomposeFile, RecomposeGroup, RecomposeHunk, RecomposePreview, RecomposeResult, RefKind,
     RefSelector, RepoChanged, RepoSnapshot, ResetMode, RevisionRange, SearchResult, Signature,
-    StashDetails, StashEntry, StashFile, StashKeptReason, StashRestore, SwitchStash, Upstream,
+    StashDetails, StashEntry, StashFile, StashKeptReason, StashRestore, Submodule, SubmoduleStatus, SwitchStash, Upstream,
     Worktree, WorktreeIntegration, WorktreeStatus,
 };
 pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
@@ -124,6 +125,7 @@ pub use snapshots::{
     snapshots_list,
 };
 pub use ssh::{default_key_path, generate_ssh_key, list_ssh_keys, public_key_text, SshKey};
+pub use submodule::{add_submodule, deinit_submodule, list_submodules, stage_submodule, update_submodule, update_submodules};
 pub use stage::{
     discard_files, discard_hunk, discard_lines, stage_all, stage_files, stage_hunk, stage_lines,
     unstage_all, unstage_files, unstage_hunk, unstage_lines,

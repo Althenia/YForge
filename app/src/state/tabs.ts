@@ -204,6 +204,136 @@ export function removeFromGroup(state: TabsState, mains: MainRoots, path: string
   return groupTabs(withTabs(state, moveAfterGroup({ ...state, groups }, moving, groups[index]), groups.filter((entry) => entry.tabs.length > 0)), mains);
 }
 
+export const GROUPS_CANNOT_NEST = "Groups cannot nest.";
+
+export type TabDragSource = { kind: "tab"; path: string } | { kind: "group"; index: number };
+
+export type TabDragHit = { kind: "before"; index: number } | { kind: "end" } | { kind: "group"; index: number };
+
+export type TabDragResult =
+  | { kind: "place-tab"; path: string; before: number }
+  | { kind: "place-group"; index: number; before: number }
+  | { kind: "add"; path: string; group: number }
+  | { kind: "refuse"; reason: string }
+  | { kind: "none" };
+
+type Span = { start: number; end: number };
+
+const inMoving = (tab: Tab, moving: Set<string>): boolean => {
+  const path = pathOf(tab);
+  return path !== undefined && moving.has(path);
+};
+
+function indexesOf(tabs: readonly Tab[], moving: Set<string>): number[] {
+  return tabs.flatMap((tab, index) => (inMoving(tab, moving) ? [index] : []));
+}
+
+function spanOf(indexes: readonly number[]): Span | undefined {
+  const start = indexes[0];
+  const last = indexes.at(-1);
+  return start === undefined || last === undefined ? undefined : { start, end: last + 1 };
+}
+
+function extract(tabs: readonly Tab[], moving: Set<string>): { block: Tab[]; rest: Tab[] } {
+  return {
+    block: tabs.filter((tab) => inMoving(tab, moving)),
+    rest: tabs.filter((tab) => !inMoving(tab, moving)),
+  };
+}
+
+function restIndex(tabs: readonly Tab[], moving: Set<string>, before: number): number {
+  return tabs.slice(0, Math.max(0, before)).filter((tab) => !inMoving(tab, moving)).length;
+}
+
+function insertBlock(rest: readonly Tab[], at: number, block: readonly Tab[]): Tab[] {
+  const index = Math.max(0, Math.min(rest.length, at));
+  return [...rest.slice(0, index), ...block, ...rest.slice(index)];
+}
+
+function sameState(left: TabsState, right: TabsState): boolean {
+  const sameTab = (tab: Tab, index: number) => pathOf(tab) === pathOf(right.tabs[index] as Tab) && tab.kind === right.tabs[index]?.kind;
+  return left.active === right.active && left.tabs.length === right.tabs.length && left.tabs.every(sameTab) && JSON.stringify(left.groups) === JSON.stringify(right.groups);
+}
+
+/** Moves a repository and its worktree tabs to sit before `before`. Landing beside a group does not join it. A grouped tab leaves its group only when other members stay and the place is outside them. */
+export function placeTab(state: TabsState, mains: MainRoots, path: string, before: number): TabsState {
+  const moving = clusterPaths(state, mains, path);
+  if (indexesOf(state.tabs, moving).length === 0) return state;
+  const owner = groupIndexOf(state, path);
+  const { block, rest } = extract(state.tabs, moving);
+  const at = restIndex(state.tabs, moving, before);
+  const nextTabs = insertBlock(rest, at, block);
+  let groups = state.groups;
+  if (owner >= 0) {
+    const remaining = spanOf(indexesOf(rest, new Set(groups[owner]?.tabs ?? [])));
+    const stays = remaining === undefined || (at >= remaining.start && at <= remaining.end);
+    if (!stays) groups = leaveGroups(groups, moving).filter((entry) => entry.tabs.length > 0);
+  }
+  return groupTabs(withTabs(state, nextTabs, groups), mains);
+}
+
+/** Moves a whole group, hidden members included, to sit before `before`. Membership stays; groups do not nest. */
+export function placeGroup(state: TabsState, mains: MainRoots, index: number, before: number): TabsState {
+  const group = state.groups[index];
+  if (group === undefined) return state;
+  const moving = new Set(group.tabs);
+  const { block, rest } = extract(state.tabs, moving);
+  if (block.length === 0) return state;
+  return groupTabs(withTabs(state, insertBlock(rest, restIndex(state.tabs, moving, before), block), state.groups), mains);
+}
+
+function unitAt(state: TabsState, mains: MainRoots, index: number): string {
+  const tab = state.tabs[index];
+  if (tab === undefined) return `missing:${index}`;
+  const path = pathOf(tab);
+  if (path !== undefined) {
+    const owner = groupIndexOf(state, path);
+    if (owner >= 0) return `group:${owner}`;
+  }
+  return `cluster:${groupKey(tab, mains)}`;
+}
+
+function unitSpan(state: TabsState, mains: MainRoots, index: number): Span {
+  const key = unitAt(state, mains, index);
+  let start = index;
+  let end = index + 1;
+  while (start > 0 && unitAt(state, mains, start - 1) === key) start -= 1;
+  while (end < state.tabs.length && unitAt(state, mains, end) === key) end += 1;
+  return { start, end };
+}
+
+export function moveTabStep(state: TabsState, mains: MainRoots, path: string, direction: -1 | 1): TabsState {
+  const span = spanOf(indexesOf(state.tabs, clusterPaths(state, mains, path)));
+  if (span === undefined) return state;
+  if (direction < 0) return span.start === 0 ? state : placeTab(state, mains, path, span.start - 1);
+  return span.end >= state.tabs.length ? state : placeTab(state, mains, path, span.end + 1);
+}
+
+export function moveGroupStep(state: TabsState, mains: MainRoots, index: number, direction: -1 | 1): TabsState {
+  const group = state.groups[index];
+  if (group === undefined) return state;
+  const span = spanOf(indexesOf(state.tabs, new Set(group.tabs)));
+  if (span === undefined) return state;
+  if (direction < 0) return span.start === 0 ? state : placeGroup(state, mains, index, unitSpan(state, mains, span.start - 1).start);
+  return span.end >= state.tabs.length ? state : placeGroup(state, mains, index, unitSpan(state, mains, span.end).end);
+}
+
+export const tabCanMove = (state: TabsState, mains: MainRoots, path: string, direction: -1 | 1): boolean => !sameState(state, moveTabStep(state, mains, path, direction));
+
+export const groupCanMove = (state: TabsState, mains: MainRoots, index: number, direction: -1 | 1): boolean => !sameState(state, moveGroupStep(state, mains, index, direction));
+
+export function resolveTabDrag(state: TabsState, mains: MainRoots, source: TabDragSource, hit: TabDragHit): TabDragResult {
+  if (source.kind === "group" && hit.kind === "group") return source.index === hit.index ? { kind: "none" } : { kind: "refuse", reason: GROUPS_CANNOT_NEST };
+  if (source.kind === "tab" && hit.kind === "group") return groupIndexOf(state, source.path) === hit.index ? { kind: "none" } : { kind: "add", path: source.path, group: hit.index };
+  const before = hit.kind === "end" ? state.tabs.length : hit.kind === "before" ? hit.index : state.tabs.length;
+  if (source.kind === "group") {
+    const next = placeGroup(state, mains, source.index, before);
+    return sameState(state, next) ? { kind: "none" } : { kind: "place-group", index: source.index, before };
+  }
+  const next = placeTab(state, mains, source.path, before);
+  return sameState(state, next) ? { kind: "none" } : { kind: "place-tab", path: source.path, before };
+}
+
 export function newGroup(state: TabsState, mains: MainRoots, path: string, name: string, color: TabGroupColor): TabsState {
   const moving = clusterPaths(state, mains, path);
   const previous = groupIndexOf(state, path);

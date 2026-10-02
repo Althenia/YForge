@@ -37,17 +37,24 @@ import {
   idsOfOthers,
   idsToTheRight,
   LAUNCHER_TAB_ID,
+  groupCanMove,
+  moveGroupStep,
+  moveTabStep,
   newGroup,
   nextClosed,
   openLauncherTab,
   openRepoTab,
   pushClosed,
+  placeGroup,
+  placeTab,
   recolorGroup,
   removeFromGroup,
+  resolveTabDrag,
   renameGroup,
   reopenTab,
   restoreTabs,
   sessionOf,
+  tabCanMove,
   tabId,
   tabSegments,
   toggleGroup,
@@ -56,6 +63,8 @@ import {
   type ClosedTab,
   type MainRoots,
   type Tab,
+  type TabDragHit,
+  type TabDragSource,
   type TabsState,
   type UserGroup,
 } from "./tabs";
@@ -535,6 +544,17 @@ export function createAppState(router: AppRouter) {
     newTabGroup: (path: string, name: string, color: TabGroupColor) => applyGroups(newGroup(tabs(), mainRoots(), path, name, color)),
     addToTabGroup: (path: string, group: number) => applyGroups(addToGroup(tabs(), mainRoots(), path, group)),
     removeFromTabGroup: (path: string) => applyGroups(removeFromGroup(tabs(), mainRoots(), path)),
+    moveTab: (path: string, direction: -1 | 1) => applyGroups(moveTabStep(tabs(), mainRoots(), path, direction)),
+    moveGroup: (index: number, direction: -1 | 1) => applyGroups(moveGroupStep(tabs(), mainRoots(), index, direction)),
+    tabCanMove: (path: string, direction: -1 | 1) => tabCanMove(tabs(), mainRoots(), path, direction),
+    groupCanMove: (index: number, direction: -1 | 1) => groupCanMove(tabs(), mainRoots(), index, direction),
+    applyTabDrag: (source: TabDragSource, hit: TabDragHit) => {
+      const result = resolveTabDrag(tabs(), mainRoots(), source, hit);
+      if (result.kind === "place-tab") applyGroups(placeTab(tabs(), mainRoots(), result.path, result.before));
+      else if (result.kind === "place-group") applyGroups(placeGroup(tabs(), mainRoots(), result.index, result.before));
+      else if (result.kind === "add") applyGroups(addToGroup(tabs(), mainRoots(), result.path, result.group));
+      else if (result.kind === "refuse") setNotice(result.reason);
+    },
     renameTabGroup: (group: number, name: string) => applyGroups(renameGroup(tabs(), group, name)),
     recolorTabGroup: (group: number, color: TabGroupColor) => applyGroups(recolorGroup(tabs(), group, color)),
     toggleTabGroup: (group: number) => applyGroups(toggleGroup(tabs(), group)),

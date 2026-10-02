@@ -204,9 +204,11 @@ function Notices(props: { actions: RepoActions; plain: boolean }) {
               </button>
             )}
           </For>
-          <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => props.actions.dismissNotice(notice.id)}>
-            <Icon name="close" size={14} />
-          </button>
+          <Show when={notice.dismiss !== false}>
+            <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => props.actions.dismissNotice(notice.id)}>
+              <Icon name="close" size={14} />
+            </button>
+          </Show>
         </span>
       )}
     </For>

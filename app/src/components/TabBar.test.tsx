@@ -2,6 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TabGroup } from "../ipc/bindings/TabGroup";
+import { GROUPS_CANNOT_NEST } from "../state/tabs";
 import { repoKeys } from "../state/queryKeys";
 import { defaultSettings } from "../state/settingsModel";
 import { TabBar } from "./TabBar";
@@ -134,13 +135,13 @@ describe("tab bar", () => {
     const { host } = await mountBar({ tabs: ["/work/a", "/work/b"], groups: [group("Corp A", ["/work/a"])] });
 
     await rightClick(tabButton(host, "/work/b"));
-    expect(menuItems().map(flat)).toEqual(["Close tab⌘W", "Close other tabs", "Close tabs to the right", "Add to new group…", "Add to group", "Alias repository…", "Reopen closed tab⌘⇧T"]);
+    expect(menuItems().map(flat)).toEqual(["Close tab⌘W", "Close other tabs", "Close tabs to the right", "Move left", "Move right", "Add to new group…", "Add to group", "Alias tab…", "Reopen closed tab⌘⇧T"]);
     menuItem("Close tab").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await flush();
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
     await shiftF10(tabButton(host, "/work/a"));
-    expect(menuItems().map(flat)).toEqual(["Close tab⌘W", "Close other tabs", "Close tabs to the right", "Add to new group…", "Add to groupNo other groups", "Remove from group", "Alias repository…", "Reopen closed tab⌘⇧T"]);
+    expect(menuItems().map(flat)).toEqual(["Close tab⌘W", "Close other tabs", "Close tabs to the right", "Move left", "Move right", "Add to new group…", "Add to groupNo other groups", "Remove from group", "Alias tab…", "Reopen closed tab⌘⇧T"]);
   });
 
   it("keeps the items that cannot act visible, aria-disabled, with their reason as the tooltip", async () => {
@@ -152,6 +153,8 @@ describe("tab bar", () => {
     expect(disabled.map((entry) => [flat(entry), entry.getAttribute("title")])).toEqual([
       ["Close other tabs", "No other tabs"],
       ["Close tabs to the right", "No tabs to the right"],
+      ["Move left", "This tab is already first"],
+      ["Move right", "This tab is already last"],
       ["Add to groupNo groups yet", "No groups yet"],
       ["Reopen closed tab⌘⇧T", "No closed tabs"],
     ]);
@@ -216,7 +219,7 @@ describe("tab bar", () => {
     const { host, calls } = await mountBar({ tabs: ["/work/api", "/work/b"] });
 
     await rightClick(tabButton(host, "/work/api"));
-    await pickMenuItem("Alias repository…");
+    await pickMenuItem("Alias tab…");
     const form = dialog("Alias api");
     const input = form.querySelector<HTMLInputElement>("input[type=text]") as HTMLInputElement;
     const save = buttonNamed(form, "Save alias") as HTMLButtonElement;
@@ -250,7 +253,7 @@ describe("tab bar", () => {
     expect(tabButton(host, "/work/api").textContent).toContain("Corp A · API");
 
     await rightClick(tabButton(host, "/work/api"));
-    await pickMenuItem("Alias repository…");
+    await pickMenuItem("Alias tab…");
     expect((dialog("Alias Corp A · API").querySelector("input[type=text]") as HTMLInputElement).value).toBe("Corp A · API");
     dialog("Alias Corp A · API").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await flush();
@@ -263,11 +266,39 @@ describe("tab bar", () => {
     expect(tabButton(host, "/work/api").getAttribute("aria-description")).toBeNull();
   });
 
+  it("opens the alias editor when a tab name is double-clicked", async () => {
+    const { host } = await mountBar({ tabs: ["/work/api"] });
+
+    tabButton(host, "/work/api").dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await flush();
+
+    expect(dialog("Alias api").textContent).toContain("Name shown for /work/api");
+  });
+
+  it("aliases a hidden tab from the collapsed group chip and shows the alias on the chip", async () => {
+    const { host, calls } = await mountBar({
+      tabs: ["/work/a", "/work/b", "/work/c"],
+      groups: [group("Corp A", ["/work/a", "/work/b"], { collapsed: true })],
+    });
+
+    await rightClick(chip(host, "Corp A"));
+    expect(menuItems().map(flat)).toEqual(["Move left", "Move right", "Rename…", "Alias a…", "Alias b…", "Color…Blue", "Ungroup", "Close group…"]);
+    await pickMenuItem("Alias a…");
+    const form = dialog("Alias a");
+    type(form.querySelector("input[type=text]"), "API");
+    await flush();
+    (buttonNamed(form, "Save alias") as HTMLButtonElement).click();
+    await flush();
+
+    expect(flat(chip(host, "Corp A"))).toBe("Corp A · 2 tabs · API");
+    expect(calls.filter((call) => call.cmd === "repo_alias_set").map((call) => call.args)).toEqual([{ path: "/work/a", alias: "API" }]);
+  });
+
   it("keeps the alias popover open and says why when the alias could not be saved", async () => {
     const { host } = await mountBar({ tabs: ["/work/api"] });
 
     await rightClick(tabButton(host, "/work/api"));
-    await pickMenuItem("Alias repository…");
+    await pickMenuItem("Alias tab…");
     type(dialog("Alias api").querySelector("input[type=text]"), "refuse");
     await flush();
     (buttonNamed(dialog("Alias api"), "Save alias") as HTMLButtonElement).click();
@@ -447,7 +478,7 @@ describe("tab bar", () => {
     const { host, calls } = await mountBar({ tabs: ["/work/a"], groups: [group("Corp A", ["/work/a"])] });
 
     await rightClick(chip(host, "Corp A"));
-    expect(menuItems().map(flat)).toEqual(["Rename…", "Color…Blue", "Ungroup", "Close group…"]);
+    expect(menuItems().map(flat)).toEqual(["Move left", "Move right", "Rename…", "Color…Blue", "Ungroup", "Close group…"]);
     await pickMenuItem("Rename…");
     const form = dialog("Rename group");
     const input = form.querySelector<HTMLInputElement>("input[type=text]") as HTMLInputElement;
@@ -575,6 +606,85 @@ describe("tab bar", () => {
     expect(calls.filter((call) => call.cmd === "session_save").length).toBe(before + 1);
     expect(lastSession(calls)).toMatchObject({ session: { groups: [{ name: "Corp A", collapsed: true }] } });
     expect(document.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  async function dropOn(source: HTMLElement, target: HTMLElement, x: number) {
+    target.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 24, right: 100, bottom: 24, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    const previous = document.elementFromPoint;
+    document.elementFromPoint = () => target;
+    source.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 0, clientY: 0, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 40, clientY: 0, button: 0 }));
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: x, clientY: 8, button: 0 }));
+    document.elementFromPoint = previous;
+    await flush();
+  }
+
+  it("reorders a loose tab onto another without creating a group", async () => {
+    const { host } = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"] });
+
+    await dropOn(tabButton(host, "/work/c"), host.querySelector<HTMLElement>("[data-tab-index='0']") as HTMLElement, 10);
+
+    expect(tabTitles(host)).toEqual(["/work/c", "/work/a", "/work/b"]);
+    expect(host.querySelector("button.gchip")).toBeNull();
+  });
+
+  it("adds a tab dropped on a chip and removes a member dropped outside the group", async () => {
+    const added = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], groups: [group("Corp A", ["/work/a"])] });
+
+    await dropOn(tabButton(added.host, "/work/c"), chip(added.host, "Corp A"), 20);
+
+    expect(tabTitles(added.host.querySelector("[aria-label='Corp A tab group']") as HTMLElement)).toEqual(["/work/a", "/work/c"]);
+    dispose?.();
+    await flush();
+
+    const removed = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], groups: [group("Corp A", ["/work/a", "/work/b"])] });
+    await dropOn(tabButton(removed.host, "/work/b"), removed.host.querySelector<HTMLElement>("[data-tab-index='2']") as HTMLElement, 80);
+
+    expect(removed.app.tabs().groups[0]?.tabs).toEqual(["/work/a"]);
+    expect(removed.app.tabs().tabs.flatMap((tab) => (tab.kind === "repo" ? [tab.path] : []))).toEqual(["/work/a", "/work/c", "/work/b"]);
+  });
+
+  it("moves a collapsed group and its hidden members together, and refuses to nest groups", async () => {
+    const { host, app } = await mountBar({
+      tabs: ["/work/a", "/work/b", "/work/c"],
+      groups: [group("Corp A", ["/work/a", "/work/b"], { collapsed: true })],
+    });
+
+    await dropOn(chip(host, "Corp A"), host.querySelector<HTMLElement>("[data-tab-index='2']") as HTMLElement, 80);
+
+    expect(app.tabs().tabs.flatMap((tab) => (tab.kind === "repo" ? [tab.path] : []))).toEqual(["/work/c", "/work/a", "/work/b"]);
+    expect(app.tabs().groups[0]?.tabs).toEqual(["/work/a", "/work/b"]);
+    expect(app.tabs().groups[0]?.collapsed).toBe(true);
+    dispose?.();
+    await flush();
+
+    const nested = await mountBar({
+      tabs: ["/work/a", "/work/b"],
+      groups: [group("One", ["/work/a"]), group("Two", ["/work/b"])],
+    });
+    const before = nested.app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : ""));
+    await dropOn(chip(nested.host, "One"), chip(nested.host, "Two"), 20);
+
+    expect(nested.app.notice()).toBe(GROUPS_CANNOT_NEST);
+    expect(nested.app.tabs().tabs.map((tab) => (tab.kind === "repo" ? tab.path : ""))).toEqual(before);
+  });
+
+  it("moves a tab left from its menu and a group right from the chip menu", async () => {
+    const { host } = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"] });
+
+    await rightClick(tabButton(host, "/work/b"));
+    await pickMenuItem("Move left");
+
+    expect(tabTitles(host)).toEqual(["/work/b", "/work/a", "/work/c"]);
+    dispose?.();
+    await flush();
+
+    const grouped = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], groups: [group("Corp A", ["/work/a", "/work/b"])] });
+    await rightClick(chip(grouped.host, "Corp A"));
+    await pickMenuItem("Move right");
+
+    expect(grouped.app.tabs().tabs.flatMap((tab) => (tab.kind === "repo" ? [tab.path] : []))).toEqual(["/work/c", "/work/a", "/work/b"]);
+    expect(grouped.app.tabs().groups[0]?.tabs).toEqual(["/work/a", "/work/b"]);
   });
 });
 

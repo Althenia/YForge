@@ -244,6 +244,35 @@ describe("sync", () => {
     expect(calls.find((call) => call.cmd === "fetch")?.args).toEqual({ path: "/r", id, prune: false });
   });
 
+  it("updates submodules after a successful fetch only when the repository asks", async () => {
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+      calls.push(call);
+      if (cmd === "repo_open") return snapshot();
+      return null;
+    });
+    const session = testSession("/r", snapshot());
+    const base = { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge" as const, offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined };
+    await createRepoActions(session, base).fetchAll();
+    expect(calls.some((call) => call.cmd === "submodule_update")).toBe(false);
+
+    calls.length = 0;
+    await createRepoActions(session, { ...base, submoduleUpdateOnFetch: () => true }).fetchAll();
+    expect(calls.find((call) => call.cmd === "submodule_update")?.args).toEqual({ path: "/r", submodulePath: null });
+
+    calls.length = 0;
+    mockIPC((cmd, args) => {
+      const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+      calls.push(call);
+      if (cmd === "fetch") throw rejection("cancelled", "The operation was cancelled");
+      if (cmd === "repo_open") return snapshot();
+      return null;
+    });
+    await createRepoActions(testSession("/r", snapshot()), { ...base, submoduleUpdateOnFetch: () => true }).fetchAll();
+    expect(calls.some((call) => call.cmd === "submodule_update")).toBe(false);
+  });
+
   it("reports a cancelled operation and returns to idle", async () => {
     const { actions, session } = setup((call) => {
       if (call.cmd === "fetch") throw rejection("cancelled", "The operation was cancelled");
@@ -334,15 +363,24 @@ describe("sync", () => {
     expect(actions.dialog()).toBeUndefined();
   });
 
-  it("goes straight to the force-with-lease dialog when the branch diverged", async () => {
-    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "f86d53a" }, upstream: "origin/main", replaced: { count: 1, commits: [{ sha: "f86d53a", summary: "Old" }] } };
+  it("keeps Push from opening a force dialog when the branch diverged and offers the lease from the strip notice", async () => {
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "c4d5e6f" }, upstream: "origin/main", replaced: { count: 1, commits: [{ sha: "c4d5e6fabc", summary: "Fix the proxy timeout" }] } };
     const diverged = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } } });
     const { actions, names } = setup((call) => (call.cmd === "push_plan" ? plan : null), diverged);
 
+    expect(actions.notices()[0]).toMatchObject({ text: "This branch has diverged", dismiss: false, detail: "Remote commits would be replaced." });
     await actions.push();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(names()).toEqual(["push_plan"]);
+    expect(actions.dialog()).toBeUndefined();
+    const notice = actions.notices()[0];
+    expect(notice?.detail).toBe("c4d5e6f Fix the proxy timeout would be replaced");
+    expect(notice?.actions[0]?.label).toBe("Force push with lease");
+    await notice?.actions[0]?.run();
+
     expect(actions.dialog()?.copy.title).toBe("Force push with lease");
+    expect(actions.dialog()?.copy.names).toContain("c4d5e6f Fix the proxy timeout");
   });
 
   it("force pushes with the lease from the plan and reports a rejected lease", async () => {

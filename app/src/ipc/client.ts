@@ -65,6 +65,7 @@ import type { UrlIdentity } from "./bindings/UrlIdentity";
 import type { StashRestore } from "./bindings/StashRestore";
 import type { StashTarget } from "./bindings/StashTarget";
 import type { SwitchStash } from "./bindings/SwitchStash";
+import type { Submodule } from "./bindings/Submodule";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
 import type { WorktreeIntegration } from "./bindings/WorktreeIntegration";
 import type { SnapshotInfo } from "./bindings/SnapshotInfo";
@@ -209,6 +210,12 @@ export const client = {
   gitHostDefaultKeyPath: (host: string) => call<string>("git_host_default_key_path", { host }),
   gitHostGenerateKey: (host: string, keyPath: string, passphrase: string | null) => call<string>("git_host_generate_key", { host, keyPath, passphrase }),
   gitIdentityForUrl: (url: string) => call<UrlIdentity>("git_identity_for_url", { url }),
+  submoduleList: (path: string) => call<Submodule[]>("submodule_list", { path }),
+  submoduleAdd: (path: string, url: string, submodulePath: string, branch: string | null) =>
+    call<null>("submodule_add", { path, url, submodulePath, branch }),
+  submoduleUpdate: (path: string, submodulePath: string | null) => call<null>("submodule_update", { path, submodulePath }),
+  submoduleDeinit: (path: string, submodulePath: string) => call<null>("submodule_deinit", { path, submodulePath }),
+  submoduleStage: (path: string, submodulePath: string) => call<null>("submodule_stage", { path, submodulePath }),
   worktreeList: (path: string) => call<WorktreeStatus[]>("worktree_list", { path }),
   worktreeSuggestPath: (path: string, branch: string) => call<string>("worktree_suggest_path", { path, branch }),
   worktreeCreate: (path: string, branch: string, create: boolean, start: string | null, destination: string) =>

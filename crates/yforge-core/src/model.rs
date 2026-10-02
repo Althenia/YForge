@@ -712,3 +712,23 @@ pub struct SnapshotChange {
     pub path: String,
     pub status: FileStatus,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmoduleStatus {
+    Current,
+    Dirty,
+    Uninitialized,
+    UpdateFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct Submodule {
+    pub name: String,
+    pub path: String,
+    pub url: String,
+    pub branch: Option<String>,
+    pub status: SubmoduleStatus,
+    pub recorded: String,
+    pub checked_out: Option<String>,
+}

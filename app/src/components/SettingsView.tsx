@@ -344,7 +344,10 @@ export function SettingsView(props: { section: string }) {
   };
   const setRepoKey = async (key: string | null) => {
     const path = repository();
-    if (path !== undefined) setFailure(await app.saveRepoSettings(path, { pull_mode: overrideMode()?.pull_mode ?? null, ssh_key_path: key }));
+    const current = overrideMode();
+    if (path === undefined) return;
+    const next = { pull_mode: current?.pull_mode ?? null, ssh_key_path: key, ...(current?.submodule_update_on_fetch === true ? { submodule_update_on_fetch: true as const } : {}) };
+    setFailure(await app.saveRepoSettings(path, next));
   };
   const sshKeys = useSshKeys();
   const navigation = SETTINGS_SECTIONS.filter((entry) => entry.id !== "repository");
