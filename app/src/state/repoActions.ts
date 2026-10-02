@@ -60,7 +60,7 @@ import {
 } from "./refMenu";
 import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
-import { authFailure, authFix, isDiverged, syncMenu, type AuthFix, type SyncState } from "./syncModel";
+import { authFailure, authFix, fetchMenu, isDiverged, pullMenu, type AuthFix, type SyncState } from "./syncModel";
 
 const PREVIEW_CONCURRENCY = 4;
 
@@ -858,17 +858,23 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     });
   }
 
-  function openSyncMenu(anchor: Anchor): void {
+  function openFetchMenu(anchor: Anchor): void {
     setMenu({
       anchor,
-      entries: syncMenu(snapshot(), busy(), deps.pullMode(), deps.offline()),
+      entries: fetchMenu(snapshot(), busy(), deps.offline()),
       run: (id) => {
         if (id === "fetch") void fetchAll();
         else if (id === "fetch_prune") void fetchAll(true);
-        else if (id === "push") void push();
-        else if (id === "push_to") openPushTo(anchor);
-        else if (id === "set_upstream") openSetUpstream(currentBranch() ?? "", anchor);
-        else if (id.startsWith("pull:")) void pull(id.slice("pull:".length) as PullMode);
+      },
+    });
+  }
+
+  function openPullMenu(anchor: Anchor): void {
+    setMenu({
+      anchor,
+      entries: pullMenu(snapshot(), busy(), deps.pullMode(), deps.offline()),
+      run: (id) => {
+        if (id.startsWith("pull:")) void pull(id.slice("pull:".length) as PullMode);
       },
     });
   }
@@ -943,7 +949,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     openRenameStash,
     renameStash,
     inspectStash: (stash: Pick<StashEntry, "sha">) => deps.inspectStash(stash.sha),
-    openSyncMenu,
+    openFetchMenu,
+    openPullMenu,
     openBranchPicker,
     openSetUpstream,
     setUpstream,

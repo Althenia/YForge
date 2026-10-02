@@ -218,6 +218,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
                       </div>
                       <VirtualRows
                         as="div"
+                        class="dtrack"
                         items={diff.hunkRowLists()[index()] ?? []}
                         scroller={() => body}
                         estimate={LINE_ESTIMATE}

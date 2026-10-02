@@ -161,23 +161,24 @@ describe("icon-driven controls (S15)", () => {
   it("shows the toolbar as icon and label at 1280 and above, and as named icon-only buttons below", async () => {
     setWidth(1280);
     const { host } = await mountWorkspace();
-    const labelled = ["Sync", "Branch", "Stash", "Undo"].map((label) => commandButton(host, label));
+    const labelled = ["Fetch", "Pull", "Push", "Branch", "Stash", "Undo"].map((label) => commandButton(host, label));
 
-    expect(labelled.map((button) => textOf(button as Element))).toEqual(["Sync↑2", "Branch", "Stash", "Undo"]);
-    expect(labelled.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true]);
-    expect(labelled.map((button) => button?.hasAttribute("data-tip"))).toEqual([false, false, false, false]);
+    expect(labelled.map((button) => textOf(button as Element))).toEqual(["Fetch", "Pull↓0", "Push↑2", "Branch", "Stash", "Undo"]);
+    expect(labelled.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true, true, true]);
+    expect(labelled.map((button) => button?.hasAttribute("data-tip"))).toEqual([false, false, false, false, false, false]);
 
     setWidth(1279);
     await flush();
-    const collapsed = ["Sync, 2 ahead", "Branch", "Stash", "Undo"].map((name) => host.querySelector<HTMLButtonElement>(`.commandbar button[aria-label="${name}"]`));
-    expect(collapsed.map((button) => button !== null && button.dataset.tip === button.getAttribute("aria-label"))).toEqual([true, true, true, true]);
-    expect(collapsed.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true]);
-    expect(collapsed.map((button) => button?.textContent?.replace("↑2", "").trim())).toEqual(["", "", "", ""]);
+    const collapsed = ["Fetch", "Pull, 0 behind", "Push, 2 ahead", "Branch", "Stash", "Undo"].map((name) => host.querySelector<HTMLButtonElement>(`.commandbar button[aria-label="${name}"]`));
+    expect(collapsed.map((button) => button !== null && button.dataset.tip === button.getAttribute("aria-label"))).toEqual([true, true, true, true, true, true]);
+    expect(collapsed.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true, true, true]);
+    expect(collapsed.map((button) => button?.textContent?.replace(/[↓↑]\d+/, "").trim())).toEqual(["", "", "", "", "", ""]);
 
     setWidth(1440);
     await flush();
-    expect(commandButton(host, "Sync")?.dataset.tip).toBeUndefined();
-    expect(textOf(commandButton(host, "Sync") as Element)).toContain("Sync");
+    expect(commandButton(host, "Pull")?.dataset.tip).toBeUndefined();
+    expect(textOf(commandButton(host, "Pull") as Element)).toContain("Pull");
+    expect(textOf(commandButton(host, "Pull") as Element)).not.toMatch(/fast-forward|rebase/);
   });
 
   it("leads each sidebar section and inspector section header with an icon before the label", async () => {

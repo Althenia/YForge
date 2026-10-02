@@ -2,7 +2,7 @@ import { createEffect, createSignal, Index, Match, on, Show, Switch } from "soli
 import { basename } from "../format";
 import { useApp } from "../state/app";
 import type { Anchor } from "../state/repoActions";
-import { tabLabel, type SegmentCluster, type SegmentTab, type Tab, type TabSegment, type UserGroup } from "../state/tabs";
+import { repoName, tabLabel, type SegmentCluster, type SegmentTab, type Tab, type TabSegment, type UserGroup } from "../state/tabs";
 import { Icon } from "./Icon";
 import { Mark } from "./Mark";
 import { anchorBelow, laneOf, opensMenu, tabCountText, TabGroupLayer, type TabGroupOverlay } from "./TabGroupLayer";
@@ -96,12 +96,21 @@ function ClusterView(props: { cluster: SegmentCluster; count: number | undefined
 
 function GroupChip(props: { index: number; group: UserGroup; onMenu: (anchor: Anchor) => void }) {
   const app = useApp();
+  const openName = () => {
+    if (!props.group.collapsed) return undefined;
+    const tab = app.tabs().tabs[app.tabs().active];
+    if (tab?.kind !== "repo" || !props.group.tabs.includes(tab.path)) return undefined;
+    return repoName(tab.path, app.aliases());
+  };
+  const count = () => tabCountText(props.group.tabs.length);
   return (
     <button
       type="button"
       class={`gchip lane-${laneOf(props.group.color)}`}
       data-group={props.index}
       aria-expanded={!props.group.collapsed}
+      aria-current={openName() === undefined ? undefined : "true"}
+      aria-label={openName() === undefined ? undefined : `${props.group.name}, ${count()}, open repository ${openName()}`}
       onClick={() => app.toggleTabGroup(props.index)}
       onContextMenu={(event) => {
         event.preventDefault();
@@ -116,7 +125,10 @@ function GroupChip(props: { index: number; group: UserGroup; onMenu: (anchor: An
       {props.group.name}
       <Show when={props.group.collapsed}>
         {" "}
-        <span class="count">· {tabCountText(props.group.tabs.length)}</span>
+        <span class="count">
+          · {count()}
+          <Show when={openName()}>{(name) => <> · {name()}</>}</Show>
+        </span>
       </Show>
     </button>
   );
@@ -137,7 +149,7 @@ export function TabBar(props: { count?: number }) {
         : "path" in closed
           ? [...(tabs?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])].find((tab) => tab.getAttribute("title") === closed.path)
           : undefined;
-    (origin ?? tabs?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? tabs?.querySelector<HTMLElement>('[role="tab"]'))?.focus();
+    (origin ?? tabs?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? tabs?.querySelector<HTMLElement>('button.gchip[aria-current="true"]') ?? tabs?.querySelector<HTMLElement>('[role="tab"]'))?.focus();
   };
   createEffect(
     on(overlay, (current, previous) => {
@@ -147,7 +159,7 @@ export function TabBar(props: { count?: number }) {
   createEffect(
     on(
       () => [app.tabs().active, settingsOpen(), app.launchpadOpen(), app.tabSegments(), app.aliases(), props.count] as const,
-      () => scroller?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.closest(".tab")?.scrollIntoView?.({ inline: "nearest", block: "nearest" }),
+      () => (scroller?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.closest(".tab") ?? scroller?.querySelector<HTMLElement>('button.gchip[aria-current="true"]'))?.scrollIntoView?.({ inline: "nearest", block: "nearest" }),
     ),
   );
   return (

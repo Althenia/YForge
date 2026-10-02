@@ -316,6 +316,8 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         snapshot={session.snapshot()}
         actions={actions}
         undo={undo()}
+        online={app.online()}
+        pullMode={effectivePullMode(app.settings(), repoSettings()).mode}
         onUndo={() => runUndo()}
         onPalette={() => app.setPaletteOpen(true)}
         onSearch={search.show}

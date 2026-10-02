@@ -356,7 +356,7 @@ describe("app state", () => {
     expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/w/c"], active: 0, groups: [] } });
   });
 
-  it("hides the tabs of a collapsed group but never the active one, and expands the group when one of its tabs is activated", async () => {
+  it("hides every tab of a collapsed group, including the open repository, and expands the group when one of its tabs is activated", async () => {
     const group = { name: "Work", color: "mint" as const, collapsed: false, tabs: ["/w/a", "/w/b"] };
     const { app } = await boot({ tabs: ["/w/a", "/w/b", "/w/c"], groups: [group], launch: "/", repositories: ["/w/a", "/w/b", "/w/c"] });
     const visible = () => app.tabSegments().flatMap((segment) => (segment.kind === "group" ? segment.clusters : [segment.cluster]).flatMap((cluster) => cluster.tabs.filter((entry) => !entry.hidden).map((entry) => entry.tab.kind === "repo" ? entry.tab.path : "")));
@@ -370,7 +370,8 @@ describe("app state", () => {
     expect(visible()).toEqual(["/w/a", "/w/b", "/w/c"]);
 
     app.toggleTabGroup(0);
-    expect(visible()).toEqual(["/w/b", "/w/c"]);
+    expect(app.activePath()).toBe("/w/b");
+    expect(visible()).toEqual(["/w/c"]);
   });
 
   it("collapses, renames, and recolors a group without leaving the settings screen", async () => {

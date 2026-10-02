@@ -386,7 +386,7 @@ describe("user tab groups", () => {
     expect(closeGroup(grouped(["/a"], [group("G", ["/a"])]), 0)).toEqual({ tabs: [{ kind: "launcher" }], active: 0, groups: [] });
   });
 
-  it("describes the segments: a group with its repository clusters, hiding all but the active tab while collapsed", () => {
+  it("describes the segments: a group with its repository clusters, hiding every tab while collapsed", () => {
     const state = groupTabs(grouped(["/a", "/w/repo", "/w/repo-feature", "/z"], [group("G", ["/w/repo", "/w/repo-feature"], { collapsed: true })], 2), mains);
 
     const segments = tabSegments(state, mains);
@@ -398,7 +398,7 @@ describe("user tab groups", () => {
     expect(middle.group.name).toBe("G");
     expect(middle.clusters.flatMap((cluster) => cluster.tabs.map((entry) => [entry.index, entry.hidden]))).toEqual([
       [1, true],
-      [2, false],
+      [2, true],
     ]);
   });
 

@@ -1772,6 +1772,7 @@ svg.lanes {
 .dline {
   display: grid;
   grid-template-columns: 106px minmax(max-content, 1fr);
+  min-width: 100%;
   min-height: 20px;
   align-items: center;
   white-space: pre;
@@ -1888,6 +1889,7 @@ svg.lanes {
 .dsplit {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 100%;
   min-height: 20px;
 }
 
@@ -1895,6 +1897,7 @@ svg.lanes {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
+  width: 100%;
   min-width: 0;
 }
 
@@ -1907,7 +1910,7 @@ svg.lanes {
 }
 
 .half.blank {
-  background: var(--colors-surface-2);
+  background: transparent;
 }
 
 .half .code {
@@ -1919,11 +1922,18 @@ svg.lanes {
 .dgap {
   display: flex;
   align-items: center;
+  min-width: 100%;
   min-height: 20px;
   padding-left: var(--spacing-3);
   background: var(--colors-surface-3);
   color: var(--colors-text-muted);
   font: var(--font-ui-small);
+}
+
+.dflat,
+.dtrack {
+  min-width: 100%;
+  width: max-content;
 }
 
 .dflat {
@@ -1938,6 +1948,7 @@ svg.lanes {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
+  min-width: 100%;
   min-height: var(--controls-height);
   padding: 0 var(--spacing-1-5) 0 var(--spacing-3);
   background: var(--colors-surface-2);
@@ -1984,7 +1995,7 @@ svg.lanes {
   display: inline-flex;
 }
 
-.split-btn .btn.primary:first-child {
+.split-btn .btn:first-child {
   border-start-end-radius: 0;
   border-end-end-radius: 0;
 }
@@ -1995,6 +2006,10 @@ svg.lanes {
   padding: 0;
   border-start-start-radius: 0;
   border-end-start-radius: 0;
+  box-shadow: inset 1px 0 0 var(--colors-rule);
+}
+
+.split-btn .btn.primary.chev {
   box-shadow: inset 1px 0 0 color-mix(in srgb, var(--colors-on-accent) 30%, transparent);
 }
 

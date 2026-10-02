@@ -334,8 +334,8 @@ describe("tab bar", () => {
     expect([...host.querySelectorAll("button.gchip")].map((entry) => entry.textContent)).toEqual(["Same", "Same"]);
   });
 
-  it("collapses a group to its chip with the tab count in text, keeps the active tab, and expands it again", async () => {
-    const { host, calls } = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], groups: [group("Corp A", ["/work/a", "/work/b"])] });
+  it("collapses a group to its chip, hides every member including the open repository, and expands it again", async () => {
+    const { host, app, calls } = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], groups: [group("Corp A", ["/work/a", "/work/b"])] });
     const entry = chip(host, "Corp A");
 
     expect(entry.getAttribute("aria-expanded")).toBe("true");
@@ -346,9 +346,11 @@ describe("tab bar", () => {
     await flush();
 
     expect(entry.getAttribute("aria-expanded")).toBe("false");
-    expect(flat(entry)).toBe("Corp A · 2 tabs");
-    expect(tabTitles(host)).toEqual(["/work/a", "/work/c"]);
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title")).toBe("/work/a");
+    expect(entry.getAttribute("aria-current")).toBe("true");
+    expect(flat(entry)).toBe("Corp A · 2 tabs · a");
+    expect(tabTitles(host)).toEqual(["/work/c"]);
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')).toBeNull();
+    expect(app.activePath()).toBe("/work/a");
     expect(lastSession(calls)).toMatchObject({ session: { groups: [{ name: "Corp A", collapsed: true }] } });
 
     entry.click();
@@ -358,12 +360,24 @@ describe("tab bar", () => {
     expect(tabTitles(host)).toEqual(["/work/a", "/work/b", "/work/c"]);
   });
 
-  it("never hides the active tab of a collapsed group and expands the group when a tab of it is activated", async () => {
+  it("leaves a collapsed group as a count chip when the open repository is outside it, and expands the group a previous tab lands in", async () => {
     const { host, app } = await mountBar({ tabs: ["/work/a", "/work/b", "/work/c"], active: 2, groups: [group("Corp A", ["/work/a", "/work/b"], { collapsed: true })] });
 
     expect(flat(chip(host, "Corp A"))).toBe("Corp A · 2 tabs");
+    expect(chip(host, "Corp A").getAttribute("aria-current")).toBeNull();
     expect(tabTitles(host)).toEqual(["/work/c"]);
 
+    app.previousTab();
+    await flush();
+
+    expect(chip(host, "Corp A").getAttribute("aria-expanded")).toBe("true");
+    expect(tabTitles(host)).toEqual(["/work/a", "/work/b", "/work/c"]);
+    expect(app.activePath()).toBe("/work/b");
+
+    app.activate(2);
+    await flush();
+    chip(host, "Corp A").click();
+    await flush();
     app.activate(1);
     await flush();
 

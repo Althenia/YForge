@@ -60,7 +60,7 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
       setNotices((list) => list.filter((notice) => notice.id !== id));
     },
     openBranchPicker: record("branch-picker"),
-    openSyncMenu: record("sync-menu"),
+    openPullMenu: record("pull-menu"),
     openCreateBranchAt: record("create-branch-at"),
     fetchAll: record("fetch"),
     retrySync: record("retry"),
@@ -97,16 +97,16 @@ describe("state strip chips", () => {
     expect(calls.map((call) => call[0])).toEqual(["branch-picker"]);
   });
 
-  it("opens the sync menu from the ahead and behind chip, which states diverged in text", () => {
+  it("opens the pull menu from the ahead and behind chip, which states diverged in text", () => {
     const { host, calls } = mount();
-    const sync = button(host, /^Sync menu/);
+    const pull = button(host, /^Pull menu/);
 
-    expect(sync.textContent).toContain("↑2");
-    expect(sync.textContent).toContain("↓1");
-    expect(sync.textContent).toContain("diverged");
-    sync.click();
+    expect(pull.textContent).toContain("↑2");
+    expect(pull.textContent).toContain("↓1");
+    expect(pull.textContent).toContain("diverged");
+    pull.click();
 
-    expect(calls.map((call) => call[0])).toEqual(["sync-menu"]);
+    expect(calls.map((call) => call[0])).toEqual(["pull-menu"]);
   });
 
   it("opens the Changes inspector from the Changes chip", () => {

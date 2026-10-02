@@ -147,7 +147,7 @@ export type TabSegment = { kind: "cluster"; cluster: SegmentCluster } | { kind: 
 export function tabSegments(state: TabsState, mains: MainRoots): TabSegment[] {
   const visible = (cluster: TabCluster, collapsed: boolean): SegmentCluster => ({
     main: cluster.main,
-    tabs: cluster.tabs.map((entry) => ({ ...entry, hidden: collapsed && entry.index !== state.active })),
+    tabs: cluster.tabs.map((entry) => ({ ...entry, hidden: collapsed })),
   });
   const segments: TabSegment[] = [];
   for (const cluster of tabGroups(state, mains)) {

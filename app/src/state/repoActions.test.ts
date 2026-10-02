@@ -291,7 +291,7 @@ describe("sync", () => {
   it("pulls with the chosen mode and reports a conflicting pull", async () => {
     const { actions, calls, session } = setup((call) => (call.cmd === "pull" ? "conflicts" : null));
 
-    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.openPullMenu({ left: 0, top: 0 });
     actions.menu()?.run("pull:rebase");
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -836,24 +836,24 @@ const dirty = () => snapshot({ counts: { ...counts, modified: 2 } });
 const later = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("fetch and prune", () => {
-  it("fetches with prune from the sync menu and the plain fetch never prunes", async () => {
+  it("fetches with prune from the fetch menu and the plain fetch never prunes", async () => {
     const { actions, calls } = setup(() => null);
 
-    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.openFetchMenu({ left: 0, top: 0 });
     actions.menu()?.run("fetch_prune");
     await later();
-    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.openFetchMenu({ left: 0, top: 0 });
     actions.menu()?.run("fetch");
     await later();
 
     expect(calls.filter((call) => call.cmd === "fetch").map((call) => call.args.prune)).toEqual([true, false]);
   });
 
-  it("disables the sync menu while offline and does not auto-fetch", async () => {
+  it("disables fetch while offline and does not auto-fetch", async () => {
     offline = true;
     const { actions, calls } = setup(() => null);
 
-    actions.openSyncMenu({ left: 0, top: 0 });
+    actions.openFetchMenu({ left: 0, top: 0 });
     const fetch = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "fetch");
     expect(fetch).toMatchObject({ disabledReason: "You are offline" });
     await actions.autoFetch();
@@ -1096,10 +1096,10 @@ describe("upstream and Push to…", () => {
     expect(actions.popover()).toBeUndefined();
   });
 
-  it("opens the upstream form for the checked-out branch from the sync menu", () => {
+  it("opens the upstream form for the checked-out branch from the branch menu", () => {
     const { actions } = setup(() => null);
 
-    actions.openSyncMenu({ left: 4, top: 5 });
+    actions.openBranchPicker({ left: 4, top: 5 });
     actions.menu()?.run("set_upstream");
 
     expect(actions.popover()).toMatchObject({ kind: "set_upstream", branch: "main" });
@@ -1108,8 +1108,7 @@ describe("upstream and Push to…", () => {
   it("pushes the current branch to a chosen remote and name with the set-upstream choice", async () => {
     const { actions, calls } = setup(() => null);
 
-    actions.openSyncMenu({ left: 0, top: 0 });
-    actions.menu()?.run("push_to");
+    actions.openPushTo({ left: 0, top: 0 });
     expect(actions.popover()).toMatchObject({ kind: "push_to" });
     await actions.pushTo({ remote: "origin", name: "topic", set_upstream: true });
 

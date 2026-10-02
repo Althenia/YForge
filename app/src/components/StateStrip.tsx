@@ -88,8 +88,8 @@ function HeadChip(props: { snapshot: RepoSnapshot; actions: RepoActions; onRevea
             type="button"
             class="chip-seg"
             aria-haspopup="menu"
-            aria-label={`Sync menu: ${counts() === null || counts() === undefined ? "counts unknown" : `${counts()?.ahead} ahead, ${counts()?.behind} behind`}`}
-            onClick={(event) => props.actions.openSyncMenu(anchorBelow(event.currentTarget))}
+            aria-label={`Pull menu: ${counts() === null || counts() === undefined ? "counts unknown" : `${counts()?.ahead} ahead, ${counts()?.behind} behind`}`}
+            onClick={(event) => props.actions.openPullMenu(anchorBelow(event.currentTarget))}
           >
             <Show when={counts()} fallback={<span title="Fetch to compare">—</span>}>
               {(value) => (

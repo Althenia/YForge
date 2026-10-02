@@ -36,39 +36,59 @@ export function isDiverged(snapshot: Pick<RepoSnapshot, "upstream">): boolean {
 
 export const OFFLINE_REASON = "You are offline";
 
-export function syncMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: PullMode = DEFAULT_PULL_MODE, offline = false): MenuEntry[] {
+const withReason = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
+
+function syncReasons(snapshot: RepoSnapshot, busy: boolean, offline: boolean) {
   const onBranch = snapshot.head.kind === "branch";
   const operation = snapshot.operation !== null;
   const noRemotes = snapshot.remotes.length === 0;
   const blocked = (reason: string | undefined) => (busy ? "Another sync is running" : operation ? "Finish the operation in progress first" : offline ? OFFLINE_REASON : reason);
-  const fetchReason = blocked(noRemotes ? "This repository has no remotes" : undefined);
-  const pullReason = blocked(!onBranch ? "Check out a branch to pull" : snapshot.upstream === null ? "No upstream branch to pull from" : undefined);
-  const pushReason = blocked(!onBranch ? "Check out a branch to push" : noRemotes ? "This repository has no remotes" : undefined);
-  const upstreamReason = onBranch ? (noRemotes ? "This repository has no remotes" : undefined) : "Check out a branch to set its upstream";
-  const withReason = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
+  return {
+    onBranch,
+    fetch: blocked(noRemotes ? "This repository has no remotes" : undefined),
+    pull: blocked(!onBranch ? "Check out a branch to pull" : snapshot.upstream === null ? "No upstream branch to pull from" : undefined),
+    push: blocked(!onBranch ? "Check out a branch to push" : noRemotes ? "This repository has no remotes" : undefined),
+    upstream: onBranch ? (noRemotes ? "This repository has no remotes" : undefined) : "Check out a branch to set its upstream",
+  };
+}
+
+export function fetchMenu(snapshot: RepoSnapshot, busy: boolean, offline = false): MenuEntry[] {
+  const reason = syncReasons(snapshot, busy, offline).fetch;
   return [
-    { kind: "item", id: "fetch", label: ["Fetch all"], icon: "fetch", shortcut: SHORTCUTS.fetch, ...withReason(fetchReason) },
-    { kind: "item", id: "fetch_prune", label: ["Fetch all and prune"], icon: "fetch", note: "removes deleted remote branches", ...withReason(fetchReason) },
+    { kind: "item", id: "fetch", label: ["Fetch all"], icon: "fetch", shortcut: SHORTCUTS.fetch, ...withReason(reason) },
+    { kind: "item", id: "fetch_prune", label: ["Fetch all and prune"], icon: "fetch", note: "removes deleted remote branches", ...withReason(reason) },
+  ];
+}
+
+export function pullMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: PullMode = DEFAULT_PULL_MODE, offline = false): MenuEntry[] {
+  const reason = syncReasons(snapshot, busy, offline).pull;
+  return pullModes.map<MenuEntry>((entry) => ({
+    kind: "item",
+    id: `pull:${entry.mode}`,
+    label: [entry.label],
+    icon: "pull",
+    ...(entry.mode === defaultMode ? { note: "default", shortcut: SHORTCUTS.pull } : {}),
+    ...withReason(reason),
+  }));
+}
+
+export function syncMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: PullMode = DEFAULT_PULL_MODE, offline = false): MenuEntry[] {
+  const reasons = syncReasons(snapshot, busy, offline);
+  return [
+    ...fetchMenu(snapshot, busy, offline),
     { kind: "separator" },
-    ...pullModes.map<MenuEntry>((entry) => ({
-      kind: "item",
-      id: `pull:${entry.mode}`,
-      label: [entry.label],
-      icon: "pull",
-      ...(entry.mode === defaultMode ? { note: "default", shortcut: SHORTCUTS.pull } : {}),
-      ...withReason(pullReason),
-    })),
+    ...pullMenu(snapshot, busy, defaultMode, offline),
     { kind: "separator" },
     {
       kind: "item",
       id: "push",
-      label: [snapshot.upstream === null && onBranch ? "Push and set upstream" : "Push"],
+      label: [snapshot.upstream === null && reasons.onBranch ? "Push and set upstream" : "Push"],
       icon: "push",
       shortcut: SHORTCUTS.push,
-      ...withReason(pushReason),
+      ...withReason(reasons.push),
     },
-    { kind: "item", id: "push_to", label: ["Push to…"], icon: "push", ...withReason(pushReason) },
-    { kind: "item", id: "set_upstream", label: ["Set upstream…"], ...withReason(upstreamReason) },
+    { kind: "item", id: "push_to", label: ["Push to…"], icon: "push", ...withReason(reasons.push) },
+    { kind: "item", id: "set_upstream", label: ["Set upstream…"], ...withReason(reasons.upstream) },
   ];
 }
 

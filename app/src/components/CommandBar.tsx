@@ -1,12 +1,15 @@
 import { Show } from "solid-js";
 import { basename } from "../format";
+import type { IconName } from "../iconNames";
+import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { UndoState } from "../state/activityModel";
-import { pushRemote } from "../state/refMenu";
-import { SHORTCUTS } from "../state/shortcuts";
+import { changeTotal } from "../state/changes";
+import { pushRemote, type MenuEntry } from "../state/refMenu";
 import type { Anchor, RepoActions } from "../state/repoActions";
+import { SHORTCUTS } from "../state/shortcuts";
+import { DEFAULT_PULL_MODE, fetchMenu, pullMenu, syncMenu } from "../state/syncModel";
 import { createToolbarLabels } from "../state/viewport";
-import type { IconName } from "../iconNames";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
 
@@ -26,6 +29,11 @@ function headLabel(snapshot: RepoSnapshot): string {
 const below = (element: HTMLElement): Anchor => {
   const rect = element.getBoundingClientRect();
   return { left: rect.left, top: rect.bottom + 8 };
+};
+
+const reasonOf = (entries: MenuEntry[], id: string): string | undefined => {
+  const entry = entries.find((item) => item.kind === "item" && item.id === id);
+  return entry?.kind === "item" ? entry.disabledReason : undefined;
 };
 
 function Tool(props: {
@@ -63,10 +71,56 @@ function Tool(props: {
   );
 }
 
+function Split(props: {
+  icon: IconName;
+  label: string;
+  labelled: boolean;
+  primary?: boolean;
+  hint?: string;
+  name?: string;
+  shortcut?: string;
+  disabled?: boolean;
+  reason?: string | undefined;
+  menuLabel: string;
+  onClick: () => void;
+  onMenu: (event: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
+}) {
+  return (
+    <span class="split-btn" role="group" aria-label={props.label}>
+      <Tool
+        icon={props.icon}
+        label={props.label}
+        labelled={props.labelled}
+        primary={props.primary}
+        hint={props.hint}
+        name={props.name}
+        shortcut={props.shortcut}
+        disabled={props.disabled}
+        reason={props.reason}
+        onClick={props.onClick}
+      />
+      <button
+        type="button"
+        class="btn chev icon-only"
+        classList={{ primary: props.primary === true }}
+        aria-haspopup="menu"
+        disabled={props.disabled === true}
+        title={props.reason}
+        {...tip(props.menuLabel)}
+        onClick={props.onMenu}
+      >
+        <Icon name="chevron" size={14} />
+      </button>
+    </span>
+  );
+}
+
 export function CommandBar(props: {
   snapshot: RepoSnapshot;
   actions: RepoActions;
   undo: UndoState;
+  online?: boolean;
+  pullMode?: PullMode;
   onUndo: () => void;
   onPalette: () => void;
   onSearch: () => void;
@@ -77,10 +131,21 @@ export function CommandBar(props: {
     const worktree = current();
     return worktree === undefined || worktree.path === props.snapshot.worktrees[0]?.path ? "main worktree" : basename(worktree.path);
   };
-  const ahead = () => props.snapshot.upstream?.ahead_behind?.ahead ?? 0;
+  const ahead = () => props.snapshot.upstream?.ahead_behind?.ahead;
+  const behind = () => props.snapshot.upstream?.ahead_behind?.behind;
   const syncing = () => props.actions.sync().kind === "running";
+  const offline = () => props.online === false;
+  const mode = () => props.pullMode ?? DEFAULT_PULL_MODE;
   const unborn = () => props.snapshot.head.kind === "unborn";
   const publishing = () => props.snapshot.upstream === null && props.snapshot.head.kind !== "detached";
+  const fetchReason = () => reasonOf(fetchMenu(props.snapshot, syncing(), offline()), "fetch");
+  const pullReason = () => reasonOf(pullMenu(props.snapshot, syncing(), mode(), offline()), `pull:${mode()}`);
+  const pushReason = () => reasonOf(syncMenu(props.snapshot, syncing(), mode(), offline()), "push");
+  const stashReason = () => {
+    if (syncing()) return "A sync is running";
+    const counts = props.snapshot.counts;
+    return counts === undefined || changeTotal(counts) === 0 ? "Nothing to stash" : undefined;
+  };
   const publishReason = () => {
     if (props.snapshot.remotes.length === 0) return NO_REMOTE_REASON;
     if (unborn()) return "Make a first commit before publishing";
@@ -119,21 +184,44 @@ export function CommandBar(props: {
       <button type="button" class="icon-btn" {...tip("Search commits", SHORTCUTS.search)} onClick={props.onSearch}>
         <Icon name="search" />
       </button>
+      <Split
+        icon="fetch"
+        label="Fetch"
+        labelled={labelled()}
+        shortcut={SHORTCUTS.fetch}
+        disabled={fetchReason() !== undefined}
+        reason={fetchReason()}
+        menuLabel="Fetch menu"
+        onClick={() => void props.actions.fetchAll()}
+        onMenu={(event) => props.actions.openFetchMenu(below(event.currentTarget))}
+      />
+      <Split
+        icon="pull"
+        label="Pull"
+        labelled={labelled()}
+        primary={!publishing()}
+        hint={behind() === undefined ? undefined : `↓${behind()}`}
+        name={behind() === undefined ? "Pull" : `Pull, ${behind()} behind`}
+        shortcut={SHORTCUTS.pull}
+        disabled={pullReason() !== undefined}
+        reason={pullReason()}
+        menuLabel="Pull menu"
+        onClick={() => void props.actions.pullDefault()}
+        onMenu={(event) => props.actions.openPullMenu(below(event.currentTarget))}
+      />
       <Show
         when={publishing()}
         fallback={
           <Tool
-            icon="sync"
-            label="Sync"
+            icon="push"
+            label="Push"
             labelled={labelled()}
-            name={labelled() ? undefined : ahead() > 0 ? `Sync, ${ahead()} ahead` : "Sync"}
-            primary
-            menu
-            caret
-            hint={ahead() > 0 ? `↑${ahead()}` : undefined}
-            disabled={syncing()}
-            reason={syncing() ? "A sync is running" : undefined}
-            onClick={(event) => props.actions.openSyncMenu(below(event.currentTarget))}
+            hint={ahead() === undefined ? undefined : `↑${ahead()}`}
+            name={ahead() === undefined ? "Push" : `Push, ${ahead()} ahead`}
+            shortcut={SHORTCUTS.push}
+            disabled={pushReason() !== undefined}
+            reason={pushReason()}
+            onClick={() => void props.actions.push()}
           />
         }
       >
@@ -156,7 +244,15 @@ export function CommandBar(props: {
         reason={unborn() ? "Make a first commit before creating branches" : undefined}
         onClick={(event) => props.actions.openCreateBranch(below(event.currentTarget))}
       />
-      <Tool icon="stash" label="Stash" labelled={labelled()} shortcut={SHORTCUTS.stash} onClick={(event) => props.actions.openStashForm(below(event.currentTarget))} />
+      <Tool
+        icon="stash"
+        label="Stash"
+        labelled={labelled()}
+        shortcut={SHORTCUTS.stash}
+        disabled={stashReason() !== undefined}
+        reason={stashReason()}
+        onClick={(event) => props.actions.openStashForm(below(event.currentTarget))}
+      />
       <Tool
         icon="undo"
         label="Undo"

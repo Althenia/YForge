@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullModes, runningText, syncMenu } from "./syncModel";
+import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, fetchMenu, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullMenu, pullModes, runningText, syncMenu } from "./syncModel";
 import type { MenuEntry } from "./refMenu";
 
 const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
@@ -29,6 +29,20 @@ describe("fetch freshness", () => {
     expect(freshness(now - FRESH_SECONDS, now, true)?.tone).toBe("fresh");
     expect(freshness(now - FRESH_SECONDS - 1, now, true)?.tone).toBe("stale");
     expect(freshness(now - 3 * 3600, now, true)?.text).toBe("Fetched 3h ago");
+  });
+});
+
+describe("fetch and pull menus", () => {
+  it("keeps the fetch caret to fetch and prune, and the pull caret to the three modes", () => {
+    const fetched = fetchMenu(snapshot(), false);
+    const pulled = pullMenu(snapshot(), false);
+
+    expect(fetched.map((entry) => entry.kind === "item" ? entry.id : "-")).toEqual(["fetch", "fetch_prune"]);
+    expect(pulled.map((entry) => entry.kind === "item" ? entry.id : "-")).toEqual(["pull:fast_forward_only", "pull:fast_forward_or_merge", "pull:rebase"]);
+    expect(pulled.find((entry) => entry.kind === "item" && entry.note === "default")).toMatchObject({ id: `pull:${DEFAULT_PULL_MODE}` });
+    for (const entries of [fetched, pulled]) {
+      expect(entries.some((entry) => entry.kind === "item" && (entry.id === "push" || entry.id === "push_to" || entry.id === "set_upstream"))).toBe(false);
+    }
   });
 });
 
