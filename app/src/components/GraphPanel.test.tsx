@@ -9,6 +9,7 @@ import { GraphPanel } from "./GraphPanel";
 import { flush, mountWithApp, testUiPrefs } from "./testkit";
 
 const TOTAL = 450;
+let total = TOTAL;
 const VIEWPORT = 280;
 const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
 
@@ -49,6 +50,7 @@ beforeEach(() => {
 
 afterEach(async () => {
   overrides = {};
+  total = TOTAL;
   dispose?.();
   dispose = undefined;
   vi.unstubAllGlobals();
@@ -94,19 +96,20 @@ async function mountGraph(config: MountOptions = {}) {
     const { offset, limit, visibility } = args as { offset: number; limit: number; visibility?: unknown };
     offsets.push(offset);
     visibilities.push(visibility);
-    const rows = Array.from({ length: Math.max(Math.min(limit, TOTAL - offset), 0) }, (_, position) => rowAt(offset + position));
-    return { rows, carried: [], total: TOTAL };
+    const rows = Array.from({ length: Math.max(Math.min(limit, total - offset), 0) }, (_, position) => rowAt(offset + position));
+    return { rows, carried: [], total };
   });
   const uiPrefs = testUiPrefs();
   const [selection, setSelection] = createSignal<Selection | undefined>();
   const [focus, setFocus] = createSignal<{ nonce: number; index?: number; ref?: string } | undefined>();
+  const [revision, setRevision] = createSignal(0);
   const mounted = mountWithApp(() => (
     <GraphPanel
       path="/r"
       snapshot={{ ...snapshot, ...config.snapshot } as RepoSnapshot}
       geometry={geometry}
       selection={selection()}
-      revision={0}
+      revision={revision()}
       covered={false}
       actions={(config.actions ?? {}) as unknown as RepoActions}
       dimmed={() => false}
@@ -127,7 +130,7 @@ async function mountGraph(config: MountOptions = {}) {
     list().scrollTop = top;
     await flush(60);
   };
-  return { host: mounted.host, offsets, visibilities, selection, setSelection, setFocus, list, options, positions, key, scrollTo };
+  return { host: mounted.host, offsets, visibilities, selection, setSelection, setFocus, list, options, positions, key, scrollTo, setRevision };
 }
 
 describe("graph panel", () => {
@@ -204,24 +207,56 @@ const rowElement = (host: ParentNode, index: number) => host.querySelector<HTMLE
 const click = (element: Element, init: MouseEventInit = {}) => element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...init }));
 const dirtySnapshot = { counts: { modified: 1, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } };
 
+describe("graph refresh", () => {
+  it("keeps every visible row in place when the history grows, so nothing re-renders or flickers (S8)", async () => {
+    const { host, setRevision } = await mountGraph();
+    const before = rowElement(host, 2);
+    expect(before).not.toBeNull();
+
+    total = TOTAL + 1;
+    setRevision(1);
+    await flush(80);
+
+    expect(rowElement(host, 2)).toBe(before);
+  });
+});
+
 describe("branch and tag column overflow", () => {
   const crowded = { 1: { refs: [ref("main", "local_branch", true), ref("feature/a"), ref("origin/feature/b", "remote_branch"), ref("v1", "tag")] } };
 
-  it("names the hidden branches on the +N button, which opens a popover listing them", async () => {
+  it("shows one label per row and names every other branch and tag on the +N button, which opens a popover listing them", async () => {
     overrides = crowded;
     const { host } = await mountGraph();
 
+    expect([...rowElement(host, 1).querySelectorAll(".refcell > .label")].map((label) => label.textContent)).toEqual(["main"]);
     const more = rowElement(host, 1).querySelector<HTMLButtonElement>("button.more") as HTMLButtonElement;
-    expect(more.textContent).toBe("+2");
-    expect(more.getAttribute("aria-label")).toBe("2 more branches: feature/a, origin/feature/b");
+    expect(more.textContent).toBe("+3");
+    expect(more.getAttribute("aria-label")).toBe("3 more refs: feature/a, origin/feature/b, v1");
     expect(more.getAttribute("aria-haspopup")).toBe("dialog");
     click(more);
     await flush();
 
     const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-    expect(dialog.getAttribute("aria-label")).toBe("More branches on sha1");
-    expect([...dialog.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(["feature/a", "origin/feature/b"]);
-    expect(rowElement(host, 1).getAttribute("aria-label")).toContain("2 more branches, press Enter to list");
+    expect(dialog.getAttribute("aria-label")).toBe("More refs on sha1");
+    expect([...dialog.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual(["feature/a", "origin/feature/b", "v1"]);
+    expect(rowElement(host, 1).getAttribute("aria-label")).toContain("3 more refs, press Enter to list");
+  });
+
+  it("stacks every ref of the row on hover, each opening its own menu on right-click", async () => {
+    overrides = crowded;
+    const menus: unknown[] = [];
+    const { host } = await mountGraph({ actions: { openRefMenu: (target: unknown) => menus.push(target) } });
+
+    const stack = rowElement(host, 1).querySelector(".refcell .refstack") as HTMLElement;
+    const labels = [...stack.querySelectorAll<HTMLElement>("[data-ref-label]")];
+    expect(labels.map((label) => label.textContent)).toEqual(["main", "feature/a", "origin/feature/b", "v1"]);
+    labels[3]?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+    labels[1]?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+
+    expect(menus).toEqual([
+      { kind: "tag", name: "v1", startPoint: "sha1" },
+      { kind: "local_branch", name: "feature/a", remoteName: undefined, startPoint: "sha1" },
+    ]);
   });
 
   it("opens from the keyboard with Enter on the selected row, moves with the arrows, and checks the chosen branch out", async () => {

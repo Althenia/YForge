@@ -173,6 +173,24 @@ describe("routes", () => {
     expect(app.activePath()).toBe("/b");
   });
 
+  it("returns to an earlier tab without the loading screen and refreshes its state in the background (S8)", async () => {
+    const { app, host, calls } = await mountApp({ tabs: ["/a", "/b"], active: 0 });
+    app.activate(1);
+    await flush(60);
+    const opensBefore = calls.filter((call) => call.cmd === "repo_open" && call.args.path === "/a").length;
+    const flashed: string[] = [];
+    new MutationObserver(() => {
+      if (host.textContent?.includes("Opening repository")) flashed.push("loading");
+    }).observe(host, { childList: true, subtree: true, characterData: true });
+
+    app.activate(0);
+    await flush(60);
+
+    expect(flashed).toEqual([]);
+    expect(host.querySelectorAll(".commandbar").length).toBe(1);
+    expect(calls.filter((call) => call.cmd === "repo_open" && call.args.path === "/a").length).toBe(opensBefore + 1);
+  });
+
   it("keeps the focused control focused while the repository refreshes", async () => {
     const { app, host } = await mountApp({ tabs: ["/a"], active: 0 });
     const field = host.querySelector<HTMLInputElement>('input[aria-label="Filter sidebar"]');

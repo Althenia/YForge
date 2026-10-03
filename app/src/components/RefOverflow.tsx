@@ -28,7 +28,7 @@ export function RefOverflow(props: {
       setActive(event.key === "Home" ? 0 : last);
     } else if (event.key === "Enter") {
       const target = targetOf(active());
-      if (target === undefined || props.groups[active()]?.head === true) return;
+      if (target === undefined || props.groups[active()]?.head === true || props.groups[active()]?.tag === true) return;
       event.preventDefault();
       props.onClose();
       props.actions.checkoutRef(target);
@@ -42,8 +42,8 @@ export function RefOverflow(props: {
     }
   };
   return (
-    <Popover anchor={props.anchor} label={`More branches on ${props.sha.slice(0, 7)}`} onClose={props.onClose}>
-      <div class="ref-overflow" role="listbox" tabindex="0" data-autofocus aria-label="More branches" aria-activedescendant={optionId(active())} onKeyDown={onKeyDown}>
+    <Popover anchor={props.anchor} label={`More refs on ${props.sha.slice(0, 7)}`} onClose={props.onClose}>
+      <div class="ref-overflow" role="listbox" tabindex="0" data-autofocus aria-label="More refs" aria-activedescendant={optionId(active())} onKeyDown={onKeyDown}>
         <For each={props.groups}>
           {(group, index) => (
             <div id={optionId(index())} class="ref-overflow-option" classList={{ active: active() === index() }} role="option" aria-selected={active() === index()} onPointerEnter={() => setActive(index())}>

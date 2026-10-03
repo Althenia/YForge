@@ -18,10 +18,7 @@ export function RepositoryTab(props: { path: string }) {
   const info = useQuery(appInfoOptions);
   const snapshot = useQuery(() => snapshotOptions(props.path));
   const workspace = createMemo(() => workspaceView(props.path, { data: info.data, error: info.error }, { data: snapshot.data, error: snapshot.error }));
-  onCleanup(() => {
-    app.queryClient.removeQueries({ queryKey: repoKeys.snapshot(props.path) });
-    app.queryClient.removeQueries({ queryKey: repoKeys.graphPages(props.path) });
-  });
+  onCleanup(() => void app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot(props.path), refetchType: "none" }));
   const geometry = createMemo(() => {
     app.settings().density;
     return readGeometry(getComputedStyle(root));

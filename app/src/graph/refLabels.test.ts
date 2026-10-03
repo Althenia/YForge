@@ -27,21 +27,26 @@ describe("groupRefs", () => {
 });
 
 describe("rowLabels", () => {
-  it("shows the first branch, counts the rest, and never folds tags into the overflow", () => {
+  it("shows the checked-out branch and folds every other branch and tag into the overflow", () => {
     const groups = groupRefs(
-      [ref("main", "local_branch"), ref("dev", "local_branch"), ref("hotfix", "local_branch"), ref("v1", "tag"), ref("v2", "tag")],
+      [ref("dev", "local_branch"), ref("main", "local_branch", true), ref("hotfix", "local_branch"), ref("v1", "tag"), ref("v2", "tag")],
       [],
     );
     const labels = rowLabels(groups);
-    expect(labels.branch?.name).toBe("main");
-    expect(labels.moreBranches.map((group) => group.name)).toEqual(["dev", "hotfix"]);
-    expect(labels.tags.map((group) => group.name)).toEqual(["v1", "v2"]);
+    expect(labels.shown?.name).toBe("main");
+    expect(labels.more.map((group) => group.name)).toEqual(["dev", "hotfix", "v1", "v2"]);
   });
 
-  it("has no branch label for a tag-only commit", () => {
-    const labels = rowLabels(groupRefs([ref("v1", "tag")], []));
-    expect(labels.branch).toBeUndefined();
-    expect(labels.tags).toHaveLength(1);
+  it("shows the first branch when none is checked out", () => {
+    const labels = rowLabels(groupRefs([ref("dev", "local_branch"), ref("v1", "tag")], []));
+    expect(labels.shown?.name).toBe("dev");
+    expect(labels.more.map((group) => group.name)).toEqual(["v1"]);
+  });
+
+  it("shows the first tag of a tag-only commit", () => {
+    const labels = rowLabels(groupRefs([ref("v1", "tag"), ref("v2", "tag")], []));
+    expect(labels.shown?.name).toBe("v1");
+    expect(labels.more.map((group) => group.name)).toEqual(["v2"]);
   });
 });
 

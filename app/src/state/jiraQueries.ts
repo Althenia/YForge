@@ -1,3 +1,4 @@
+import { keepPreviousData } from "@tanstack/solid-query";
 import { client } from "../ipc/client";
 import { jiraKeys } from "./queryKeys";
 
@@ -9,9 +10,13 @@ export const jiraIssuesOptions = (id: string) => ({ queryKey: jiraKeys.issues(id
 
 export const issueKeysOptions = (texts: readonly string[], enabled: boolean) => ({
   queryKey: jiraKeys.keys(texts),
-  queryFn: () => client.jiraIssueKeys([...texts]),
+  queryFn: async (): Promise<Array<[string, string[]]>> => {
+    const found = await client.jiraIssueKeys([...texts]);
+    return texts.map((text, index) => [text, found[index] ?? []]);
+  },
   enabled: enabled && texts.length > 0,
   staleTime: FRESH_MS,
+  placeholderData: keepPreviousData,
 });
 
 export const issueLookupOptions = (keys: readonly string[]) => ({
@@ -19,4 +24,5 @@ export const issueLookupOptions = (keys: readonly string[]) => ({
   queryFn: () => client.jiraIssuesLookup([...keys]),
   enabled: keys.length > 0,
   staleTime: FRESH_MS,
+  placeholderData: keepPreviousData,
 });

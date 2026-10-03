@@ -12,9 +12,8 @@ export type LabelGroup = {
 };
 
 export type RowLabels = {
-  branch: LabelGroup | undefined;
-  moreBranches: LabelGroup[];
-  tags: LabelGroup[];
+  shown: LabelGroup | undefined;
+  more: LabelGroup[];
 };
 
 function shortRemoteName(name: string, remotes: readonly string[]): string {
@@ -47,12 +46,9 @@ export function groupRefs(refs: readonly GraphRef[], remotes: readonly string[])
 }
 
 export function rowLabels(groups: readonly LabelGroup[]): RowLabels {
-  const branches = groups.filter((group) => !group.tag);
-  return {
-    branch: branches[0],
-    moreBranches: branches.slice(1),
-    tags: groups.filter((group) => group.tag),
-  };
+  const ordered = [...groups.filter((group) => !group.tag), ...groups.filter((group) => group.tag)];
+  const shown = ordered.find((group) => group.head) ?? ordered[0];
+  return { shown, more: ordered.filter((group) => group !== shown) };
 }
 
 export function refTarget(group: LabelGroup, startPoint: string): RefTarget {

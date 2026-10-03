@@ -1,3 +1,4 @@
+import { keepPreviousData } from "@tanstack/solid-query";
 import { createEffect, createMemo, For, on, onMount, Show } from "solid-js";
 import type { BlameRun } from "../ipc/bindings/BlameRun";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
@@ -113,6 +114,7 @@ function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; re
   const blame = useQuery(() => ({
     queryKey: repoKeys.read(path, "file-blame", props.revision().path, props.revision().sha),
     queryFn: () => client.fileBlame(path, props.revision().path, props.revision().sha),
+    placeholderData: keepPreviousData,
   }));
   const runs = (): BlameRun[] => (blame.error == null ? (blame.data ?? []) : []);
   const rows = createMemo(() => blameRows(runs()));

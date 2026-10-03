@@ -77,6 +77,14 @@ describe("solid surfaces told apart by tone (S14)", () => {
     expect(app).not.toContain(".tree-elbow");
   });
 
+  it("separates the graph column header fields with text-muted lines and expands the ref cell into a stack on hover", () => {
+    const css = read("app.css");
+    const block = (selector: string) => css.slice(css.indexOf(`\n${selector} {`), css.indexOf("}", css.indexOf(`\n${selector} {`)));
+    expect(block(".ghead .gh + .gh")).toContain("var(--colors-text-muted)");
+    expect(block(".refstack")).toContain("display: none");
+    expect(block(".refcell:hover .refstack,\n.refcell:focus-within .refstack")).toContain("display: flex");
+  });
+
   it("fits the settings body to its content, scrolling only when it is taller than the window", () => {
     const css = read("app.css");
     const block = css.slice(css.indexOf("\n.settings-body {"), css.indexOf("}", css.indexOf("\n.settings-body {")));

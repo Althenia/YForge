@@ -734,10 +734,17 @@ p {
 
 .ghead .gh {
   position: relative;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
   padding-left: 10px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.ghead .gh + .gh {
+  border-left: 1px solid var(--colors-text-muted);
 }
 
 .ghead .gh.gear {
@@ -770,7 +777,7 @@ p {
   bottom: 6px;
   left: 50%;
   width: 1px;
-  background: var(--colors-rule-panel);
+  background: transparent;
 }
 
 .gresize:hover::after,
@@ -926,6 +933,31 @@ p {
 
 .label {
   min-width: 0;
+}
+
+.refstack {
+  display: none;
+}
+
+.refcell:hover .refstack,
+.refcell:focus-within .refstack {
+  display: flex;
+  position: absolute;
+  left: 0;
+  top: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--controls-row-graph) - var(--controls-ref-label-height));
+  z-index: 1;
+}
+
+.refstack .label {
+  flex: none;
+}
+
+.grow:has(.refcell:hover),
+.grow:has(.refcell:focus-within) {
+  z-index: 5;
 }
 
 .more {

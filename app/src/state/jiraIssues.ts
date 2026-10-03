@@ -53,10 +53,10 @@ export function createIssueChips(texts: () => readonly string[]) {
   const connections = useQuery(jiraConnectionsOptions);
   const connected = () => (connections.data ?? []).length > 0;
   const found = useQuery(() => issueKeysOptions(texts(), connected()));
-  const keys = createMemo(() => uniqueKeys(found.data ?? []));
+  const byText = createMemo(() => new Map<string, readonly string[]>(connected() ? (found.data ?? []) : []));
+  const keys = createMemo(() => uniqueKeys([...byText().values()]));
   const lookups = useQuery(() => issueLookupOptions(keys()));
   const byKey = createMemo(() => new Map((lookups.data ?? []).map((lookup): [string, JiraIssueLookup] => [lookup.key, lookup])));
-  const byText = createMemo(() => new Map(texts().map((text, index): [string, readonly string[]] => [text, found.data?.[index] ?? []])));
   return {
     keysFor: (text: string): readonly string[] => byText().get(text) ?? [],
     lookup: (key: string): JiraIssueLookup | undefined => byKey().get(key),

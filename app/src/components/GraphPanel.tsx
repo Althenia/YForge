@@ -93,7 +93,7 @@ function RowView(props: {
   chips: IssueChipState;
 }) {
   const labels = createMemo(() => rowLabels(groupRefs(props.row.refs, props.remotes)));
-  const hidden = () => labels().moreBranches;
+  const hidden = () => labels().more;
   const accessibleName = () => {
     const { row } = props;
     const parts = [row.summary || "(no message)"];
@@ -101,7 +101,7 @@ function RowView(props: {
     if (row.time !== null) parts.push(relativeAge(row.time, props.now));
     const names = row.refs.map((ref) => ref.name);
     if (names.length > 0) parts.push(`refs: ${names.join(", ")}`);
-    if (hidden().length > 0) parts.push(`${hidden().length} more ${hidden().length === 1 ? "branch" : "branches"}, press Enter to list`);
+    if (hidden().length > 0) parts.push(`${hidden().length} more ${hidden().length === 1 ? "ref" : "refs"}, press Enter to list`);
     parts.push(kindWord[row.kind]);
     if (row.refs.some((ref) => ref.is_head)) parts.push("checked out");
     return parts.join(", ");
@@ -122,16 +122,17 @@ function RowView(props: {
     >
       <div class="gbg" />
       <div class="lstrip" style={{ left: `${props.messageLeft}px` }} />
-      <Show when={labels().branch !== undefined || labels().tags.length > 0}>
+      <Show when={labels().shown}>
+        {(shown) => (
         <div class="refcell">
-          <Show when={labels().branch}>{(group) => <RefLabel group={group()} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} />}</Show>
+          <RefLabel group={shown()} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} />
           <Show when={hidden().length > 0}>
             <button
               type="button"
               class="more"
               tabindex="-1"
               aria-haspopup="dialog"
-              aria-label={`${hidden().length} more ${hidden().length === 1 ? "branch" : "branches"}: ${hidden().map((group) => group.title).join(", ")}`}
+              aria-label={`${hidden().length} more ${hidden().length === 1 ? "ref" : "refs"}: ${hidden().map((group) => group.title).join(", ")}`}
               onClick={(event) => {
                 event.stopPropagation();
                 props.onOverflow(props.index, anchorBelow(event.currentTarget));
@@ -139,9 +140,12 @@ function RowView(props: {
             >
               +{hidden().length}
             </button>
+            <div class="refstack">
+              <For each={[shown(), ...hidden()]}>{(group) => <RefLabel group={group} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} />}</For>
+            </div>
           </Show>
-          <For each={labels().tags}>{(group) => <RefLabel group={group} sha={props.row.sha} actions={props.actions} />}</For>
         </div>
+        )}
       </Show>
       <div class="msg" style={{ left: `${props.messageLeft + 12}px` }}>
         <span class="sum" title={props.row.summary}>
@@ -435,7 +439,7 @@ export function GraphPanel(props: {
 
   const hiddenGroups = (index: number) => {
     const row = store.rows().get(index);
-    return row === undefined ? [] : rowLabels(groupRefs(row.refs, props.snapshot.remotes)).moreBranches;
+    return row === undefined ? [] : rowLabels(groupRefs(row.refs, props.snapshot.remotes)).more;
   };
 
   const openOverflowAt = (index: number | undefined) => {

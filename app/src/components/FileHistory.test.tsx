@@ -212,6 +212,25 @@ describe("file history views", () => {
   });
 });
 
+describe("file history blame refresh", () => {
+  it("keeps the shown blame while the blame of the newly chosen commit loads (S8)", async () => {
+    let release: ((value: BlameRun[]) => void) | undefined;
+    const { host } = mount({ file: "src/util.js", view: "blame" }, (cmd, args) =>
+      cmd === "file_blame" && args.revision === "b".repeat(40) ? new Promise<BlameRun[]>((resolve) => (release = resolve)) : undefined,
+    );
+    await flush(80);
+    expect(host.querySelectorAll(".blame .fline")).toHaveLength(3);
+
+    press(listbox(host), "ArrowDown");
+    await flush(80);
+
+    expect(host.querySelectorAll(".blame .fline")).toHaveLength(3);
+    release?.(runs.slice(0, 1));
+    await flush(80);
+    expect(host.querySelectorAll(".blame .fline")).toHaveLength(2);
+  });
+});
+
 describe("file history diff", () => {
   it("offers Hunk, Inline, and Split through the shared diff preferences", async () => {
     const { host, prefs } = mount();
