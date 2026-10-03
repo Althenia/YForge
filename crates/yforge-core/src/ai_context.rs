@@ -1,8 +1,11 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
+use crate::commit;
 use crate::error::CoreError;
 use crate::git;
-use crate::model::{ChangeArea, DiffHunk, DiffLineKind, FileChange, FileDiff, FileStatus};
+use crate::model::{ChangeArea, DiffHunk, DiffLineKind, FileChange, FileStatus};
+use crate::undo::head_sha;
 use crate::{diff, repo};
 
 const TOTAL_BUDGET: usize = 60 * 1024;
@@ -16,6 +19,39 @@ pub struct CommitContext {
     pub recent_subjects: Vec<String>,
     pub excluded: Vec<String>,
     pub truncated: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangesContext {
+    pub message: Option<String>,
+    pub diff: String,
+    pub files: Vec<String>,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
+}
+
+struct Rendered {
+    diff: String,
+    excluded: Vec<String>,
+    truncated: Vec<String>,
+}
+
+struct Entry {
+    path: String,
+    original: Option<String>,
+    status: FileStatus,
+    untracked: bool,
+}
+
+impl From<&FileChange> for Entry {
+    fn from(change: &FileChange) -> Self {
+        Self {
+            path: change.path.clone(),
+            original: change.original_path.clone(),
+            status: change.status,
+            untracked: change.area == ChangeArea::Untracked,
+        }
+    }
 }
 
 pub fn is_secret_file(path: &str) -> bool {
@@ -60,10 +96,6 @@ pub fn render_hunk(hunk: &DiffHunk) -> String {
     text
 }
 
-fn render_hunks(diff: &FileDiff) -> String {
-    diff.hunks.iter().map(render_hunk).collect()
-}
-
 pub fn cut_at_line(text: &str, limit: usize) -> (&str, usize) {
     if text.len() <= limit {
         return (text, 0);
@@ -76,17 +108,72 @@ pub fn cut_at_line(text: &str, limit: usize) -> (&str, usize) {
     (&text[..end], text.len() - end)
 }
 
-fn heading(change: &FileChange, note: &str) -> String {
-    let origin = change
-        .original_path
+fn heading(entry: &Entry, note: &str) -> String {
+    let origin = entry
+        .original
         .as_deref()
         .map(|from| format!(" from {from}"))
         .unwrap_or_default();
     format!(
         "=== {} ({}{origin}{note}) ===\n",
-        change.path,
-        status_word(change.status)
+        entry.path,
+        status_word(entry.status)
     )
+}
+
+fn render_entries(
+    entries: &[Entry],
+    mut read: impl FnMut(&Entry) -> Result<(bool, Vec<DiffHunk>), CoreError>,
+) -> Result<Rendered, CoreError> {
+    let mut rendered = Rendered {
+        diff: String::new(),
+        excluded: Vec::new(),
+        truncated: Vec::new(),
+    };
+    for entry in entries {
+        if is_secret_file(&entry.path) {
+            rendered.excluded.push(entry.path.clone());
+            rendered
+                .diff
+                .push_str(&heading(entry, ", content withheld: secret file"));
+            continue;
+        }
+        let (binary, hunks) = read(entry)?;
+        if binary {
+            rendered
+                .diff
+                .push_str(&heading(entry, ", binary: content not shown"));
+            continue;
+        }
+        rendered.diff.push_str(&heading(entry, ""));
+        let body: String = hunks.iter().map(render_hunk).collect();
+        let remaining = TOTAL_BUDGET.saturating_sub(rendered.diff.len());
+        if remaining < MIN_USEFUL_BUDGET {
+            rendered
+                .diff
+                .push_str("[diff omitted: size budget reached]\n");
+            rendered.truncated.push(entry.path.clone());
+            continue;
+        }
+        let (kept, omitted) = cut_at_line(&body, FILE_BUDGET.min(remaining));
+        rendered.diff.push_str(kept);
+        if omitted > 0 {
+            rendered
+                .diff
+                .push_str(&format!("[diff truncated: {omitted} bytes omitted]\n"));
+            rendered.truncated.push(entry.path.clone());
+        }
+    }
+    Ok(rendered)
+}
+
+fn refuse_secret_only(entries: &[Entry], what: &str) -> Result<(), CoreError> {
+    if entries.iter().all(|entry| is_secret_file(&entry.path)) {
+        return Err(CoreError::invalid_request(format!(
+            "every {what} file is withheld from AI as a secret file"
+        )));
+    }
+    Ok(())
 }
 
 fn recent_subjects(root: &Path) -> Vec<String> {
@@ -107,61 +194,128 @@ fn recent_subjects(root: &Path) -> Vec<String> {
 
 pub fn commit_context(path: &Path) -> Result<CommitContext, CoreError> {
     let root = repo::open(path)?;
-    let staged: Vec<FileChange> = repo::read_status(&root)?
+    let staged: Vec<Entry> = repo::read_status(&root)?
         .files
-        .into_iter()
+        .iter()
         .filter(|change| change.area == ChangeArea::Staged)
+        .map(Entry::from)
         .collect();
     if staged.is_empty() {
         return Err(CoreError::invalid_request("nothing is staged to describe"));
     }
-    if staged.iter().all(|change| is_secret_file(&change.path)) {
+    refuse_secret_only(&staged, "staged")?;
+    let rendered = render_entries(&staged, |entry| {
+        let file_diff = diff::diff_file_unbounded(&root, &entry.path, ChangeArea::Staged, false)?;
+        Ok((file_diff.binary, file_diff.hunks))
+    })?;
+    Ok(CommitContext {
+        diff: rendered.diff,
+        recent_subjects: recent_subjects(&root),
+        excluded: rendered.excluded,
+        truncated: rendered.truncated,
+    })
+}
+
+fn area_rank(area: ChangeArea) -> u8 {
+    match area {
+        ChangeArea::Staged => 0,
+        ChangeArea::Conflicted => 1,
+        ChangeArea::Unstaged => 2,
+        ChangeArea::Untracked => 3,
+    }
+}
+
+fn working_entries(root: &Path) -> Result<Vec<Entry>, CoreError> {
+    let mut chosen: BTreeMap<String, FileChange> = BTreeMap::new();
+    for change in repo::read_status(root)?.files {
+        let keep = chosen
+            .get(&change.path)
+            .is_none_or(|kept| area_rank(change.area) < area_rank(kept.area));
+        if keep {
+            chosen.insert(change.path.clone(), change);
+        }
+    }
+    Ok(chosen.values().map(Entry::from).collect())
+}
+
+/// Everything uncommitted in the working tree (staged, unstaged, and untracked) as one
+/// diff per file against HEAD, with secret files withheld and large diffs cut.
+pub fn working_changes_context(path: &Path) -> Result<ChangesContext, CoreError> {
+    let root = repo::open(path)?;
+    let entries = working_entries(&root)?;
+    if entries.is_empty() {
         return Err(CoreError::invalid_request(
-            "every staged file is withheld from AI as a secret file",
+            "there are no uncommitted changes",
         ));
     }
-    let mut context = CommitContext {
-        diff: String::new(),
-        recent_subjects: recent_subjects(&root),
-        excluded: Vec::new(),
-        truncated: Vec::new(),
+    refuse_secret_only(&entries, "changed")?;
+    let base = match head_sha(&root)? {
+        Some(head) => head,
+        None => commit::empty_tree(&root)?,
     };
-    for change in &staged {
-        if is_secret_file(&change.path) {
-            context.excluded.push(change.path.clone());
-            context
-                .diff
-                .push_str(&heading(change, ", content withheld: secret file"));
-            continue;
-        }
-        let file_diff = diff::diff_file_unbounded(&root, &change.path, ChangeArea::Staged, false)?;
-        if file_diff.binary {
-            context
-                .diff
-                .push_str(&heading(change, ", binary: content not shown"));
-            continue;
-        }
-        context.diff.push_str(&heading(change, ""));
-        let body = render_hunks(&file_diff);
-        let remaining = TOTAL_BUDGET.saturating_sub(context.diff.len());
-        let limit = FILE_BUDGET.min(remaining);
-        if remaining < MIN_USEFUL_BUDGET {
-            context
-                .diff
-                .push_str("[diff omitted: size budget reached]\n");
-            context.truncated.push(change.path.clone());
-            continue;
-        }
-        let (kept, omitted) = cut_at_line(&body, limit);
-        context.diff.push_str(kept);
-        if omitted > 0 {
-            context
-                .diff
-                .push_str(&format!("[diff truncated: {omitted} bytes omitted]\n"));
-            context.truncated.push(change.path.clone());
-        }
+    let rendered = render_entries(&entries, |entry| {
+        let parsed = if entry.untracked {
+            diff::read_file_diff(&root, &entry.path, ChangeArea::Untracked, false, false)?.0
+        } else {
+            diff::read_worktree_diff(&root, &base, &entry.path, entry.original.as_deref())?
+        };
+        Ok((parsed.binary, parsed.hunks))
+    })?;
+    Ok(ChangesContext {
+        message: None,
+        diff: rendered.diff,
+        files: entries.into_iter().map(|entry| entry.path).collect(),
+        excluded: rendered.excluded,
+        truncated: rendered.truncated,
+    })
+}
+
+/// The message of commit `sha` and its diff against its first parent, one file at a time,
+/// with secret files withheld and large diffs cut.
+pub fn commit_changes_context(path: &Path, sha: &str) -> Result<ChangesContext, CoreError> {
+    let root = repo::open(path)?;
+    let details = commit::commit_details(&root, sha)?;
+    let entries: Vec<Entry> = details
+        .files
+        .iter()
+        .map(|file| Entry {
+            path: file.path.clone(),
+            original: file.original_path.clone(),
+            status: file.status,
+            untracked: false,
+        })
+        .collect();
+    if entries.is_empty() {
+        return Err(CoreError::invalid_request("this commit changes no files"));
     }
-    Ok(context)
+    refuse_secret_only(&entries, "changed")?;
+    let base = match details.parents.first() {
+        Some(parent) => parent.clone(),
+        None => commit::empty_tree(&root)?,
+    };
+    let rendered = render_entries(&entries, |entry| {
+        let parsed = diff::read_commit_diff(
+            &root,
+            &base,
+            &details.sha,
+            &entry.path,
+            entry.original.as_deref(),
+            false,
+        )?;
+        Ok((parsed.binary, parsed.hunks))
+    })?;
+    let message = if details.body.is_empty() {
+        details.summary.clone()
+    } else {
+        format!("{}\n\n{}", details.summary, details.body)
+    };
+    Ok(ChangesContext {
+        message: Some(message),
+        diff: rendered.diff,
+        files: entries.into_iter().map(|entry| entry.path).collect(),
+        excluded: rendered.excluded,
+        truncated: rendered.truncated,
+    })
 }
 
 #[cfg(test)]

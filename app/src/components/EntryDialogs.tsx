@@ -6,7 +6,7 @@ import { client, IpcError } from "../ipc/client";
 import { useApp, type AppState } from "../state/app";
 import { withParentFolder } from "../state/appUiPrefs";
 import { CREDENTIAL_HELPER_TEXT, identityLine } from "../state/gitHostsModel";
-import { cloneDestination, cloneUrlProblem, createDestination, createNameProblem } from "../state/launcher";
+import { cloneDestination, cloneUrlProblem, createDestination, createNameProblem } from "../state/entryForms";
 import { announceOperation } from "../state/operationLabels";
 import { appKeys, gitHostKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";

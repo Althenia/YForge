@@ -116,9 +116,13 @@ pnpm tauri build
 The build bundles the `app` and `dmg` targets for the host architecture. On an Apple-silicon Mac it produced:
 
 - `target/release/bundle/macos/YForge.app`
-- `target/release/bundle/dmg/YForge_0.1.1_aarch64.dmg`
+- `target/release/bundle/dmg/YForge_0.2.0_aarch64.dmg`
 
-The bundle is unsigned and not notarized: no signing identity is configured, so the binary carries only the linker's ad-hoc signature. A build made on your own Mac launches directly. A copy that macOS has quarantined (for example, a downloaded DMG) may be blocked by Gatekeeper. Allow it in System Settings > Privacy & Security, or clear the quarantine flag:
+The bundle is unsigned and not notarized: no signing identity is configured, so the binary carries only the linker's ad-hoc signature. A build made on your own Mac launches directly. macOS ties Keychain access to the signature, so each ad-hoc build asks again for the stored AI keys, platform tokens, and SSH passphrases. To keep "Always Allow" across builds, sign local builds with a stable code-signing identity from your login keychain:
+
+```bash
+APPLE_SIGNING_IDENTITY="YForge Local Signing" pnpm tauri build
+``` A copy that macOS has quarantined (for example, a downloaded DMG) may be blocked by Gatekeeper. Allow it in System Settings > Privacy & Security, or clear the quarantine flag:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/YForge.app
@@ -128,12 +132,12 @@ To try the built app against a repository without touching your real settings:
 
 ```bash
 YFORGE_REPO=<repository path> YFORGE_DATA_DIR=<scratch directory> \
-  target/release/bundle/macos/YForge.app/Contents/MacOS/yforge
+  target/release/bundle/macos/YForge.app/Contents/MacOS/YForge
 ```
 
 <a id="development-notes"></a>
 ## Development Notes
-- `cargo build` or `cargo test` produces `target/debug/yforge`, which loads the dev URL and shows a blank window unless `pnpm dev` is running. Use `pnpm tauri build` for a self-contained app.
+- `cargo build` or `cargo test` produces `target/debug/YForge`, which loads the dev URL and shows a blank window unless `pnpm dev` is running. Use `pnpm tauri build` for a self-contained app.
 - After changing a type in `crates/yforge-core/src/model.rs` or `error.rs`, run `pnpm bindings` in `app/` to regenerate the TypeScript bindings.
 - Change a design rule in `DESIGN.md` or `app/DESIGN.md` before the work that depends on it; see `AGENTS.md`.
 - OpenAI and OpenRouter marks in `brand/third-party/` are trademarks of their owners, used unmodified to identify their providers under the terms recorded in `brand/third-party/SOURCE.md`; YForge claims no endorsement. Claude Code is named in plain text only.

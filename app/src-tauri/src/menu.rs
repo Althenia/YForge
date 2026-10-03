@@ -128,10 +128,32 @@ const VIEW: &[Entry] = &[
     Entry::Menu("Density", DENSITY),
     item("head.reveal", "Reveal HEAD", Some("revealHead")),
     Entry::Separator,
+    item("zoom.in", "Zoom In", Some("zoomIn")),
+    item("zoom.out", "Zoom Out", Some("zoomOut")),
+    item("zoom.reset", "Actual Size", Some("zoomReset")),
+    Entry::Separator,
+    item("view.sidebar", "Toggle Sidebar", Some("toggleSidebar")),
+    item(
+        "view.inspector",
+        "Toggle Inspector",
+        Some("toggleInspector"),
+    ),
+    Entry::Separator,
     Entry::Native(Native::FullScreen),
 ];
 
 const REPOSITORY: &[Entry] = &[
+    item(
+        "repository.search",
+        "Open Repository Search",
+        Some("openRepoSearch"),
+    ),
+    item(
+        "open.editor",
+        "Open in External Editor",
+        Some("openInEditor"),
+    ),
+    Entry::Separator,
     item("sync.fetch", "Fetch", Some("fetch")),
     item("sync.pull", "Pull", Some("pull")),
     item("sync.push", "Push", Some("push")),
@@ -140,6 +162,7 @@ const REPOSITORY: &[Entry] = &[
     item("stash.push", "Stash…", Some("stash")),
     Entry::Separator,
     item("undo", "Undo Last Action", None),
+    item("redo", "Redo Last Action", None),
 ];
 
 const WINDOW: &[Entry] = &[
@@ -168,7 +191,7 @@ const MENUS: &[(&str, &[Entry])] = &[
     ("Help", HELP),
 ];
 
-pub fn registry_shortcut(key: &str) -> Option<&'static str> {
+pub fn registry_shortcut(key: &str) -> Option<String> {
     SHORTCUT_REGISTRY.lines().find_map(|line| {
         let (name, value) = line.trim().split_once(':')?;
         if name != key {
@@ -179,6 +202,7 @@ pub fn registry_shortcut(key: &str) -> Option<&'static str> {
             .trim_end_matches(',')
             .strip_prefix('"')?
             .strip_suffix('"')
+            .map(|glyphs| glyphs.replace("\\\\", "\\"))
     })
 }
 
@@ -190,7 +214,7 @@ pub fn accelerator(glyphs: &str) -> Option<String> {
             parts.push(match glyph {
                 '↵' => "Enter".to_owned(),
                 '⇥' => "Tab".to_owned(),
-                other if other.is_ascii_alphanumeric() || other == ',' => {
+                other if other.is_ascii_alphanumeric() || ",=-\\".contains(other) => {
                     other.to_ascii_uppercase().to_string()
                 }
                 _ => return None,
@@ -215,7 +239,7 @@ fn shortcut_of(key: Option<&str>) -> tauri::Result<Option<String>> {
     match key {
         None => Ok(None),
         Some(key) => registry_shortcut(key)
-            .and_then(accelerator)
+            .and_then(|glyphs| accelerator(&glyphs))
             .map(Some)
             .ok_or_else(|| {
                 tauri::Error::from(std::io::Error::other(format!(
@@ -407,9 +431,10 @@ mod tests {
 
     #[test]
     fn the_shortcut_registry_is_read_from_the_frontend_source() {
-        assert_eq!(registry_shortcut("reopenClosedTab"), Some("⌘⇧T"));
-        assert_eq!(registry_shortcut("nextTab"), Some("⌃⇥"));
-        assert_eq!(registry_shortcut("settings"), Some("⌘,"));
+        assert_eq!(registry_shortcut("reopenClosedTab").as_deref(), Some("⌘⇧T"));
+        assert_eq!(registry_shortcut("nextTab").as_deref(), Some("⌃⇥"));
+        assert_eq!(registry_shortcut("settings").as_deref(), Some("⌘,"));
+        assert_eq!(registry_shortcut("toggleSidebar").as_deref(), Some("⌘\\"));
         assert_eq!(registry_shortcut("nothing"), None);
     }
 
@@ -419,6 +444,10 @@ mod tests {
         assert_eq!(accelerator("⌃⇧⇥").as_deref(), Some("Ctrl+Shift+Tab"));
         assert_eq!(accelerator("⌘,").as_deref(), Some("CmdOrCtrl+,"));
         assert_eq!(accelerator("⌘↵").as_deref(), Some("CmdOrCtrl+Enter"));
+        assert_eq!(accelerator("⌘=").as_deref(), Some("CmdOrCtrl+="));
+        assert_eq!(accelerator("⌘-").as_deref(), Some("CmdOrCtrl+-"));
+        assert_eq!(accelerator("⌘0").as_deref(), Some("CmdOrCtrl+0"));
+        assert_eq!(accelerator("⌥⌘\\").as_deref(), Some("Alt+CmdOrCtrl+\\"));
         assert_eq!(accelerator("⌘?"), None);
     }
 
@@ -427,7 +456,7 @@ mod tests {
         for key in shortcut_keys() {
             let glyphs =
                 registry_shortcut(key).unwrap_or_else(|| panic!("{key} is not registered"));
-            assert!(accelerator(glyphs).is_some(), "{key} = {glyphs}");
+            assert!(accelerator(&glyphs).is_some(), "{key} = {glyphs}");
         }
     }
 
@@ -494,6 +523,15 @@ mod tests {
             ("stash.push", Some("stash")),
             ("tab.next", Some("nextTab")),
             ("tab.previous", Some("previousTab")),
+            ("zoom.in", Some("zoomIn")),
+            ("zoom.out", Some("zoomOut")),
+            ("zoom.reset", Some("zoomReset")),
+            ("view.sidebar", Some("toggleSidebar")),
+            ("view.inspector", Some("toggleInspector")),
+            ("repository.search", Some("openRepoSearch")),
+            ("open.editor", Some("openInEditor")),
+            ("undo", None),
+            ("redo", None),
         ] {
             assert!(with_shortcut.contains(&(id, shortcut)), "{id}");
         }

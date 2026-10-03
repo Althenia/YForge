@@ -24,7 +24,7 @@ function cursorViolations(name: string, raw: string): string[] {
     const value = (match[1] ?? "").trim().replace(/,$/, "").replace(/^(["'`])(.*)\1$/, "$2");
     if (!allowedValues.has(value)) problems.push(`${name}:${lineOf(text, match.index)} cursor is "${value}", not a var(--cursors-*) token`);
   }
-  for (const match of text.matchAll(/["']cursor["']/g)) problems.push(`${name}:${lineOf(text, match.index)} sets cursor through a string key`);
+  for (const match of text.matchAll(/\(\s*["']cursor["'](?=\s*,)|\[\s*["']cursor["'](?=\s*\])|["']cursor["'](?=\s*:)/g)) problems.push(`${name}:${lineOf(text, match.index)} sets cursor through a string key`);
   return problems;
 }
 
@@ -91,6 +91,11 @@ describe("cursor violation detection", () => {
       'x.tsx:2 cursor is "grab", not a var(--cursors-*) token',
       "x.tsx:3 sets cursor through a string key",
     ]);
+  });
+
+  it("flags every string-keyed cursor but not the word cursor used as a value", () => {
+    const tsx = 'el.style["cursor"] = x;\nconst s = { "cursor": x };\nconst editor = { id: "cursor", label: "Cursor" };\nchoose("cursor");';
+    expect(cursorViolations("x.tsx", tsx)).toEqual(["x.tsx:1 sets cursor through a string key", "x.tsx:2 sets cursor through a string key"]);
   });
 
   it("accepts every token reference and ignores comments", () => {

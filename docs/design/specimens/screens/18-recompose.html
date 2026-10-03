@@ -78,7 +78,7 @@ const view = `<section class="panel rpanel recompose" aria-label="Recompose">
   </div>
   <div class="rfoot"><span class="btn primary disabled" style="opacity:.55">${G("recompose")}Recompose 2 commits</span><span class="btn">Cancel</span><span class="reason">Changes not assigned to any commit: notes/todo.md</span></div>
 </section>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${view}<aside class="panel inspector" aria-label="Recompose"><div class="ihead"><h2>${G("recompose")}Recompose</h2><p>3 commits become 2</p></div><div class="ilist"><div class="empty">Every change belongs to exactly one commit. Apply is undoable to the recorded HEAD.</div></div></aside></div>${YF.activity({ command: "git reset --mixed origin/feature/greeting", duration: "—", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${view}<aside class="panel inspector" aria-label="Recompose"><div class="ihead"><h2>${G("recompose")}Recompose</h2><p>3 commits become 2</p></div><div class="ilist"><div class="empty">Every change belongs to exactly one commit. Apply is undoable to the recorded HEAD.</div></div></aside></div>${YF.activity({ command: "git reset --mixed origin/feature/greeting", duration: "—", action: "" })}</div>`);
 YF.boot("screen 18 · recompose");
 </script>
 </body>

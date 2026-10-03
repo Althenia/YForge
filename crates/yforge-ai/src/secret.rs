@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use thiserror::Error;
 
@@ -44,6 +44,51 @@ impl SecretStore for KeychainStore {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(SecretError(error.to_string())),
         }
+    }
+}
+
+pub struct CachedStore {
+    inner: Arc<dyn SecretStore>,
+    known: Mutex<HashMap<String, Option<String>>>,
+}
+
+impl CachedStore {
+    pub fn new(inner: Arc<dyn SecretStore>) -> Self {
+        Self {
+            inner,
+            known: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn remember(&self, account: &str, secret: Option<String>) {
+        self.known
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(account.to_owned(), secret);
+    }
+}
+
+impl SecretStore for CachedStore {
+    fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
+        let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(secret) = known.get(account) {
+            return Ok(secret.clone());
+        }
+        let secret = self.inner.get(account)?;
+        known.insert(account.to_owned(), secret.clone());
+        Ok(secret)
+    }
+
+    fn set(&self, account: &str, secret: &str) -> Result<(), SecretError> {
+        self.inner.set(account, secret)?;
+        self.remember(account, Some(secret.to_owned()));
+        Ok(())
+    }
+
+    fn delete(&self, account: &str) -> Result<(), SecretError> {
+        self.inner.delete(account)?;
+        self.remember(account, None);
+        Ok(())
     }
 }
 

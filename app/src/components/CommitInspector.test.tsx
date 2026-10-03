@@ -1,10 +1,15 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { Show } from "solid-js";
+import { createRoot, Show } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AiFeature } from "../ipc/bindings/AiFeature";
+import { AiSheetContext, createAiSheet } from "../state/aiSheet";
+import type { DiffTarget } from "../state/diffModel";
 import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { takeFileHistoryRequest } from "../state/fileHistoryRequest";
 import { createRepoActions } from "../state/repoActions";
+import { AiSheet } from "./AiSheet";
 import { BranchNameForm } from "./BranchForms";
 import { CommitInspector } from "./CommitInspector";
 import { ContextMenu } from "./ContextMenu";
@@ -13,6 +18,7 @@ import { buttonNamed, flush, mountWithApp, stubLayout, testSession, type } from 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -25,6 +31,8 @@ beforeEach(() => {
   );
   restoreLayout = stubLayout();
   calls = [];
+  toolsStatus = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
+  takeFileHistoryRequest();
 });
 
 afterEach(async () => {
@@ -45,11 +53,17 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string } } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown } = {}) {
   const selected: string[] = [];
+  const opened: DiffTarget[] = [];
   const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+    if (cmd === "external_tools_status") return toolsStatus;
+    if (cmd === "app_ui_prefs_load") return { palette_recents: [], last_parent_folder: null, file_list_mode: "path" };
+    if (cmd === "ai_feature_config_list") return (options.ai ?? []).map((feature) => ({ feature, config: { feature, provider_id: "p1", model_id: "m", prompt_template: "{context}" }, enabled: true, available: true, default_prompt_template: "{context}" }));
+    if (cmd === "ai_explain_commit") return options.explain ?? { items: [], excluded: [], truncated: [] };
+    if (cmd === "commit_tree_paths") return options.tree ?? [];
     if (cmd === "jira_connections_list") return options.jira === undefined ? [] : [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
     if (cmd === "jira_branch_name") return `${(args as { key: string }).key}-show-the-account-switcher`;
     if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
@@ -67,19 +81,21 @@ function mount(sha: string, options: { pushed?: boolean; operation?: boolean; fi
   const current = options.operation === true ? ({ ...snapshot, operation: "rebase" } as unknown as RepoSnapshot) : snapshot;
   const session = testSession("/r", current);
   const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+  const sheet = createRoot(() => createAiSheet(session));
   const mounted = mountWithApp(() => (
-    <>
-      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={() => undefined} onViewFile={(view) => viewed.push(view)} />
+    <AiSheetContext.Provider value={sheet}>
+      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
       <Show when={actions.menu()} keyed>
         {(menu) => <ContextMenu menu={menu} onClose={actions.closeMenu} />}
       </Show>
       <Show when={actions.popover()} keyed>
         {(state) => (state.kind === "create_branch" ? <BranchNameForm state={state} session={session} actions={actions} /> : null)}
       </Show>
-    </>
+      <AiSheet sheet={sheet} onOpenAiSettings={() => undefined} />
+    </AiSheetContext.Provider>
   ));
   dispose = mounted.dispose;
-  return { ...mounted, selected, viewed, actions };
+  return { ...mounted, selected, viewed, opened, actions };
 }
 
 const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-label="Edit message"]');
@@ -339,5 +355,154 @@ describe("create branch from an issue", () => {
     await flush(80);
 
     expect(calls.find((call) => call.cmd === "create_branch")?.args).toEqual({ path: "/r", name: "ABC-155-switcher", at: null, checkout: true });
+  });
+});
+
+describe("commit files", () => {
+  const files: CommitDetails["files"] = [
+    { path: "src/ui/button.ts", original_path: null, status: "modified", additions: 2, deletions: 1 },
+    { path: "README.md", original_path: null, status: "modified", additions: 1, deletions: 0 },
+    { path: "src/app.ts", original_path: null, status: "added", additions: 5, deletions: 0 },
+  ];
+  const named = (host: ParentNode, name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
+
+  it("opens the file history at the commit from the History icon on a file row", async () => {
+    const { host } = mount(OLDER, { files });
+    await flush(80);
+
+    const history = named(host, "History of src/app.ts");
+    expect(history?.textContent?.trim()).toBe("");
+    expect(history?.dataset.tip).toBe("History");
+    history?.click();
+
+    expect(takeFileHistoryRequest()).toEqual({ file: "src/app.ts", sha: OLDER });
+  });
+
+  it("switches the files between paths and a folder tree that toggles with the keyboard", async () => {
+    const { host } = mount(OLDER, { files });
+    await flush(80);
+
+    const view = host.querySelector('section[aria-label="Files"] [role="group"][aria-label="File list view"]');
+    expect([...(view?.querySelectorAll("button") ?? [])].map((button) => button.getAttribute("aria-label"))).toEqual(["Path view", "Tree view"]);
+    named(host, "Tree view")?.click();
+    await flush();
+
+    const tree = host.querySelector('section[aria-label="Files"] [role="tree"]');
+    const rows = () => [...(tree?.querySelectorAll<HTMLElement>('[role="treeitem"]') ?? [])].map((row) => [row.querySelector(".file")?.textContent, row.getAttribute("aria-level")]);
+    expect(rows()).toEqual([
+      ["src", "1"],
+      ["ui", "2"],
+      ["button.ts", "3"],
+      ["app.ts", "2"],
+      ["README.md", "1"],
+    ]);
+    tree?.querySelector('[role="treeitem"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await flush();
+    expect(rows()).toEqual([
+      ["src", "1"],
+      ["README.md", "1"],
+    ]);
+    named(host, "Expand all folders")?.click();
+    await flush();
+    expect(rows()).toHaveLength(5);
+    expect(named(host, "Stage folder src")).toBeNull();
+  });
+
+  it("lists the files the commit did not change with View all files, marked unchanged and not openable", async () => {
+    const { host, opened } = mount(OLDER, { files, tree: ["README.md", "src/app.ts", "src/ui/button.ts", "src/util.ts"] });
+    await flush(80);
+
+    const viewAll = host.querySelector<HTMLButtonElement>('section[aria-label="Files"] button.chip-toggle[role="checkbox"]');
+    expect(viewAll?.textContent?.trim()).toBe("View all files");
+    expect(viewAll?.getAttribute("aria-checked")).toBe("false");
+    expect(calls.some((call) => call.cmd === "commit_tree_paths")).toBe(false);
+    viewAll?.click();
+    await flush(80);
+
+    expect(viewAll?.getAttribute("aria-checked")).toBe("true");
+    expect(calls.find((call) => call.cmd === "commit_tree_paths")?.args).toEqual({ path: "/r", sha: OLDER });
+    const rows = [...host.querySelectorAll<HTMLElement>('section[aria-label="Files"] .frow')];
+    expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual(["Modified README.md", "Added src/app.ts", "Modified src/ui/button.ts", "Unchanged src/util.ts"]);
+    const unchanged = rows[3] as HTMLElement;
+    expect(unchanged.textContent).toContain("unchanged");
+    expect(unchanged.classList.contains("openable")).toBe(false);
+    unchanged.click();
+    unchanged.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    expect(opened).toEqual([]);
+    expect(named(host, "History of src/util.ts")).toBeNull();
+
+    viewAll?.click();
+    await flush();
+    expect(host.querySelectorAll('section[aria-label="Files"] .frow')).toHaveLength(3);
+  });
+});
+
+describe("explain commit with AI (S53)", () => {
+  const EXPLAIN = "Explain this commit";
+  const explain = (host: HTMLElement) => host.querySelector<HTMLButtonElement>(`.ihead button[aria-label="${EXPLAIN}"]`);
+
+  it("puts an icon-only wand in the commit header that explains the selected commit in a sheet", async () => {
+    const { host } = mount(OLDER, { ai: ["explain_commit"], explain: { items: [{ path: "src/a.ts", text: "Tunes the retries." }], excluded: [], truncated: ["big.sql"] } });
+    await flush(60);
+
+    const button = explain(host);
+    expect(button?.textContent?.trim()).toBe("");
+    expect(button?.querySelector("svg")).not.toBeNull();
+    expect(button?.dataset.tip).toBe(EXPLAIN);
+    button?.click();
+    await flush(60);
+
+    const sheet = host.querySelector(".ai-sheet");
+    expect(sheet?.getAttribute("aria-label")).toBe(`Explain commit ${OLDER.slice(0, 7)}`);
+    expect(sheet?.querySelector(".ai-items .ref")?.textContent).toBe("src/a.ts");
+    expect(sheet?.querySelector(".ai-text")?.textContent).toBe("Tunes the retries.");
+    expect(sheet?.querySelector(".draft-notes")?.textContent).toContain("Cut to fit the size limit: big.sql");
+    expect(calls.find((call) => call.cmd === "ai_explain_commit")?.args).toMatchObject({ path: "/r", sha: OLDER });
+  });
+
+  it("is shown for the HEAD commit beside Edit message, and hidden while the feature is off", async () => {
+    const on = mount(HEAD, { ai: ["explain_commit"] });
+    await flush(60);
+    expect(explain(on.host)).not.toBeNull();
+    expect(editButton(on.host)).not.toBeNull();
+    on.dispose();
+    document.body.innerHTML = "";
+
+    const off = mount(HEAD, { ai: ["explain_changes"] });
+    await flush(60);
+    expect(explain(off.host)).toBeNull();
+  });
+});
+
+describe("open in editor (S54)", () => {
+  const files = [
+    { path: "src/a.ts", original_path: null, status: "modified", additions: 1, deletions: 1 },
+    { path: "src/gone.ts", original_path: null, status: "deleted", additions: 0, deletions: 4 },
+  ] as CommitDetails["files"];
+
+  it("offers Open in editor on every file row of a commit and opens the file", async () => {
+    const { host } = mount(OLDER, { files });
+    await flush(60);
+
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Open src/a.ts in editor"]');
+    expect(button?.getAttribute("aria-disabled")).toBeNull();
+    expect(host.querySelector('button[aria-label="Open src/gone.ts in editor"]')).not.toBeNull();
+    button?.click();
+    await flush();
+
+    expect(calls.find((call) => call.cmd === "open_in_editor")?.args).toEqual({ path: "/r", file: "src/a.ts" });
+  });
+
+  it("keeps Open in editor visible but aria-disabled with its reason when no editor is chosen", async () => {
+    toolsStatus = { editor: null, diff: null, merge: null };
+    const { host } = mount(OLDER, { files });
+    await flush(60);
+
+    const button = host.querySelector<HTMLButtonElement>('button[aria-label="Open src/a.ts in editor"]');
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    expect(button?.dataset.tip).toBe("Open in editor. Choose an external editor in Settings → External tools");
+    button?.click();
+    await flush();
+    expect(calls.some((call) => call.cmd === "open_in_editor")).toBe(false);
   });
 });

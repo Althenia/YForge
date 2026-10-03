@@ -23,6 +23,14 @@ export const MENU_ACTIONS: Readonly<Record<string, Kind>> = {
   "branch.create": "command",
   "stash.push": "command",
   undo: "command",
+  redo: "command",
+  "zoom.in": "command",
+  "zoom.out": "command",
+  "zoom.reset": "command",
+  "view.sidebar": "command",
+  "view.inspector": "command",
+  "repository.search": "command",
+  "open.editor": "command",
   "edit.undo": "special",
   "edit.redo": "special",
   "palette.open": "special",
@@ -39,8 +47,10 @@ export const MENU_ACTIONS: Readonly<Record<string, Kind>> = {
 
 const PROJECT = "https://github.com/Althenia/YForge";
 
+export const RELEASE_NOTES_URL = `${PROJECT}/releases`;
+
 const PAGES: Readonly<Record<string, string>> = {
-  "app.release_notes": `${PROJECT}/releases`,
+  "app.release_notes": RELEASE_NOTES_URL,
   "help.docs": `${PROJECT}#readme`,
   "help.report_issue": `${PROJECT}/issues/new`,
 };
@@ -50,6 +60,7 @@ export type MenuDeps = {
   settings: () => AppSettings;
   saveSettings: (next: AppSettings) => Promise<unknown>;
   openPalette: () => void;
+  openShortcuts: () => void;
   openUrl: (url: string) => void;
   editableFocused: () => boolean;
   editCommand: (name: "undo" | "redo") => void;
@@ -73,8 +84,9 @@ export function runMenuAction(id: string, deps: MenuDeps): void {
   const page = PAGES[id];
   if (page !== undefined) return deps.openUrl(page);
   if (id === "edit.undo") return deps.editableFocused() ? deps.editCommand("undo") : runCommand(deps, "undo");
-  if (id === "edit.redo") return deps.editableFocused() ? deps.editCommand("redo") : undefined;
-  if (id === "palette.open" || id === "help.shortcuts") return deps.openPalette();
+  if (id === "edit.redo") return deps.editableFocused() ? deps.editCommand("redo") : runCommand(deps, "redo");
+  if (id === "help.shortcuts") return deps.openShortcuts();
+  if (id === "palette.open") return deps.openPalette();
   if (id.startsWith("theme.")) return void deps.saveSettings({ ...deps.settings(), theme: id.slice("theme.".length) as AppSettings["theme"] });
   if (id.startsWith("density.")) void deps.saveSettings({ ...deps.settings(), density: id.slice("density.".length) as AppSettings["density"] });
 }
@@ -86,7 +98,7 @@ export function menuEnabled(commands: readonly PaletteCommand[], editableFocused
     else state[id] = true;
   }
   state["edit.undo"] = editableFocused || state.undo === true;
-  state["edit.redo"] = editableFocused;
+  state["edit.redo"] = editableFocused || state.redo === true;
   return state;
 }
 

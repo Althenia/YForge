@@ -86,9 +86,15 @@ pub enum CoreError {
     InvalidRequest {
         detail: String,
     },
+    InvalidChoice {
+        detail: String,
+    },
     StaleHunk {
         file: String,
         detail: String,
+    },
+    HunkChangedAgain {
+        short: String,
     },
     CommitFailed {
         status: Option<i32>,
@@ -194,8 +200,8 @@ impl CoreError {
             Self::GitTooOld { .. } => ErrorKind::GitTooOld,
             Self::GitFailed { .. } => ErrorKind::GitFailed,
             Self::InvalidGitOutput { .. } => ErrorKind::InvalidGitOutput,
-            Self::InvalidRequest { .. } => ErrorKind::InvalidRequest,
-            Self::StaleHunk { .. } => ErrorKind::StaleHunk,
+            Self::InvalidRequest { .. } | Self::InvalidChoice { .. } => ErrorKind::InvalidRequest,
+            Self::StaleHunk { .. } | Self::HunkChangedAgain { .. } => ErrorKind::StaleHunk,
             Self::CommitFailed { .. } => ErrorKind::CommitFailed,
             Self::WatchFailed { .. } => ErrorKind::WatchFailed,
             Self::StorageFailed { .. } => ErrorKind::StorageFailed,
@@ -266,9 +272,14 @@ impl fmt::Display for CoreError {
                 write!(f, "Unexpected output from `{command}`: {detail}")
             }
             Self::InvalidRequest { detail } => write!(f, "Invalid request: {detail}"),
+            Self::InvalidChoice { detail } => write!(f, "{detail}"),
             Self::StaleHunk { file, detail } => write!(
                 f,
                 "The changes in {file} no longer match the selected hunk: {detail}"
+            ),
+            Self::HunkChangedAgain { short } => write!(
+                f,
+                "This hunk changed again after {short}, so it cannot be reverted. Nothing was changed."
             ),
             Self::CommitFailed { status, .. } => match status {
                 Some(code) => write!(f, "`git commit` exited with status {code}"),

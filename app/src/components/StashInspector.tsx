@@ -4,16 +4,20 @@ import { createSignal, Show } from "solid-js";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashFile } from "../ipc/bindings/StashFile";
 import { client, IpcError } from "../ipc/client";
+import { createExternalTools } from "../state/externalTools";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import { stashFileViewTarget, type FileViewTarget } from "../state/fileView";
+import { createFolderState, useFileListMode } from "../state/fileList";
+import { listRows, type ListRow } from "../state/fileTree";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import { bareStashMessage } from "../state/stashName";
 import { Delta } from "./CommitInspector";
-import { FileRow } from "./FileRow";
+import { FileListTools, FileRow, FolderRow, listAttrs } from "./FileRow";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
+import { ToolButton } from "./ToolButton";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 export function StashInspector(props: {
@@ -25,6 +29,7 @@ export function StashInspector(props: {
   onViewFile: (target: FileViewTarget) => void;
 }) {
   const path = props.session.path;
+  const tools = createExternalTools(props.session);
   const details = useQuery(() => ({
     queryKey: repoKeys.stash(path, props.stash.sha),
     queryFn: () => client.stashDetails(path, props.stash.index, props.stash.sha),
@@ -37,9 +42,13 @@ export function StashInspector(props: {
   const files = (): StashFile[] => shown()?.files ?? [];
   const untrackedCount = () => files().filter((file) => file.untracked).length;
   const target = (file: StashFile): DiffTarget => ({ source: "stash", index: props.stash.index, sha: props.stash.sha, file: file.path });
+  const folders = createFolderState();
+  const fileListMode = useFileListMode().mode;
+  const rows = () => listRows(files(), (file) => file.path, fileListMode(), folders.isOpen("stash"));
+  const rowId = (row: ListRow<StashFile>) => (row.kind === "folder" ? `${row.path}/` : row.path);
   const tabStop = (index: number, key: string) => {
     const active = activeRow();
-    return active !== undefined && files().some((file) => file.path === active) ? active === key : index === 0;
+    return active !== undefined && rows().some((row) => rowId(row) === active) ? active === key : index === 0;
   };
   const reference = () => `stash@{${props.stash.index}}`;
   const anchorOf = (element: HTMLElement) => {
@@ -80,41 +89,78 @@ export function StashInspector(props: {
                 Files · {files().length}
                 <Show when={untrackedCount() > 0}> · {untrackedCount()} untracked</Show>
               </span>
+              <FileListTools
+                folders={folders.folders([{ scope: "stash", paths: files().map((file) => file.path) }])}
+                anyClosed={folders.anyClosed([{ scope: "stash", paths: files().map((file) => file.path) }])}
+                onCollapseAll={() => folders.collapseAll([{ scope: "stash", paths: files().map((file) => file.path) }])}
+                onExpandAll={folders.expandAll}
+              />
             </div>
             <Show when={files().length > 0} fallback={<div class="empty">No file changes in this stash</div>}>
-              <VirtualRows class="flist" items={files()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={files().findIndex((file) => file.path === activeRow())}>
-                {(file, virtual) => (
-                  <FileRow
-                    rowId={file.path}
-                    path={file.path}
-                    originalPath={file.original_path}
-                    status={file.status}
-                    selected={sameTarget(props.activeTarget, target(file))}
-                    tabStop={tabStop(virtual.index, file.path)}
-                    onFocusRow={setActiveRow}
-                    onOpen={() => props.onOpenDiff(target(file))}
-                    virtual={virtual}
-                  >
-                    <Delta file={file} />
-                    <Show when={file.status !== "deleted"}>
+              <VirtualRows
+                class="flist"
+                items={rows()}
+                attrs={listAttrs(fileListMode(), "Files in this stash")}
+                scroller={() => scroller}
+                estimate={fileRowHeight()}
+                keepIndex={rows().findIndex((row) => rowId(row) === activeRow())}
+              >
+                {(row, virtual) =>
+                  row.kind === "folder" ? (
+                    <FolderRow
+                      rowId={rowId(row)}
+                      path={row.path}
+                      name={row.name}
+                      depth={row.depth}
+                      open={row.open}
+                      count={row.items.length}
+                      tabStop={tabStop(virtual.index, rowId(row))}
+                      onFocusRow={setActiveRow}
+                      onToggle={(open) => folders.toggle("stash", row.path, open)}
+                      virtual={virtual}
+                    />
+                  ) : (
+                    <FileRow
+                      rowId={row.path}
+                      path={row.path}
+                      originalPath={row.item.original_path}
+                      status={row.item.status}
+                      selected={sameTarget(props.activeTarget, target(row.item))}
+                      tabStop={tabStop(virtual.index, row.path)}
+                      depth={row.depth}
+                      onFocusRow={setActiveRow}
+                      onOpen={() => props.onOpenDiff(target(row.item))}
+                      virtual={virtual}
+                    >
+                      <Delta file={row.item} />
                       <span class="acts">
-                        <button
-                          type="button"
-                          class="icon-btn dense"
-                          tabindex="-1"
-                          {...tip("View file", undefined, `View ${file.path}`)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            const current = shown();
-                            if (current !== undefined) props.onViewFile(stashFileViewTarget(current, file));
-                          }}
-                        >
-                          <Icon name="file" />
-                        </button>
+                        <ToolButton
+                          row
+                          action="Open in editor"
+                          name={`Open ${row.path} in editor`}
+                          icon="edit"
+                          reason={tools.editorReason()}
+                          onRun={() => void tools.openEditor(row.path)}
+                        />
+                        <Show when={row.item.status !== "deleted"}>
+                          <button
+                            type="button"
+                            class="icon-btn dense"
+                            tabindex="-1"
+                            {...tip("View file", undefined, `View ${row.path}`)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              const current = shown();
+                              if (current !== undefined) props.onViewFile(stashFileViewTarget(current, row.item));
+                            }}
+                          >
+                            <Icon name="file" />
+                          </button>
+                        </Show>
                       </span>
-                    </Show>
-                  </FileRow>
-                )}
+                    </FileRow>
+                  )
+                }
               </VirtualRows>
             </Show>
           </section>

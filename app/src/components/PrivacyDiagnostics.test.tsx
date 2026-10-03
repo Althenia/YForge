@@ -151,7 +151,7 @@ describe("privacy and diagnostics settings", () => {
     const { host, calls } = await open();
     const usageSection = region(host, "Usage data");
 
-    expect(host.querySelector('.settings-nav [aria-current="page"]')?.textContent).toContain("Privacy & diagnostics");
+    expect(host.querySelector('.settings-tabs [aria-selected="true"]')?.textContent).toContain("Privacy & diagnostics");
     expect(usageSwitch(host)?.getAttribute("aria-checked")).toBe("false");
     expect(usageSection.textContent).toContain("Off");
     for (const recorded of ["type", "whether it succeeded", "how long it took", "how many Git commands it ran"]) expect(usageSection.textContent).toContain(recorded);

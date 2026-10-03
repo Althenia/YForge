@@ -3,8 +3,9 @@ mod common;
 use common::{chat_reply, use_provider, Harness, Reply, Repo};
 use yforge_ai::AiError;
 use yforge_core::{
-    commit_context, conflict_file, recompose_apply, recompose_preview, CancelToken,
-    ConflictSegment, CoreError, ErrorKind,
+    commit_changes_context, commit_context, compose_apply, conflict_file, recompose_apply,
+    recompose_preview, working_changes_context, AiFeature, CancelToken, ConflictSegment, CoreError,
+    ErrorKind,
 };
 
 fn kind_of(error: AiError) -> ErrorKind {
@@ -297,5 +298,160 @@ async fn a_secret_file_conflict_never_reaches_the_provider() {
         .unwrap_err();
 
     assert_eq!(kind_of(error), ErrorKind::InvalidRequest);
+    assert!(fake.requests().is_empty());
+}
+
+async fn feature_provider(
+    h: &Harness,
+    ai: &yforge_ai::Ai,
+    feature: AiFeature,
+    reply: &str,
+) -> (common::HttpFake, yforge_ai::Selection) {
+    let (fake, _) = use_provider(h, ai, Reply::ok(&chat_reply(reply))).await;
+    let selection = ai.resolve(h.dir(), feature).await.unwrap();
+    (fake, selection)
+}
+
+fn working_repo() -> Repo {
+    let repo = Repo::new();
+    repo.commit("a.txt", "one\n", "Start");
+    repo.write("a.txt", "one\ntwo\n");
+    repo.write("b.txt", "new file\n");
+    repo.write(".env", "TOKEN=hunter2\n");
+    repo
+}
+
+#[tokio::test]
+async fn explaining_changes_sends_the_working_diff_with_its_prompt_and_changes_nothing() {
+    let h = Harness::new();
+    let repo = working_repo();
+    let reply = serde_json::json!({"files": [
+        {"path": "b.txt", "text": "Adds b."},
+        {"path": "a.txt", "text": "Adds a second line."}
+    ]})
+    .to_string();
+    let ai = h.ai();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::ExplainChanges, &reply).await;
+    let context = working_changes_context(&repo.path).unwrap();
+    let before = repo.snapshot();
+
+    let explanation = ai
+        .explain(&selection, &context, &CancelToken::new())
+        .await
+        .unwrap();
+
+    let paths: Vec<&str> = explanation.items.iter().map(|i| i.path.as_str()).collect();
+    assert_eq!(paths, ["a.txt", "b.txt"]);
+    assert_eq!(explanation.excluded, [".env"]);
+    assert_eq!(repo.snapshot(), before);
+    let sent = &fake.requests()[0].body;
+    assert!(sent.contains("explain uncommitted Git changes"));
+    assert!(sent.contains("+two") && sent.contains("+new file"));
+    assert!(!sent.contains("hunter2"));
+}
+
+#[tokio::test]
+async fn explaining_a_commit_sends_its_message_and_diff() {
+    let h = Harness::new();
+    let repo = Repo::new();
+    repo.commit("a.txt", "one\n", "Start");
+    repo.commit("a.txt", "one\nexplained\n", "Explain this");
+    let sha = repo.git(&["rev-parse", "HEAD"]);
+    let reply =
+        serde_json::json!({"files": [{"path": "a.txt", "text": "Adds a line."}]}).to_string();
+    let ai = h.ai();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::ExplainCommit, &reply).await;
+    let context = commit_changes_context(&repo.path, &sha).unwrap();
+
+    let explanation = ai
+        .explain(&selection, &context, &CancelToken::new())
+        .await
+        .unwrap();
+
+    assert_eq!(explanation.items[0].text, "Adds a line.");
+    let sent = &fake.requests()[0].body;
+    assert!(sent.contains("explain a Git commit"));
+    assert!(sent.contains("Explain this") && sent.contains("+explained"));
+}
+
+#[tokio::test]
+async fn a_compose_proposal_is_ready_for_compose_apply_and_proposing_changes_nothing() {
+    let h = Harness::new();
+    let repo = working_repo();
+    let reply = serde_json::json!({"groups": [
+        {"message": "Extend a", "files": ["a.txt"]},
+        {"message": "Add b and env", "files": ["b.txt", ".env"]}
+    ]})
+    .to_string();
+    let ai = h.ai();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::ComposeCommits, &reply).await;
+    let context = working_changes_context(&repo.path).unwrap();
+    let before = repo.snapshot();
+
+    let proposal = ai
+        .compose(&selection, &context, &CancelToken::new())
+        .await
+        .unwrap();
+
+    assert_eq!(repo.snapshot(), before);
+    assert_eq!(proposal.excluded, [".env"]);
+    assert!(fake.requests()[0]
+        .body
+        .contains("split uncommitted Git changes"));
+    compose_apply(&repo.path, &proposal.groups[..1]).unwrap();
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Extend a");
+    assert_eq!(repo.git(&["status", "--porcelain"]), "?? .env\n?? b.txt");
+}
+
+#[tokio::test]
+async fn a_compose_reply_that_leaves_a_file_out_is_rejected() {
+    let h = Harness::new();
+    let repo = working_repo();
+    let reply =
+        serde_json::json!({"groups": [{"message": "Only a", "files": ["a.txt"]}]}).to_string();
+    let ai = h.ai();
+    let (_fake, selection) = feature_provider(&h, &ai, AiFeature::ComposeCommits, &reply).await;
+    let context = working_changes_context(&repo.path).unwrap();
+
+    let error = ai
+        .compose(&selection, &context, &CancelToken::new())
+        .await
+        .unwrap_err();
+
+    assert_eq!(kind_of(error), ErrorKind::AiInvalidResponse);
+}
+
+#[tokio::test]
+async fn a_stash_message_draft_uses_the_working_changes() {
+    let h = Harness::new();
+    let repo = working_repo();
+    let reply = serde_json::json!({"summary": "WIP: second line", "description": ""}).to_string();
+    let ai = h.ai();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::StashMessage, &reply).await;
+    let context = working_changes_context(&repo.path).unwrap();
+
+    let draft = ai
+        .stash_message(&selection, &context, &CancelToken::new())
+        .await
+        .unwrap();
+
+    assert_eq!(draft.summary, "WIP: second line");
+    assert_eq!(draft.excluded, [".env"]);
+    assert!(fake.requests()[0].body.contains("Git stash messages"));
+}
+
+#[tokio::test]
+async fn a_cancelled_request_never_reaches_the_provider() {
+    let h = Harness::new();
+    let repo = working_repo();
+    let ai = h.ai();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::ExplainChanges, "{}").await;
+    let context = working_changes_context(&repo.path).unwrap();
+    let cancel = CancelToken::new();
+    cancel.cancel();
+
+    let error = ai.explain(&selection, &context, &cancel).await.unwrap_err();
+
+    assert_eq!(kind_of(error), ErrorKind::Cancelled);
     assert!(fake.requests().is_empty());
 }

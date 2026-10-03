@@ -1,7 +1,7 @@
 import { createForm } from "@tanstack/solid-form";
 import { useMutation, useQueryClient } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createSignal, For, Match, Show, Switch } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { CliInstall } from "../ipc/bindings/CliInstall";
 import type { ConfigValue } from "../ipc/bindings/ConfigValue";
@@ -16,15 +16,23 @@ import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
 import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel } from "../state/settingsModel";
 import { pullModes } from "../state/syncModel";
+import { crumb, matchCounts, searchSettings, settingAnchor, type SettingEntry } from "../state/settingsSearch";
 import { AiSettings } from "./AiSettings";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { ExternalToolsSettings } from "./ExternalToolsSettings";
+import { GitFlowSettings } from "./GitFlowSettings";
 import { GitHostsSettings } from "./GitHostsSettings";
 import { Icon } from "./Icon";
 import { JiraSettings } from "./JiraSettings";
+import { LfsSettings } from "./LfsSettings";
 import { PlatformSettings } from "./PlatformSettings";
 import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
+import { ProfilesSettings } from "./ProfilesSettings";
+import { RepositoriesSettings } from "./RepositoriesSettings";
 import { SettingRow } from "./SettingRow";
 import { Select } from "./Select";
+import { SigningSettings } from "./SigningSettings";
+import { TextSetting } from "./TextSetting";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -61,7 +69,7 @@ function CommandLineInstall() {
   }
 
   return (
-    <SettingRow title="Command line" note="Adds a yforge command to ~/.local/bin, so yforge <path> opens a repository in YForge, or in the running window. It needs no administrator rights, and it never overwrites a file that YForge did not install.">
+    <SettingRow id="cli" title="Command line" note="Adds a yforge command to ~/.local/bin, so yforge <path> opens a repository in YForge, or in the running window. It needs no administrator rights, and it never overwrites a file that YForge did not install.">
       <div class="cli-install">
         <button type="button" class="btn sm" disabled={busy()} aria-busy={busy()} onClick={() => void install()}>
           <Icon name="terminal" />
@@ -83,30 +91,6 @@ function CommandLineInstall() {
         </Show>
       </div>
     </SettingRow>
-  );
-}
-
-function TextSetting(props: { label: string; value: string; placeholder?: string; onCommit: (value: string) => void; suffix?: string }) {
-  const [draft, setDraft] = createSignal<string | undefined>();
-  const shown = () => draft() ?? props.value;
-  const commit = () => {
-    const value = draft();
-    setDraft(undefined);
-    if (value !== undefined && value !== props.value) props.onCommit(value);
-  };
-  return (
-    <span class="input">
-      <input
-        type="text"
-        aria-label={props.label}
-        value={shown()}
-        placeholder={props.placeholder}
-        onInput={(event) => setDraft(event.currentTarget.value)}
-        onBlur={commit}
-        onKeyDown={(event) => event.key === "Enter" && commit()}
-      />
-      <Show when={props.suffix}>{(text) => <span class="value-source">{text()}</span>}</Show>
-    </span>
   );
 }
 
@@ -161,7 +145,7 @@ function Identity(props: { path: string | null }) {
     }
   };
   const field = (label: string, key: IdentityField, pick: () => ConfigValue | undefined) => (
-    <SettingRow title={label} note={props.path === null ? "Written on commits in every repository." : "Written on commits in this repository."}>
+    <SettingRow id={props.path === null ? `identity-${key}` : undefined} title={label} note={props.path === null ? "Written on commits in every repository." : "Written on commits in this repository."}>
       <TextSetting
         label={label}
         value={pick()?.value ?? ""}
@@ -321,6 +305,9 @@ function Remotes(props: { path: string }) {
   );
 }
 
+const headingOf = (group: string): HTMLElement | null =>
+  [...document.querySelectorAll<HTMLElement>(".settings-body h2, .settings-body h3, .settings-body section[aria-label]")].find((node) => node.getAttribute("aria-label") === group || node.textContent?.trim() === group) ?? null;
+
 const pullOptions = pullModes.map((entry) => ({ value: entry.mode, label: pullModeLabel(entry.mode) }));
 
 export function SettingsView(props: { section: string }) {
@@ -351,33 +338,108 @@ export function SettingsView(props: { section: string }) {
   };
   const sshKeys = useSshKeys();
   const navigation = SETTINGS_SECTIONS.filter((entry) => entry.id !== "repository");
+  const [query, setQuery] = createSignal("");
+  const results = createMemo(() => searchSettings(query()));
+  const searching = () => query().trim() !== "";
+  const counts = createMemo(() => matchCounts(results()));
+  const [pending, setPending] = createSignal<SettingEntry | undefined>();
+  const choose = (entry: SettingEntry) => {
+    setQuery("");
+    setPending(entry);
+    app.openSettings(entry.section);
+  };
+  createEffect(() => {
+    const entry = pending();
+    if (entry === undefined || props.section !== entry.section || searching()) return;
+    setTimeout(() => {
+      setPending(undefined);
+      const target = document.getElementById(settingAnchor(entry.id)) ?? headingOf(entry.group);
+      if (target === null) return;
+      if (target.tabIndex < 0 && !target.hasAttribute("tabindex")) target.tabIndex = -1;
+      target.focus();
+      target.scrollIntoView?.({ block: "nearest" });
+    });
+  });
 
   return (
     <main class="settings" aria-label="Settings">
-      <nav class="settings-nav" aria-label="Settings sections">
-        <For each={navigation}>
-          {(entry) => (
-            <button type="button" classList={{ sel: section() === entry.id }} aria-current={section() === entry.id ? "page" : undefined} onClick={() => app.openSettings(entry.id)}>
-              <Icon name={entry.icon} />
-              {entry.label}
-            </button>
-          )}
-        </For>
-      </nav>
-      <div class="settings-body">
-        <div class="settings-scope" role="tablist" aria-label="Settings scope">
-          <button type="button" role="tab" aria-selected={scope() === "all"} classList={{ on: scope() === "all" }} onClick={() => app.openSettings(section())}>
-            All repositories
-          </button>
-          <Show when={repository()}>
-            {(path) => (
-              <button type="button" role="tab" aria-selected={scope() === "repository"} classList={{ on: scope() === "repository" }} onClick={() => app.openSettings("repository")}>
-                This repository: {basename(path())}
+      <div class="settings-top">
+        <label class="input settings-search">
+          <Icon name="search" />
+          <input
+            type="text"
+            aria-label="Search settings"
+            placeholder="Search all settings, for example “fetch” or “folder”"
+            spellcheck={false}
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && query() !== "") {
+                event.preventDefault();
+                event.stopPropagation();
+                setQuery("");
+              }
+            }}
+          />
+        </label>
+        <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+          <For each={navigation}>
+            {(entry) => (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={!searching() && section() === entry.id}
+                classList={{ on: !searching() && section() === entry.id, dim: searching() && (counts()[entry.id] ?? 0) === 0 }}
+                onClick={() => {
+                  setQuery("");
+                  app.openSettings(entry.id);
+                }}
+              >
+                <Icon name={entry.icon} />
+                {entry.label}
+                <Show when={searching() && (counts()[entry.id] ?? 0) > 0}>
+                  <b class="count">{counts()[entry.id]}</b>
+                </Show>
               </button>
             )}
-          </Show>
+          </For>
         </div>
+      </div>
+      <div class="settings-body">
+        <Show when={searching()}>
+          <p class="setting-note" role="status">
+            {results().length === 0 ? `No setting matches “${query().trim()}”. Try “fetch”, “branch”, “AI”, or “folder”.` : `${results().length} ${results().length === 1 ? "setting matches" : "settings match"} “${query().trim()}”`}
+          </p>
+          <ul class="setting-results" aria-label="Matching settings">
+            <For each={results()}>
+              {(entry) => (
+                <li>
+                  <button type="button" class="setting-result" onClick={() => choose(entry)}>
+                    <span class="setting-crumb">{crumb(entry)}</span>
+                    <span class="setting-title">{entry.title}</span>
+                    <span class="setting-note">{entry.note}</span>
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+        </Show>
+        <Show when={!searching()}>
+          <div class="settings-scope" role="tablist" aria-label="Settings scope">
+            <button type="button" role="tab" aria-selected={scope() === "all"} classList={{ on: scope() === "all" }} onClick={() => app.openSettings(section())}>
+              All repositories
+            </button>
+            <Show when={repository()}>
+              {(path) => (
+                <button type="button" role="tab" aria-selected={scope() === "repository"} classList={{ on: scope() === "repository" }} onClick={() => app.openSettings("repository")}>
+                  This repository: {basename(path())}
+                </button>
+              )}
+            </Show>
+          </div>
+        </Show>
         <Switch>
+          <Match when={searching()}>{null}</Match>
           <Match when={scope() === "repository" && repository()}>
             {(path) => (
               <>
@@ -405,28 +467,25 @@ export function SettingsView(props: { section: string }) {
                     onChange={(key) => void setRepoKey(key)}
                   />
                 </SettingRow>
+                <LfsSettings path={path()} />
+                <GitFlowSettings path={path()} />
               </>
             )}
           </Match>
           <Match when={section() === "general"}>
             <h2>General</h2>
             <p class="setting-note">Applies to every repository.</p>
-            <SettingRow title="External editor" note="Command that opens a file or the repository. Leave empty to use the system default.">
-              <TextSetting label="External editor command" value={settings().editor_command} placeholder="code" onCommit={(value) => void change({ editor_command: value.trim() })} />
-            </SettingRow>
-            <SettingRow title="External terminal" note="Command that opens a repository or worktree folder. Leave empty for Terminal.">
-              <TextSetting label="External terminal command" value={settings().terminal_command} placeholder="open -a iTerm" onCommit={(value) => void change({ terminal_command: value.trim() })} />
-            </SettingRow>
             <CommandLineInstall />
+            <ProfilesSettings />
           </Match>
           <Match when={section() === "git"}>
             <h2>Git</h2>
             <Identity path={null} />
             <h3>Defaults</h3>
-            <SettingRow title="Default branch" note="Name of the first branch in repositories you create.">
+            <SettingRow id="default-branch" title="Default branch" note="Name of the first branch in repositories you create.">
               <TextSetting label="Default branch" value={settings().default_branch} onCommit={(value) => void change({ default_branch: value })} />
             </SettingRow>
-            <SettingRow title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
+            <SettingRow id="pull-mode" title="Pull mode" note="Strategy used by Pull unless a repository overrides it.">
               <Select
                 label="Pull mode"
                 value={settings().pull_mode}
@@ -434,7 +493,7 @@ export function SettingsView(props: { section: string }) {
                 onChange={(value) => void change({ pull_mode: value as PullMode })}
               />
             </SettingRow>
-            <SettingRow title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
+            <SettingRow id="auto-fetch" title="Auto-fetch" note="Fetch every remote in the background. It never asks for credentials.">
               <Segmented
                 label="Auto-fetch interval"
                 value={String(settings().auto_fetch_minutes)}
@@ -443,9 +502,16 @@ export function SettingsView(props: { section: string }) {
               />
             </SettingRow>
             <h3>SSH</h3>
-            <SettingRow title="SSH key" note="Key used for every repository that has no key of its own. Leave it on ssh-agent to use the agent and your default keys.">
+            <SettingRow id="ssh-key" title="SSH key" note="Key used for every repository that has no key of its own. Leave it on ssh-agent to use the agent and your default keys.">
               <SshKeyPicker label="SSH key" value={settings().ssh_key_path} blankLabel={SSH_AGENT_LABEL} onChange={(key) => void change({ ssh_key_path: key })} />
             </SettingRow>
+            <SigningSettings />
+          </Match>
+          <Match when={section() === "tools"}>
+            <ExternalToolsSettings />
+          </Match>
+          <Match when={section() === "repositories"}>
+            <RepositoriesSettings />
           </Match>
           <Match when={section() === "ai"}>
             <AiSettings />
@@ -465,10 +531,10 @@ export function SettingsView(props: { section: string }) {
           <Match when={section() === "appearance"}>
             <h2>Appearance</h2>
             <p class="setting-note">Applies to every repository.</p>
-            <SettingRow title="Theme" note="Dark, light, or follow the system.">
+            <SettingRow id="theme" title="Theme" note="Dark, light, or follow the system.">
               <Segmented label="Theme" value={settings().theme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} onChange={(value) => void change({ theme: value })} />
             </SettingRow>
-            <SettingRow title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
+            <SettingRow id="density" title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
               <Segmented label="Density" value={settings().density} options={[{ value: "compact", label: "Compact" }, { value: "default", label: "Default" }]} onChange={(value) => void change({ density: value })} />
             </SettingRow>
           </Match>

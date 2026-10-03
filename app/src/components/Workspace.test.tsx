@@ -2,6 +2,8 @@ import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { requestFileHistory } from "../state/fileHistoryRequest";
+import type { RepoActions } from "../state/repoActions";
 import { defaultSettings } from "../state/settingsModel";
 import { Workspace } from "./Workspace";
 import { buttonNamed, flush, mountWithApp, stubLayout } from "./testkit";
@@ -176,5 +178,224 @@ describe("Jira issue inspector", () => {
     expect(host.querySelector('[data-nav="issue:ABC-155"]')?.getAttribute("aria-current")).toBe("true");
     buttonNamed(panel, "Open in browser")?.click();
     expect(browser).toHaveBeenCalledWith("https://your-site.atlassian.net/browse/ABC-155", "_blank", "noopener,noreferrer");
+  });
+});
+
+describe("file history", () => {
+  const history = [{ sha: "c".repeat(40), short: "ccccccc", summary: "Tune retries", author: "Yui Lin", email: "yui@example.com", time: 1_700_000_000, path: "src/util.js", status: "modified" }];
+
+  it("opens in the center from a request, covering the graph, and Escape closes it back to the graph", async () => {
+    const { host, calls } = await mountWorkspace((call) => {
+      if (call.cmd === "file_history") return history;
+      if (call.cmd === "commit_file_diff") return { path: "src/util.js", original_path: null, binary: false, old_size: null, new_size: null, hunks: [] };
+      if (call.cmd === "commit_details") return null;
+      return undefined;
+    });
+
+    requestFileHistory({ file: "src/util.js", view: "diff" });
+    await flush(80);
+
+    const view = host.querySelector('.center section[aria-label="File history"]');
+    expect(view).not.toBeNull();
+    expect(calls.find((call) => call.cmd === "file_history")?.args).toEqual({ path: "/r", file: "src/util.js" });
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(true);
+
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flush(40);
+
+    expect(host.querySelector('section[aria-label="File history"]')).toBeNull();
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(false);
+  });
+});
+
+describe("AI sheet", () => {
+  const changed: RepoSnapshot = {
+    ...snapshot,
+    counts: { ...counts, modified: 1 },
+    files: [{ path: "src/app.ts", original_path: null, area: "unstaged", status: "modified" }],
+  };
+  const features = (["explain_changes"] as const).map((feature) => ({ feature, config: { feature, provider_id: "p1", model_id: "m", prompt_template: "{context}" }, enabled: true, available: true, default_prompt_template: "{context}" }));
+  const respond = (call: Call) => {
+    if (call.cmd === "ai_feature_config_list") return features;
+    if (call.cmd === "ai_explain_changes") return { items: [{ path: "src/app.ts", text: "Wires the app." }], excluded: [], truncated: [] };
+    return undefined;
+  };
+
+  it("opens over the graph in the center beside the inspector and Escape closes only the sheet", async () => {
+    const { host, calls } = await mountWorkspace(respond, changed);
+
+    host.querySelector<HTMLButtonElement>('.inspector button[aria-label="Explain the working-tree changes"]')?.click();
+    await flush(60);
+
+    const sheet = host.querySelector(".ai-sheet");
+    expect(sheet?.closest(".center")).not.toBeNull();
+    expect(sheet?.closest(".inspector")).toBeNull();
+    expect(sheet?.querySelector(".ai-items .ref")?.textContent).toBe("src/app.ts");
+    expect(host.querySelector(".graph.covered")).toBeNull();
+    expect(calls.filter((call) => call.cmd === "ai_explain_changes")).toHaveLength(1);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flush();
+
+    expect(host.querySelector(".ai-sheet")).toBeNull();
+    expect(host.querySelector(".inspector")).not.toBeNull();
+  });
+
+  it("is cancelled and closed by Escape while the request is running", async () => {
+    const { host, calls } = await mountWorkspace((call) => (call.cmd === "ai_explain_changes" ? new Promise(() => undefined) : respond(call)), changed);
+
+    host.querySelector<HTMLButtonElement>('.inspector button[aria-label="Explain the working-tree changes"]')?.click();
+    await flush(60);
+    expect(host.querySelector(".ai-sheet")?.getAttribute("aria-busy")).toBe("true");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flush();
+
+    expect(host.querySelector(".ai-sheet")).toBeNull();
+    expect(calls.find((call) => call.cmd === "operation_cancel")?.args.id).toBe(calls.find((call) => call.cmd === "ai_explain_changes")?.args.id);
+  });
+});
+
+describe("file operations in the center", () => {
+  type Bridge = { actions: RepoActions };
+
+  async function mountCapturing(respond: (call: Call) => unknown) {
+    const calls: Call[] = [];
+    mockIPC(
+      (cmd, args) => {
+        const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+        calls.push(call);
+        const custom = respond(call);
+        if (custom !== undefined) return custom;
+        if (cmd === "settings_load") return defaultSettings;
+        if (cmd === "repo_aliases_list") return [];
+        if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
+        if (cmd === "launch_path") return "/nowhere";
+        if (cmd === "repo_open") return snapshot;
+        if (cmd === "repo_graph") return { rows: [], carried: [], total: 0 };
+        if (cmd === "recents_list" || cmd === "activity_list" || cmd === "remotes_list" || cmd === "switch_stashes") return [];
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+    let bridge: Bridge | undefined;
+    const mounted = mountWithApp((app) => {
+      const set = app.setBridge;
+      app.setBridge = ((next: Bridge | undefined) => {
+        bridge = next;
+        return set(next as never);
+      }) as typeof app.setBridge;
+      return <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />;
+    });
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush(60);
+    const actions = () => {
+      if (bridge === undefined) throw new Error("the workspace did not publish its actions");
+      return bridge.actions;
+    };
+    return { ...mounted, calls, actions };
+  }
+
+  const editable = { text: "one\ntwo\n", eol: "\n", size: 8 };
+
+  it("opens the editor over the graph, saves with the line ending, refreshes, and closes back to the graph", async () => {
+    const { host, calls, actions } = await mountCapturing((call) => (call.cmd === "file_editable" ? editable : undefined));
+
+    actions().editFile("a.txt");
+    await flush(60);
+
+    expect(host.querySelector('.center section[aria-label="Edit file"]')).not.toBeNull();
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(true);
+    const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="File content"]');
+    expect(field?.value).toBe("one\ntwo\n");
+    field!.value = "one\nTWO\n";
+    field!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+    const before = calls.filter((call) => call.cmd === "repo_open").length;
+    buttonNamed(host, "Save")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "file_save")?.args).toEqual({ path: "/r", file: "a.txt", text: "one\nTWO\n", eol: "\n" });
+    expect(calls.filter((call) => call.cmd === "repo_open").length).toBeGreaterThan(before);
+    buttonNamed(host, "Close")?.click();
+    await flush(40);
+
+    expect(host.querySelector('section[aria-label="Edit file"]')).toBeNull();
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(false);
+  });
+
+  it("shows a refused edit as a notice and opens no editor", async () => {
+    const { host, actions } = await mountCapturing((call) => {
+      if (call.cmd === "file_editable") throw { kind: "invalid_request", message: "Invalid request: big.txt is 2.0 MiB, over the 1 MiB limit of the editor", output: null };
+      return undefined;
+    });
+
+    actions().editFile("big.txt");
+    await flush(60);
+
+    expect(host.querySelector('section[aria-label="Edit file"]')).toBeNull();
+    expect(host.textContent).toContain("big.txt is 2.0 MiB, over the 1 MiB limit of the editor");
+  });
+
+  it("views a working-tree file in the existing file view", async () => {
+    const { host, calls, actions } = await mountCapturing((call) => (call.cmd === "file_at_revision" ? { kind: "text", text: "one\n", eol: "\n", size: 4 } : undefined));
+
+    actions().viewFile("a.txt");
+    await flush(60);
+
+    expect(host.querySelector('.center section[aria-label="File"]')).not.toBeNull();
+    expect(calls.find((call) => call.cmd === "file_at_revision")?.args).toEqual({ path: "/r", file: "a.txt", rev: ":worktree" });
+  });
+
+  it("opens the create dialog, creates the path, and refuses an existing one with its reason", async () => {
+    let exists = true;
+    const { host, calls, actions } = await mountCapturing((call) => {
+      if (call.cmd !== "file_create") return undefined;
+      if (exists) throw { kind: "invalid_request", message: "Invalid request: a.txt already exists", output: null };
+      return null;
+    });
+
+    actions().createFile();
+    await flush();
+    const path = host.querySelector<HTMLInputElement>('input[aria-label="Path"]');
+    path!.value = "a.txt";
+    path!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+    buttonNamed(host, "Create")?.click();
+    await flush(40);
+    expect(host.querySelector('[role="dialog"] [role="alert"]')?.textContent).toBe("Invalid request: a.txt already exists");
+
+    exists = false;
+    path!.value = "new/b.txt";
+    path!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+    buttonNamed(host, "Create")?.click();
+    await flush(40);
+
+    expect(calls.filter((call) => call.cmd === "file_create").map((call) => call.args.file)).toEqual(["a.txt", "new/b.txt"]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("picks a file, confirms the deletion with a text-labelled danger button, and deletes it", async () => {
+    const { host, calls, actions } = await mountCapturing((call) => (call.cmd === "worktree_files" ? ["a.txt", "b.txt"] : undefined));
+
+    actions().deleteFile();
+    await flush(40);
+    expect(host.querySelector("h3")?.textContent).toBe("Delete file");
+    const { choose } = await import("./testkit");
+    await choose(host, "File", "b.txt");
+    buttonNamed(host, "Continue")?.click();
+    await flush(40);
+
+    const confirm = host.querySelector('[role="alertdialog"]');
+    expect(confirm?.querySelector("h3")?.textContent).toBe("Delete b.txt?");
+    expect(calls.some((call) => call.cmd === "file_delete")).toBe(false);
+    const danger = buttonNamed(confirm as HTMLElement, "Delete file");
+    expect(danger?.classList.contains("danger")).toBe(true);
+    danger?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "file_delete")?.args).toEqual({ path: "/r", file: "b.txt" });
   });
 });

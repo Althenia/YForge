@@ -44,7 +44,7 @@ const snapshot = {
   worktrees: [],
 } as unknown as RepoSnapshot;
 
-function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot = snapshot, uiPrefs: RepoUiPrefsStore = testUiPrefs(), jira?: (calls: Array<[string, ...unknown[]]>) => JiraSidebar) {
+function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot = snapshot, uiPrefs: RepoUiPrefsStore = testUiPrefs(), jira?: (calls: Array<[string, ...unknown[]]>) => JiraSidebar, commitMessage?: () => string) {
   const calls: Array<[string, ...unknown[]]> = [];
   const actions = {
     openRefMenu: (...args: unknown[]) => calls.push(["ref-menu", ...args]),
@@ -67,7 +67,7 @@ function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot
   } as unknown as WorktreeActions;
   const mounted = mountWithApp(() => {
     const issues = jira?.(calls);
-    return <Sidebar snapshot={shape} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} onOpenPanel={(panel) => calls.push(["panel", panel])} jira={issues} />;
+    return <Sidebar snapshot={shape} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection} onSelectStash={selected} onOpenPanel={(panel) => calls.push(["panel", panel])} jira={issues} commitMessage={commitMessage} />;
   });
   dispose = mounted.dispose;
   return { ...mounted, calls, selected, uiPrefs };
@@ -241,6 +241,8 @@ describe("sidebar section collapse", () => {
     expect(section(host, "Branches").querySelector(".sec-title")?.textContent).toContain("Branches");
     for (const title of ["Branches", "Remotes", "Tags", "Stashes", "Worktrees", "Recovery"]) expect(headerOf(host, title).getAttribute("aria-expanded")).not.toBeNull();
     expect(host.querySelector('section[aria-label="Changes"]')).toBeNull();
+    const order = [...host.querySelectorAll("button.sec-title")].map((button) => button.textContent?.trim());
+    expect(order.slice(0, 5)).toEqual(["Branches", "Remotes", "Worktrees", "Tags", "Stashes"]);
   });
 
   it("saves the collapsed section in the repository's preferences and restores it on the next mount", async () => {
@@ -271,56 +273,35 @@ describe("sidebar section collapse", () => {
 });
 
 describe("sidebar tree connectors", () => {
-  it("draws indent guides and elbows as CSS elements under branch folders, with the last child ending its line", () => {
-    const { host } = mount();
-    const leaf = row(host, "branch:feature/a");
-    const lastFolder = row(host, "folder:local:feature/b");
-    const deep = row(host, "branch:feature/b/deep");
+  const levels = (element: Element | undefined) => [...(element?.querySelectorAll(".tree-guide") ?? [])].map((guide) => guide.getAttribute("data-level"));
 
-    // A root-level branch is a child of the section: it draws an elbow at the first level.
-    expect(row(host, "branch:main").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
-    // A branch inside a folder sits one level deeper.
-    expect(leaf.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
-    expect(leaf.querySelector(".tree-elbow")?.classList.contains("last")).toBe(false);
-    expect(lastFolder.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    expect(deep.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("2");
-    // Every ancestor that still has later siblings keeps a guide above the elbow,
-    // so the connector reaches the section line instead of floating.
-    expect(deep.querySelector('.tree-guide[data-level="0"]')).not.toBeNull();
-    expect(host.querySelector(".tree-elbow")?.textContent).toBe("");
+  it("draws one straight vertical guide per level and no elbows", () => {
+    const { host } = mount();
+
+    expect(host.querySelector(".tree-elbow")).toBeNull();
+    expect(levels(row(host, "branch:main"))).toEqual(["0"]);
+    expect(levels(row(host, "branch:feature/a"))).toEqual(["0", "1"]);
+    expect(levels(row(host, "folder:local:feature/b"))).toEqual(["0", "1"]);
+    expect(levels(row(host, "branch:feature/b/deep"))).toEqual(["0", "1", "2"]);
+    expect(row(host, "branch:main").querySelector(".tree-guide")?.textContent).toBe("");
   });
 
-  it("draws remote branches under their remote, with a guide that runs past a folder that has later siblings", () => {
+  it("draws remote branches one level under their remote", () => {
     const { host } = mount();
-    const nested = row(host, "remote:origin/feature/a");
 
-    expect(nested.querySelector('.tree-guide[data-level="1"]')).not.toBeNull();
-    expect(nested.querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("2");
-    expect(nested.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    expect(row(host, "remote:origin/main").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("1");
-    // The remote itself is a child of the section, so it draws the first elbow
-    // and its branches hang one level under it.
-    expect(row(host, "folder:remote:origin").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
+    expect(levels(row(host, "folder:remote:origin"))).toEqual(["0"]);
+    expect(levels(row(host, "remote:origin/main"))).toEqual(["0", "1"]);
+    expect(levels(row(host, "remote:origin/feature/a"))).toEqual(["0", "1", "2"]);
   });
 
-  it("draws every section's rows as tree children, so they share one hierarchy", () => {
+  it("draws every section's rows as tree children, the last row included", () => {
     const { host } = mount();
 
     for (const title of ["Branches", "Remotes", "Tags", "Stashes"]) {
-      expect(section(host, title).querySelector(".tree-elbow")).not.toBeNull();
+      const rows = [...section(host, title).querySelectorAll("[data-nav]")];
+      expect(rows.length, title).toBeGreaterThan(0);
+      expect(rows.every((entry) => levels(entry)[0] === "0"), title).toBe(true);
     }
-    expect(section(host, "Tags").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
-    expect(section(host, "Stashes").querySelector(".tree-elbow")?.getAttribute("data-level")).toBe("0");
-    // The last row of a section ends its line instead of continuing down; the one
-    // before it continues, so the connector reaches the row below.
-    const branches = [...section(host, "Branches").querySelectorAll("[data-nav]")];
-    expect(branches.at(-1)?.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    expect(row(host, "branch:feature/a").querySelector(".tree-elbow")?.classList.contains("last")).toBe(false);
-    expect(row(host, "branch:feature/b/deep").querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
-    // A section with a single row draws that row as its last child.
-    const tags = [...section(host, "Tags").querySelectorAll("[data-nav]")];
-    expect(tags).toHaveLength(1);
-    expect(tags[0]?.querySelector(".tree-elbow")?.classList.contains("last")).toBe(true);
   });
 });
 
@@ -810,5 +791,132 @@ describe("sidebar with thousands of refs", () => {
     expect(sent).toHaveLength(TOTAL);
     expect(sent[0]).toBe("b-0000");
     expect(sent[TOTAL - 1]).toBe(`b-${pad(TOTAL - 1)}`);
+  });
+});
+
+type IpcCall = { cmd: string; args: Record<string, unknown> };
+
+const flowConfig = { production: "main", development: "develop", feature: "feature/", release: "release/", hotfix: "hotfix/", version_tag: "v" };
+
+const hookEntry = (name: string, overrides: Record<string, unknown> = {}) => ({ name, path: `/r/.git/hooks/${name}`, active: true, reason: null, hash: `h-${name}`, approved: true, ...overrides });
+
+function mountWithBackend(options: { flow?: boolean; shape?: RepoSnapshot; uiPrefs?: RepoUiPrefsStore; message?: string } = {}) {
+  const ipc: IpcCall[] = [];
+  mockIPC((cmd, args) => {
+    ipc.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+    if (cmd === "git_flow_config") return options.flow === false ? null : flowConfig;
+    if (cmd === "hooks_list") return { directory: "/r/.git/hooks", hooks: [hookEntry("pre-commit"), hookEntry("post-merge", { active: false, reason: "Not executable: Git skips this hook" })] };
+    if (cmd === "submodule_list") return [];
+    if (cmd === "hook_read") return { hook: hookEntry("pre-commit"), content: "#!/bin/sh\n", truncated: false };
+    if (cmd === "hook_run") return new Promise(() => undefined);
+    return null;
+  });
+  const mounted = mount(undefined, options.shape ?? snapshot, options.uiPrefs, undefined, () => options.message ?? "Fix login");
+  return { ...mounted, ipc };
+}
+
+describe("sidebar hooks and git flow", () => {
+  it("orders the sections Branches, Remotes, Worktrees, Tags, Stashes, Git Flow, Submodules, Hooks, Recovery, and omits Git Flow until initialized", async () => {
+    const initialized = mountWithBackend();
+    await flush(40);
+    expect([...initialized.host.querySelectorAll("button.sec-title")].map((button) => button.textContent?.trim())).toEqual([
+      "Branches",
+      "Remotes",
+      "Worktrees",
+      "Tags",
+      "Stashes",
+      "Git Flow",
+      "Submodules",
+      "Hooks",
+      "Recovery",
+    ]);
+    dispose?.();
+
+    const plain = mountWithBackend({ flow: false });
+    await flush(40);
+    expect([...plain.host.querySelectorAll("button.sec-title")].map((button) => button.textContent?.trim())).toEqual([
+      "Branches",
+      "Remotes",
+      "Worktrees",
+      "Tags",
+      "Stashes",
+      "Submodules",
+      "Hooks",
+      "Recovery",
+    ]);
+  });
+
+  it("collapses Git Flow and Hooks per repository like every other section", async () => {
+    const first = mountWithBackend();
+    await flush(40);
+    for (const title of ["Git Flow", "Hooks"]) {
+      expect(headerOf(first.host, title).getAttribute("aria-expanded")).toBe("true");
+      headerOf(first.host, title).click();
+    }
+    await flush();
+    const saved = first.uiPrefs.prefs();
+    expect([...saved.collapsed_folders].sort()).toEqual(["@section:gitflow", "@section:hooks"]);
+    expect(navIds(first.host, "Hooks")).toEqual([]);
+    expect(countOf(first.host, "Hooks")).toBe("2");
+    dispose?.();
+
+    const second = mountWithBackend({ uiPrefs: testUiPrefs(saved) });
+    await flush(40);
+    expect(headerOf(second.host, "Git Flow").getAttribute("aria-expanded")).toBe("false");
+    expect(headerOf(second.host, "Hooks").getAttribute("aria-expanded")).toBe("false");
+    expect(headerOf(second.host, "Tags").getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("draws hook and flow rows as first-level tree children with one vertical guide", async () => {
+    const { host } = mountWithBackend();
+    await flush(40);
+
+    for (const title of ["Git Flow", "Hooks"]) {
+      const rows = [...section(host, title).querySelectorAll("[data-nav]")];
+      expect(rows.length, title).toBeGreaterThan(0);
+      for (const entry of rows) expect([...entry.querySelectorAll(".tree-guide")].map((guide) => guide.getAttribute("data-level"))).toEqual(["0"]);
+    }
+  });
+
+  it("applies the sidebar filter to hook and flow rows with matched/total counts", async () => {
+    const { host } = mountWithBackend();
+    await flush(40);
+
+    filterInput(host).value = "PRE-C";
+    filterInput(host).dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+
+    expect(navIds(host, "Hooks")).toEqual(["hook:pre-commit"]);
+    expect(countOf(host, "Hooks")).toBe("1/2");
+    expect(navIds(host, "Git Flow")).toEqual([]);
+    expect(countOf(host, "Git Flow")).toBe("0/3");
+
+    filterInput(host).value = "start rel";
+    filterInput(host).dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush();
+    expect(navIds(host, "Git Flow")).toEqual(["flow:start:release"]);
+    expect(countOf(host, "Git Flow")).toBe("1/3");
+    expect(navIds(host, "Hooks")).toEqual([]);
+  });
+
+  it("runs a hook with the composer's message", async () => {
+    const { host, ipc } = mountWithBackend({ message: "Fix login\n\nBody" });
+    await flush(40);
+
+    (row(host, "hook:pre-commit").querySelector('button[aria-label="Run pre-commit"]') as HTMLButtonElement).click();
+    await flush(40);
+
+    expect(ipc.find((call) => call.cmd === "hook_run")?.args).toMatchObject({ path: "/r", name: "pre-commit", mode: "run", message: "Fix login\n\nBody" });
+  });
+
+  it("starts a flow branch from the sidebar and finishes the one that is checked out", async () => {
+    const onFeature = { ...snapshot, head: { kind: "branch", name: "feature/a", sha: "a" } } as unknown as RepoSnapshot;
+    const { host, ipc } = mountWithBackend({ shape: onFeature });
+    await flush(40);
+
+    expect(navIds(host, "Git Flow")).toEqual(["flow:start:feature", "flow:start:release", "flow:start:hotfix", "flow:finish"]);
+    row(host, "flow:finish").click();
+    await flush();
+    expect(ipc.find((call) => call.cmd === "git_flow_finish")?.args).toEqual({ path: "/r" });
   });
 });

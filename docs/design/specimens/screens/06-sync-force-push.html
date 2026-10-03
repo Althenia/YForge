@@ -69,7 +69,7 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
     <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
   </div>
 </aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${command}${strip}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + syncMenu + (menuOnly ? "" : dialog));
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${command}${strip}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + syncMenu + (menuOnly ? "" : dialog));
 YF.boot(`screen 6 · pull, push, and sync state${menuOnly ? " · sync menu" : ""}`);
 YF.mountGraph({ selected: 0, hovered: -1 });
 const sync = document.querySelector(".bar .btn.primary").getBoundingClientRect();

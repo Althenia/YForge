@@ -3,7 +3,7 @@ import { basename } from "../format";
 import type { IconName } from "../iconNames";
 import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import type { UndoState } from "../state/activityModel";
+import type { RedoState, UndoState } from "../state/activityModel";
 import { changeTotal } from "../state/changes";
 import { pushRemote, type MenuEntry } from "../state/refMenu";
 import type { Anchor, RepoActions } from "../state/repoActions";
@@ -47,19 +47,23 @@ function Tool(props: {
   caret?: boolean;
   menu?: boolean;
   disabled?: boolean;
+  ariaDisabled?: boolean;
   reason?: string | undefined;
   onClick: (event: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
 }) {
+  const quietReason = () => props.ariaDisabled === true && !props.labelled;
   return (
     <button
       type="button"
       class="btn"
       classList={{ primary: props.primary === true, "icon-only": !props.labelled }}
-      {...(props.labelled ? { "aria-label": props.name } : tip(props.name ?? props.label, props.shortcut))}
+      {...(props.labelled ? { "aria-label": props.name } : tip(quietReason() ? (props.reason ?? props.label) : (props.name ?? props.label), props.shortcut, props.name ?? props.label))}
       aria-haspopup={props.menu === true ? "menu" : undefined}
       disabled={props.disabled === true}
-      title={props.reason}
-      onClick={props.onClick}
+      aria-disabled={props.ariaDisabled === true ? "true" : undefined}
+      aria-description={props.ariaDisabled === true ? props.reason : undefined}
+      title={quietReason() ? undefined : props.reason}
+      onClick={(event) => props.ariaDisabled === true || props.onClick(event)}
     >
       <Icon name={props.icon} size={props.labelled ? 16 : 20} />
       <Show when={props.labelled}>{props.label}</Show>
@@ -119,9 +123,11 @@ export function CommandBar(props: {
   snapshot: RepoSnapshot;
   actions: RepoActions;
   undo: UndoState;
+  redo: RedoState;
   online?: boolean;
   pullMode?: PullMode;
   onUndo: () => void;
+  onRedo: () => void;
   onPalette: () => void;
   onSearch: () => void;
 }) {
@@ -258,10 +264,20 @@ export function CommandBar(props: {
         label="Undo"
         labelled={labelled()}
         shortcut={SHORTCUTS.undo}
-        name={props.undo.kind === "available" ? `Undo: ${props.undo.scope}` : "Undo"}
+        name={props.undo.kind === "available" ? props.undo.scope : "Undo"}
         disabled={props.undo.kind !== "available"}
         reason={props.undo.kind === "available" ? (labelled() ? props.undo.scope : undefined) : props.undo.reason}
         onClick={props.onUndo}
+      />
+      <Tool
+        icon="redo"
+        label="Redo"
+        labelled={labelled()}
+        shortcut={SHORTCUTS.redo}
+        name={props.redo.kind === "available" ? props.redo.scope : "Redo"}
+        ariaDisabled={props.redo.kind !== "available"}
+        reason={props.redo.kind === "available" ? (labelled() ? props.redo.scope : undefined) : props.redo.reason}
+        onClick={props.onRedo}
       />
     </div>
   );

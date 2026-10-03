@@ -37,7 +37,7 @@ fn call(session: &Session, cmd: &str, body: Value) -> Result<Value, Value> {
             invoke_key: INVOKE_KEY.to_string(),
         },
     )
-        .map(|response| response.deserialize::<Value>().expect("json response"))
+    .map(|response| response.deserialize::<Value>().expect("json response"))
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -51,7 +51,11 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .env("GIT_COMMITTER_EMAIL", "yui@example.test")
         .output()
         .expect("git runs");
-    assert!(output.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
@@ -65,8 +69,8 @@ fn submodules_are_added_listed_updated_and_deinitialized_through_commands() {
     let scratch = tempfile::tempdir().unwrap();
     let parent = scratch.path().join("parent");
     let child = scratch.path().join("child");
-    git(&scratch.path(), &["init", "-q", "child"]);
-    git(&scratch.path(), &["init", "-q", "parent"]);
+    git(scratch.path(), &["init", "-q", "child"]);
+    git(scratch.path(), &["init", "-q", "parent"]);
     std::fs::write(child.join("lib.txt"), "core\n").unwrap();
     git(&child, &["add", "--", "lib.txt"]);
     git(&child, &["commit", "-q", "-m", "core"]);
@@ -92,26 +96,76 @@ fn submodules_are_added_listed_updated_and_deinitialized_through_commands() {
     )
         .unwrap();
 
-    let listed = call(&session, "submodule_list", json!({ "path": parent.to_string_lossy() })).unwrap();
-    let added = listed.as_array().unwrap().iter().find(|item| item["path"] == "vendor/icons").unwrap();
+    let listed = call(
+        &session,
+        "submodule_list",
+        json!({ "path": parent.to_string_lossy() }),
+    )
+    .unwrap();
+    let added = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["path"] == "vendor/icons")
+        .unwrap();
     assert_eq!(added["status"], "current");
     assert_eq!(added["recorded"], head);
     assert_eq!(added["checked_out"], head);
     assert!(added["branch"].is_null());
 
-    call(&session, "submodule_stage", json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" })).unwrap();
-    call(&session, "submodule_update", json!({ "path": parent.to_string_lossy(), "submodulePath": null })).unwrap();
+    call(
+        &session,
+        "submodule_stage",
+        json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" }),
+    )
+    .unwrap();
+    call(
+        &session,
+        "submodule_update",
+        json!({ "path": parent.to_string_lossy(), "submodulePath": null }),
+    )
+    .unwrap();
 
-    call(&session, "submodule_deinit", json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" })).unwrap();
-    let removed = call(&session, "submodule_list", json!({ "path": parent.to_string_lossy() })).unwrap();
-    let gone = removed.as_array().unwrap().iter().find(|item| item["path"] == "vendor/icons").unwrap();
+    call(
+        &session,
+        "submodule_deinit",
+        json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" }),
+    )
+    .unwrap();
+    let removed = call(
+        &session,
+        "submodule_list",
+        json!({ "path": parent.to_string_lossy() }),
+    )
+    .unwrap();
+    let gone = removed
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["path"] == "vendor/icons")
+        .unwrap();
     assert_eq!(gone["status"], "uninitialized");
     assert!(gone["checked_out"].is_null());
     assert!(!std::fs::exists(parent.join("vendor/icons/lib.txt")).unwrap());
 
-    call(&session, "submodule_update", json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" })).unwrap();
-    let back = call(&session, "submodule_list", json!({ "path": parent.to_string_lossy() })).unwrap();
-    let again = back.as_array().unwrap().iter().find(|item| item["path"] == "vendor/icons").unwrap();
+    call(
+        &session,
+        "submodule_update",
+        json!({ "path": parent.to_string_lossy(), "submodulePath": "vendor/icons" }),
+    )
+    .unwrap();
+    let back = call(
+        &session,
+        "submodule_list",
+        json!({ "path": parent.to_string_lossy() }),
+    )
+    .unwrap();
+    let again = back
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["path"] == "vendor/icons")
+        .unwrap();
     assert_eq!(again["status"], "current");
     assert_eq!(again["checked_out"], head);
 }

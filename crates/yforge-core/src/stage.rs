@@ -84,6 +84,73 @@ pub fn discard_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
     Ok(())
 }
 
+fn in_head(root: &Path, file: &str) -> Result<bool, CoreError> {
+    let completed = git::run_unchecked(
+        root,
+        &["ls-tree", "--name-only", "-z", "HEAD", "--", file],
+        None,
+    )?;
+    Ok(completed.succeeded() && !completed.stdout.is_empty())
+}
+
+pub fn discard_staged_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    repo::check_paths(files)?;
+    let changes = repo::read_status(&root)?.files;
+    let mut untracked = Vec::new();
+    let mut restored = Vec::new();
+    let mut removed = Vec::new();
+    for file in files {
+        let staged = changes
+            .iter()
+            .any(|change| change.area == ChangeArea::Staged && change.path == *file);
+        let renamed_from = changes.iter().any(|change| {
+            change.area == ChangeArea::Staged && change.original_path.as_deref() == Some(file)
+        });
+        let loose = changes
+            .iter()
+            .any(|change| change.area == ChangeArea::Untracked && change.path == *file);
+        if loose && !staged {
+            untracked.push(file.clone());
+        } else if staged || renamed_from {
+            if in_head(&root, file)? {
+                restored.push(file.clone());
+            } else {
+                removed.push(file.clone());
+            }
+        } else {
+            return Err(CoreError::invalid_request(format!(
+                "{file} has no staged or untracked change to discard"
+            )));
+        }
+    }
+    snapshots::capture(
+        &root,
+        Action::Discard,
+        &format!("Discard staged changes in {} file(s)", files.len()),
+        None,
+    )?;
+    if !restored.is_empty() {
+        git::run(
+            &root,
+            &with_paths(
+                &["restore", "--source=HEAD", "--staged", "--worktree"],
+                &restored,
+            ),
+        )?;
+    }
+    if !removed.is_empty() {
+        git::run(&root, &with_paths(&["rm", "--force", "--quiet"], &removed))?;
+    }
+    if !untracked.is_empty() {
+        git::run(
+            &root,
+            &with_paths(&["clean", "--force", "--quiet"], &untracked),
+        )?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HunkAction {
     Stage,

@@ -202,6 +202,10 @@ export function TabBar(props: { count?: number }) {
           : undefined;
     (origin ?? tabs?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? tabs?.querySelector<HTMLElement>('button.gchip[aria-current="true"]') ?? tabs?.querySelector<HTMLElement>('[role="tab"]'))?.focus();
   };
+  const launchpadTip = () => {
+    const profile = app.activeProfile();
+    return profile === undefined ? "Launchpad" : `Launchpad · profile ${profile.name}`;
+  };
   createEffect(
     on(overlay, (current, previous) => {
       if (current === undefined && previous !== undefined) queueMicrotask(() => returnFocus(previous));
@@ -248,7 +252,7 @@ export function TabBar(props: { count?: number }) {
           type="button"
           class="icon-btn"
           classList={{ on: app.launchpadOpen() }}
-          {...tip("Launchpad")}
+          {...tip(launchpadTip(), undefined, "Launchpad")}
           aria-current={app.launchpadOpen() ? "page" : undefined}
           onClick={() => (app.launchpadOpen() ? app.closeSettings() : app.openLaunchpad())}
         >

@@ -5,7 +5,7 @@ use ts_rs::TS;
 
 use crate::error::CoreError;
 use crate::platform::{PullRequest, RepoRef};
-use crate::store::{load_recents, recent_status};
+use crate::store::{recent_status, repositories_list};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -41,23 +41,24 @@ pub struct Wip {
     pub unreadable: Option<String>,
 }
 
-/// The recent repositories with uncommitted changes, unpushed commits or an unreadable status, most recent first.
+/// The listed repositories with uncommitted changes, unpushed commits or an unreadable status, in list order.
 pub fn launchpad_wips(dir: &Path) -> Result<Vec<Wip>, CoreError> {
-    Ok(load_recents(dir)?
+    Ok(repositories_list(dir)?
+        .repos
         .into_iter()
-        .filter_map(|recent| {
-            let status = recent_status(Path::new(&recent.path));
+        .filter_map(|repo| {
+            let status = recent_status(Path::new(&repo.path));
             let changes = status.counts.map_or(0, |counts| counts.total());
             let unpushed = status.ahead_behind.map_or(0, |count| count.ahead);
             if !status.exists || (status.unreadable.is_none() && changes + unpushed == 0) {
                 return None;
             }
-            let name = Path::new(&recent.path).file_name().map_or_else(
-                || recent.path.clone(),
+            let name = Path::new(&repo.path).file_name().map_or_else(
+                || repo.path.clone(),
                 |name| name.to_string_lossy().into_owned(),
             );
             Some(Wip {
-                path: recent.path,
+                path: repo.path,
                 name,
                 branch: status.branch,
                 changes,

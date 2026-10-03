@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
-import { ACTIVITY_LIMIT, commandText, entriesFor, formatDuration, NOTHING_TO_UNDO, outputText, refreshToasts, toastFor, undoState, upsertEntry } from "./activityModel";
+import {
+  ACTIVITY_LIMIT,
+  commandText,
+  entriesFor,
+  formatDuration,
+  NOTHING_TO_REDO,
+  NOTHING_TO_UNDO,
+  outputText,
+  redoState,
+  refreshToasts,
+  toastFor,
+  undoState,
+  upsertEntry,
+  withRedoChange,
+} from "./activityModel";
 
 let next = 0;
 const entry = (extra: Partial<ActivityEntry> = {}): ActivityEntry => ({
@@ -100,5 +114,30 @@ describe("activity model", () => {
     expect(commandText(one)).toBe("git commit --quiet -m X");
     expect(outputText(one)).toBe("$ git commit --quiet -m X\nhook says hi");
     expect(outputText(entry({ commands: [{ command: "git stash", status: 0, duration_ms: 1, output: "" }] }))).toBe("");
+  });
+});
+
+describe("redo state", () => {
+  it("is unavailable with the reason Nothing to redo until the backend reports a scope for the repository", () => {
+    expect(redoState({}, "/r")).toEqual({ kind: "unavailable", reason: NOTHING_TO_REDO });
+    expect(NOTHING_TO_REDO).toBe("Nothing to redo");
+    expect(redoState({ "/other": "Redo: x" }, "/r")).toEqual({ kind: "unavailable", reason: NOTHING_TO_REDO });
+  });
+
+  it("holds the scope the backend reported for that repository only", () => {
+    const scopes = withRedoChange({}, { repo: "/r", scope: "Redo: hard-resets main to abc1234" });
+
+    expect(redoState(scopes, "/r")).toEqual({ kind: "available", scope: "Redo: hard-resets main to abc1234" });
+    expect(redoState(scopes, "/other").kind).toBe("unavailable");
+  });
+
+  it("replaces a reported scope and drops it when the backend reports none", () => {
+    const first = withRedoChange({}, { repo: "/r", scope: "Redo: one" });
+    const second = withRedoChange(first, { repo: "/r", scope: "Redo: two" });
+    const kept = withRedoChange(second, { repo: "/other", scope: "Redo: elsewhere" });
+
+    expect(redoState(second, "/r")).toEqual({ kind: "available", scope: "Redo: two" });
+    expect(redoState(withRedoChange(kept, { repo: "/r", scope: null }), "/r").kind).toBe("unavailable");
+    expect(redoState(withRedoChange(kept, { repo: "/r", scope: null }), "/other").kind).toBe("available");
   });
 });

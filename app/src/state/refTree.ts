@@ -1,6 +1,6 @@
 export type TreeRow =
-  | { kind: "folder"; id: string; name: string; depth: number; count: number; open: boolean; last: boolean; trail: boolean[] }
-  | { kind: "leaf"; path: string; label: string; depth: number; last: boolean; trail: boolean[] };
+  | { kind: "folder"; id: string; name: string; depth: number; count: number; open: boolean }
+  | { kind: "leaf"; path: string; label: string; depth: number };
 
 type Folder = { name: string; path: string; count: number; entries: Array<Folder | string> };
 
@@ -26,19 +26,18 @@ export function treeRows(paths: readonly string[], collapsed: ReadonlySet<string
     parent.entries.push(path);
   }
   const rows: TreeRow[] = [];
-  const walk = (folder: Folder, depth: number, trail: boolean[]) => {
-    folder.entries.forEach((entry, index) => {
-      const last = index === folder.entries.length - 1;
+  const walk = (folder: Folder, depth: number) => {
+    folder.entries.forEach((entry) => {
       if (typeof entry === "string") {
-        rows.push({ kind: "leaf", path: entry, label: entry.slice(entry.lastIndexOf("/") + 1), depth, last, trail });
+        rows.push({ kind: "leaf", path: entry, label: entry.slice(entry.lastIndexOf("/") + 1), depth });
         return;
       }
       const id = `${scope}${entry.path}`;
       const open = !collapsed.has(id);
-      rows.push({ kind: "folder", id, name: entry.name, depth, count: entry.count, open, last, trail });
-      if (open) walk(entry, depth + 1, [...trail, !last]);
+      rows.push({ kind: "folder", id, name: entry.name, depth, count: entry.count, open });
+      if (open) walk(entry, depth + 1);
     });
   };
-  walk(root, 0, []);
+  walk(root, 0);
   return rows;
 }

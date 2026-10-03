@@ -1,7 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { NOTHING_TO_UNDO } from "../state/activityModel";
+import { NOTHING_TO_REDO, NOTHING_TO_UNDO } from "../state/activityModel";
 import type { PaletteApp, PaletteContext } from "../state/palette";
 import type { RepoActions } from "../state/repoActions";
 import { CommandPalette } from "./CommandPalette";
@@ -42,11 +42,11 @@ const snapshot = {
   worktrees: [],
 } as unknown as RepoSnapshot;
 
-function mount(overrides: Partial<PaletteContext> = {}) {
+function mount(overrides: Partial<PaletteContext> = {}, scope?: "repositories", appOverrides: Partial<PaletteApp> = {}) {
   const startRebase = vi.fn();
   const openCreateBranchAt = vi.fn();
-  const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt } as unknown as RepoActions;
-  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), checkForUpdate: vi.fn() } as PaletteApp;
+  const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt, discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined } as unknown as RepoActions;
+  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), checkForUpdate: vi.fn(), openRepositorySearch: vi.fn(), openShortcuts: vi.fn(), openLogs: vi.fn(), openDrawer: vi.fn(), openReleaseNotes: vi.fn(), zoom: vi.fn(), toggleSidebar: vi.fn(), toggleInspector: vi.fn(), toggleSyntaxHighlighting: vi.fn(), toggleTheme: vi.fn(), switchProfile: vi.fn(), profileList: () => undefined, profileOptions: async () => [], openFileInTool: vi.fn(), openFileInEditor: vi.fn(), initializeLfs: vi.fn(), ...appOverrides } as PaletteApp;
   const closed = vi.fn();
   const context: PaletteContext = {
     snapshot,
@@ -56,6 +56,11 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     pullMode: "fast_forward_or_merge",
     offline: false,
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
+    redo: { kind: "unavailable", reason: NOTHING_TO_REDO },
+    zoomPercent: 100,
+    theme: "system",
+    externalTools: undefined,
+    lfs: undefined,
     anchor: { left: 5, top: 6 },
     app,
     platform: undefined,
@@ -64,10 +69,15 @@ function mount(overrides: Partial<PaletteContext> = {}) {
     revealRef: vi.fn(),
     focusComposer: vi.fn(),
     openPanel: vi.fn(),
+    trackedFiles: async () => [],
+    openFileHistory: vi.fn(),
+    viewChanges: vi.fn(),
+    redoLast: vi.fn(),
+    createTag: vi.fn(),
     loadCommits: async () => [{ sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false }],
     ...overrides,
   };
-  const mounted = mountWithApp(() => <CommandPalette context={context} onClose={closed} />);
+  const mounted = mountWithApp(() => <CommandPalette context={context} {...(scope === undefined ? {} : { scope })} onClose={closed} />);
   dispose = mounted.dispose;
   const input = () => mounted.host.querySelector<HTMLInputElement>('input[aria-label="Command"]');
   const key = (name: string, init: KeyboardEventInit = {}) => input()?.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true, ...init }));
@@ -233,6 +243,127 @@ describe("command palette", () => {
 
     expect(closed).toHaveBeenCalled();
     expect(app.openClone).toHaveBeenCalled();
+  });
+});
+
+describe("command palette scoped to repositories (S55)", () => {
+  const known = ["/work/api", "/work/web", "/scan/tools"];
+  const rows = (host: HTMLElement) => [...host.querySelectorAll(".pal-item")].map((row) => row.textContent);
+
+  function mountScoped(aliases: Record<string, string> = {}) {
+    mockIPC((cmd) => (cmd === "repositories_list" ? { folders: [], repos: [{ path: "/scan/tools", folder: "/scan", opened_at: null }] } : null));
+    return mount({}, "repositories", { repositories: () => ["/work/api", "/work/web"], aliasOf: (path) => aliases[path] });
+  }
+
+  it("shows the Open repo chip with a × control, the placeholder, and one row per known repository with its full path", async () => {
+    const { host, input, labels } = mountScoped();
+    await flush(40);
+
+    expect(host.querySelector(".pal-chip.scope")?.textContent).toContain("Open repo");
+    expect(host.querySelector('button[aria-label="Remove the Open repo filter"]')).not.toBeNull();
+    expect(input()?.placeholder).toBe("Search for a repository to open");
+    expect(labels()).toEqual(known);
+  });
+
+  it("shows the alias beside the path when one is set and filters by the typed text on either", async () => {
+    const { host, input, labels } = mountScoped({ "/work/web": "Storefront" });
+    await flush(40);
+
+    expect(rows(host)[1]).toContain("/work/web");
+    expect(rows(host)[1]).toContain("Storefront");
+    type(input(), "front");
+    await flush();
+    expect(labels()).toEqual(["/work/web"]);
+    type(input(), "tools");
+    await flush();
+    expect(labels()).toEqual(["/scan/tools"]);
+    type(input(), "zzz");
+    await flush();
+    expect(labels()).toEqual([]);
+  });
+
+  it("opens the chosen repository on Enter and closes the palette", async () => {
+    const { input, key, app, closed } = mountScoped();
+    await flush(40);
+    type(input(), "web");
+    await flush();
+
+    key("Enter");
+    await flush(40);
+
+    expect(app.openRepository).toHaveBeenCalledWith("/work/web");
+    expect(closed).toHaveBeenCalled();
+  });
+
+  it("removes the chip with the × control and returns to every command", async () => {
+    const { host, labels } = mountScoped();
+    await flush(40);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Remove the Open repo filter"]')?.click();
+    await flush();
+
+    expect(host.querySelector(".pal-chip.scope")).toBeNull();
+    expect(labels()).toContain("Open repository…");
+    expect(labels()).not.toContain("/work/api");
+  });
+
+  it("removes the chip with Backspace in the empty input but not while text is typed", async () => {
+    const { host, input, key, labels } = mountScoped();
+    await flush(40);
+    type(input(), "w");
+    await flush();
+
+    key("Backspace");
+    await flush();
+    expect(host.querySelector(".pal-chip.scope")).not.toBeNull();
+
+    type(input(), "");
+    await flush();
+    key("Backspace");
+    await flush();
+    expect(host.querySelector(".pal-chip.scope")).toBeNull();
+    expect(labels()).toContain("Open repository…");
+  });
+
+  it("closes the palette on Escape even with text typed", async () => {
+    const { input, key, closed } = mountScoped();
+    await flush(40);
+    type(input(), "api");
+
+    key("Escape");
+
+    expect(closed).toHaveBeenCalledOnce();
+  });
+});
+
+describe("command palette text arguments", () => {
+  it("collects a tag name and an annotation message, then creates the annotated tag", async () => {
+    const createTag = vi.fn();
+    const { input, key, host, labels, closed } = mount({ createTag });
+    await flush();
+
+    type(input(), "annotated");
+    await flush();
+    expect(labels()[0]).toBe("Create annotated tag…");
+    key("Enter");
+    await flush();
+    expect(input()?.placeholder).toBe("Tag name");
+    expect(host.querySelector(".pal-empty")?.textContent).toBe("Type the tag name, then press Enter");
+
+    key("Enter");
+    await flush();
+    expect(input()?.placeholder).toBe("Tag name");
+    type(input(), "v2.0");
+    key("Enter");
+    await flush();
+    expect(input()?.placeholder).toBe("Annotation message");
+    expect([...host.querySelectorAll(".pal-chip")].map((chip) => chip.textContent)).toEqual(["Create annotated tag", "v2.0"]);
+    type(input(), "Second release");
+    key("Enter");
+    await flush(40);
+
+    expect(createTag).toHaveBeenCalledWith("v2.0", "Second release");
+    expect(closed).toHaveBeenCalled();
   });
 });
 

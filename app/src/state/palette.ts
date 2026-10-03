@@ -1,9 +1,14 @@
 import type { Hotkey } from "@tanstack/solid-hotkeys";
 import type { IconName } from "../iconNames";
+import type { ChangeArea } from "../ipc/bindings/ChangeArea";
+import type { LfsStatus } from "../ipc/bindings/LfsStatus";
+import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { PullMode } from "../ipc/bindings/PullMode";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
-import { NOTHING_TO_UNDO, type UndoState } from "./activityModel";
+import type { AppSettings } from "../ipc/bindings/AppSettings";
+import { NOTHING_TO_UNDO, type RedoState, type UndoState } from "./activityModel";
+import { zoomBlockReason, type ZoomMove } from "./appUiPrefs";
 import { commitMenu, localTarget, NOT_AVAILABLE, operationBlock, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
 import type { Anchor, RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
@@ -12,9 +17,24 @@ import type { PlatformActions } from "./platformActions";
 
 export type PickerOption = { value: string; label: string; note?: string; disabledReason?: string };
 
-export type ArgSpec = { name: string; label: string; options: () => PickerOption[] | Promise<PickerOption[]> };
+export type ArgSpec = { name: string; label: string; options: () => PickerOption[] | Promise<PickerOption[]>; text?: boolean };
 
-export type PaletteGroup = "Repository" | "Branches" | "Commits" | "Tags" | "Sync" | "Stash" | "Pull requests" | "Operation" | "Navigate" | "Application";
+export type PaletteGroup = "Repository" | "Branches" | "Commits" | "Tags" | "Sync" | "Stash" | "Pull requests" | "Operation" | "Navigate" | "Application" | "Settings" | "View" | "History" | "File" | "Patch" | "Logs";
+
+const REPOSITORY_FREE: readonly PaletteGroup[] = ["Application", "Navigate", "Settings", "View", "Logs"];
+
+export type ExternalTools = { editor: string | null; diff: string | null; merge: string | null };
+
+export type LogTab = "errors" | "performance";
+
+export const NO_EDITOR = "Choose an external editor in Settings → External tools";
+export const NO_DIFF_TOOL = "Choose an external diff tool in Settings → External tools";
+export const NO_MERGE_TOOL = "Choose an external merge tool in Settings → External tools";
+export const NO_CHANGED_FILES = "No changed files to open in a tool";
+export const LFS_NOT_INSTALLED = "Git LFS is not installed on this Mac";
+export const LFS_INITIALIZED = "Git LFS is already initialized in this repository";
+export const ONE_PROFILE = "Create another profile in Settings to switch";
+export const ACTIVE_PROFILE = "This is the active profile";
 
 export type PaletteCommand = {
   id: string;
@@ -37,6 +57,42 @@ const commandIcons: Partial<Record<string, IconName>> = {
   "settings.open": "settings",
   "launchpad.open": "launchpad",
   "settings.theme": "theme",
+  "theme.toggle": "theme",
+  "theme.light": "theme",
+  "theme.dark": "theme",
+  "repository.search": "search",
+  "open.diffmerge": "diff",
+  "repository.maintain": "settings",
+  "settings.git_flow": "branch",
+  "settings.lfs_configure": "settings",
+  "settings.lfs_init": "plus",
+  "settings.signing": "key",
+  "accounts.manage": "identity",
+  "profile.switch": "identity",
+  "zoom.in": "plus",
+  "zoom.out": "minus",
+  "zoom.reset": "search",
+  "shortcuts.show": "key",
+  "view.sidebar": "grip",
+  "view.inspector": "grip",
+  "view.syntax": "edit",
+  "history.file": "history",
+  "history.blame": "history",
+  "file.create": "plus",
+  "file.delete": "trash",
+  "file.open_editor": "edit",
+  "file.view": "file",
+  "file.edit": "edit",
+  "file.discard_all": "trash",
+  "tag.create_annotated": "tag",
+  "wip.view": "changes",
+  "patch.create": "diff",
+  "patch.apply": "diff",
+  "logs.activity": "activity",
+  "logs.errors": "warning",
+  "logs.performance": "activity",
+  "logs.release_notes": "open",
+  redo: "redo",
   "activity.toggle": "activity",
   "search.commits": "search",
   "open.editor": "edit",
@@ -94,6 +150,8 @@ export type SettingsSection = { id: string; label: string; icon: IconName };
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "general", label: "General", icon: "settings" },
   { id: "git", label: "Git", icon: "branch" },
+  { id: "tools", label: "External tools", icon: "open" },
+  { id: "repositories", label: "Repositories", icon: "folder" },
   { id: "appearance", label: "Appearance", icon: "theme" },
   { id: "ai", label: "AI", icon: "wand" },
   { id: "platforms", label: "Platforms", icon: "plug" },
@@ -118,6 +176,22 @@ export type PaletteApp = {
   setTheme: (theme: "light" | "dark" | "system") => void;
   openRepository: (path: string) => void;
   repositories: () => string[];
+  openRepositorySearch: () => void;
+  openShortcuts: () => void;
+  openLogs: (tab: LogTab) => void;
+  openDrawer: () => void;
+  openReleaseNotes: () => void;
+  zoom: (move: ZoomMove) => void;
+  toggleSidebar: () => void;
+  toggleInspector: () => void;
+  toggleSyntaxHighlighting: () => void;
+  toggleTheme: () => void;
+  switchProfile: (id: string) => void;
+  profileList: () => ProfileList | undefined;
+  profileOptions: () => Promise<PickerOption[]>;
+  openFileInTool: (file: string, area: ChangeArea) => void;
+  openFileInEditor: (file: string) => void;
+  initializeLfs: () => void;
   aliasOf: (path: string) => string | undefined;
   canReopenClosedTab: () => boolean;
   reopenClosedTab: () => void;
@@ -134,6 +208,11 @@ export type PaletteContext = {
   pullMode: PullMode;
   offline: boolean;
   undo: UndoState;
+  redo: RedoState;
+  zoomPercent: number;
+  theme: AppSettings["theme"];
+  externalTools: ExternalTools | undefined;
+  lfs: LfsStatus | undefined;
   anchor: Anchor;
   app: PaletteApp;
   platform: PlatformActions | undefined;
@@ -143,6 +222,11 @@ export type PaletteContext = {
   revealHead: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
   openPanel: (panel: PanelRequest) => void;
+  trackedFiles: () => Promise<string[]>;
+  openFileHistory: (file: string, view: "diff" | "blame") => void;
+  viewChanges: () => void;
+  redoLast: () => void;
+  createTag: (name: string, message: string) => void;
 };
 
 const NO_REPOSITORY = "Open a repository first";
@@ -208,7 +292,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     args: [],
     run: () => undefined,
     ...spec,
-    disabledReason: spec.disabledReason ?? (spec.group === "Application" || spec.group === "Navigate" ? undefined : repo === undefined ? NO_REPOSITORY : undefined),
+    disabledReason: spec.disabledReason ?? (REPOSITORY_FREE.includes(spec.group) ? undefined : repo === undefined ? NO_REPOSITORY : undefined),
   });
 
   const refArg = (menuId: string, label: string): ArgSpec => ({
@@ -273,6 +357,34 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       run: () => void repo?.actions.pull(mode),
     });
 
+  const tools = context.externalTools;
+  const noEditor = tools !== undefined && tools.editor === null ? NO_EDITOR : undefined;
+  const changedFiles = snapshot?.files ?? [];
+  const actionReason = (reason: string | undefined): { disabledReason?: string } => (reason === undefined ? {} : { disabledReason: reason });
+  const fileArg: ArgSpec = { name: "file", label: "File", options: async () => (await context.trackedFiles()).map((file) => ({ value: file, label: file })) };
+  const textArg = (name: string, label: string): ArgSpec => ({ name, label, options: () => [], text: true });
+  const withFile = (run: (file: string, actions: RepoActions) => void) => (values: string[]) => {
+    if (repo !== undefined && values[0] !== undefined) run(values[0], repo.actions);
+  };
+  const toolOptions = (): PickerOption[] =>
+    changedFiles.map((file) => {
+      const reason = file.area === "conflicted" ? (tools?.merge === null ? NO_MERGE_TOOL : undefined) : tools?.diff === null ? NO_DIFF_TOOL : undefined;
+      return { value: `${file.area}:${file.path}`, label: file.path, note: file.area, ...(reason === undefined ? {} : { disabledReason: reason }) };
+    });
+  const withTool = (values: string[]) => {
+    const [first = ""] = values;
+    const at = first.indexOf(":");
+    if (at > 0) app.openFileInTool(first.slice(at + 1), first.slice(0, at) as ChangeArea);
+  };
+  const needsRepository = repo === undefined ? { disabledReason: NO_REPOSITORY } : {};
+  const lfsBlock = context.lfs === undefined ? {} : !context.lfs.installed ? { disabledReason: LFS_NOT_INSTALLED } : context.lfs.initialized ? { disabledReason: LFS_INITIALIZED } : {};
+  const profiles = app.profileList();
+  const themeNow = (target: "light" | "dark"): { disabledReason?: string } => (context.theme === target ? { disabledReason: `The theme is already ${target}` } : {});
+  const zoom = (move: ZoomMove): { disabledReason?: string } => {
+    const reason = zoomBlockReason(context.zoomPercent, move);
+    return reason === undefined ? {} : { disabledReason: reason };
+  };
+
   return [
     command({ id: "repository.open", title: "Open repository…", group: "Application", shortcut: SHORTCUTS.openRepository, run: () => app.openFolder() }),
     command({ id: "repository.clone", title: "Clone repository…", group: "Application", shortcut: SHORTCUTS.cloneRepository, run: () => app.openClone() }),
@@ -302,9 +414,19 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: SHORTCUTS.activity, run: () => app.toggleDrawer() }),
     command({ id: "head.reveal", title: "Reveal HEAD in the graph", group: "Repository", shortcut: SHORTCUTS.revealHead, run: () => context.revealHead() }),
     command({ id: "search.commits", title: "Search commits", group: "Commits", shortcut: SHORTCUTS.search, run: () => app.openSearch() }),
-    command({ id: "open.editor", title: "Open repository in editor", group: "Repository", run: () => app.openExternal("editor") }),
-    command({ id: "open.terminal", title: "Open repository in terminal", group: "Repository", run: () => app.openExternal("terminal") }),
-    command({ id: "open.finder", title: "Reveal repository in Finder", group: "Repository", run: () => app.openExternal("finder") }),
+    command({ id: "repository.search", title: "Open repo…", group: "Application", shortcut: SHORTCUTS.openRepoSearch, run: () => app.openRepositorySearch() }),
+    command({ id: "open.editor", title: "Open in external editor", group: "Repository", shortcut: SHORTCUTS.openInEditor, ...(noEditor === undefined ? {} : { disabledReason: noEditor }), run: () => app.openExternal("editor") }),
+    command({
+      id: "open.diffmerge",
+      title: "Open in external diff or merge tool…",
+      group: "Repository",
+      args: [{ name: "file", label: "Changed file", options: toolOptions }],
+      ...(changedFiles.length === 0 ? { disabledReason: NO_CHANGED_FILES } : {}),
+      run: withTool,
+    }),
+    command({ id: "repository.maintain", title: "Perform repository maintenance", group: "Repository", ...actionReason(repo?.actions.maintainReason()), run: () => repo?.actions.maintain() }),
+    command({ id: "open.terminal", title: "Open in terminal", group: "Repository", run: () => app.openExternal("terminal") }),
+    command({ id: "open.finder", title: "Reveal in Finder", group: "Repository", run: () => app.openExternal("finder") }),
     command({ id: "worktrees.show", title: "Show worktrees", group: "Repository", run: () => context.openPanel("worktrees") }),
     command({ id: "worktrees.create", title: "Create worktree…", group: "Repository", run: () => context.openPanel("create_worktree") }),
     command({ id: "recovery.reflog", title: "Recovery: browse the reflog", group: "Repository", run: () => context.openPanel("reflog") }),
@@ -320,6 +442,15 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
         if (context.undo.kind === "available") void repo?.actions.undo(context.undo.entry.id);
       },
     }),
+    command({
+      id: "redo",
+      title: "Redo last operation",
+      group: "Repository",
+      shortcut: SHORTCUTS.redo,
+      ...(context.redo.kind === "available" ? {} : { disabledReason: context.redo.reason }),
+      run: () => context.redoLast(),
+    }),
+    command({ id: "wip.view", title: "View working directory changes", group: "Branches", run: () => context.viewChanges() }),
     command({ id: "changes.stage_all", title: "Stage all changes", group: "Repository", run: () => void repo?.actions.stageAll() }),
     command({ id: "changes.unstage_all", title: "Unstage all changes", group: "Repository", run: () => void repo?.actions.unstageAll() }),
     command({ id: "commit", title: "Commit staged changes…", group: "Repository", shortcut: SHORTCUTS.commit, run: () => context.focusComposer() }),
@@ -482,6 +613,13 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       run: () => repo?.actions.openCreateTag(context.selectedSha ?? null, context.anchor),
     }),
     command({
+      id: "tag.create_annotated",
+      title: "Create annotated tag…",
+      group: "Tags",
+      args: [textArg("name", "Tag name"), textArg("message", "Annotation message")],
+      run: (values) => context.createTag(values[0] ?? "", values[1] ?? ""),
+    }),
+    command({
       id: "tag.push",
       title: "Push tag…",
       group: "Tags",
@@ -595,6 +733,74 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       run: withPull(listedPulls, (pull, actions) => actions.openInBrowser(pull)),
     }),
     command({ id: "platforms.add", title: "Add platform connection…", group: "Application", run: () => app.addPlatformConnection() }),
+    command({ id: "accounts.manage", title: "Manage accounts", group: "Settings", run: () => app.openSettings("platforms") }),
+    command({ id: "settings.git_flow", title: "Configure Git Flow", group: "Settings", ...needsRepository, run: () => app.openSettings("repository") }),
+    command({ id: "settings.lfs_configure", title: "Configure LFS", group: "Settings", ...needsRepository, run: () => app.openSettings("repository") }),
+    command({ id: "settings.lfs_init", title: "Initialize LFS", group: "Settings", ...(repo === undefined ? needsRepository : lfsBlock), run: () => app.initializeLfs() }),
+    command({ id: "settings.signing", title: "Configure commit signing", group: "Settings", run: () => app.openSettings("git") }),
+    command({ id: "theme.light", title: "Join the light side", group: "Settings", ...themeNow("light"), run: () => app.setTheme("light") }),
+    command({ id: "theme.dark", title: "Join the dark side", group: "Settings", ...themeNow("dark"), run: () => app.setTheme("dark") }),
+    command({ id: "theme.toggle", title: "Toggle theme", group: "View", run: () => app.toggleTheme() }),
+    command({
+      id: "profile.switch",
+      title: "Switch to profile…",
+      group: "Settings",
+      args: [{ name: "profile", label: "Profile", options: app.profileOptions }],
+      ...(profiles !== undefined && profiles.profiles.length < 2 ? { disabledReason: ONE_PROFILE } : {}),
+      run: (values) => app.switchProfile(values[0] ?? ""),
+    }),
+    command({ id: "zoom.in", title: "Zoom in", group: "View", shortcut: SHORTCUTS.zoomIn, ...zoom("in"), run: () => app.zoom("in") }),
+    command({ id: "zoom.out", title: "Zoom out", group: "View", shortcut: SHORTCUTS.zoomOut, ...zoom("out"), run: () => app.zoom("out") }),
+    command({ id: "zoom.reset", title: "Reset zoom", group: "View", shortcut: SHORTCUTS.zoomReset, ...zoom("reset"), run: () => app.zoom("reset") }),
+    command({ id: "shortcuts.show", title: "Keyboard shortcuts", group: "View", run: () => app.openShortcuts() }),
+    command({ id: "view.sidebar", title: "Toggle sidebar", group: "View", shortcut: SHORTCUTS.toggleSidebar, ...(repo === undefined ? { disabledReason: NO_REPOSITORY } : {}), run: () => app.toggleSidebar() }),
+    command({ id: "view.inspector", title: "Toggle inspector", group: "View", shortcut: SHORTCUTS.toggleInspector, ...(repo === undefined ? { disabledReason: NO_REPOSITORY } : {}), run: () => app.toggleInspector() }),
+    command({ id: "view.syntax", title: "Toggle syntax highlighting", group: "View", run: () => app.toggleSyntaxHighlighting() }),
+    command({
+      id: "history.file",
+      title: "History of file…",
+      group: "History",
+      args: [fileArg],
+      run: withFile((file) => context.openFileHistory(file, "diff")),
+    }),
+    command({
+      id: "history.blame",
+      title: "Blame of file…",
+      group: "History",
+      args: [fileArg],
+      run: withFile((file) => context.openFileHistory(file, "blame")),
+    }),
+    command({ id: "file.create", title: "Create file…", group: "File", run: () => repo?.actions.createFile() }),
+    command({ id: "file.delete", title: "Delete file…", group: "File", args: [fileArg], run: withFile((file, actions) => actions.deleteFile(file)) }),
+    command({
+      id: "file.open_editor",
+      title: "Open file in editor…",
+      group: "File",
+      args: [fileArg],
+      ...(noEditor === undefined ? {} : { disabledReason: noEditor }),
+      run: withFile((file) => app.openFileInEditor(file)),
+    }),
+    command({ id: "file.view", title: "View file…", group: "File", args: [fileArg], run: withFile((file, actions) => actions.viewFile(file)) }),
+    command({ id: "file.edit", title: "Edit file…", group: "File", args: [fileArg], run: withFile((file, actions) => actions.editFile(file)) }),
+    command({
+      id: "file.discard_all",
+      title: "Discard all changes",
+      group: "File",
+      ...actionReason(repo?.actions.discardAllReason()),
+      run: () => repo?.actions.discardAll(),
+    }),
+    command({
+      id: "patch.create",
+      title: "Create patch from working directory changes",
+      group: "Patch",
+      ...actionReason(repo?.actions.createPatchReason()),
+      run: () => repo?.actions.createPatch(),
+    }),
+    command({ id: "patch.apply", title: "Apply patch…", group: "Patch", run: () => repo?.actions.applyPatch() }),
+    command({ id: "logs.activity", title: "Activity log", group: "Logs", run: () => app.openDrawer() }),
+    command({ id: "logs.errors", title: "Error log", group: "Logs", run: () => app.openLogs("errors") }),
+    command({ id: "logs.performance", title: "Performance log", group: "Logs", run: () => app.openLogs("performance") }),
+    command({ id: "logs.release_notes", title: "Release notes", group: "Logs", run: () => app.openReleaseNotes() }),
     command({ id: "operation.continue", title: "Continue operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.continueOperation(null) }),
     command({ id: "operation.skip", title: "Skip step", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.skipOperation() }),
     command({ id: "operation.abort", title: "Abort operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => repo?.actions.abortOperation() }),
@@ -658,6 +864,16 @@ export function navigationTargets(context: PaletteContext, choices: readonly Com
       run: () => app.openRepository(path),
     })),
   ];
+}
+
+export const REPOSITORY_SCOPE_CHIP = "Open repo";
+
+export const REPOSITORY_SCOPE_PLACEHOLDER = "Search for a repository to open";
+
+export type RepositoryChoice = { path: string; alias: string | undefined };
+
+export function repositoryChoices(app: Pick<PaletteApp, "repositories" | "aliasOf">, managed: readonly string[]): RepositoryChoice[] {
+  return [...new Set([...app.repositories(), ...managed])].map((path) => ({ path, alias: app.aliasOf(path) }));
 }
 
 export type Match = { score: number; positions: number[] };

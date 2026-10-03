@@ -149,13 +149,13 @@ const html = `
           <div class="control"><span class="stepper" role="group" aria-label="Code font size"><span class="step" aria-label="Decrease">−</span><span class="val">12 px</span><span class="step" aria-label="Increase">+</span></span></div></div>
         <div class="setting"><div><div class="name">Date format</div><div class="desc">How commit dates are written.</div></div>
           <div class="control"><div class="input select"><span>D MMM YYYY HH:mm</span>${I.chevron}</div><span class="preview">Preview <span class="mono">29 Sep 2026 16:29</span></span></div></div>
-        <div class="setting"><div><div class="name">Reduce motion follows system</div><div class="desc">Stops the aurora drift and makes transitions instant.</div></div>
+        <div class="setting"><div><div class="name">Reduce motion follows system</div><div class="desc">Makes transitions instant.</div></div>
           <div class="control"><span class="switch on" role="switch" aria-checked="true" aria-label="Reduce motion follows system"></span></div></div>
       </section>`}
     </main>
   </div>
 </div>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + html);
+document.body.insertAdjacentHTML("afterbegin", html);
 YF.boot("screen 14 · application settings");
 </script>
 </body>

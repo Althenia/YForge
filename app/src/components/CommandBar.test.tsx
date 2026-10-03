@@ -1,7 +1,8 @@
 import { clearMocks } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChangeCounts } from "../ipc/bindings/ChangeCounts";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { NOTHING_TO_REDO, type RedoState, type UndoState } from "../state/activityModel";
 import type { RepoActions } from "../state/repoActions";
 import type { SyncState } from "../state/syncModel";
 import { CommandBar } from "./CommandBar";
@@ -25,7 +26,7 @@ function mount(head: RepoSnapshot["head"]) {
   const calls: unknown[][] = [];
   const actions = { sync: () => ({ kind: "idle" }), openBranchPicker: (...args: unknown[]) => calls.push(args) } as unknown as RepoActions;
   const mounted = mountWithApp(() => (
-    <CommandBar snapshot={snapshot(head)} actions={actions} undo={{ kind: "unavailable", reason: "" }} onUndo={() => undefined} onPalette={() => undefined} onSearch={() => undefined} />
+    <CommandBar snapshot={snapshot(head)} actions={actions} undo={{ kind: "unavailable", reason: "" }} redo={{ kind: "unavailable", reason: NOTHING_TO_REDO }} onUndo={() => undefined} onRedo={() => undefined} onPalette={() => undefined} onSearch={() => undefined} />
   ));
   dispose = mounted.dispose;
   return { ...mounted, calls };
@@ -81,7 +82,7 @@ function mountActions(shape: RepoSnapshot, sync: SyncState = { kind: "idle" }) {
     openCreateBranch: () => calls.push("branch"),
   } as unknown as RepoActions;
   const mounted = mountWithApp(() => (
-    <CommandBar snapshot={shape} actions={actions} undo={{ kind: "unavailable", reason: "Nothing to undo" }} onUndo={() => undefined} onPalette={() => undefined} onSearch={() => undefined} />
+    <CommandBar snapshot={shape} actions={actions} undo={{ kind: "unavailable", reason: "Nothing to undo" }} redo={{ kind: "unavailable", reason: NOTHING_TO_REDO }} onUndo={() => undefined} onRedo={() => undefined} onPalette={() => undefined} onSearch={() => undefined} />
   ));
   dispose = mounted.dispose;
   const button = (label: string) =>
@@ -151,5 +152,80 @@ describe("fetch, pull, and push", () => {
     expect(button("Pull")?.disabled).toBe(true);
     expect(button("Pull")?.title).toBe("No upstream branch to pull from");
     expect(button("Push")).toBeUndefined();
+  });
+});
+
+describe("undo and redo controls (S61)", () => {
+  function mountHistory(undo: UndoState, redo: RedoState) {
+    Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+    const onUndo = vi.fn();
+    const onRedo = vi.fn();
+    const actions = { sync: () => ({ kind: "idle" }) } as unknown as RepoActions;
+    const mounted = mountWithApp(() => <CommandBar snapshot={tracked()} actions={actions} undo={undo} redo={redo} onUndo={onUndo} onRedo={onRedo} onPalette={() => undefined} onSearch={() => undefined} />);
+    dispose = mounted.dispose;
+    const redoButton = () => [...mounted.host.querySelectorAll<HTMLButtonElement>(".commandbar button.btn")].find((entry) => (entry.textContent ?? "").trim() === "Redo");
+    const undoButton = () => [...mounted.host.querySelectorAll<HTMLButtonElement>(".commandbar button.btn")].find((entry) => (entry.textContent ?? "").trim() === "Undo");
+    return { ...mounted, onUndo, onRedo, redoButton, undoButton };
+  }
+
+  it("shows Redo beside Undo, aria-disabled with Nothing to redo, and does not act on a click", () => {
+    const { redoButton, undoButton, onRedo } = mountHistory({ kind: "unavailable", reason: "Nothing to undo" }, { kind: "unavailable", reason: NOTHING_TO_REDO });
+
+    expect(redoButton()?.getAttribute("aria-disabled")).toBe("true");
+    expect(redoButton()?.title).toBe("Nothing to redo");
+    expect(redoButton()?.disabled).toBe(false);
+    expect(undoButton()?.nextElementSibling).toBe(redoButton());
+    redoButton()?.click();
+    expect(onRedo).not.toHaveBeenCalled();
+  });
+
+  it("keeps the reason in the tooltip, not a title, when Redo is only an icon", () => {
+    const { redoButton } = mountHistory({ kind: "unavailable", reason: "Nothing to undo" }, { kind: "unavailable", reason: NOTHING_TO_REDO });
+    Object.defineProperty(window, "innerWidth", { value: 900, configurable: true });
+    window.dispatchEvent(new Event("resize"));
+
+    const icon = [...document.querySelectorAll<HTMLButtonElement>(".commandbar button.btn.icon-only")].find((entry) => entry.getAttribute("aria-label") === "Redo");
+    expect(icon?.getAttribute("aria-disabled")).toBe("true");
+    expect(icon?.dataset.tip).toBe("Nothing to redo");
+    expect(icon?.hasAttribute("title")).toBe(false);
+    expect(icon?.getAttribute("aria-description")).toBe("Nothing to redo");
+    expect(redoButton()).toBeUndefined();
+  });
+
+  it("names Undo and Redo by what they revert, without repeating the verb", () => {
+    const { redoButton, undoButton } = mountHistory(
+      {
+        kind: "available",
+        entry: {
+          id: 1,
+          repo: "/r",
+          operation: "Discard",
+          summary: "Discarded 2 files",
+          started_at: 0,
+          duration_ms: 10,
+          ok: true,
+          local: true,
+          toast: true,
+          error: null,
+          commands: [],
+          undo: { kind: "available", scope: "Undo discard: restores 2 files" },
+        },
+        scope: "Undo discard: restores 2 files",
+      },
+      { kind: "available", scope: "Redo: puts 2 files back" },
+    );
+
+    expect(undoButton()?.getAttribute("aria-label")).toBe("Undo discard: restores 2 files");
+    expect(redoButton()?.getAttribute("aria-label")).toBe("Redo: puts 2 files back");
+  });
+
+  it("runs Redo when there is something to redo and says what it redoes", () => {
+    const { redoButton, onRedo } = mountHistory({ kind: "unavailable", reason: "" }, { kind: "available", scope: "Redo: moves main forward to abc1234" });
+
+    expect(redoButton()?.getAttribute("aria-disabled")).toBeNull();
+    expect(redoButton()?.title).toBe("Redo: moves main forward to abc1234");
+    redoButton()?.click();
+    expect(onRedo).toHaveBeenCalledOnce();
   });
 });

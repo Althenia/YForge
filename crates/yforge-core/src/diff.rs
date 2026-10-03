@@ -254,6 +254,27 @@ pub(crate) fn read_commit_diff(
     parse_diff(&git::run(root, &args)?)
 }
 
+pub(crate) fn read_worktree_diff(
+    root: &Path,
+    base: &str,
+    file: &str,
+    original: Option<&str>,
+) -> Result<ParsedDiff, CoreError> {
+    let mut args: Vec<&str> = DIFF_FLAGS.to_vec();
+    args.extend([
+        if original.is_some() {
+            "-M"
+        } else {
+            "--no-renames"
+        },
+        base,
+        "--",
+    ]);
+    args.extend(original);
+    args.push(file);
+    parse_diff(&git::run(root, &args)?)
+}
+
 fn blob_size(root: &Path, spec: &str) -> Result<Option<u64>, CoreError> {
     let completed = git::run_unchecked(root, &["cat-file", "-s", spec], None)?;
     Ok(completed

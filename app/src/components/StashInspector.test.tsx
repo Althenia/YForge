@@ -10,11 +10,13 @@ import { buttonNamed, flush, mountWithApp, stubLayout, testSession } from "./tes
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe = () => undefined; unobserve = () => undefined; disconnect = () => undefined; });
   restoreLayout = stubLayout();
   calls = [];
+  toolsStatus = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 });
 
 afterEach(async () => {
@@ -37,6 +39,8 @@ function mount(files: StashDetails["files"], fail = false) {
   const actionCalls: unknown[][] = [];
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+    if (cmd === "external_tools_status") return toolsStatus;
+    if (cmd === "app_ui_prefs_load") return { palette_recents: [], last_parent_folder: null, file_list_mode: "path" };
     if (cmd === "stash_details") {
       if (fail) throw { kind: "invalid_request", message: "stash@{1} is not the stash it was", output: null };
       return details(files);
@@ -117,5 +121,48 @@ describe("file view entry", () => {
       { file: "src/a.ts", rev: SHA, source: "stash@{1}" },
       { file: "notes.txt", rev: "7".repeat(40), source: "stash@{1} (untracked)" },
     ]);
+  });
+});
+
+describe("stash files tree", () => {
+  it("groups the stash files by folder when the tree view is chosen", async () => {
+    const { host, opened } = mount([tracked, untracked]);
+    await flush(60);
+
+    host.querySelector<HTMLButtonElement>('section[aria-label="Files"] button[aria-label="Tree view"]')?.click();
+    await flush();
+
+    const items = [...host.querySelectorAll<HTMLElement>('section[aria-label="Files"] [role="tree"] [role="treeitem"]')];
+    expect(items.map((row) => [row.querySelector(".file")?.textContent, row.getAttribute("aria-level"), row.getAttribute("aria-expanded")])).toEqual([
+      ["src", "1", "true"],
+      ["a.ts", "2", null],
+      ["notes.txt", "1", null],
+    ]);
+    items[1]?.click();
+    expect(opened).toEqual([{ source: "stash", index: 1, sha: SHA, file: "src/a.ts" }]);
+  });
+
+  it("offers Open in editor on every stash file row, and keeps it aria-disabled with its reason when no editor is chosen", async () => {
+    const enabled = mount([tracked, untracked]);
+    await flush(60);
+    const button = enabled.host.querySelector<HTMLButtonElement>('button[aria-label="Open src/a.ts in editor"]');
+    expect(button?.getAttribute("aria-disabled")).toBeNull();
+    button?.click();
+    await flush();
+    expect(calls.find((call) => call.cmd === "open_in_editor")?.args).toEqual({ path: "/r", file: "src/a.ts" });
+    expect(enabled.host.querySelector('button[aria-label="Open notes.txt in editor"]')).not.toBeNull();
+    enabled.dispose();
+    document.body.innerHTML = "";
+    calls = [];
+
+    toolsStatus = { editor: null, diff: null, merge: null };
+    const disabled = mount([tracked]);
+    await flush(60);
+    const off = disabled.host.querySelector<HTMLButtonElement>('button[aria-label="Open src/a.ts in editor"]');
+    expect(off?.getAttribute("aria-disabled")).toBe("true");
+    expect(off?.dataset.tip).toBe("Open in editor. Choose an external editor in Settings → External tools");
+    off?.click();
+    await flush();
+    expect(calls.some((call) => call.cmd === "open_in_editor")).toBe(false);
   });
 });

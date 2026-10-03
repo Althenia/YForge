@@ -1,10 +1,12 @@
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { useQuery } from "./query";
 import { useRouterState } from "@tanstack/solid-router";
-import { createContext, createEffect, createMemo, createSignal, onCleanup, useContext } from "solid-js";
+import { createContext, createEffect, createMemo, createSignal, on, onCleanup, useContext } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import type { AuthReply } from "../ipc/bindings/AuthReply";
+import type { ChangeArea } from "../ipc/bindings/ChangeArea";
+import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RepoAlias } from "../ipc/bindings/RepoAlias";
 import type { RepoSettings } from "../ipc/bindings/RepoSettings";
@@ -13,16 +15,18 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { AppRouter } from "../routes";
 import { viewOf } from "../routes";
 import { createStoreValue } from "./clientStore";
-import { createAppUiPrefs } from "./appUiPrefs";
+import { createAppUiPrefs, DEFAULT_ZOOM_PERCENT, withInspectorToggled, withSidebarToggled, withSyntaxToggled, withZoom, type ZoomMove } from "./appUiPrefs";
+import { requestFileHistory } from "./fileHistoryRequest";
+import { setSyntaxHighlighting } from "./syntax";
 import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
 import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
-import { refreshToasts, undoState, upsertEntry, type Toast } from "./activityModel";
+import { redoState, refreshToasts, undoState, upsertEntry, withRedoChange, type RedoScopes, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
-import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type PaletteApp, type PaletteContext, type PanelRequest } from "./palette";
+import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type LogTab, type PaletteApp, type PaletteContext, type PanelRequest, type PickerOption } from "./palette";
 import type { RepoActions } from "./repoActions";
 import type { PlatformActions } from "./platformActions";
-import { isEditable, menuChecked, menuEnabled, runMenuAction, type MenuDeps } from "./menuBar";
+import { isEditable, menuChecked, menuEnabled, RELEASE_NOTES_URL, runMenuAction, type MenuDeps } from "./menuBar";
 import { SHORTCUTS } from "./shortcuts";
 import { applyAppearance, defaultSettings, effectivePullMode } from "./settingsModel";
 import type { TabGroupColor } from "../ipc/bindings/TabGroupColor";
@@ -91,10 +95,17 @@ export type RepoBridge = {
   loadCommits: () => Promise<CommitChoice[]>;
   openPanel: (panel: PanelRequest) => void;
   platform: PlatformActions;
+  viewChanges: () => void;
+  redo: () => Promise<void>;
+  refresh: () => Promise<void>;
+  createTag: (name: string, message: string) => Promise<void>;
 };
 
 const PALETTE_SHORTCUT = SHORTCUTS.palette;
 const UNDO_SHORTCUT = SHORTCUTS.undo;
+const REDO_SHORTCUT = SHORTCUTS.redo;
+const REPOSITORY_SEARCH_SHORTCUT = SHORTCUTS.openRepoSearch;
+const NO_REPOSITORY_OPEN = "Open a repository first";
 
 const aliasMap = (stored: readonly RepoAlias[]): Aliases => Object.fromEntries(stored.map((entry) => [entry.path, entry.alias]));
 
@@ -111,7 +122,13 @@ export function createAppState(router: AppRouter) {
   const [fatal, setFatal] = createSignal<string | undefined>();
   const [activity, setActivity] = createSignal<ActivityEntry[]>([]);
   const [drawerOpen, setDrawerOpen] = createSignal(false);
-  const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [paletteOpen, setPaletteOpenRaw] = createSignal(false);
+  const [paletteScope, setPaletteScope] = createSignal<"repositories" | undefined>();
+  const [paletteSession, setPaletteSession] = createSignal(1);
+  const [redoScopes, setRedoScopes] = createSignal<RedoScopes>({});
+  const [shortcutsOpen, setShortcutsOpen] = createSignal(false);
+  const [logsTab, setLogsTab] = createSignal<LogTab | undefined>();
+  const [profileList, setProfileList] = createSignal<ProfileList | undefined>();
   const [prompts, setPrompts] = createSignal<PendingPrompt[]>([]);
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
@@ -143,6 +160,37 @@ export function createAppState(router: AppRouter) {
     const tab = activeTab();
     return tab?.kind === "repo" ? tab.path : undefined;
   };
+
+  const setPaletteOpen = (open: boolean): void => {
+    if (!open) setPaletteScope(undefined);
+    setPaletteOpenRaw(open);
+  };
+
+  function openRepositorySearch(): void {
+    setPaletteScope("repositories");
+    setPaletteSession((session) => session + 1);
+    setPaletteOpenRaw(true);
+  }
+
+  const externalTools = useQuery(
+    () => ({
+      queryKey: ["external-tools", activePath() ?? ""] as const,
+      queryFn: () => client.externalToolsStatus(activePath() as string),
+      enabled: activePath() !== undefined,
+      staleTime: Infinity,
+    }),
+    () => queryClient,
+  );
+
+  const lfsStatus = useQuery(
+    () => ({
+      queryKey: ["lfs-status", activePath() ?? ""] as const,
+      queryFn: () => client.lfsStatus(activePath() as string),
+      enabled: activePath() !== undefined,
+      staleTime: Infinity,
+    }),
+    () => queryClient,
+  );
 
   const activeRepoSettings = useQuery(
     () => ({
@@ -277,6 +325,7 @@ export function createAppState(router: AppRouter) {
       setGroupList(restored.groups);
       showTab(restored.tabs[restored.active]);
       setReady(true);
+      void loadProfiles();
     } catch (failure) {
       setFatal(asMessage(failure));
     } finally {
@@ -338,7 +387,98 @@ export function createAppState(router: AppRouter) {
     const path = activePath();
     if (path === undefined) return;
     try {
-      await client.openPath(path, with_);
+      await (with_ === "editor" ? client.openInEditor(path, null) : client.openPath(path, with_));
+    } catch (failure) {
+      setNotice(asMessage(failure));
+    }
+  }
+
+  async function openFileInEditor(file: string): Promise<void> {
+    const path = activePath();
+    if (path === undefined) return;
+    try {
+      await client.openInEditor(path, file);
+    } catch (failure) {
+      setNotice(asMessage(failure));
+    }
+  }
+
+  async function openFileInTool(file: string, area: ChangeArea): Promise<void> {
+    const path = activePath();
+    if (path === undefined) return;
+    try {
+      if (area === "conflicted") {
+        await client.openInMergeTool(path, file);
+        await bridge()?.refresh();
+      } else await client.openInDiffTool(path, file, { kind: area === "staged" ? "staged" : "unstaged" });
+    } catch (failure) {
+      setNotice(asMessage(failure));
+    }
+  }
+
+  async function initializeLfs(): Promise<void> {
+    const path = activePath();
+    if (path === undefined) return;
+    try {
+      await client.lfsInitialize(path);
+      await lfsStatus.refetch();
+    } catch (failure) {
+      setNotice(asMessage(failure));
+    }
+  }
+
+  const zoom = (move: ZoomMove): void => uiPrefs.update((prefs) => withZoom(prefs, move));
+
+  function toggleTheme(): void {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    void saveSettings({ ...settings(), theme: next }).then((problem) => problem === undefined || setNotice(problem));
+  }
+
+  function openReleaseNotes(): void {
+    try {
+      client.openUrl(RELEASE_NOTES_URL);
+    } catch (failure) {
+      setNotice(asMessage(failure));
+    }
+  }
+
+  async function loadProfiles(): Promise<ProfileList | undefined> {
+    try {
+      const list = await client.profiles();
+      setProfileList(list ?? undefined);
+      return list ?? undefined;
+    } catch (failure) {
+      setNotice(asMessage(failure));
+      return undefined;
+    }
+  }
+
+  const activeProfile = () => profileList()?.profiles.find((profile) => profile.id === profileList()?.active);
+
+  async function profileOptions(): Promise<PickerOption[]> {
+    const list = await loadProfiles();
+    return (list?.profiles ?? []).map((profile) => ({
+      value: profile.id,
+      label: profile.name,
+      note: `${profile.author_name} <${profile.author_email}>`,
+      ...(profile.id === list?.active ? { disabledReason: "This is the active profile" } : {}),
+    }));
+  }
+
+  async function switchProfile(id: string): Promise<void> {
+    try {
+      await client.sessionSave(sessionOf(tabs()));
+      await client.profileSwitch(id);
+      const [session, list] = await Promise.all([client.sessionLoad(), client.profiles()]);
+      const opened = await Promise.all(session.tabs.map((path) => client.repoOpen(path).then((snapshot) => snapshot, () => undefined)));
+      setMainRoots({});
+      opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
+      const restored = groupTabs(restoreTabs(session, undefined), mainRoots());
+      setProfileList(list ?? undefined);
+      setClosedTabs([]);
+      setTabList(restored.tabs);
+      setGroupList(restored.groups);
+      showTab(restored.tabs[restored.active]);
     } catch (failure) {
       setNotice(asMessage(failure));
     }
@@ -363,6 +503,22 @@ export function createAppState(router: AppRouter) {
     openSearch: () => bridge()?.openSearch(),
     openExternal: (with_) => void openExternal(with_),
     setTheme: (theme) => void saveSettings({ ...settings(), theme }),
+    toggleTheme,
+    openRepositorySearch,
+    openShortcuts: () => setShortcutsOpen(true),
+    openLogs: (tab) => setLogsTab(tab),
+    openDrawer: () => setDrawerOpen(true),
+    openReleaseNotes,
+    zoom,
+    toggleSidebar: () => uiPrefs.update(withSidebarToggled),
+    toggleInspector: () => uiPrefs.update(withInspectorToggled),
+    toggleSyntaxHighlighting: () => uiPrefs.update(withSyntaxToggled),
+    switchProfile: (id) => void switchProfile(id),
+    profileList,
+    profileOptions,
+    openFileInTool: (file, area) => void openFileInTool(file, area),
+    openFileInEditor: (file) => void openFileInEditor(file),
+    initializeLfs: () => void initializeLfs(),
     openRepository: (path) => void openRepository(path),
     repositories: () => [
       ...new Set([
@@ -382,7 +538,12 @@ export function createAppState(router: AppRouter) {
       selection: current?.selectedShas() ?? [],
       pullMode: effectivePullMode(settings(), path === undefined ? undefined : repoSettings(path)).mode,
       offline: !online(),
-      undo: path === undefined ? { kind: "unavailable", reason: "Open a repository first" } : undoState(activity(), path),
+      undo: path === undefined ? { kind: "unavailable", reason: NO_REPOSITORY_OPEN } : undoState(activity(), path),
+      redo: path === undefined ? { kind: "unavailable", reason: NO_REPOSITORY_OPEN } : redoState(redoScopes(), path),
+      zoomPercent: uiPrefs.prefs().zoom_percent,
+      theme: settings().theme,
+      externalTools: externalTools.data ?? undefined,
+      lfs: lfsStatus.data ?? undefined,
       anchor: { left: Math.max(16, window.innerWidth / 2 - 160), top: 140 },
       app: paletteApp(),
       platform: current?.platform,
@@ -392,6 +553,11 @@ export function createAppState(router: AppRouter) {
       focusComposer: () => current?.focusComposer(),
       loadCommits: () => current?.loadCommits() ?? Promise.resolve([]),
       openPanel: (panel) => current?.openPanel(panel),
+      trackedFiles: () => (path === undefined ? Promise.resolve([]) : client.trackedFiles(path)),
+      openFileHistory: (file, view) => requestFileHistory({ file, view }),
+      viewChanges: () => current?.viewChanges(),
+      redoLast: () => void current?.redo(),
+      createTag: (name, message) => void current?.createTag(name, message),
     };
   }
 
@@ -403,16 +569,16 @@ export function createAppState(router: AppRouter) {
           callback: (event: KeyboardEvent) => {
             if (event.defaultPrevented) return;
             event.preventDefault();
-            setPaletteOpen((open) => !open);
+            setPaletteOpen(!paletteOpen());
           },
         },
         ...shortcutCommands(buildCommands(paletteContext()))
           .filter((command) => command.shortcut !== PALETTE_SHORTCUT)
           .map((command) => ({
             hotkey: hotkeyOf(command.shortcut as string),
-            options: { ignoreInputs: command.shortcut === UNDO_SHORTCUT },
+            options: { ignoreInputs: command.shortcut === UNDO_SHORTCUT || command.shortcut === REDO_SHORTCUT },
             callback: (event: KeyboardEvent) => {
-              if (event.defaultPrevented || paletteOpen() || prompts().length > 0) return;
+              if (event.defaultPrevented || (paletteOpen() && command.shortcut !== REPOSITORY_SEARCH_SHORTCUT) || prompts().length > 0) return;
               event.preventDefault();
               if (command.disabledReason === undefined) command.run([]);
             },
@@ -450,6 +616,7 @@ export function createAppState(router: AppRouter) {
         push(true);
       },
       openPalette: () => setPaletteOpen(true),
+      openShortcuts: () => setShortcutsOpen(true),
       openUrl: (url) => client.openUrl(url),
       editableFocused: () => isEditable(document.activeElement),
       editCommand: (name) => void document.execCommand(name),
@@ -461,6 +628,28 @@ export function createAppState(router: AppRouter) {
   function bind(): void {
     bindShortcuts();
     bindMenuBar();
+    uiPrefs.ensure();
+    createEffect(
+      on(
+        () => uiPrefs.prefs().zoom_percent,
+        (percent, previous) => {
+          if (percent === (previous ?? DEFAULT_ZOOM_PERCENT)) return;
+          client.setZoom(percent / 100).catch((failure) => setNotice(asMessage(failure)));
+        },
+      ),
+    );
+    createEffect(() => setSyntaxHighlighting(uiPrefs.prefs().syntax_highlighting));
+    createEffect(
+      on(
+        () => [paletteOpen(), screen().kind] as const,
+        () => {
+          if (activePath() === undefined) return;
+          void externalTools.refetch();
+          void lfsStatus.refetch();
+        },
+        { defer: true },
+      ),
+    );
     const colorScheme = window.matchMedia("(prefers-color-scheme: light)");
     const root = document.documentElement;
     const appearance = () => applyAppearance(root, settings(), colorScheme.matches);
@@ -470,6 +659,7 @@ export function createAppState(router: AppRouter) {
     const listeners = [
       client.onOpenPathRequested((request) => void openRepository(request.path)),
       client.onActivity(record),
+      client.onRedoChanged((change) => setRedoScopes((scopes) => withRedoChange(scopes, change))),
       client.onAuthPrompt((event) => setPrompts((queue) => enqueuePrompt(queue, event))),
     ];
     onCleanup(() => listeners.forEach((listener) => void listener.then((stop) => stop())));
@@ -508,6 +698,23 @@ export function createAppState(router: AppRouter) {
     },
     paletteOpen,
     setPaletteOpen,
+    paletteScope,
+    paletteSession,
+    openRepositorySearch,
+    shortcutsOpen,
+    closeShortcuts: () => setShortcutsOpen(false),
+    logsTab,
+    openLogs: (tab: LogTab) => setLogsTab(tab),
+    closeLogs: () => setLogsTab(undefined),
+    activeProfile,
+    profileList,
+    loadProfiles,
+    switchProfile,
+    zoomPercent: () => uiPrefs.prefs().zoom_percent,
+    sidebarHidden: () => uiPrefs.prefs().sidebar_hidden,
+    inspectorHidden: () => uiPrefs.prefs().inspector_hidden,
+    showInspector: () => uiPrefs.update((prefs) => (prefs.inspector_hidden ? { ...prefs, inspector_hidden: false } : prefs)),
+    redoScopes,
     prompts,
     toasts,
     dismissToast: (id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)),

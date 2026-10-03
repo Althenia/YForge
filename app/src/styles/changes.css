@@ -1,0 +1,331 @@
+.changes-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-2);
+  min-height: var(--controls-height);
+  padding-top: var(--spacing-3);
+  padding-bottom: var(--spacing-2);
+}
+
+.changes-head h2 .count,
+.lhead-title .count {
+  color: var(--colors-text-muted);
+}
+
+.ihead-tools,
+.lhead-tools,
+.list-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.seg.seg-icon {
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg.seg-icon .icon-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.seg.seg-icon .icon-btn.on {
+  background: var(--material-control-hover);
+  color: var(--colors-text);
+  box-shadow: inset 0 0 0 1px var(--colors-rule-panel);
+}
+
+.lhead .icon-btn.dense,
+.ihead-tools > .list-tools > .icon-btn.dense {
+  flex: none;
+}
+
+.frow.picked,
+.frow.picked:hover {
+  background: var(--colors-selection);
+}
+
+.lhead .btn.sm {
+  flex: none;
+}
+
+.frow .row-move {
+  flex: none;
+  background: none;
+  box-shadow: none;
+  color: var(--colors-text-muted);
+}
+
+.frow:focus-within .row-move,
+.frow:focus .row-move,
+.frow.sel .row-move {
+  background: var(--material-control);
+  box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
+  color: var(--colors-text);
+}
+
+@media (hover: hover) {
+  .frow:hover .row-move {
+    background: var(--material-control);
+    box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
+    color: var(--colors-text);
+  }
+  .frow .row-move:hover {
+    color: var(--colors-accent-ink);
+    box-shadow: inset 0 0 0 1px var(--colors-accent);
+  }
+}
+
+.frow.tree {
+  gap: var(--spacing-1-5);
+}
+
+.frow.drow {
+  cursor: var(--cursors-action);
+}
+
+.guides {
+  display: flex;
+  flex: none;
+  align-self: stretch;
+}
+
+.guide {
+  width: 14px;
+  border-left: 1px solid var(--colors-text-muted);
+  margin-left: 6px;
+}
+
+.guide:first-child {
+  margin-left: 2px;
+}
+
+.tree-chev,
+.folder-icon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  color: var(--colors-text-muted);
+}
+
+.tree-chev {
+  transform: none;
+  transition: transform var(--motion-quick) var(--ease-standard);
+}
+
+.tree-chev.closed {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-chev {
+    transition: none;
+  }
+}
+
+.dcount {
+  flex: none;
+  font: var(--font-ui-micro);
+  font-family: var(--typography-ref-font-family);
+  font-variant-numeric: tabular-nums;
+  color: var(--colors-text-muted);
+}
+
+.drow .dcount {
+  margin-right: auto;
+}
+
+.drow .acts {
+  margin-left: 0;
+}
+
+.composer-tabs {
+  display: flex;
+  gap: var(--spacing-1);
+}
+
+.composer-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1-5);
+  height: var(--controls-height-dense);
+  padding: 0 var(--spacing-3);
+  border-radius: var(--rounded-pill);
+  background: none;
+  color: var(--colors-text-muted);
+  font: var(--font-ui-caption);
+}
+
+.composer-tab.on {
+  background: var(--colors-selection);
+  box-shadow: inset 0 0 0 1px var(--colors-selection-edge);
+  color: var(--colors-text);
+}
+
+.composer-panel {
+  display: grid;
+  gap: var(--spacing-2);
+  min-width: 0;
+}
+
+.input.summary-field {
+  height: var(--controls-height);
+  padding-right: var(--spacing-1);
+}
+
+.input.summary-field input {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.input.summary-field.drafted {
+  box-shadow: inset 0 0 0 1px var(--colors-info);
+}
+
+.field-tools {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.field-tools .count {
+  padding: 0 var(--spacing-1);
+  background: none;
+}
+
+.field-btn.icon-btn {
+  background: none;
+  box-shadow: none;
+}
+
+.ai-btn .icon,
+.ai-mark {
+  color: var(--colors-info-ink);
+}
+
+.ai-btn[aria-disabled="true"] .icon {
+  color: var(--colors-text-muted);
+}
+
+.ai-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--rounded-pill);
+  background: var(--colors-info-tint);
+}
+
+.draft-notes {
+  display: grid;
+  gap: var(--spacing-1);
+  margin: 0;
+  padding: 0 var(--spacing-1);
+  list-style: none;
+  color: var(--colors-text-muted);
+  font: var(--font-ui-small);
+  overflow-wrap: anywhere;
+}
+
+.composer .input.area {
+  flex: none;
+  overflow: hidden;
+}
+
+.composer .input.area textarea {
+  overflow-y: auto;
+}
+
+.composer-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+}
+
+.composer-identity {
+  overflow: hidden;
+  color: var(--colors-text-muted);
+  font: var(--font-ui-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1-5);
+  height: var(--controls-height-chip);
+  padding: 0 var(--spacing-3);
+  border-radius: var(--rounded-pill);
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
+  color: var(--colors-text-muted);
+  font: var(--font-ui-caption);
+  white-space: nowrap;
+}
+
+.chip-toggle[aria-checked="true"] {
+  background: var(--colors-accent-tint);
+  box-shadow: inset 0 0 0 1px var(--colors-accent);
+  color: var(--colors-accent-ink);
+}
+
+@media (hover: hover) {
+  .chip-toggle:not([aria-disabled="true"]):hover {
+    color: var(--colors-text);
+  }
+  .chip-toggle[aria-checked="true"]:not([aria-disabled="true"]):hover {
+    color: var(--colors-accent-ink);
+  }
+}
+
+.composer-go {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+}
+
+.composer-go.btn,
+.composer-go > .btn:first-child {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+
+.composer-go .btn-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-go .hint {
+  flex: none;
+}
+
+.frow.unchanged {
+  color: var(--colors-text-muted);
+}
+
+.frow.unchanged .path .file {
+  color: var(--colors-text-muted);
+}
+
+.badge.st-unchanged {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--colors-rule);
+}
+
+.unchanged-word {
+  flex: none;
+  margin-left: auto;
+  font: var(--font-ui-micro);
+  color: var(--colors-text-muted);
+}

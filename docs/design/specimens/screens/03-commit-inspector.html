@@ -46,7 +46,7 @@ const inspector = `<aside class="panel inspector" aria-label="Commit">
   </div>
   <div class="activity" style="padding: 10px 16px 14px">Select a file to open its diff. Esc returns to the graph.</div>
 </aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>`);
 YF.boot("screen 3 · commit inspector");
 YF.mountGraph({ selected: 4, hovered: 4 });
 </script>

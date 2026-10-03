@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { relativeAge } from "../format";
 import type { LaunchpadPull } from "../ipc/bindings/LaunchpadPull";
 import type { Wip } from "../ipc/bindings/Wip";
@@ -34,7 +34,10 @@ import { epochSeconds } from "../state/platformModel";
 import { Icon } from "./Icon";
 import { IssueChips } from "./IssueChip";
 import { Select } from "./Select";
+import { RepositoriesTab } from "./RepositoriesTab";
+import { ScanFolderDialog } from "./ScanFolderDialog";
 import { tip } from "./Tooltip";
+import { createRepositories } from "../state/repositories";
 
 function SourceLines(props: { lines: readonly SourceLine[] }) {
   return (
@@ -54,7 +57,9 @@ function SourceLines(props: { lines: readonly SourceLine[] }) {
 export function Launchpad() {
   const app = useApp();
   const launchpad = createLaunchpad();
-  const [tab, setTab] = createSignal<LaunchpadTab>("pulls");
+  const repos = createRepositories();
+  const [scanning, setScanning] = createSignal(false);
+  const [tab, setTab] = createSignal<LaunchpadTab>("repos");
   const [query, setQuery] = createSignal("");
   const [source, setSource] = createSignal(ALL_SOURCES);
   const now = useNow();
@@ -66,6 +71,7 @@ export function Launchpad() {
   const allPulls = createMemo(() => launchpad.pullSources().flatMap((entry) => entry.pulls));
   const pullTotal = () => launchpad.pullSources().reduce((sum, entry) => sum + countOf(entry.pulls.length, entry), 0);
   const counts = (): Record<LaunchpadTab, string> => ({
+    repos: countText(repos.repos().length, repos.loading()),
     pulls: countText(pullTotal(), launchpad.pullSources().some((entry) => entry.loading)),
     issues: countText(launchpad.jira.total(), launchpad.jira.loading()),
     wips: countText(launchpad.wips().length, launchpad.wipsLoading()),
@@ -77,6 +83,20 @@ export function Launchpad() {
   const choose = (next: LaunchpadTab) => {
     setTab(next);
     setSource(ALL_SOURCES);
+  };
+
+  const [dropping, setDropping] = createSignal(false);
+  onMount(() => {
+    const unlisten = client.onFolderDrop((paths) => {
+      setDropping(false);
+      const first = paths[0];
+      if (first !== undefined) void app.openRepository(first);
+    });
+    onCleanup(() => void unlisten.then((stop) => stop()));
+  });
+  const openFolder = async () => {
+    const picked = await client.pickFolder("Open a repository");
+    if (picked !== undefined) await app.openRepository(picked);
   };
 
   const browse = (url: string) => {
@@ -157,13 +177,34 @@ export function Launchpad() {
   );
 
   return (
-    <main class="launchpad" aria-label="Launchpad">
+    <main class="launchpad" classList={{ dropping: dropping() }} aria-label="Launchpad" onDragEnter={() => setDropping(true)} onDragLeave={() => setDropping(false)}>
       <div class="lp">
         <div class="lp-head">
           <Icon name="launchpad" size={20} />
           <h1>Launchpad</h1>
           <span class="spacer" />
-          <button type="button" class="icon-btn" aria-busy={launchpad.loading()} {...tip("Refresh")} onClick={launchpad.refresh}>
+          <button type="button" class="btn primary" onClick={() => void openFolder()}>
+            <Icon name="folder" />
+            Open…
+          </button>
+          <button type="button" class="btn" onClick={() => app.setEntryDialog("clone")}>
+            <Icon name="remote" />
+            Clone…
+          </button>
+          <button type="button" class="btn" onClick={() => app.setEntryDialog("create")}>
+            <Icon name="plus" />
+            Create…
+          </button>
+          <button
+            type="button"
+            class="icon-btn"
+            aria-busy={launchpad.loading()}
+            {...tip("Refresh")}
+            onClick={() => {
+              launchpad.refresh();
+              repos.refresh();
+            }}
+          >
             <Icon name="sync" />
           </button>
         </div>
@@ -176,15 +217,20 @@ export function Launchpad() {
             )}
           </For>
         </div>
-        <div class="lp-tools">
-          <label class="input">
-            <Icon name="search" />
-            <input type="text" aria-label="Search Launchpad" placeholder="Search title, number, key, or repository" spellcheck={false} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
-          </label>
-          <Show when={tab() !== "wips"}>
-            <Select label="Source" value={source()} options={choices()} onChange={setSource} />
-          </Show>
-        </div>
+        <Show when={tab() === "repos"}>
+          <RepositoriesTab repos={repos} onAddFolder={() => setScanning(true)} />
+        </Show>
+        <Show when={tab() !== "repos"}>
+          <div class="lp-tools">
+            <label class="input">
+              <Icon name="search" />
+              <input type="text" aria-label="Search Launchpad" placeholder="Search title, number, key, or repository" spellcheck={false} value={query()} onInput={(event) => setQuery(event.currentTarget.value)} />
+            </label>
+            <Show when={tab() !== "wips"}>
+              <Select label="Source" value={source()} options={choices()} onChange={setSource} />
+            </Show>
+          </div>
+        </Show>
 
         <Show when={tab() === "pulls"}>
           <Show
@@ -345,7 +391,10 @@ export function Launchpad() {
             </p>
           </Show>
         </Show>
-        <p class="field-note">The Launchpad only reads. It never changes a pull request, an issue, or a repository.</p>
+        <p class="field-note">The Launchpad only reads. It never changes a pull request, an issue, or a repository; Add folder, Remove from list, and Stop scanning change only this list.</p>
+        <Show when={scanning()}>
+          <ScanFolderDialog onClose={() => setScanning(false)} onAdded={repos.added} />
+        </Show>
       </div>
     </main>
   );

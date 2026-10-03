@@ -59,7 +59,7 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
 </aside>`;
 
 const chips = `${YF.headChip("main (unborn)", "")}<span class="chip">no commits yet</span><span class="chip">${YF.glyph("changes")}Changes <span class="st st-U">U 2</span></span>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs({ repo: "empty-repo", meta: "", others: ["sample"] })}${YF.command({ crumb: ["empty-repo", "main worktree", "main"], sync: "Publish", syncClass: "disabled" })}${YF.strip({ chips, right: "" })}<div class="main">${sidebar}${emptyState}${inspector}</div>${YF.activity({ command: "git init", duration: "0.1 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs({ repo: "empty-repo", meta: "", others: ["sample"] })}${YF.command({ crumb: ["empty-repo", "main worktree", "main"], sync: "Publish", syncClass: "disabled" })}${YF.strip({ chips, right: "" })}<div class="main">${sidebar}${emptyState}${inspector}</div>${YF.activity({ command: "git init", duration: "0.1 s", action: "" })}</div>`);
 YF.boot("screen 15 · empty repository");
 </script>
 </body>

@@ -66,7 +66,7 @@ const panel = `<section class="panel rpanel" aria-label="Worktrees">
     <p class="hint">Integrate rebases the worktree's branch onto the target, then fast-forwards the target, so the history stays linear. A worktree is opened as its own tab, grouped under this repository. Disabled controls give their reason in a tooltip.</p>
   </div>
 </section>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${tabsBar("main")}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ recovery: true })}${panel}<aside class="panel inspector" aria-label="Changes"><div class="ihead"><h2>${G("changes")}Changes on feature/greeting</h2><p>2 files</p></div></aside></div>${YF.activity({ command: "git worktree list --porcelain -z", duration: "0.0 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${tabsBar("main")}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ recovery: true })}${panel}<aside class="panel inspector" aria-label="Changes"><div class="ihead"><h2>${G("changes")}Changes on feature/greeting</h2><p>2 files</p></div></aside></div>${YF.activity({ command: "git worktree list --porcelain -z", duration: "0.0 s", action: "" })}</div>`);
 YF.boot("screen 21 · worktrees");
 </script>
 </body>

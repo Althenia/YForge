@@ -111,7 +111,7 @@ fn diff_base(root: &Path, commit: &RawCommit) -> Result<String, CoreError> {
     }
 }
 
-fn status_of(letter: char) -> Result<FileStatus, CoreError> {
+pub(crate) fn status_of(letter: char) -> Result<FileStatus, CoreError> {
     Ok(match letter {
         'M' => FileStatus::Modified,
         'A' => FileStatus::Added,
@@ -247,6 +247,32 @@ pub fn commit_details(path: &Path, sha: &str) -> Result<CommitDetails, CoreError
     })
 }
 
+pub(crate) struct FileInCommit {
+    pub sha: String,
+    pub base: String,
+    pub original: Option<String>,
+}
+
+pub(crate) fn file_in_commit(
+    root: &Path,
+    sha: &str,
+    file: &str,
+) -> Result<FileInCommit, CoreError> {
+    validate_sha(sha)?;
+    repo::check_paths(&[file])?;
+    let commit = read_commit(root, sha)?;
+    let base = diff_base(root, &commit)?;
+    let original = commit_files(root, &base, &commit.sha)?
+        .into_iter()
+        .find(|entry| entry.path == file)
+        .and_then(|entry| entry.original_path);
+    Ok(FileInCommit {
+        sha: commit.sha,
+        base,
+        original,
+    })
+}
+
 pub fn commit_file_diff(
     path: &Path,
     sha: &str,
@@ -254,20 +280,13 @@ pub fn commit_file_diff(
     ignore_whitespace: bool,
 ) -> Result<FileDiff, CoreError> {
     let root = repo::open(path)?;
-    validate_sha(sha)?;
-    repo::check_paths(&[file])?;
-    let commit = read_commit(&root, sha)?;
-    let base = diff_base(&root, &commit)?;
-    let original_path = commit_files(&root, &base, &commit.sha)?
-        .into_iter()
-        .find(|entry| entry.path == file)
-        .and_then(|entry| entry.original_path);
+    let change = file_in_commit(&root, sha, file)?;
     diff::diff_between(
         &root,
-        &base,
-        &commit.sha,
+        &change.base,
+        &change.sha,
         file,
-        original_path.as_deref(),
+        change.original.as_deref(),
         ignore_whitespace,
     )
 }

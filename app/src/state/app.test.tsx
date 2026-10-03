@@ -1,8 +1,10 @@
 import type { PlatformActions } from "./platformActions";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { emit } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, mountWithApp } from "../components/testkit";
+import type { RepoBridge } from "./app";
+import { highlightLines, loadLanguage, setSyntaxHighlighting } from "./syntax";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "./repoActions";
@@ -27,11 +29,13 @@ afterEach(async () => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-function install(options: { tabs: string[]; groups?: Array<{ name: string; color: "mint"; collapsed: boolean; tabs: string[] }>; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string>; failSessionSave?: () => boolean; failSettingsSave?: boolean; holdRepoOpen?: Promise<void>; aliases?: Array<{ path: string; alias: string }> }) {
+function install(options: { tabs: string[]; groups?: Array<{ name: string; color: "mint"; collapsed: boolean; tabs: string[] }>; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string>; failSessionSave?: () => boolean; failSettingsSave?: boolean; holdRepoOpen?: Promise<void>; aliases?: Array<{ path: string; alias: string }>; handlers?: Record<string, (args: Record<string, unknown>) => unknown> }) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
       calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      const custom = options.handlers?.[cmd];
+      if (custom !== undefined) return custom((args ?? {}) as Record<string, unknown>);
       switch (cmd) {
         case "settings_load":
           return { ...defaultSettings, ...options.settings };
@@ -191,7 +195,7 @@ describe("app state", () => {
           tags: [],
           stashes: [],
         }) as RepoSnapshot,
-      actions: { sync: () => ({ kind: "idle" }), undo: async (id: number) => void undone.push(id) } as unknown as RepoActions,
+      actions: { sync: () => ({ kind: "idle" }), discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined, undo: async (id: number) => void undone.push(id) } as unknown as RepoActions,
       selectedSha: () => undefined,
       selectedShas: () => [],
       revealCommit: () => undefined,
@@ -202,6 +206,10 @@ describe("app state", () => {
       loadCommits: async () => [],
       openPanel: () => undefined,
       platform: { matched: () => undefined, pulls: () => [] } as unknown as PlatformActions,
+      viewChanges: () => undefined,
+      redo: async () => undefined,
+      refresh: async () => undefined,
+      createTag: async () => undefined,
     });
     const entry: ActivityEntry = { id: 7, repo: "/a", operation: "stage", summary: "Staged", started_at: 0, duration_ms: 1, ok: true, local: true, toast: false, error: null, commands: [], undo: { kind: "available", scope: "stage" } };
     await emit("activity-recorded", entry);
@@ -241,7 +249,7 @@ describe("app state", () => {
           tags: [],
           stashes: [],
         }) as RepoSnapshot,
-      actions: { sync: () => ({ kind: "idle" }) } as unknown as RepoActions,
+      actions: { sync: () => ({ kind: "idle" }), discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined } as unknown as RepoActions,
       selectedSha: () => undefined,
       selectedShas: () => [],
       revealCommit: () => undefined,
@@ -252,6 +260,10 @@ describe("app state", () => {
       loadCommits: async () => [],
       openPanel: () => undefined,
       platform: { matched: () => undefined, pulls: () => [] } as unknown as PlatformActions,
+      viewChanges: () => undefined,
+      redo: async () => undefined,
+      refresh: async () => undefined,
+      createTag: async () => undefined,
     });
 
     key("f");
@@ -601,5 +613,427 @@ describe("app state", () => {
     await flush();
 
     expect(app.paletteOpen()).toBe(true);
+  });
+});
+
+const repoSnapshot = (root: string): RepoSnapshot =>
+  ({
+    root,
+    main_root: root,
+    head: { kind: "branch", name: "main", sha: "a".repeat(40) },
+    upstream: null,
+    counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+    files: [],
+    operation: null,
+    operation_detail: null,
+    last_fetch: null,
+    worktrees: [],
+    branches: ["main"],
+    remote_branches: [],
+    remotes: [],
+    tags: [],
+    stashes: [],
+  }) as RepoSnapshot;
+
+function bridgeFor(path: string, overrides: Partial<RepoBridge> = {}): RepoBridge {
+  return {
+    path,
+    snapshot: () => repoSnapshot(path),
+    actions: { sync: () => ({ kind: "idle" }), discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined } as unknown as RepoActions,
+    selectedSha: () => undefined,
+    selectedShas: () => [],
+    revealCommit: () => undefined,
+    revealRef: () => undefined,
+    revealHead: () => undefined,
+    openSearch: () => undefined,
+    focusComposer: () => undefined,
+    loadCommits: async () => [],
+    openPanel: () => undefined,
+    platform: { matched: () => undefined, pulls: () => [] } as unknown as PlatformActions,
+    viewChanges: () => undefined,
+    redo: async () => undefined,
+    refresh: async () => undefined,
+    createTag: async () => undefined,
+    ...overrides,
+  };
+}
+
+describe("repository search, redo, zoom, layout, and syntax highlighting (S55, S61)", () => {
+  it("⇧⌘O opens the palette scoped to repositories, even while it is already open, and closing clears the scope", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+
+    key("O", { shiftKey: true });
+    expect(app.paletteOpen()).toBe(true);
+    expect(app.paletteScope()).toBe("repositories");
+    const first = app.paletteSession();
+
+    key("k");
+    expect(app.paletteOpen()).toBe(false);
+    expect(app.paletteScope()).toBeUndefined();
+    key("k");
+    expect(app.paletteScope()).toBeUndefined();
+    key("O", { shiftKey: true });
+    expect(app.paletteScope()).toBe("repositories");
+    expect(app.paletteSession()).toBeGreaterThan(first);
+  });
+
+  it("⇧⌘Z redoes outside text fields once the backend reports a redo, leaves it to a focused text field, and does nothing otherwise", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+    const redone: string[] = [];
+    app.setBridge(bridgeFor("/a", { redo: async () => void redone.push("redo") }));
+
+    key("Z", { shiftKey: true });
+    expect(redone).toEqual([]);
+    expect(app.paletteContext().redo).toEqual({ kind: "unavailable", reason: "Nothing to redo" });
+
+    await emit("redo-changed", { repo: "/a", scope: "Redo: moves main forward to abc1234" });
+    await flush();
+    expect(app.paletteContext().redo).toEqual({ kind: "available", scope: "Redo: moves main forward to abc1234" });
+    const input = document.createElement("input");
+    document.body.append(input);
+    input.focus();
+    key("Z", { shiftKey: true }, input);
+    expect(redone).toEqual([]);
+
+    input.blur();
+    key("Z", { shiftKey: true });
+    expect(redone).toEqual(["redo"]);
+
+    await emit("redo-changed", { repo: "/a", scope: null });
+    await flush();
+    key("Z", { shiftKey: true });
+    expect(redone).toEqual(["redo"]);
+  });
+
+  it("keeps the redo state of one repository apart from another", async () => {
+    const { app } = await boot({ tabs: ["/a", "/b"], launch: "/", repositories: ["/a", "/b"] });
+    app.setBridge(bridgeFor("/b"));
+
+    await emit("redo-changed", { repo: "/a", scope: "Redo: elsewhere" });
+    await flush();
+
+    expect(app.paletteContext().redo.kind).toBe("unavailable");
+  });
+
+  it("⌘= steps the zoom up, saves it, and applies it to the webview; ⌘0 puts it back at 100 percent", async () => {
+    mockWindows("main");
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true };
+    const { app, calls } = await boot({ tabs: [], launch: "/", repositories: [], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush();
+
+    key("=");
+    await flush(40);
+    expect(app.zoomPercent()).toBe(110);
+    expect(calls.filter((call) => call.cmd === "app_ui_prefs_save").at(-1)?.args).toEqual({ prefs: { ...prefs, zoom_percent: 110 } });
+    expect(calls.filter((call) => call.cmd === "plugin:webview|set_webview_zoom").at(-1)?.args).toMatchObject({ value: 1.1 });
+
+    key("-");
+    key("-");
+    await flush(40);
+    expect(app.zoomPercent()).toBe(90);
+    key("0");
+    await flush(40);
+    expect(app.zoomPercent()).toBe(100);
+    expect(calls.filter((call) => call.cmd === "plugin:webview|set_webview_zoom").map((call) => call.args.value)).toEqual([1.1, 1, 0.9, 1]);
+  });
+
+  it("applies a zoom remembered from the last run when the app starts", async () => {
+    mockWindows("main");
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 150, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true };
+    const { calls } = await boot({ tabs: [], launch: "/", repositories: [], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush(40);
+
+    expect(calls.filter((call) => call.cmd === "plugin:webview|set_webview_zoom").at(-1)?.args).toMatchObject({ value: 1.5 });
+  });
+
+  it("⌘\\ hides and shows the sidebar and ⌥⌘\\ the inspector, remembered for the app, only while a repository is open", async () => {
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true };
+    const { app, calls } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush();
+
+    key("\\");
+    await flush(40);
+    expect(app.sidebarHidden()).toBe(false);
+
+    app.setBridge(bridgeFor("/a"));
+    key("\\");
+    await flush(40);
+    expect(app.sidebarHidden()).toBe(true);
+    key("\\", { altKey: true });
+    await flush(40);
+    expect(app.inspectorHidden()).toBe(true);
+    expect(calls.filter((call) => call.cmd === "app_ui_prefs_save").at(-1)?.args).toEqual({ prefs: { ...prefs, sidebar_hidden: true, inspector_hidden: true } });
+
+    key("\\");
+    await flush(40);
+    expect(app.sidebarHidden()).toBe(false);
+  });
+
+  it("shows the inspector again when the working directory changes are requested while it is hidden", async () => {
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: true, syntax_highlighting: true };
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush();
+    expect(app.inspectorHidden()).toBe(true);
+
+    app.showInspector();
+    await flush(40);
+
+    expect(app.inspectorHidden()).toBe(false);
+  });
+
+  it("turns syntax highlighting off and on from the palette command and keeps the choice", async () => {
+    await loadLanguage("rust");
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true };
+    const { app, calls } = await boot({ tabs: [], launch: "/", repositories: [], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush();
+    expect(highlightLines("rust", ["fn a() {}"])[0]?.some((segment) => segment.kind === "keyword")).toBe(true);
+
+    app.paletteContext().app.toggleSyntaxHighlighting();
+    await flush(40);
+
+    expect(highlightLines("rust", ["fn a() {}"])[0]?.some((segment) => segment.kind === "keyword")).toBe(false);
+    expect(calls.filter((call) => call.cmd === "app_ui_prefs_save").at(-1)?.args).toEqual({ prefs: { ...prefs, syntax_highlighting: false } });
+    setSyntaxHighlighting(true);
+  });
+
+  it("opens the shortcuts sheet and the logs from the menu and the palette, and the release notes page", async () => {
+    const { app } = await boot({ tabs: [], launch: "/", repositories: [] });
+
+    await emit("menu-action", "help.shortcuts");
+    await flush();
+    expect(app.shortcutsOpen()).toBe(true);
+    app.closeShortcuts();
+    app.paletteContext().app.openShortcuts();
+    expect(app.shortcutsOpen()).toBe(true);
+
+    app.paletteContext().app.openLogs("performance");
+    expect(app.logsTab()).toBe("performance");
+    app.paletteContext().app.openLogs("errors");
+    expect(app.logsTab()).toBe("errors");
+    app.closeLogs();
+    expect(app.logsTab()).toBeUndefined();
+    app.paletteContext().app.openDrawer();
+    expect(app.drawerOpen()).toBe(true);
+  });
+
+  it("runs the zoom and repository search menu items through the same commands as the palette", async () => {
+    mockWindows("main");
+    const prefs = { palette_recents: [], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true };
+    const { app } = await boot({ tabs: [], launch: "/", repositories: [], handlers: { app_ui_prefs_load: () => prefs } });
+    await flush();
+
+    await emit("menu-action", "zoom.in");
+    await flush(40);
+    expect(app.zoomPercent()).toBe(110);
+    await emit("menu-action", "repository.search");
+    await flush();
+    expect(app.paletteScope()).toBe("repositories");
+  });
+
+  it("includes the repositories of the open tabs and the recents in the repository scope", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"], handlers: { recents_list: () => [{ path: "/old", opened_at: 1 }] } });
+    await flush();
+
+    expect(app.paletteContext().app.repositories()).toEqual(["/a", "/old"]);
+  });
+});
+
+describe("profiles (S60)", () => {
+  const profiles = (active: string) => ({
+    active,
+    profiles: [
+      { id: "default", name: "Default", author_name: "Yui", author_email: "yui@example.test" },
+      { id: "work", name: "Work", author_name: "Yui Lin", author_email: "yui@work.test" },
+    ],
+  });
+
+  it("loads the active profile at start so the Launchpad tooltip can name it", async () => {
+    const { app } = await boot({ tabs: [], launch: "/", repositories: [], handlers: { profiles_list: () => profiles("work") } });
+    await flush();
+
+    expect(app.activeProfile()?.name).toBe("Work");
+  });
+
+  it("saves the open tabs, switches, and replaces the open tabs with the new profile's", async () => {
+    let active = "default";
+    const { app, calls } = await boot({
+      tabs: ["/a"],
+      launch: "/",
+      repositories: ["/a", "/w1", "/w2"],
+      handlers: {
+        profiles_list: () => profiles(active),
+        profile_switch: (args) => {
+          active = args.id as string;
+          return null;
+        },
+      },
+    });
+    await flush();
+    const install = calls.length;
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
+
+    mockIPC(
+      (cmd, args) => {
+        calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+        if (cmd === "profiles_list") return profiles(active);
+        if (cmd === "profile_switch") {
+          active = (args as { id: string }).id;
+          return null;
+        }
+        if (cmd === "session_load") return { tabs: ["/w1", "/w2"], active: 1, groups: [] };
+        if (cmd === "repo_open") return { root: (args as { path: string }).path, main_root: (args as { path: string }).path };
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+
+    await app.switchProfile("work");
+    await flush();
+
+    const after = calls.slice(install).map((call) => call.cmd);
+    expect(after.indexOf("session_save")).toBeLessThan(after.indexOf("profile_switch"));
+    expect(after.indexOf("profile_switch")).toBeLessThan(after.indexOf("session_load"));
+    expect(calls.slice(install).find((call) => call.cmd === "session_save")?.args).toEqual({ session: { tabs: ["/a"], active: 0, groups: [] } });
+    expect(calls.slice(install).find((call) => call.cmd === "profile_switch")?.args).toEqual({ id: "work" });
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/w1" }, { kind: "repo", path: "/w2" }]);
+    expect(app.activePath()).toBe("/w2");
+    expect(app.activeProfile()?.name).toBe("Work");
+    expect(app.closedTabs()).toEqual([]);
+  });
+
+  it("opens the Launchpad when the new profile has no tabs", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"], handlers: { profiles_list: () => profiles("default"), profile_switch: () => null } });
+    await flush();
+    expect(app.activePath()).toBe("/a");
+
+    mockIPC(
+      (cmd) => {
+        if (cmd === "session_load") return { tabs: [], active: 0, groups: [] };
+        if (cmd === "profiles_list") return profiles("work");
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+    await app.switchProfile("work");
+    await flush();
+
+    expect(app.activeTab()).toEqual({ kind: "launcher" });
+    expect(app.tabs().tabs).toEqual([{ kind: "launcher" }]);
+  });
+
+  it("shows the refusal and keeps the current tabs when the switch fails", async () => {
+    const { app } = await boot({
+      tabs: ["/a"],
+      launch: "/",
+      repositories: ["/a"],
+      handlers: {
+        profile_switch: () => {
+          throw { kind: "invalid_request", message: "That profile no longer exists", output: null };
+        },
+      },
+    });
+    await flush();
+
+    await app.switchProfile("gone");
+
+    expect(app.notice()).toBe("That profile no longer exists");
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
+  });
+});
+
+describe("external tools and LFS from the palette (S54, S61)", () => {
+  it("opens the repository and a file in the chosen editor", async () => {
+    const { app, calls } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+
+    await app.openExternal("editor");
+    await app.paletteContext().app.openFileInEditor("src/main.rs");
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "open_in_editor").map((call) => call.args)).toEqual([{ path: "/a", file: null }, { path: "/a", file: "src/main.rs" }]);
+  });
+
+  it("shows the cause when the editor cannot be launched", async () => {
+    const failing = await boot({
+      tabs: ["/f"],
+      launch: "/",
+      repositories: ["/f"],
+      handlers: {
+        open_in_editor: () => {
+          throw { kind: "invalid_request", message: "Visual Studio Code could not be started: not found", output: null };
+        },
+      },
+    });
+    await failing.app.openExternal("editor");
+    expect(failing.app.notice()).toBe("Visual Studio Code could not be started: not found");
+  });
+
+  it("opens a staged or unstaged file in the diff tool and a conflicted file in the merge tool, which then refreshes the repository", async () => {
+    const { app, calls } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
+    const refreshed: string[] = [];
+    app.setBridge(bridgeFor("/a", { refresh: async () => void refreshed.push("refresh") }));
+    const palette = app.paletteContext().app;
+
+    palette.openFileInTool("a.txt", "staged");
+    palette.openFileInTool("b.txt", "unstaged");
+    palette.openFileInTool("c.txt", "untracked");
+    palette.openFileInTool("d.txt", "conflicted");
+    await flush(40);
+
+    expect(calls.filter((call) => call.cmd === "open_in_diff_tool").map((call) => call.args)).toEqual([
+      { path: "/a", file: "a.txt", source: { kind: "staged" } },
+      { path: "/a", file: "b.txt", source: { kind: "unstaged" } },
+      { path: "/a", file: "c.txt", source: { kind: "unstaged" } },
+    ]);
+    expect(calls.filter((call) => call.cmd === "open_in_merge_tool").map((call) => call.args)).toEqual([{ path: "/a", file: "d.txt" }]);
+    expect(refreshed).toEqual(["refresh"]);
+  });
+
+  it("reads which external tools and LFS state the open repository has for the palette's reasons", async () => {
+    const { app } = await boot({
+      tabs: ["/a"],
+      launch: "/",
+      repositories: ["/a"],
+      handlers: {
+        external_tools_status: () => ({ editor: null, diff: "FileMerge", merge: null }),
+        lfs_status: () => ({ installed: true, version: "3.5.1", initialized: true, patterns: [] }),
+      },
+    });
+    await flush(40);
+
+    expect(app.paletteContext().externalTools).toEqual({ editor: null, diff: "FileMerge", merge: null });
+    expect(app.paletteContext().lfs?.initialized).toBe(true);
+  });
+
+  it("initializes LFS in the open repository and reads its state again", async () => {
+    let initialized = false;
+    const { app, calls } = await boot({
+      tabs: ["/a"],
+      launch: "/",
+      repositories: ["/a"],
+      handlers: {
+        lfs_status: () => ({ installed: true, version: "3.5.1", initialized, patterns: [] }),
+        lfs_initialize: () => {
+          initialized = true;
+          return null;
+        },
+      },
+    });
+    await flush(40);
+    expect(app.paletteContext().lfs?.initialized).toBe(false);
+
+    app.paletteContext().app.initializeLfs();
+    await flush(60);
+
+    expect(calls.filter((call) => call.cmd === "lfs_initialize").map((call) => call.args)).toEqual([{ path: "/a" }]);
+    expect(app.paletteContext().lfs?.initialized).toBe(true);
+  });
+
+  it("opens the release notes page of the project", async () => {
+    const { app } = await boot({ tabs: [], launch: "/", repositories: [] });
+    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+
+    app.paletteContext().app.openReleaseNotes();
+
+    expect(opened).toHaveBeenCalledWith("https://github.com/Althenia/YForge/releases", "_blank", "noopener,noreferrer");
   });
 });

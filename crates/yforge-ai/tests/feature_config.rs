@@ -238,6 +238,10 @@ async fn a_feature_is_available_only_while_switched_on_with_a_ready_provider() {
             (AiFeature::GenerateCommit, false, false),
             (AiFeature::Recompose, true, true),
             (AiFeature::ConflictFix, true, false),
+            (AiFeature::ExplainChanges, false, false),
+            (AiFeature::ExplainCommit, false, false),
+            (AiFeature::ComposeCommits, false, false),
+            (AiFeature::StashMessage, false, false),
         ]
     );
 }

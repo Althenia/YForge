@@ -2,11 +2,15 @@ mod ai;
 mod aliases;
 mod git_hosts;
 mod history;
+mod hook_approvals;
 mod jira;
 mod legacy;
 mod platform;
+mod profiles;
+mod repositories;
 mod session;
 mod stashes;
+mod tool_choices;
 mod ui_prefs;
 
 use std::collections::HashMap;
@@ -33,19 +37,31 @@ pub use ai::{
 pub use aliases::{repo_alias_problem, repo_aliases_list, repo_aliases_set, RepoAlias};
 pub use git_hosts::{git_host_add, git_host_remove, git_host_update, git_hosts_list, ssh_plan};
 pub use history::{activity_history, append_activity, clear_activity, mark_activity_undone};
+pub(crate) use hook_approvals::{approve_hook_hash, approved_hook_hash};
 pub use jira::{
     jira_connection_add, jira_connection_remove, jira_connection_update, jira_connections_list,
 };
 pub use platform::{
     platform_connection_add, platform_connection_remove, platform_connections_list,
 };
+pub(crate) use profiles::active_author;
+pub use profiles::{
+    profile_activate, profile_delete, profile_save, profile_switch, profiles_list, Profile,
+    ProfileDraft, ProfileList, DEFAULT_PROFILE,
+};
+pub use repositories::{
+    folder_scan, repositories_list, repository_remove, repository_restore, scan_folder_remove,
+    scan_folder_rescan, scan_folder_save, FolderRemoved, FolderScan, FoundRepo, ManagedRepo,
+    RepoRemoved, Repositories, Rescan, ScannedFolder,
+};
 pub(crate) use session::write_session;
 pub use session::{load_session, save_session, TabGroup, TabGroupColor, TabSession};
 pub(crate) use stashes::record_switch_stash;
 pub use stashes::{dismiss_switch_stash, switch_stashes};
+pub use tool_choices::{tool_choices_load, tool_choices_save};
 pub use ui_prefs::{
     app_ui_prefs_load, app_ui_prefs_save, repo_ui_prefs_load, repo_ui_prefs_save, AppUiPrefs,
-    ColumnPref, GraphColumn, RepoUiPrefs,
+    ColumnPref, FileListMode, GraphColumn, RepoUiPrefs,
 };
 
 const RECENT_LIMIT: i64 = 30;
@@ -79,6 +95,10 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("jira_connections.sql")),
         M::up(include_str!("git_hosts.sql")),
         M::up(include_str!("repo_aliases.sql")),
+        M::up(include_str!("scanned_folders.sql")),
+        M::up(include_str!("ai_features_more.sql")),
+        M::up(include_str!("hook_approvals.sql")),
+        M::up(include_str!("profiles.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];

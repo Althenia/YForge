@@ -8,6 +8,7 @@ use crate::model::{CommitFile, FileDiff, StashDetails, StashFile, StashRestore};
 use crate::refs;
 use crate::repo;
 use crate::snapshots::{self, Action};
+use crate::stage::with_paths;
 
 fn stash_ref(index: u32) -> String {
     format!("stash@{{{index}}}")
@@ -77,6 +78,32 @@ pub fn stash_push(path: &Path, message: &str, include_untracked: bool) -> Result
     if !push_auto(&root, message.trim(), include_untracked)? {
         return Err(CoreError::invalid_request(
             "there are no local changes to stash",
+        ));
+    }
+    Ok(())
+}
+
+pub fn stash_push_paths(
+    path: &Path,
+    message: &str,
+    include_untracked: bool,
+    paths: &[String],
+) -> Result<(), CoreError> {
+    let root = repo::open(path)?;
+    repo::check_paths(paths)?;
+    let message = message.trim();
+    let mut prefix = vec!["stash", "push", "--quiet"];
+    if include_untracked {
+        prefix.push("--include-untracked");
+    }
+    if !message.is_empty() {
+        prefix.extend(["-m", message]);
+    }
+    let before = top_stash(&root)?;
+    git::run(&root, &with_paths(&prefix, paths))?;
+    if top_stash(&root)? == before {
+        return Err(CoreError::invalid_request(
+            "there are no local changes to stash in those paths",
         ));
     }
     Ok(())

@@ -353,15 +353,19 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
             <Show
               when={proposer.running()}
               fallback={
-                <button type="button" class="btn sm" disabled={loaded() === undefined} title="Ask your AI provider to group these changes into commits. You review and edit the result before anything is rewritten." onClick={() => void propose()}>
+                <button
+                  type="button"
+                  class="icon-btn dense ai-btn"
+                  {...tip(loaded() === undefined ? "Propose a grouping of these changes into commits. Loading the changes…" : "Propose a grouping of these changes into commits")}
+                  aria-disabled={loaded() === undefined ? "true" : undefined}
+                  onClick={() => loaded() !== undefined && void propose()}
+                >
                   <Icon name="wand" size={14} />
-                  Propose with AI
                 </button>
               }
             >
-              <button type="button" class="btn sm" aria-busy="true" disabled>
+              <button type="button" class="icon-btn dense ai-btn" aria-busy="true" disabled {...tip("Proposing a grouping…")}>
                 <Icon name="wand" size={14} />
-                Proposing…
               </button>
               <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
                 <Icon name="close" size={14} />

@@ -32,6 +32,8 @@ import { prStateView } from "../state/platformModel";
 import type { MenuState } from "../state/repoActions";
 import { AuthorBadge } from "./AuthorBadge";
 import { SubmoduleSection } from "./Submodules";
+import { GitFlowSection } from "./GitFlowSection";
+import { HooksSection } from "./HooksSection";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -54,24 +56,13 @@ const branchCount = (count: number): string => `${count} ${count === 1 ? "branch
 
 const NO_FOLDERS: ReadonlySet<string> = new Set();
 
-function TreeLines(props: { depth: number; last: boolean; lines: readonly boolean[] }) {
+function TreeLines(props: { depth: number }) {
   return (
-    <>
-      <Index each={props.lines}>
-        {(continues, level) => (
-          <Show when={continues()}>
-            <span class="tree-guide" data-level={level} style={{ "--level": level }} aria-hidden="true" />
-          </Show>
-        )}
-      </Index>
-      <Show when={props.depth > 0}>
-        <span class="tree-elbow" classList={{ last: props.last }} data-level={props.depth - 1} style={{ "--level": props.depth - 1 }} aria-hidden="true" />
-      </Show>
-    </>
+    <Index each={Array.from({ length: props.depth })}>
+      {(_, level) => <span class="tree-guide" data-level={level} style={{ "--level": level }} aria-hidden="true" />}
+    </Index>
   );
 }
-
-type Tree = { last: boolean; lines: readonly boolean[] };
 
 export function Sidebar(props: {
   snapshot: RepoSnapshot;
@@ -84,6 +75,7 @@ export function Sidebar(props: {
   platform?: PlatformActions;
   jira?: JiraSidebar;
   onSelectPull?: (number: number) => void;
+  commitMessage?: () => string;
 }) {
   const snapshot = () => props.snapshot;
   const collapsedFolders = createMemo((): ReadonlySet<string> => new Set(props.uiPrefs.prefs().collapsed_folders));
@@ -327,7 +319,7 @@ export function Sidebar(props: {
     base?: number;
     pull?: boolean;
     group?: BulkGroup;
-    tree?: Tree;
+    tree?: boolean;
     list?: string;
     virtual?: VirtualRow;
     label: string;
@@ -381,7 +373,7 @@ export function Sidebar(props: {
           }
         }}
       >
-        <Show when={row.tree}>{(tree) => <TreeLines depth={row.depth ?? 0} last={tree().last} lines={tree().lines} />}</Show>
+        <Show when={row.tree}><TreeLines depth={row.depth ?? 0} /></Show>
         {row.children}
       </div>
     );
@@ -398,7 +390,7 @@ export function Sidebar(props: {
     base?: number;
     noun: "Folder" | "Remote";
     group?: BulkGroup;
-    tree?: Tree;
+    tree?: boolean;
     list?: string;
     virtual?: VirtualRow;
   }) {
@@ -440,7 +432,7 @@ export function Sidebar(props: {
           }
         }}
       >
-        <Show when={row.tree}>{(tree) => <TreeLines depth={row.depth} last={tree().last} lines={tree().lines} />}</Show>
+        <Show when={row.tree}><TreeLines depth={row.depth} /></Show>
         <span class="folder-chevron" classList={{ collapsed: !row.open }}>
           <Icon name="chevron" size={14} />
         </span>
@@ -520,7 +512,7 @@ export function Sidebar(props: {
         depth={row.depth + 1}
         base={6}
         noun="Folder"
-        tree={{ last: row.last, lines: row.trail }}
+        tree
       />
     ) : (
       <NavRow
@@ -533,7 +525,7 @@ export function Sidebar(props: {
         depth={row.depth + 1}
         base={6}
         group="branches"
-        tree={{ last: row.last, lines: row.trail }}
+        tree
         onOpen={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
         onActivate={checkoutOf(branchTarget(row.path))}
@@ -554,10 +546,9 @@ export function Sidebar(props: {
       </NavRow>
     );
 
-  const remoteRow = (remote: string, row: TreeRow, remoteLast: boolean, virtual: VirtualRow) => {
+  const remoteRow = (remote: string, row: TreeRow, virtual: VirtualRow) => {
     // The remote itself is the section's child, so its branches sit one level deeper.
-    const lines = [!remoteLast, ...row.trail];
-    const chrome = { depth: row.depth + 2, base: 6, tree: { last: row.last, lines }, list: remoteList(remote), virtual };
+    const chrome = { depth: row.depth + 2, base: 6, tree: true, list: remoteList(remote), virtual };
     return row.kind === "folder" ? (
       <FolderRow
         id={`folder:${row.id}`}
@@ -611,9 +602,8 @@ export function Sidebar(props: {
         </Section>
         <Section id="remotes" icon="remote" title="Remotes" total={snapshot().remotes.length} shown={visibleRemotes().length}>
           <For each={visibleRemotes()}>
-            {(remote, index) => {
+            {(remote) => {
               const open = () => filtering() || !collapsedFolders().has(`remote:${remote}`);
-              const last = () => index() === visibleRemotes().length - 1;
               return (
                 <>
                   <FolderRow
@@ -627,16 +617,47 @@ export function Sidebar(props: {
                     base={6}
                     noun="Remote"
                     group="remotes"
-                    tree={{ last: last(), lines: [] }}
+                    tree
                   />
                   <Show when={open()}>
                     <VirtualRows as="div" items={remoteRows(remote)} scroller={() => body} estimate={listRowHeight()} keepIndex={keepIn(remoteList(remote))} reveal={revealIn(remoteList(remote))} measured>
-                      {(row, virtual) => remoteRow(remote, row, last(), virtual)}
+                      {(row, virtual) => remoteRow(remote, row, virtual)}
                     </VirtualRows>
                   </Show>
                 </>
               );
             }}
+          </For>
+        </Section>
+        <Section
+          id="worktrees"
+          icon="worktree"
+          title="Worktrees"
+          total={snapshot().worktrees.length}
+          shown={visibleWorktrees().length}
+          open={{ label: "Show worktrees", run: () => props.onOpenPanel("worktrees") }}
+          add={{ label: "Create worktree", run: props.worktrees.openCreate }}
+        >
+          <For each={visibleWorktrees()}>
+            {(worktree) => (
+              <NavRow
+                id={`worktree:${worktree.path}`}
+                title={worktree.path}
+                label={`Worktree ${basename(worktree.path)}, branch ${branchLabel(worktree)}`}
+                current={worktree.current}
+                group="worktrees"
+                depth={1}
+                base={6}
+                tree
+                onOpen={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
+                onMenu={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
+                onClick={() => !worktree.current && void props.worktrees.open(worktree.path)}
+                onActivate={() => !worktree.current && void props.worktrees.open(worktree.path)}
+              >
+                <span class="name">{basename(worktree.path)}</span>
+                <span class="meta">{branchLabel(worktree)}</span>
+              </NavRow>
+            )}
           </For>
         </Section>
         <Section id="tags" icon="tag" title="Tags" total={snapshot().tags.length} shown={visibleTags().length}>
@@ -653,7 +674,7 @@ export function Sidebar(props: {
                   depth={1}
                   base={6}
                   group="tags"
-                  tree={{ last: virtual.index === visibleTags().length - 1, lines: [] }}
+                  tree
                   onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onActivate={checkoutOf(target())}
@@ -666,7 +687,7 @@ export function Sidebar(props: {
         </Section>
         <Section id="stashes" icon="stash" title="Stashes" total={snapshot().stashes.length} shown={visibleStashes().length}>
           <For each={visibleStashes()}>
-            {(stash, index) => (
+            {(stash) => (
               <NavRow
                 id={`stash:${stash.sha}`}
                 title={stash.message}
@@ -675,7 +696,7 @@ export function Sidebar(props: {
                 group="stashes"
                 depth={1}
                 base={6}
-                tree={{ last: index() === visibleStashes().length - 1, lines: [] }}
+                tree
                 onClick={() => props.onSelectStash(stash.sha)}
                 onOpen={(anchor) => props.actions.openStashMenu(stash, anchor)}
                 onMenu={(anchor) => props.actions.openStashMenu(stash, anchor)}
@@ -687,38 +708,21 @@ export function Sidebar(props: {
             )}
           </For>
         </Section>
-        <Section
-          id="worktrees"
-          icon="worktree"
-          title="Worktrees"
-          total={snapshot().worktrees.length}
-          shown={visibleWorktrees().length}
-          open={{ label: "Show worktrees", run: () => props.onOpenPanel("worktrees") }}
-          add={{ label: "Create worktree", run: props.worktrees.openCreate }}
-        >
-          <For each={visibleWorktrees()}>
-            {(worktree, index) => (
-              <NavRow
-                id={`worktree:${worktree.path}`}
-                title={worktree.path}
-                label={`Worktree ${basename(worktree.path)}, branch ${branchLabel(worktree)}`}
-                current={worktree.current}
-                group="worktrees"
-                depth={1}
-                base={6}
-                tree={{ last: index() === visibleWorktrees().length - 1, lines: [] }}
-                onOpen={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
-                onMenu={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
-                onClick={() => !worktree.current && void props.worktrees.open(worktree.path)}
-                onActivate={() => !worktree.current && void props.worktrees.open(worktree.path)}
-              >
-                <span class="name">{basename(worktree.path)}</span>
-                <span class="meta">{branchLabel(worktree)}</span>
-              </NavRow>
-            )}
-          </For>
-        </Section>
+        <GitFlowSection
+          root={snapshot().root}
+          head={currentBranch()}
+          expanded={isSectionOpen(props.uiPrefs.prefs(), "gitflow")}
+          onToggle={() => props.uiPrefs.update((current) => toggleSection(current, "gitflow"))}
+          filter={filter()}
+        />
         <SubmoduleSection root={snapshot().root} expanded={isSectionOpen(props.uiPrefs.prefs(), "submodules")} onToggle={() => props.uiPrefs.update((current) => toggleSection(current, "submodules"))} filter={filter()} />
+        <HooksSection
+          root={snapshot().root}
+          expanded={isSectionOpen(props.uiPrefs.prefs(), "hooks")}
+          onToggle={() => props.uiPrefs.update((current) => toggleSection(current, "hooks"))}
+          filter={filter()}
+          commitMessage={props.commitMessage ?? (() => "")}
+        />
         <Show when={props.platform?.matched() !== undefined ? props.platform : undefined} keyed>
           {(platform) => (
             <Section
@@ -730,7 +734,7 @@ export function Sidebar(props: {
               add={{ label: "New pull request", run: () => void platform.openCreate() }}
             >
               <For each={visiblePulls()}>
-                {(pull, index) => {
+                {(pull) => {
                   const state = () => prStateView(pull.state);
                   const select = () => props.onSelectPull?.(pull.number);
                   return (
@@ -742,7 +746,7 @@ export function Sidebar(props: {
                       pull
                       depth={1}
                       base={6}
-                      tree={{ last: index() === visiblePulls().length - 1, lines: [] }}
+                      tree
                       onClick={select}
                       onActivate={select}
                       onOpen={(anchor) => openPullMenu(pull, anchor)}
@@ -831,7 +835,7 @@ export function Sidebar(props: {
               countText={jira.state.loading() && jira.state.total() === 0 ? "…" : undefined}
             >
               <For each={visibleIssues()}>
-                {(issue, index) => (
+                {(issue) => (
                   <NavRow
                     id={`issue:${issue.key}`}
                     title={`${issue.key} ${issue.summary}`}
@@ -840,7 +844,7 @@ export function Sidebar(props: {
                     pull
                     depth={1}
                     base={6}
-                    tree={{ last: index() === visibleIssues().length - 1, lines: [] }}
+                    tree
                     onClick={() => jira.select(issue.key)}
                     onActivate={() => jira.select(issue.key)}
                     onOpen={(anchor) => openIssueMenu(issue, anchor)}
@@ -919,7 +923,7 @@ export function Sidebar(props: {
         </Show>
         <Section id="recovery" icon="history" title="Recovery">
           <For each={visibleRecovery()}>
-            {(entry, index) => (
+            {(entry) => (
               <div
                 class="srow"
                 role="button"
@@ -930,7 +934,7 @@ export function Sidebar(props: {
                 onClick={() => props.onOpenPanel(entry.panel)}
                 onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}
               >
-                <TreeLines depth={1} last={index() === visibleRecovery().length - 1} lines={[]} />
+                <TreeLines depth={1} />
                 <span class="name">{entry.title}</span>
               </div>
             )}

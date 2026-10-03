@@ -37,6 +37,7 @@ const glyphs: Record<IconName, () => JSX.Element> = {
   folder: () => <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H10l2 2.5h7.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z" />,
   close: () => <path d="m6 6 12 12M18 6 6 18" />,
   undo: () => <path d="M9 7 4 12l5 5M4 12h10a6 6 0 0 1 0 12" />,
+  redo: () => <path d="m15 7 5 5-5 5M20 12H10a6 6 0 0 0 0 12" />,
   lock: () => (
     <>
       <rect x="5" y="10.5" width="14" height="9.5" rx="2" />

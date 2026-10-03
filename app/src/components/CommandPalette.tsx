@@ -8,13 +8,17 @@ import {
   navigationTargets,
   parseQuery,
   rank,
+  REPOSITORY_SCOPE_CHIP,
+  REPOSITORY_SCOPE_PLACEHOLDER,
+  repositoryChoices,
   type PaletteCommand,
   type PaletteContext,
   type PickerOption,
 } from "../state/palette";
 import { useApp } from "../state/app";
 import { rememberCommand } from "../state/appUiPrefs";
-import { repoKeys } from "../state/queryKeys";
+import { appKeys, repoKeys } from "../state/queryKeys";
+import { client } from "../ipc/client";
 import { Icon } from "./Icon";
 import { listRowHeight, VirtualRows } from "./VirtualRows";
 
@@ -35,9 +39,10 @@ const headLabel = (context: PaletteContext): string | undefined => {
   return head.kind === "branch" ? head.name : head.kind === "unborn" ? head.branch : head.sha.slice(0, 7);
 };
 
-export function CommandPalette(props: { context: PaletteContext; onClose: () => void }) {
+export function CommandPalette(props: { context: PaletteContext; scope?: "repositories"; onClose: () => void }) {
   const listId = createUniqueId();
   const [query, setQuery] = createSignal("");
+  const [scoped, setScoped] = createSignal(props.scope === "repositories");
   const [pending, setPending] = createSignal<{ command: PaletteCommand; values: string[] } | undefined>();
   const [highlight, setHighlight] = createSignal(0);
   const app = useApp();
@@ -59,12 +64,14 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
     gcTime: 0,
   }));
   const step = () => pending()?.command.args[pending()?.values.length ?? 0];
+  const textStep = () => step()?.text === true;
   const options = useQuery(() => ({
     queryKey: repoKeys.paletteOptions(scope(), pending()?.command.id ?? "", pending()?.values.length ?? 0),
     queryFn: async () => (await step()?.options()) ?? [],
-    enabled: step() !== undefined,
+    enabled: step() !== undefined && !textStep(),
     gcTime: 0,
   }));
+  const managed = useQuery(() => ({ queryKey: appKeys.repositories, queryFn: () => client.repositoriesList(), enabled: scoped() }));
 
   const finish = (command: PaletteCommand, values: string[]) => {
     app.uiPrefs.update((prefs) => rememberCommand(prefs, command.id));
@@ -94,6 +101,21 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
 
   const items = createMemo<Item[]>(() => {
     const current = pending();
+    if (current !== undefined && textStep()) return [];
+    if (current === undefined && scoped()) {
+      const choices = repositoryChoices(props.context.app, managed.data?.repos.map((repo) => repo.path) ?? []);
+      return rank(choices, query(), (choice) => `${choice.path} ${choice.alias ?? ""}`).map(({ item, match }) => ({
+        key: item.path,
+        label: item.path,
+        icon: "folder" as const,
+        ...(item.alias === undefined ? {} : { note: item.alias }),
+        positions: match.positions.filter((position) => position < item.path.length),
+        choose: () => {
+          props.onClose();
+          queueMicrotask(() => props.context.app.openRepository(item.path));
+        },
+      }));
+    }
     if (current !== undefined) {
       return rank(options.data ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({
         key: item.value,
@@ -142,6 +164,11 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
       setHighlight((current) => (list.length === 0 ? 0 : (current + (event.key === "ArrowDown" ? 1 : -1) + list.length) % list.length));
     } else if (event.key === "Enter") {
       event.preventDefault();
+      const typed = query().trim();
+      if (textStep() && typed !== "") {
+        pick({ value: typed, label: typed });
+        return;
+      }
       const item = list[highlight()];
       if (item !== undefined && item.disabledReason === undefined) item.choose();
     } else if (event.key === "Tab") {
@@ -149,6 +176,10 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
       const item = list[highlight()];
       const command = pending() === undefined ? commands().find((candidate) => candidate.id === item?.key) : undefined;
       if (command !== undefined && command.args.length > 0 && command.disabledReason === undefined) choose(command);
+    } else if (event.key === "Backspace" && query() === "" && pending() === undefined && scoped()) {
+      event.preventDefault();
+      setScoped(false);
+      setHighlight(0);
     } else if (event.key === "Backspace" && query() === "" && pending() !== undefined) {
       event.preventDefault();
       const current = pending();
@@ -158,7 +189,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      if (query() !== "") setQuery("");
+      if (query() !== "" && !scoped()) setQuery("");
       else props.onClose();
     }
   };
@@ -177,7 +208,11 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
 
   createEffect(on(highlight, (index) => setReveal((current) => ({ nonce: (current?.nonce ?? 0) + 1, index })), { defer: true }));
 
-  const placeholder = () => (pending() === undefined ? "Type a command, or > actions · @ branches · # commits · : settings · / repositories" : (step()?.label ?? ""));
+  const placeholder = () => {
+    if (pending() !== undefined) return step()?.label ?? "";
+    return scoped() ? REPOSITORY_SCOPE_PLACEHOLDER : "Type a command, or > actions · @ branches · # commits · : settings · / repositories";
+  };
+  const chipValue = (command: PaletteCommand, index: number, value: string) => (command.args[index]?.text === true ? value : value.includes(":") ? value.slice(value.indexOf(":") + 1) : value.slice(0, 7));
 
   return (
     <div class="palette-scrim">
@@ -187,9 +222,19 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
             {(current) => (
               <span class="pal-chips">
                 <span class="pal-chip">{current().command.title.replace(/…$/, "")}</span>
-                <For each={current().values}>{(value) => <span class="pal-chip value">{value.includes(":") ? value.slice(value.indexOf(":") + 1) : value.slice(0, 7)}</span>}</For>
+                <For each={current().values}>{(value, index) => <span class="pal-chip value">{chipValue(current().command, index(), value)}</span>}</For>
               </span>
             )}
+          </Show>
+          <Show when={pending() === undefined && scoped()}>
+            <span class="pal-chips">
+              <span class="pal-chip scope">
+                {REPOSITORY_SCOPE_CHIP}
+                <button type="button" class="pal-chip-remove" aria-label="Remove the Open repo filter" onClick={() => setScoped(false)}>
+                  <Icon name="close" size={14} />
+                </button>
+              </span>
+            </span>
           </Show>
           <input
             type="text"
@@ -212,7 +257,7 @@ export function CommandPalette(props: { context: PaletteContext; onClose: () => 
             when={items().length > 0}
             fallback={
               <ul class="pal-rows" id={listId} role="listbox">
-                <li class="pal-empty">{options.isLoading || choices.isLoading ? "Loading…" : "No matches"}</li>
+                <li class="pal-empty">{textStep() ? `Type the ${(step()?.label ?? "").toLowerCase()}, then press Enter` : options.isLoading || choices.isLoading ? "Loading…" : "No matches"}</li>
               </ul>
             }
           >

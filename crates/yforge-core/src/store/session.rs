@@ -124,7 +124,7 @@ pub(crate) fn write_session(conn: &Connection, session: &TabSession) -> rusqlite
     .map(drop)
 }
 
-fn read_session(conn: &Connection) -> rusqlite::Result<TabSession> {
+pub(super) fn read_session(conn: &Connection) -> rusqlite::Result<TabSession> {
     let mut groups = Vec::new();
     let mut index_of = HashMap::new();
     for stored in conn

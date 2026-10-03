@@ -114,7 +114,7 @@ async function mountApp(session: { tabs: string[]; active: number }) {
 }
 
 describe("routes", () => {
-  it("shows the launcher on the launcher route and a repository on the repo route, addressed by tab id", async () => {
+  it("shows the Launchpad for a new tab and a repository on the repo route, addressed by tab id (S41)", async () => {
     const { router, host, workspaces } = await mountApp({ tabs: ["/a"], active: 0 });
 
     expect(router.state.location.pathname).toBe("/repo");
@@ -123,7 +123,8 @@ describe("routes", () => {
 
     await router.navigate({ to: "/launcher" });
     await flush(40);
-    expect(host.querySelector(".launcher")).not.toBeNull();
+    expect(host.querySelector(".launchpad")).not.toBeNull();
+    expect(host.querySelector(".launcher")).toBeNull();
     expect(workspaces()).toBe(0);
   });
 
@@ -147,16 +148,16 @@ describe("routes", () => {
     expect(app.launchpadOpen()).toBe(false);
   });
 
-  it("reaches the Launchpad from the launcher", async () => {
-    const { router, host } = await mountApp({ tabs: [], active: 0 });
-    await router.navigate({ to: "/launcher" });
+  it("lands a window with no repository and a new tab on the Launchpad (S41)", async () => {
+    const { app, router, host } = await mountApp({ tabs: [], active: 0 });
     await flush(60);
+    expect(host.querySelector(".launchpad")).not.toBeNull();
 
-    const launchpad = [...host.querySelectorAll<HTMLButtonElement>(".launcher-actions button")].find((button) => button.textContent?.trim() === "Launchpad");
-    launchpad?.click();
+    app.openLauncher();
     await flush(80);
 
-    expect(router.state.location.pathname).toBe("/launchpad");
+    expect(router.state.location.pathname).toBe("/launcher");
+    expect(host.querySelector(".launchpad")).not.toBeNull();
   });
 
   it("keeps only the active tab's workspace mounted and watches the active repository", async () => {

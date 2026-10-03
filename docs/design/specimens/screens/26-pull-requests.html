@@ -67,7 +67,7 @@ const dialog = create
   <p>YForge then fetches all remotes so your remote-tracking branches catch up. Your local branches are not changed.</p>
   <div class="foot"><span class="btn focus-ring">Cancel</span><span class="btn primary">Merge pull request</span></div></div>`
     : "";
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ pulls })}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git remote", duration: "0.0 s", action: "" })}</div>` + dialog);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ pulls })}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git remote", duration: "0.0 s", action: "" })}</div>` + dialog);
 YF.mountGraph({ selected: -1, hovered: -1 });
 YF.boot("screen 26 · pull requests");
 </script>

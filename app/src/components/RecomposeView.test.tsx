@@ -256,13 +256,25 @@ describe("recompose view", () => {
     expect(host.querySelector(".note.attention")?.textContent).toContain("Some of these commits are already on origin/main. Recomposing them means the next push needs a force push.");
   });
 
+  const proposeButton = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.getAttribute("aria-label")?.startsWith("Propose a grouping of these changes into commits"));
+
+  it("offers Propose as an icon-only wand button whose tooltip and name say what it does", async () => {
+    const { host } = await mount({ propose: { groups: [], excluded: [] } });
+    await flush();
+
+    const button = proposeButton(host);
+    expect(button?.textContent?.trim()).toBe("");
+    expect(button?.getAttribute("aria-label")).toBe("Propose a grouping of these changes into commits");
+    expect(button?.dataset.tip).toBe("Propose a grouping of these changes into commits");
+  });
+
   it("fills the commits from an AI proposal as an editable draft, lists withheld files, and restores the previous grouping", async () => {
     const proposal = { groups: [{ message: "Edit text", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "hunk", id: "a.txt@20,3+20,3" }] }, { message: "Add logo", changes: [{ kind: "file", path: "logo.png" }] }], excluded: [".env"] };
     const { host, chip, message, calls } = await mount({ propose: proposal });
     message(0, "My message");
     await flush();
 
-    buttonNamed(host, "Propose with AI")?.click();
+    proposeButton(host)?.click();
     await flush(80);
 
     expect(calls.find((call) => call.cmd === "ai_propose_recompose")?.args).toMatchObject({ path: "/r", base: "refs/remotes/origin/main" });
@@ -280,14 +292,14 @@ describe("recompose view", () => {
   it("hides Propose with AI while the feature is off or its provider is not ready", async () => {
     const { host } = await mount({ features: aiFeatureList(["generate_commit", "conflict_fix"]) });
 
-    expect(buttonNamed(host, "Propose with AI")).toBeUndefined();
+    expect(proposeButton(host)).toBeUndefined();
     expect(host.textContent).toContain("changes assigned");
   });
 
   it("points a missing provider at the AI settings", async () => {
     const { host, opened } = await mount({ propose: { reject: { kind: "ai_not_configured", message: "Propose with AI in Recompose is turned off in Settings → AI" } } });
 
-    buttonNamed(host, "Propose with AI")?.click();
+    proposeButton(host)?.click();
     await flush(60);
 
     expect(host.querySelector(".note.danger")?.textContent).toContain("Propose with AI in Recompose is turned off in Settings → AI. Nothing was changed.");

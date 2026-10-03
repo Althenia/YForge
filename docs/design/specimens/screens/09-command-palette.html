@@ -45,7 +45,7 @@ const palette = `<div class="scrim"></div><div class="palette" role="dialog" ari
   </div>
   <div class="ctx"><span>Current branch: <span class="mono">feature/greeting</span></span><span class="hints"><span>↑↓ move</span><span>↵ rebase onto main</span><span>esc close</span></span></div>
 </div>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + palette);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + palette);
 YF.boot("screen 9 · command palette");
 YF.mountGraph({ selected: 0, hovered: -1, dimAll: true });
 </script>

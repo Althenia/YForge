@@ -1,4 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import { defaultSettings } from "../state/settingsModel";
@@ -19,6 +20,28 @@ type Call = { cmd: string; args: Record<string, unknown> };
 const keys = [
   { path: "/Users/yui/.ssh/id_ed25519", name: "id_ed25519", algorithm: "ssh-ed25519" },
   { path: "/Users/yui/.ssh/work", name: "work", algorithm: "ssh-rsa" },
+];
+
+const detectedTools = {
+  compare: [
+    { id: "filemerge", label: "FileMerge", installed: true },
+    { id: "kaleidoscope", label: "Kaleidoscope", installed: false },
+    { id: "vscode", label: "Visual Studio Code", installed: true },
+  ],
+  editors: [
+    { id: "vscode", label: "Visual Studio Code", installed: true },
+    { id: "cursor", label: "Cursor", installed: true },
+    { id: "zed", label: "Zed", installed: false },
+  ],
+  git_merge_tool: null,
+  git_diff_tool: "opendiff",
+};
+
+const signingConfig = { sign_commits: false, sign_tags: false, format: "openpgp", key: "", program: "" };
+
+const signingKeys = [
+  { id: "AAAABBBBCCCCDDDD", label: "Yui Lin <yui@example.test> · AAAABBBBCCCCDDDD", format: "openpgp" },
+  { id: "/Users/yui/.ssh/id_ed25519.pub", label: "id_ed25519.pub · yui@laptop", format: "ssh" },
 ];
 
 function install(extra: (call: Call) => unknown = () => undefined) {
@@ -42,6 +65,14 @@ function install(extra: (call: Call) => unknown = () => undefined) {
     }
     if (cmd === "remotes_list") return [{ name: "origin", fetch_url: "https://example.test/a.git", push_url: null }];
     if (cmd === "ssh_keys_list") return keys;
+    if (cmd === "external_tools_load") return { merge: "none", diff: "use_merge", editor: "none" };
+    if (cmd === "external_tools_detected") return detectedTools;
+    if (cmd === "external_tools_save") return call.args.choices;
+    if (cmd === "signing_read") return signingConfig;
+    if (cmd === "signing_keys") return signingKeys;
+    if (cmd === "profiles_list") return { active: "default", profiles: [{ id: "default", name: "Default", author_name: "", author_email: "" }] };
+    if (cmd === "lfs_status") return { installed: true, version: "3.5.1", initialized: false, patterns: [] };
+    if (cmd === "git_flow_config") return null;
     return null;
   });
   return calls;
@@ -379,5 +410,357 @@ describe("settings view", () => {
       expect(mounted.host.querySelector('[role="alert"]')?.textContent).toContain("exists and was not installed by YForge");
       expect(mounted.host.querySelector('[aria-label="Command line install"]')).toBeNull();
     });
+  });
+});
+
+async function openRouted(start: string, extra: (call: Call) => unknown = () => undefined) {
+  const calls = install(extra);
+  const mounted = mountWithApp((app) => {
+    const [section, setSection] = createSignal(start);
+    app.openSettings = setSection;
+    return <SettingsView section={section()} />;
+  });
+  dispose = mounted.dispose;
+  await flush();
+  return { ...mounted, calls };
+}
+
+const tabs = (host: ParentNode) => [...host.querySelectorAll<HTMLElement>('[role="tablist"][aria-label="Settings sections"] [role="tab"]')];
+const search = (host: ParentNode) => host.querySelector<HTMLInputElement>('input[aria-label="Search settings"]');
+
+describe("search-first settings (S47)", () => {
+  it("opens with the search field above the section tabs, Repositories among them", async () => {
+    const { host } = await openRouted("git");
+
+    expect(host.querySelector(".settings-top")?.firstElementChild?.contains(search(host))).toBe(true);
+    expect(tabs(host).map((tab) => tab.textContent?.trim())).toEqual(["General", "Git", "External tools", "Repositories", "Appearance", "AI", "Platforms", "Jira", "Git hosts", "Privacy & diagnostics"]);
+    expect(tabs(host).find((tab) => tab.getAttribute("aria-selected") === "true")?.textContent?.trim()).toBe("Git");
+  });
+
+  it("lists matching settings across sections with breadcrumbs, counts them on the tabs, and clears with Esc", async () => {
+    const { host } = await openRouted("tools");
+    type(search(host), "ssh");
+    await flush();
+
+    expect(host.querySelector('.settings-body [role="status"]')?.textContent).toBe("4 settings match “ssh”");
+    expect([...host.querySelectorAll(".setting-result")].map((result) => result.querySelector(".setting-crumb")?.textContent)).toEqual(["Git › SSH", "Git › Commit signing", "Git › Commit signing", "Git hosts"]);
+    expect(tabs(host).find((tab) => tab.textContent?.startsWith("Git hosts"))?.querySelector(".count")?.textContent).toBe("1");
+    expect(tabs(host).find((tab) => tab.textContent?.startsWith("Git") && !tab.textContent.startsWith("Git hosts"))?.querySelector(".count")?.textContent).toBe("3");
+    expect(tabs(host).every((tab) => tab.getAttribute("aria-selected") === "false")).toBe(true);
+    expect(host.textContent).not.toContain("External editor");
+
+    search(host)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
+    expect(search(host)?.value).toBe("");
+    expect(host.textContent).toContain("External editor");
+  });
+
+  it("opens the chosen result's section and moves focus to that setting", async () => {
+    const { host } = await openRouted("general");
+    type(search(host), "default branch");
+    await flush();
+    host.querySelector<HTMLButtonElement>(".setting-result")?.click();
+    await flush(40);
+
+    expect(tabs(host).find((tab) => tab.getAttribute("aria-selected") === "true")?.textContent?.trim()).toBe("Git");
+    expect(document.activeElement?.id).toBe("setting-default-branch");
+  });
+
+  it("says when nothing matches and suggests terms", async () => {
+    const { host } = await openRouted("general");
+    type(search(host), "zzz");
+    await flush();
+
+    expect(host.querySelector('.settings-body [role="status"]')?.textContent).toBe("No setting matches “zzz”. Try “fetch”, “branch”, “AI”, or “folder”.");
+  });
+
+  it("lists the scanned folders in Repositories with Rescan, Stop scanning, and Add folder…", async () => {
+    const { host } = await openRouted("repositories", (call) => {
+      if (call.cmd === "repositories_list") return { folders: [{ path: "/u/Code", depth: 2, scanned_at: 1, repos: ["/u/Code/a"], skipped: [] }], repos: [{ path: "/u/Code/a", folder: "/u/Code", opened_at: null }] };
+      if (call.cmd === "recent_statuses") return [];
+      return undefined;
+    });
+    await flush(40);
+
+    expect(host.querySelector('[aria-label="Scanned folders"]')?.textContent).toMatch(/\/u\/Code1 repository · 2 levels deep · scanned \w+ ago/);
+    expect(host.querySelector('button[aria-label="Rescan /u/Code"]')).not.toBeNull();
+    expect(host.querySelector('button[aria-label="Stop scanning /u/Code"]')).not.toBeNull();
+    buttonNamed(host, "Add folder…")?.click();
+    await flush();
+    expect(document.querySelector('[role="dialog"] h3')?.textContent).toBe("Add a folder to scan");
+  });
+});
+
+const optionsOf = async (host: ParentNode, label: string) => {
+  host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+  await flush();
+  return [...document.querySelectorAll<HTMLElement>('[role="option"]')];
+};
+const optionText = (option: HTMLElement) => option.querySelector(".select-option-label")?.textContent;
+const closeList = async () => {
+  document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  document.querySelector<HTMLElement>(".select-list")?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await flush();
+};
+const savedChoices = (calls: Call[]) => calls.filter((call) => call.cmd === "external_tools_save").map((call) => call.args.choices);
+
+describe("external tools (S54)", () => {
+  it("lists None, Git config default, then only the merge tools found, and saves the chosen tool", async () => {
+    const { host, calls } = await open("tools");
+
+    const options = await optionsOf(host, "External merge tool");
+    expect(options.map(optionText)).toEqual(["None", "Git config default", "FileMerge", "Visual Studio Code"]);
+    await closeList();
+    await choose(host, "External merge tool", "FileMerge");
+
+    expect(savedChoices(calls)).toEqual([{ merge: "filemerge", diff: "use_merge", editor: "none" }]);
+  });
+
+  it("makes Git config default aria-disabled with the reason when Git has no merge.tool, and ignores a click on it", async () => {
+    const { host, calls } = await open("tools");
+
+    const gitConfig = (await optionsOf(host, "External merge tool")).find((option) => optionText(option) === "Git config default");
+    expect(gitConfig?.getAttribute("aria-disabled")).toBe("true");
+    expect(gitConfig?.getAttribute("title")).toBe("No merge.tool in your Git config");
+    gitConfig?.click();
+    await flush();
+
+    expect(savedChoices(calls)).toEqual([]);
+  });
+
+  it("enables Git config default and names the tool when merge.tool is set", async () => {
+    const { host, calls } = await openRouted("tools", (call) => (call.cmd === "external_tools_detected" ? { ...detectedTools, git_merge_tool: "vimdiff" } : undefined));
+
+    const gitConfig = (await optionsOf(host, "External merge tool")).find((option) => optionText(option) === "Git config default");
+    expect(gitConfig?.hasAttribute("aria-disabled")).toBe(false);
+    expect(gitConfig?.querySelector(".select-option-hint")?.textContent).toBe("vimdiff");
+    gitConfig?.click();
+    await flush();
+
+    expect(savedChoices(calls)).toEqual([{ merge: "git_config", diff: "use_merge", editor: "none" }]);
+  });
+
+  it("offers Use merge tool, None, and Git config default (disabled without diff.tool) for the diff tool", async () => {
+    const { host, calls } = await openRouted("tools", (call) => (call.cmd === "external_tools_detected" ? { ...detectedTools, git_diff_tool: null } : undefined));
+
+    const options = await optionsOf(host, "External diff tool");
+    expect(options.map(optionText)).toEqual(["Use merge tool", "None", "Git config default", "FileMerge", "Visual Studio Code"]);
+    expect(options[2]?.getAttribute("title")).toBe("No diff.tool in your Git config");
+    expect(options[2]?.getAttribute("aria-disabled")).toBe("true");
+    await closeList();
+    await choose(host, "External diff tool", "None");
+
+    expect(savedChoices(calls)).toEqual([{ merge: "none", diff: "none", editor: "none" }]);
+  });
+
+  it("lists None, Custom, then each editor found, and shows the command field only for Custom", async () => {
+    const { host, calls } = await openRouted("tools", (call) => (call.cmd === "external_tools_load" ? { merge: "none", diff: "use_merge", editor: "custom" } : undefined));
+
+    expect(host.querySelector('input[aria-label="Custom editor command"]')).not.toBeNull();
+    expect(host.textContent).toContain("added as the last argument");
+    const options = await optionsOf(host, "External editor");
+    expect(options.map(optionText)).toEqual(["None", "Custom", "Visual Studio Code", "Cursor"]);
+    await closeList();
+    const command = host.querySelector<HTMLInputElement>('input[aria-label="Custom editor command"]');
+    type(command, " code -r ");
+    command?.dispatchEvent(new FocusEvent("blur"));
+    await flush();
+
+    expect(savedSettings(calls).at(-1)?.editor_command).toBe("code -r");
+    expect(calls.filter((call) => call.cmd === "external_tools_save")).toHaveLength(0);
+  });
+
+  it("hides the custom command for a found editor and saves the choice", async () => {
+    const { host, calls } = await open("tools");
+
+    expect(host.querySelector('input[aria-label="Custom editor command"]')).toBeNull();
+    await choose(host, "External editor", "Cursor");
+
+    expect(savedChoices(calls)).toEqual([{ merge: "none", diff: "use_merge", editor: "cursor" }]);
+  });
+
+  it("keeps a stored tool that is no longer installed visible but unselectable", async () => {
+    const { host } = await openRouted("tools", (call) => (call.cmd === "external_tools_load" ? { merge: "kaleidoscope", diff: "use_merge", editor: "none" } : undefined));
+
+    expect(host.querySelector('button[aria-label="External merge tool"]')?.textContent).toContain("Kaleidoscope");
+    const missing = (await optionsOf(host, "External merge tool")).find((option) => optionText(option) === "Kaleidoscope");
+    expect(missing?.getAttribute("aria-disabled")).toBe("true");
+    expect(missing?.getAttribute("title")).toBe("Not installed on this Mac");
+  });
+
+  it("moves the external terminal command into External tools and keeps it saved with the settings", async () => {
+    const general = await open("general");
+    expect(general.host.querySelector('input[aria-label="External terminal command"]')).toBeNull();
+    expect(general.host.querySelector('button[aria-label="External editor"]')).toBeNull();
+    general.dispose();
+
+    const { host, calls } = await open("tools");
+    const terminal = host.querySelector<HTMLInputElement>('input[aria-label="External terminal command"]');
+    type(terminal, "open -a iTerm");
+    terminal?.dispatchEvent(new FocusEvent("blur"));
+    await flush();
+
+    expect(savedSettings(calls).at(-1)?.terminal_command).toBe("open -a iTerm");
+  });
+
+  it("detects the tools against the open repository so its merge.tool counts", async () => {
+    const calls = install();
+    const mounted = mountWithApp(() => <SettingsView section="tools" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "external_tools_detected").map((call) => call.args)).toContainEqual({ path: "/r" });
+  });
+});
+
+describe("commit signing (S59)", () => {
+  const written = (calls: Call[]) => calls.filter((call) => call.cmd === "signing_write").map((call) => call.args);
+
+  it("reads the global Git config first and saves each change to it", async () => {
+    const { host, calls } = await open("git");
+
+    expect(calls.find((call) => call.cmd === "signing_read")?.args).toEqual({ scope: "global", path: null });
+    host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.click();
+    await flush();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Sign tags"]')?.click();
+    await flush();
+
+    expect(written(calls)).toEqual([
+      { scope: "global", path: null, config: { ...signingConfig, sign_commits: true } },
+      { scope: "global", path: null, config: { ...signingConfig, sign_tags: true } },
+    ]);
+  });
+
+  it("applies signing to this repository when it is chosen, and disables that choice without a repository", async () => {
+    const closed = await open("git");
+    const closedOptions = await optionsOf(closed.host, "Apply signing to");
+    expect(closedOptions.map(optionText)).toEqual(["All repositories (global Git config)", "This repository"]);
+    expect(closedOptions[1]?.getAttribute("title")).toBe("Open a repository to change its signing settings");
+    expect(closedOptions[1]?.getAttribute("aria-disabled")).toBe("true");
+    closed.dispose();
+
+    const calls = install();
+    const mounted = mountWithApp(() => <SettingsView section="git" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush();
+    await choose(mounted.host, "Apply signing to", "This repository: r");
+    mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.click();
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "signing_read").map((call) => call.args)).toContainEqual({ scope: "repository", path: "/r" });
+    expect(written(calls)).toEqual([{ scope: "repository", path: "/r", config: { ...signingConfig, sign_commits: true } }]);
+  });
+
+  it("offers the format, the keys of that format, and Custom for the signing key", async () => {
+    let stored: Record<string, unknown> = signingConfig;
+    const { host, calls } = await openRouted("git", (call) => {
+      if (call.cmd === "signing_write") {
+        stored = call.args.config as Record<string, unknown>;
+        return null;
+      }
+      return call.cmd === "signing_read" ? stored : undefined;
+    });
+
+    expect((await optionsOf(host, "Signing format")).map(optionText)).toEqual(["OpenPGP", "SSH", "X.509"]);
+    await closeList();
+    await choose(host, "Signing format", "SSH");
+    expect((await optionsOf(host, "Signing key")).map(optionText)).toEqual(["Git default", "id_ed25519.pub · yui@laptop", "Custom"]);
+    await closeList();
+    await choose(host, "Signing format", "X.509");
+
+    expect(written(calls).map((call) => (call.config as { format: string }).format)).toEqual(["ssh", "x509"]);
+    expect((await optionsOf(host, "Signing key")).map(optionText)).toEqual(["Git default", "Custom"]);
+  });
+
+  it("lists the OpenPGP keys by identity and key ID and saves the chosen key", async () => {
+    const { host, calls } = await open("git");
+
+    expect((await optionsOf(host, "Signing key")).map(optionText)).toEqual(["Git default", "Yui Lin <yui@example.test> · AAAABBBBCCCCDDDD", "Custom"]);
+    await closeList();
+    await choose(host, "Signing key", "Yui Lin");
+
+    expect(written(calls).at(-1)?.config).toMatchObject({ key: "AAAABBBBCCCCDDDD" });
+  });
+
+  it("asks for a custom key after Custom, and saves the program with its own field", async () => {
+    const { host, calls } = await open("git");
+
+    await choose(host, "Signing key", "Custom");
+    const key = host.querySelector<HTMLInputElement>('input[aria-label="Custom signing key"]');
+    expect(key).not.toBeNull();
+    type(key, " ABCD1234 ");
+    key?.dispatchEvent(new FocusEvent("blur"));
+    await flush();
+    const program = host.querySelector<HTMLInputElement>('input[aria-label="Signing program"]');
+    type(program, "/opt/homebrew/bin/gpg");
+    program?.dispatchEvent(new FocusEvent("blur"));
+    await flush();
+
+    expect(written(calls).map((call) => call.config)).toEqual([
+      { ...signingConfig, key: "ABCD1234" },
+      { ...signingConfig, program: "/opt/homebrew/bin/gpg" },
+    ]);
+  });
+
+  it("shows the refusal of the core", async () => {
+    const { host } = await openRouted("git", (call) => {
+      if (call.cmd === "signing_write") throw { kind: "git_failed", message: "`git config` exited with status 255: bad config", output: null };
+      return undefined;
+    });
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.click();
+    await flush();
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("bad config");
+  });
+});
+
+describe("profiles, Git LFS, and Git Flow placement", () => {
+  it("shows the profiles in General, and Git LFS and Git Flow in This repository", async () => {
+    const general = await open("general");
+    expect(general.host.querySelector('[aria-label="Profiles"]')?.textContent).toContain("Uses the name and email in your Git config");
+    general.dispose();
+
+    const calls = install();
+    const mounted = mountWithApp(() => <SettingsView section="repository" />);
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush(40);
+
+    for (const cmd of ["lfs_status", "git_flow_config"]) {
+      const asked = calls.filter((call) => call.cmd === cmd).map((call) => call.args);
+      expect(asked.length).toBeGreaterThan(0);
+      expect(asked.every((args) => args.path === "/r")).toBe(true);
+    }
+    expect(mounted.host.textContent).toContain("Git LFS 3.5.1");
+    expect(buttonNamed(mounted.host, "Initialize Git Flow")).toBeDefined();
+  });
+});
+
+describe("search results in This repository (S58, S57)", () => {
+  it("opens This repository and moves focus to the Git LFS and Git Flow settings", async () => {
+    install();
+    const mounted = mountWithApp((app) => {
+      const [section, setSection] = createSignal("git");
+      app.openSettings = setSection;
+      return <SettingsView section={section()} />;
+    });
+    dispose = mounted.dispose;
+    await mounted.app.boot();
+    await flush();
+
+    type(search(mounted.host), "lfs");
+    await flush();
+    mounted.host.querySelector<HTMLButtonElement>(".setting-result")?.click();
+    await flush(80);
+    expect(document.activeElement?.id).toBe("setting-lfs");
+
+    type(search(mounted.host), "hotfix prefix");
+    await flush();
+    mounted.host.querySelector<HTMLButtonElement>(".setting-result")?.click();
+    await flush(80);
+    expect(document.activeElement?.id).toBe("setting-git-flow");
   });
 });

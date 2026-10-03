@@ -10,16 +10,18 @@ import { SHORTCUTS } from "./shortcuts";
 const command = (id: string, extra: Partial<PaletteCommand> = {}): PaletteCommand & { run: ReturnType<typeof vi.fn> } =>
   ({ id, title: id, group: "Application", covers: [], args: [], run: vi.fn(), ...extra }) as PaletteCommand & { run: ReturnType<typeof vi.fn> };
 
-function deps(commands: PaletteCommand[], overrides: Partial<MenuDeps> = {}): MenuDeps & { opened: string[]; saved: AppSettings[]; edits: string[]; palette: ReturnType<typeof vi.fn> } {
+function deps(commands: PaletteCommand[], overrides: Partial<MenuDeps> = {}): MenuDeps & { opened: string[]; saved: AppSettings[]; edits: string[]; palette: ReturnType<typeof vi.fn>; shortcuts: ReturnType<typeof vi.fn> } {
   const opened: string[] = [];
   const saved: AppSettings[] = [];
   const edits: string[] = [];
   const palette = vi.fn();
+  const shortcuts = vi.fn();
   return {
     commands: () => commands,
     settings: () => defaultSettings,
     saveSettings: async (next) => void saved.push(next),
     openPalette: palette,
+    openShortcuts: shortcuts,
     openUrl: (url) => void opened.push(url),
     editableFocused: () => false,
     editCommand: (name) => void edits.push(name),
@@ -28,6 +30,7 @@ function deps(commands: PaletteCommand[], overrides: Partial<MenuDeps> = {}): Me
     saved,
     edits,
     palette,
+    shortcuts,
   };
 }
 
@@ -60,23 +63,43 @@ describe("macOS menu bar actions", () => {
     expect(inside.edits).toEqual(["undo"]);
   });
 
-  it("redoes only inside a text field", () => {
-    const outside = deps([]);
-    const inside = deps([], { editableFocused: () => true });
+  it("runs YForge's Redo for ⇧⌘Z outside a text field and the field's own redo inside one", () => {
+    const redo = command("redo");
+    const outside = deps([redo]);
+    const inside = deps([redo], { editableFocused: () => true });
 
     runMenuAction("edit.redo", outside);
     runMenuAction("edit.redo", inside);
 
+    expect(redo.run).toHaveBeenCalledOnce();
     expect([outside.edits, inside.edits]).toEqual([[], ["redo"]]);
   });
 
-  it("opens the palette for Command Palette and Keyboard Shortcuts", () => {
+  it("does not redo outside a text field when there is nothing to redo", () => {
+    const redo = command("redo", { disabledReason: "Nothing to redo" });
+
+    runMenuAction("edit.redo", deps([redo]));
+
+    expect(redo.run).not.toHaveBeenCalled();
+  });
+
+  it("opens the palette for Command Palette and the shortcuts sheet for Keyboard Shortcuts", () => {
     const run = deps([]);
 
     runMenuAction("palette.open", run);
     runMenuAction("help.shortcuts", run);
 
-    expect(run.palette).toHaveBeenCalledTimes(2);
+    expect(run.palette).toHaveBeenCalledOnce();
+    expect(run.shortcuts).toHaveBeenCalledOnce();
+  });
+
+  it("runs the zoom, sidebar, inspector, repository search, editor, and redo items through their palette commands", () => {
+    const ids = ["zoom.in", "zoom.out", "zoom.reset", "view.sidebar", "view.inspector", "repository.search", "open.editor", "redo"];
+    const commands = ids.map((id) => command(id));
+
+    for (const id of ids) runMenuAction(id, deps(commands));
+
+    for (const entry of commands) expect(entry.run, entry.id).toHaveBeenCalledOnce();
   });
 
   it("opens the project's GitHub pages for release notes, help, and issue reports", () => {
@@ -110,13 +133,19 @@ describe("macOS menu bar actions", () => {
 
 describe("macOS menu bar state", () => {
   it("disables an item whose command cannot act, keeps the others enabled, and tracks the text field for Undo and Redo", () => {
-    const commands = [command("sync.fetch", { disabledReason: "Open a repository first" }), command("tab.new"), command("undo", { disabledReason: "Nothing to undo" }), command("tab.reopen", { disabledReason: "No closed tabs" }), command("update.check")];
+    const commands = [command("sync.fetch", { disabledReason: "Open a repository first" }), command("tab.new"), command("undo", { disabledReason: "Nothing to undo" }), command("redo", { disabledReason: "Nothing to redo" }), command("tab.reopen", { disabledReason: "No closed tabs" }), command("update.check")];
 
     const outside = menuEnabled(commands, false);
     const inside = menuEnabled(commands, true);
 
-    expect(outside).toMatchObject({ "sync.fetch": false, "tab.new": true, undo: false, "tab.reopen": false, "edit.undo": false, "edit.redo": false, "palette.open": true, "update.check": true });
+    expect(outside).toMatchObject({ "sync.fetch": false, "tab.new": true, undo: false, redo: false, "tab.reopen": false, "edit.undo": false, "edit.redo": false, "palette.open": true, "update.check": true });
     expect(inside).toMatchObject({ "edit.undo": true, "edit.redo": true });
+  });
+
+  it("enables Redo Last Action and the Edit menu's Redo when there is something to redo, and disables zoom items that cannot act", () => {
+    const commands = [command("redo"), command("zoom.in", { disabledReason: "Already at 200%, the largest size" }), command("zoom.out"), command("view.sidebar", { disabledReason: "Open a repository first" })];
+
+    expect(menuEnabled(commands, false)).toMatchObject({ redo: true, "edit.redo": true, "zoom.in": false, "zoom.out": true, "view.sidebar": false });
   });
 
   it("marks the current theme and density", () => {
@@ -151,6 +180,11 @@ describe("macOS menu bar contents (S43)", () => {
       pullMode: "fast_forward_or_merge",
       offline: false,
       undo: { kind: "unavailable", reason: "" },
+      redo: { kind: "unavailable", reason: "" },
+      zoomPercent: 100,
+      theme: "system",
+      externalTools: undefined,
+      lfs: undefined,
       anchor: { left: 0, top: 0 },
       app: {
         openLauncher: vi.fn(),
@@ -173,6 +207,22 @@ describe("macOS menu bar contents (S43)", () => {
         nextTab: vi.fn(),
         previousTab: vi.fn(),
         checkForUpdate: vi.fn(),
+        openRepositorySearch: vi.fn(),
+        openShortcuts: vi.fn(),
+        openLogs: vi.fn(),
+        openDrawer: vi.fn(),
+        openReleaseNotes: vi.fn(),
+        zoom: vi.fn(),
+        toggleSidebar: vi.fn(),
+        toggleInspector: vi.fn(),
+        toggleSyntaxHighlighting: vi.fn(),
+        toggleTheme: vi.fn(),
+        switchProfile: vi.fn(),
+        profileList: () => undefined,
+        profileOptions: async () => [],
+        openFileInTool: vi.fn(),
+        openFileInEditor: vi.fn(),
+        initializeLfs: vi.fn(),
       },
       platform: undefined,
       revealCommit: vi.fn(),
@@ -180,6 +230,11 @@ describe("macOS menu bar contents (S43)", () => {
       focusComposer: vi.fn(),
       revealHead: vi.fn(),
       openPanel: vi.fn(),
+      trackedFiles: async () => [],
+      openFileHistory: vi.fn(),
+      viewChanges: vi.fn(),
+      redoLast: vi.fn(),
+      createTag: vi.fn(),
       loadCommits: async () => [],
     });
     const commandIds = new Set(palette.map((entry) => entry.id));

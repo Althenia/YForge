@@ -108,7 +108,7 @@ describe("toasts", () => {
     expect(buttonNamed(host, "Undo")).toBeUndefined();
   });
 
-  it("dismisses a success toast after six seconds, but not while the pointer is over it", async () => {
+  it("dismisses a success toast after five seconds, but not while the pointer is over it", async () => {
     const { host } = await mount();
     await record(entry());
     const toast = host.querySelector(".toast");
@@ -118,14 +118,14 @@ describe("toasts", () => {
     await tick(7000);
     expect(host.querySelector(".toast")).not.toBeNull();
     toast?.dispatchEvent(new MouseEvent("mouseleave"));
-    await tick(5900);
+    await tick(4900);
     expect(host.querySelector(".toast")).not.toBeNull();
     await tick(200);
 
     expect(host.querySelector(".toast")).toBeNull();
   });
 
-  it("waits while the window is unfocused and restarts the six seconds when it regains focus", async () => {
+  it("waits while the window is unfocused and restarts the five seconds when it regains focus", async () => {
     const { host } = await mount();
     await record(entry());
 
@@ -135,7 +135,7 @@ describe("toasts", () => {
     expect(host.querySelector(".toast")).not.toBeNull();
     windowFocused = true;
     window.dispatchEvent(new Event("focus"));
-    await tick(5900);
+    await tick(4900);
     expect(host.querySelector(".toast")).not.toBeNull();
     await tick(200);
 
@@ -162,7 +162,7 @@ describe("toasts", () => {
     await tick(30000);
     expect(host.querySelector(".toast")).not.toBeNull();
     toast?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-    await tick(6100);
+    await tick(5100);
 
     expect(host.querySelector(".toast")).toBeNull();
   });
@@ -175,5 +175,39 @@ describe("toasts", () => {
     await tick();
 
     expect(host.querySelector(".toast")).toBeNull();
+  });
+
+  it("is a pill with its status in words, one action, and a countdown ring (S48)", async () => {
+    const { host } = await mount();
+    await record(entry({ undo: { kind: "unavailable", reason: "x" } }));
+    const toast = host.querySelector<HTMLElement>(".toast") as HTMLElement;
+
+    expect(toast.getAttribute("role")).toBe("status");
+    expect(toast.querySelector(".sr-only")?.textContent).toBe("Done:");
+    expect(toast.querySelector(".toast-ring")).not.toBeNull();
+    expect([...toast.querySelectorAll("button")].map((button) => button.textContent?.trim() || button.getAttribute("aria-label"))).toEqual(["Details", "Dismiss"]);
+  });
+
+  it("shows at most three, newest first, and queues the rest behind a count", async () => {
+    const { host } = await mount();
+    for (const id of [1, 2, 3, 4, 5]) await record(entry({ id, summary: `Committed ${id}` }));
+
+    expect([...host.querySelectorAll(".toast .toast-title")].map((title) => title.textContent)).toEqual(["Committed 5", "Committed 4", "Committed 3"]);
+    expect(host.querySelector(".toast-more")?.textContent).toBe("2 more");
+    host.querySelector<HTMLButtonElement>('.toast button[aria-label="Dismiss"]')?.click();
+    await tick();
+    expect([...host.querySelectorAll(".toast .toast-title")].map((title) => title.textContent)).toEqual(["Committed 4", "Committed 3", "Committed 2"]);
+    expect(host.querySelector(".toast-more")?.textContent).toBe("1 more");
+  });
+
+  it("dismisses the newest toast with Esc", async () => {
+    const { host } = await mount();
+    await record(entry({ id: 1, summary: "First" }));
+    await record(entry({ id: 2, summary: "Second" }));
+
+    document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+
+    expect([...host.querySelectorAll(".toast .toast-title")].map((title) => title.textContent)).toEqual(["First"]);
   });
 });

@@ -402,3 +402,83 @@ fn migration_seven_drops_the_provider_model_and_active_choice_and_keeps_features
         .unwrap();
     assert_eq!(active, 0);
 }
+
+#[test]
+fn every_feature_including_the_newer_ones_saves_its_own_config() {
+    let dir = data();
+    let id = provider(dir.path(), "One");
+
+    for each in AiFeature::ALL {
+        ai_feature_config_set(dir.path(), &feature(each, &id, "m")).unwrap();
+    }
+
+    let saved: Vec<AiFeature> = ai_feature_configs(dir.path())
+        .unwrap()
+        .into_iter()
+        .map(|(config, _)| config.feature)
+        .collect();
+    assert_eq!(saved, AiFeature::ALL);
+    for each in [
+        AiFeature::ExplainChanges,
+        AiFeature::ExplainCommit,
+        AiFeature::ComposeCommits,
+        AiFeature::StashMessage,
+    ] {
+        assert_eq!(AiFeature::parse(each.as_str()), Some(each));
+    }
+}
+
+#[test]
+fn migration_thirteen_keeps_saved_features_and_their_switches() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("yforge.db");
+    let old = Connection::open(&path).unwrap();
+    for script in [
+        include_str!("../src/store/schema.sql"),
+        include_str!("../src/store/switch_stashes.sql"),
+        include_str!("../src/store/ai_providers.sql"),
+        include_str!("../src/store/repo_ui_prefs.sql"),
+        include_str!("../src/store/platform_connections.sql"),
+        include_str!("../src/store/ai_v2.sql"),
+        include_str!("../src/store/ai_feature_switch.sql"),
+        include_str!("../src/store/tab_groups.sql"),
+        include_str!("../src/store/jira_connections.sql"),
+        include_str!("../src/store/git_hosts.sql"),
+        include_str!("../src/store/repo_aliases.sql"),
+        include_str!("../src/store/scanned_folders.sql"),
+    ] {
+        old.execute_batch(script).unwrap();
+    }
+    old.pragma_update(None, "user_version", 12).unwrap();
+    old.execute_batch(
+        "INSERT INTO ai_providers (id, kind, auth_mode, name, base_url, has_api_key, created_at) VALUES
+         ('openrouter-1', 'openrouter', 'api_key', 'OR', NULL, 1, 30);
+         INSERT INTO ai_feature_config (feature, provider_id, model_id, prompt_template, enabled) VALUES
+         ('recompose', 'openrouter-1', 'm/y', 'Do {context}', 0),
+         ('generate_commit', 'openrouter-1', 'm/z', 'Write {context}', 1);",
+    )
+    .unwrap();
+    drop(old);
+
+    start_storage(dir.path()).unwrap();
+
+    let saved: Vec<(AiFeature, String, bool)> = ai_feature_configs(dir.path())
+        .unwrap()
+        .into_iter()
+        .map(|(config, enabled)| (config.feature, config.model_id, enabled))
+        .collect();
+    assert_eq!(
+        saved,
+        [
+            (AiFeature::Recompose, "m/y".to_owned(), false),
+            (AiFeature::GenerateCommit, "m/z".to_owned(), true)
+        ]
+    );
+    ai_feature_config_set(
+        dir.path(),
+        &feature(AiFeature::StashMessage, "openrouter-1", "m"),
+    )
+    .unwrap();
+    ai_provider_delete(dir.path(), "openrouter-1").unwrap();
+    assert!(ai_feature_configs(dir.path()).unwrap().is_empty());
+}

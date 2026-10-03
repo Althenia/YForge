@@ -6,14 +6,14 @@ const names = ["feature/a", "feature/b/deep", "feature/b/deeper", "main", "relea
 describe("ref tree", () => {
   it("nests slash-separated names into folders that show their branch counts", () => {
     expect(treeRows(names, new Set())).toEqual([
-      { kind: "folder", id: "feature", name: "feature", depth: 0, count: 3, open: true, last: false, trail: [] },
-      { kind: "leaf", path: "feature/a", label: "a", depth: 1, last: false, trail: [true] },
-      { kind: "folder", id: "feature/b", name: "b", depth: 1, count: 2, open: true, last: true, trail: [true] },
-      { kind: "leaf", path: "feature/b/deep", label: "deep", depth: 2, last: false, trail: [true, false] },
-      { kind: "leaf", path: "feature/b/deeper", label: "deeper", depth: 2, last: true, trail: [true, false] },
-      { kind: "leaf", path: "main", label: "main", depth: 0, last: false, trail: [] },
-      { kind: "folder", id: "release", name: "release", depth: 0, count: 1, open: true, last: true, trail: [] },
-      { kind: "leaf", path: "release/1.0", label: "1.0", depth: 1, last: true, trail: [false] },
+      { kind: "folder", id: "feature", name: "feature", depth: 0, count: 3, open: true },
+      { kind: "leaf", path: "feature/a", label: "a", depth: 1 },
+      { kind: "folder", id: "feature/b", name: "b", depth: 1, count: 2, open: true },
+      { kind: "leaf", path: "feature/b/deep", label: "deep", depth: 2 },
+      { kind: "leaf", path: "feature/b/deeper", label: "deeper", depth: 2 },
+      { kind: "leaf", path: "main", label: "main", depth: 0 },
+      { kind: "folder", id: "release", name: "release", depth: 0, count: 1, open: true },
+      { kind: "leaf", path: "release/1.0", label: "1.0", depth: 1 },
     ]);
   });
 
@@ -28,7 +28,7 @@ describe("ref tree", () => {
 
   it("scopes folder ids so two remotes keep separate collapse state", () => {
     const rows = treeRows(["x/y"], new Set(["origin:x"]), "origin:");
-    expect(rows).toEqual([{ kind: "folder", id: "origin:x", name: "x", depth: 0, count: 1, open: false, last: true, trail: [] }]);
+    expect(rows).toEqual([{ kind: "folder", id: "origin:x", name: "x", depth: 0, count: 1, open: false }]);
   });
 
   it("keeps a flat list flat", () => {

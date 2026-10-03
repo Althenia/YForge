@@ -6,10 +6,10 @@ use yforge_core::{
     ai_feature_config, ai_feature_config_enable, ai_feature_config_reset, ai_feature_config_set,
     ai_feature_configs, ai_provider, ai_provider_add, ai_provider_delete, ai_provider_edit,
     ai_provider_key_flag, ai_providers, AiFeature, AiFeatureConfig, AiFeatureSummary,
-    AiSignInMethod, AiSignInStage, ApiKeyChange, AuthMode, CancelToken, CommitContext, CommitDraft,
-    ConflictFile, ConflictProposal, CoreError, ModelInfo, ProviderConfig, ProviderInput,
-    ProviderKind, ProviderStatus, ProviderSummary, ProviderUpdate, RecomposePreview,
-    RecomposeProposal,
+    AiSignInMethod, AiSignInStage, ApiKeyChange, AuthMode, CancelToken, ChangesContext,
+    CommitContext, CommitDraft, ComposeProposal, ConflictFile, ConflictProposal, CoreError,
+    Explanation, ModelInfo, ProviderConfig, ProviderInput, ProviderKind, ProviderStatus,
+    ProviderSummary, ProviderUpdate, RecomposePreview, RecomposeProposal, StashDraft,
 };
 
 use crate::endpoints::Endpoints;
@@ -19,7 +19,7 @@ use crate::limits::Limits;
 use crate::prompt::{default_template, render, validate_template};
 use crate::providers::{self, Access, Connection};
 use crate::secret::{oauth_account, SecretStore, CLAUDE_CODE_SERVICE};
-use crate::{chatgpt, claude_code, commit, conflict, recompose};
+use crate::{changes, chatgpt, claude_code, commit, compose, conflict, explain, recompose, stash};
 
 const NAME_LIMIT: usize = 80;
 
@@ -616,6 +616,42 @@ impl Ai {
         let context = conflict::context_text(file)?;
         let reply = self.complete(selection, &context, cancel).await?;
         conflict::parse(&selection.config.name, &reply, conflict::region_count(file))
+    }
+
+    pub async fn explain(
+        &self,
+        selection: &Selection,
+        context: &ChangesContext,
+        cancel: &CancelToken,
+    ) -> Result<Explanation> {
+        let reply = self
+            .complete(selection, &changes::context_text(context), cancel)
+            .await?;
+        explain::parse(&selection.config.name, &reply, context)
+    }
+
+    pub async fn compose(
+        &self,
+        selection: &Selection,
+        context: &ChangesContext,
+        cancel: &CancelToken,
+    ) -> Result<ComposeProposal> {
+        let reply = self
+            .complete(selection, &changes::context_text(context), cancel)
+            .await?;
+        compose::parse(&selection.config.name, &reply, context)
+    }
+
+    pub async fn stash_message(
+        &self,
+        selection: &Selection,
+        context: &ChangesContext,
+        cancel: &CancelToken,
+    ) -> Result<StashDraft> {
+        let reply = self
+            .complete(selection, &changes::context_text(context), cancel)
+            .await?;
+        stash::parse(&selection.config.name, &reply, context)
     }
 
     pub async fn sign_in(

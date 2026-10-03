@@ -6,9 +6,10 @@ Status: **approved 2026-09-29** (revision 2: standalone scope). This revises the
 
 ```text
 YForge
-├── Launcher  (window with no repository, or a new tab)
+├── Launchpad  (window with no repository, a new tab, or the tab bar; S41)
 │   ├── Open… · Clone… · Create…  (+ drop a folder, + `yforge <path>`)
-│   └── Recent repositories: branch · ahead/behind · changes · worktree count · last opened
+│   ├── Repositories: opened and scanned (S46), grouped by folder · branch · status · last opened
+│   └── My pull requests · My issues · WIPs
 ├── Repository tab  (one per repository; its worktrees grouped under it)
 │   ├── Command bar
 │   │   ├── Context: Repository ▾ › Worktree ▾ › Branch ▾

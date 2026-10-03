@@ -6,7 +6,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { defaultSettings } from "../state/settingsModel";
 import type { MenuState } from "../state/repoActions";
 import { ContextMenu } from "./ContextMenu";
-import { Launcher } from "./Launcher";
+import { Launchpad } from "./Launchpad";
 import { SettingsView } from "./SettingsView";
 import { TooltipHost } from "./Tooltip";
 import { Workspace } from "./Workspace";
@@ -141,9 +141,9 @@ describe("icon-driven controls (S15)", () => {
     );
   });
 
-  it("gives every icon-only button in the launcher and settings an accessible name and a tooltip", async () => {
+  it("gives every icon-only button in the Launchpad and settings an accessible name and a tooltip", async () => {
     install();
-    const launcher = mountWithApp(() => <Launcher />);
+    const launcher = mountWithApp(() => <Launchpad />);
     dispose = launcher.dispose;
     await flush(40);
     expect(launcher.host.querySelectorAll("button").length).toBeGreaterThan(0);
@@ -154,7 +154,7 @@ describe("icon-driven controls (S15)", () => {
     const settings = mountWithApp(() => <SettingsView section="general" />);
     dispose = settings.dispose;
     await flush(40);
-    expect(settings.host.querySelectorAll(".settings-nav button")).toHaveLength(8);
+    expect(settings.host.querySelectorAll('.settings-tabs [role="tab"]')).toHaveLength(10);
     for (const button of iconOnly(settings.host)) expect(button.dataset.tip).toBeTruthy();
   });
 
@@ -188,16 +188,18 @@ describe("icon-driven controls (S15)", () => {
     expect(sidebar).toEqual([
       ["Branches", "svg"],
       ["Remotes", "svg"],
+      ["Worktrees", "svg"],
       ["Tags", "svg"],
       ["Stashes", "svg"],
-      ["Worktrees", "svg"],
+      ["Submodules", "svg"],
+      ["Hooks", "svg"],
       ["Recovery", "svg"],
     ]);
     const inspector = [...host.querySelectorAll(".inspector .lhead-title")].map((header) => header.firstElementChild?.tagName);
     expect(inspector.length).toBeGreaterThan(0);
     expect(inspector.every((tag) => tag === "svg")).toBe(true);
     expect(host.querySelector(".composer .btn.primary svg")).not.toBeNull();
-    expect(textOf(host.querySelector(".composer .btn.primary") as Element)).toContain("Commit");
+    expect(textOf(host.querySelector(".composer .btn.primary") as Element)).toMatch(/commit/i);
   });
 
   it("keeps a text label on the operation banner actions", async () => {
@@ -221,8 +223,7 @@ describe("icon-driven controls (S15)", () => {
     const more = host.querySelector<HTMLButtonElement>('button[aria-label="More actions for notes.txt"]');
     more?.click();
     await flush();
-    const discard = document.querySelector('[role="menuitem"]');
-    expect(textOf(discard as Element)).toBe("Delete untracked file…");
+    const discard = [...document.querySelectorAll('[role="menuitem"]')].find((item) => textOf(item) === "Discard notes.txt");
     expect(discard?.classList.contains("danger")).toBe(true);
     expect(discard?.querySelector(".item-icon svg")).not.toBeNull();
   });

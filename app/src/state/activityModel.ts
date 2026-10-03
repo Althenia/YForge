@@ -1,4 +1,5 @@
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
+import type { RedoChange } from "../ipc/bindings/RedoChange";
 
 export const ACTIVITY_LIMIT = 300;
 
@@ -17,6 +18,22 @@ export function undoState(entries: readonly ActivityEntry[], repo: string): Undo
   if (last === undefined) return { kind: "unavailable", reason: NOTHING_TO_UNDO };
   if (last.undo.kind === "available") return { kind: "available", entry: last, scope: last.undo.scope };
   return { kind: "unavailable", reason: last.undo.kind === "unavailable" ? `${last.operation}: ${last.undo.reason}` : NOTHING_TO_UNDO };
+}
+
+export type RedoState = { kind: "available"; scope: string } | { kind: "unavailable"; reason: string };
+
+export const NOTHING_TO_REDO = "Nothing to redo";
+
+export type RedoScopes = Readonly<Record<string, string>>;
+
+export function redoState(scopes: RedoScopes, repo: string): RedoState {
+  const scope = scopes[repo];
+  return scope === undefined ? { kind: "unavailable", reason: NOTHING_TO_REDO } : { kind: "available", scope };
+}
+
+export function withRedoChange(scopes: RedoScopes, change: RedoChange): RedoScopes {
+  const { [change.repo]: _dropped, ...rest } = scopes;
+  return change.scope === null ? rest : { ...rest, [change.repo]: change.scope };
 }
 
 export type Toast = { id: number; entry: ActivityEntry; message: string; undoable: boolean };

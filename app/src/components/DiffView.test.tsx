@@ -8,11 +8,13 @@ import type { DiffTarget } from "../state/diffModel";
 import { createDiffPrefs } from "../state/diffPrefs";
 import { buttonNamed, flush, mountWithApp, stubLayout, testSession } from "./testkit";
 import type { FileViewTarget } from "../state/fileView";
+import { takeFileHistoryRequest, type FileHistoryRequest } from "../state/fileHistoryRequest";
 import { DiffView } from "./DiffView";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -25,6 +27,7 @@ beforeEach(() => {
   );
   restoreLayout = stubLayout();
   calls = [];
+  toolsStatus = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 });
 
 afterEach(async () => {
@@ -76,6 +79,7 @@ const working = (area: "unstaged" | "staged" = "unstaged"): DiffTarget => ({ sou
 function mount(target: DiffTarget, result: FileDiff | (() => FileDiff) = diff, prefs = createDiffPrefs(), viewed: FileViewTarget[] = []) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+    if (cmd === "external_tools_status") return toolsStatus;
     return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? (typeof result === "function" ? result() : result) : null;
   });
   const mounted = mountWithApp(() => (
@@ -93,6 +97,14 @@ const press = (element: Element | null | undefined, key: string, init: KeyboardE
   element?.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init }));
 
 describe("line selection and line commands", () => {
+  it("sizes every row to the widest line, so a long line's tint reaches its end (S18)", async () => {
+    const long = "x".repeat(140);
+    const { host } = mount(working(), { ...diff, hunks: [{ ...first, lines: [...first.lines, line("added", long, null, 6)] }, second] });
+    await flush(40);
+
+    expect(host.querySelector<HTMLElement>(".dbody")?.style.getPropertyValue("--code-ch")).toBe("140");
+  });
+
   it("selects with a click, extends with shift-click, and stages the chosen lines", async () => {
     const { host } = mount(working());
     await flush(60);
@@ -390,14 +402,62 @@ describe("binary and editor", () => {
     expect(host.querySelectorAll("section.hunk, .dflat")).toHaveLength(0);
   });
 
-  it("opens the file in the editor from the toolbar", async () => {
+  it("opens the file in the chosen editor from the toolbar", async () => {
     const { host } = mount(working());
     await flush(60);
 
     click(named(host, "Open in editor"));
     await flush();
 
-    expect(called("open_path")).toEqual([{ cmd: "open_path", args: { path: "/r/src/app.ts", with: "editor" } }]);
+    expect(called("open_in_editor")).toEqual([{ cmd: "open_in_editor", args: { path: "/r", file: "src/app.ts" } }]);
+    expect(called("open_path")).toEqual([]);
+  });
+
+  it("keeps Open in editor visible but aria-disabled with its reason when no editor is chosen", async () => {
+    toolsStatus = { editor: null, diff: "FileMerge", merge: "FileMerge" };
+    const { host } = mount(working());
+    await flush(60);
+
+    const button = named(host, "Open in editor");
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    expect(button?.dataset.tip).toBe("Open in editor. Choose an external editor in Settings → External tools");
+    click(button);
+    await flush();
+    expect(called("open_in_editor")).toEqual([]);
+  });
+});
+
+describe("open in external diff tool", () => {
+  const sources: Array<[string, DiffTarget, unknown]> = [
+    ["an unstaged diff", working("unstaged"), { kind: "unstaged" }],
+    ["a staged diff", working("staged"), { kind: "staged" }],
+    ["a commit diff", { source: "commit", sha: "abc1234", file: "src/app.ts" }, { kind: "commit", sha: "abc1234" }],
+    ["a stash diff", { source: "stash", index: 2, sha: "5".repeat(40), file: "src/app.ts" }, { kind: "commit", sha: "5".repeat(40) }],
+  ];
+
+  it.each(sources)("opens %s with the source it shows", async (_name, target, source) => {
+    const { host } = mount(target);
+    await flush(60);
+
+    const button = named(host, "Open in external diff tool");
+    expect(button?.getAttribute("aria-disabled")).toBeNull();
+    click(button);
+    await flush();
+
+    expect(called("open_in_diff_tool")).toEqual([{ cmd: "open_in_diff_tool", args: { path: "/r", file: "src/app.ts", source } }]);
+  });
+
+  it("keeps the control visible but aria-disabled with its reason when no diff tool is chosen", async () => {
+    toolsStatus = { editor: "Visual Studio Code", diff: null, merge: "FileMerge" };
+    const { host } = mount(working());
+    await flush(60);
+
+    const button = named(host, "Open in external diff tool");
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    expect(button?.dataset.tip).toBe("Open in external diff tool. Choose an external diff tool in Settings → External tools");
+    click(button);
+    await flush();
+    expect(called("open_in_diff_tool")).toEqual([]);
   });
 });
 
@@ -478,6 +538,28 @@ describe("file view entry", () => {
       click(named(host, "View file"));
 
       expect(viewed).toEqual([expected]);
+      stop();
+    }
+  });
+});
+
+describe("file history entry", () => {
+  it("asks for the file's history from History and its blame from Blame, selecting the commit a commit diff shows", async () => {
+    const cases: Array<[DiffTarget, string, FileHistoryRequest]> = [
+      [working("unstaged"), "History", { file: "src/app.ts", view: "diff" }],
+      [working("staged"), "Blame", { file: "src/app.ts", view: "blame" }],
+      [{ source: "commit", sha: "abc1234", file: "src/app.ts" }, "History", { file: "src/app.ts", sha: "abc1234", view: "diff" }],
+      [{ source: "commit", sha: "abc1234", file: "src/app.ts" }, "Blame", { file: "src/app.ts", sha: "abc1234", view: "blame" }],
+      [{ source: "stash", index: 0, sha: "f".repeat(40), file: "src/app.ts" }, "History", { file: "src/app.ts", view: "diff" }],
+    ];
+    for (const [target, control, expected] of cases) {
+      const { host, dispose: stop } = mount(target);
+      await flush(60);
+
+      expect(named(host, control)?.getAttribute("data-tip")).toBe(control);
+      click(named(host, control));
+
+      expect(takeFileHistoryRequest()).toEqual(expected);
       stop();
     }
   });

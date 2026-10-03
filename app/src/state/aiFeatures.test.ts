@@ -68,8 +68,24 @@ describe("feature failure copy", () => {
 });
 
 describe("feature order", () => {
-  it("lists the three features in the order the core returns them", () => {
-    expect(FEATURE_ORDER).toEqual(["generate_commit", "recompose", "conflict_fix"]);
-    expect(FEATURE_TITLES.generate_commit).toBe("Generate commit message");
+  it("lists the seven features in the order the core returns them, each with its title", () => {
+    expect(FEATURE_ORDER).toEqual([
+      "generate_commit",
+      "recompose",
+      "conflict_fix",
+      "explain_changes",
+      "explain_commit",
+      "compose_commits",
+      "stash_message",
+    ]);
+    expect(FEATURE_ORDER.map((feature) => FEATURE_TITLES[feature])).toEqual([
+      "Generate commit message",
+      "Propose with AI in Recompose",
+      "Propose conflict resolution",
+      "Explain changes",
+      "Explain commit",
+      "Compose commits",
+      "Generate stash message",
+    ]);
   });
 });

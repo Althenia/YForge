@@ -277,6 +277,11 @@ fn integrate_upstream(
             PullOutcome::Updated
         });
     }
+    if mode != PullMode::Rebase {
+        if let Some(failure) = crate::integrate::abort_unfinished_merge(root, &args, &completed)? {
+            return Err(failure);
+        }
+    }
     if repo::read_operation(root)?
         .0
         .is_some_and(|operation| operation != Operation::Bisect)

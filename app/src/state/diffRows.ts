@@ -114,3 +114,14 @@ export function wordMarks(hunk: DiffHunk): Map<number, Range[]> {
   }
   return marks;
 }
+
+const TAB_COLUMNS = 8;
+
+const columns = (text: string): number => {
+  let width = 0;
+  for (const char of text) width = char === "\t" ? width + TAB_COLUMNS - (width % TAB_COLUMNS) : width + 1;
+  return width;
+};
+
+/// The longest code line of the hunks in character columns, so every diff row can share the widest row's width.
+export const widestLine = (hunks: readonly DiffHunk[]): number => hunks.reduce((widest, hunk) => hunk.lines.reduce((most, line) => Math.max(most, columns(line.text)), widest), 0);

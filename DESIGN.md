@@ -61,13 +61,13 @@ icons:
   | Trait | Visual consequence |
   |---|---|
   | Precise | Mono for identifiers; aligned columns; exact counts |
-  | Calm | Quiet neutral surfaces over one faint aurora; status color only for meaning |
+  | Calm | Quiet charcoal surfaces told apart by tone; status color only for meaning |
   | Candid | Every risky action states its consequence |
   | Craftsmanlike | Dense, owned, flat controls; no decorative gradients, glows, or sheen |
   | Independent | Standalone, local-first; nothing in the brand implies an account or a cloud |
 
 - **Anti-references:**
-  - GitKraken's branding, mascot, illustrations, and chrome trade dress. The commit graph is the approved exception: it matches GitKraken's graph (P-G1).
+  - GitKraken's branding, mascot, illustrations, icons, fonts, and microcopy. Two things follow GitKraken by the owner's choice: the commit graph (P-G1) and the high-contrast separation of regions (tab bar darkest, distinct toolbar, panels lighter than the graph; 2026-10-03).
   - SaaS dashboard cards.
   - Gradient hero art.
   - Generated-looking gradient styling: glowing rims, sheen, neon glows, multi-hue gradient chrome.
@@ -78,8 +78,8 @@ icons:
 ## Principles
 
 - **Identity through structure, not ornament.** Layout, the junction signature, glyph grammar, and voice carry the brand in every theme, so user theme changes never erase it.
-- **Atmosphere, not decoration.** The dark theme sits on the **Y aurora**: a near-black backdrop with two faint, slowly drifting Trace and Tide glows behind flat panels. The aurora is the only gradient in the product; chrome, controls, text, and marks stay flat.
-- **One palette, owned here, from the Y family.** The primitives in the front matter are YForge's own and derive from the Y family baseline (B9). Surface roles such as button colors are derived per theme in the surface file.
+- **Separation, not decoration.** Every region is a solid surface told apart by tone: the bars on the darkest backdrop, rounded panels lighter than the graph, recessed fields, raised overlays. There are no gradients anywhere; chrome, controls, text, and marks stay flat.
+- **One palette, owned here.** The primitives in the front matter are YForge's own and derive from the Y family baseline (B9); the app's surface neutrals and selection are the owner-chosen charcoal palette, a recorded B9 exception. Surface roles are derived per theme in the surface file.
 - **Explicit state beats hidden state.** Git's most dangerous moments (rebase, conflict, force push, detached HEAD) get the most orientation, never the least.
 - **Local-first trust.** The brand never implies a cloud dependency: no account prompts, plan badges, or upsell surfaces.
 
@@ -89,26 +89,26 @@ icons:
 |---|---|---|---|
 | B1 | approved | Every core Git workflow MUST work without an account or a network service. | review-only: approved 2026-09-29 |
 | B2 | approved | Outside the commit graph, the Attention hue MUST mark only HEAD and pending work; NEVER use it as decoration. | review-only: approved 2026-09-29 (P-G1) |
-| B3 | approved | Every visible control MUST use an owned token or component; NEVER ship an unstyled platform default, except forced-colors rendering. | review-only: approved 2026-09-29 |
+| B3 | approved | Every visible control MUST use an owned token or component; NEVER ship an unstyled platform default, except forced-colors rendering. A right-click MUST open an owned menu or nothing: the platform or web-view context menu MUST NEVER appear anywhere in the window. | review-only: approved 2026-09-29; right-click clause `app/src/App.test.tsx` · approved 2026-10-03 by the owner |
 | B4 | approved | State MUST NOT be conveyed by color alone; every status color MUST pair with a glyph, letter, or text. | review-only: approved 2026-09-29 |
 | B5 | approved | YForge marks MUST come from the approved YForge mark source; NEVER substitute another product's mark. | review-only: approved 2026-09-29 |
 | B6 | approved | Operational copy MUST name the Git operation and its consequence; NEVER use playful or marketing wording in operational UI. | review-only: approved 2026-09-29 |
-| B7 | approved | Motion MUST be functional, except the ambient aurora drift, which MUST pause while the window is hidden or unfocused; all motion MUST have a reduced-motion variant. | review-only: approved 2026-09-29 (Y Aurora) |
-| B8 | approved | Gradients MUST appear only in the dark-theme aurora backdrop; NEVER use gradients, glows, or sheen on panels, controls, text, or marks. | review-only: approved 2026-09-29 (Y Aurora) |
+| B7 | approved | Motion MUST be functional; all motion MUST have a reduced-motion variant. | review-only: approved 2026-09-29; the ambient aurora drift withdrawn 2026-10-03 by the owner |
+| B8 | approved | NEVER use gradients, glows, sheen, translucency, or blur on any surface, control, text, or mark. | review-only: approved 2026-09-29; the aurora exception withdrawn 2026-10-03 by the owner |
 | B9 | approved | Neutral, text, border, focus, accent, status, and app-icon construction values MUST derive from the Y family baseline as recorded in the YQuery design system (`YDS/YQuery/DESIGN.md`, §Colors and §App icon); every departure from a Y-family rule MUST be a row in Exceptions. | review-only: compare with `YDS/YQuery/DESIGN.md` and `tokens/tokens.css`; visual comparison in `docs/design/review/y-family.html`; approved 2026-09-30 |
 
 ## Colors
 
 The front matter holds the brand primitives, aligned with the Y ecosystem palette:
 
-- **Trace:** growth, success, and the primary aurora glow.
-- **Tide:** the secondary aurora glow.
+- **Trace:** growth and success.
+- **Tide:** the secondary brand hue (graph lane 0).
 - **Frost:** light ink on dark.
-- **Attention:** the warm junction, and the aurora's operation glow.
-- **The three mark neutrals:** build dark surfaces; `mark-canvas` is the aurora backdrop.
+- **Attention:** the warm junction.
+- **The three mark neutrals:** build the mark and the About window; the app surfaces use the charcoal palette in the surface file.
 - **`neutral-ink` and `neutral-paper`:** anchor the light theme.
 
-The surface file ([app/DESIGN.md](app/DESIGN.md)) derives semantic roles per theme. The light theme has no aurora and darkens Trace and Attention to reach text contrast, because the primitives alone are below 4.5:1 on white.
+The surface file ([app/DESIGN.md](app/DESIGN.md)) derives semantic roles per theme. The light theme darkens Trace and Attention to reach text contrast, because the primitives alone are below 4.5:1 on white.
 
 ## Typography
 
@@ -124,9 +124,9 @@ Product motion is functional:
 
 - hover and press feedback: `quick`;
 - panel reveal: `base`;
-- overlays and the aurora's operation shift: `slow`.
+- overlays: `slow`.
 
-The one ambient motion is the aurora drift (B7): glows move a few viewport percent over about a minute, and stop while the window is hidden or unfocused. Graph relayout is instant or a short cross-fade; it never slides rows. Under reduced motion, every transition becomes an instant state change, the aurora is static, and indeterminate progress becomes static text.
+There is no ambient motion (B7). Graph relayout is instant or a short cross-fade; it never slides rows. Under reduced motion, every transition becomes an instant state change and indeterminate progress becomes static text.
 
 ## Icons
 
@@ -145,6 +145,7 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 - **Source:**
   - `brand/yforge-app-icon.svg` (the logo: the mark in its container);
   - `brand/yforge-app-icon-small.svg` (16–32px variant with a heavier lane and node);
+  - `brand/yforge-app-icon-macos.svg` and `brand/yforge-app-icon-small-macos.svg` (the macOS app-icon masters);
   - `brand/yforge-mark.svg` (the mark without its container, for dark surfaces only);
   - `brand/yforge-lockup.svg` (the logo with the wordmark and tagline);
   - PNG renders in `brand/renders/`.
@@ -161,7 +162,7 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 - **Lockup:** the logo followed by the wordmark "YForge" in Geist Mono Bold (`icon-ink`) and the tagline "local-first Git client" in Geist Mono Regular (`icon-arm`), outlined in the SVG. It is used on `mark-canvas`.
 - **Clear space:** at least a quarter of the logo's width on every side.
 - **Minimum sizes:** 16px for the logo (small variant), 120px wide for the lockup.
-- **App icon:** the logo itself. The family container fills the full canvas as on the other Y products; the macOS build applies the system mask.
+- **App icon:** the logo on the Y family macOS template, matching YCoding and YQuery: a 1024 canvas with the container drawn as an 824 rounded square (radius 185.4) centred in a 100-unit transparent margin, a 6.6-unit `icon-rule` hairline inside it, the mark scaled with the container, and no shadow or baked shading. `icon.icns` and the PNGs come from `brand/yforge-app-icon-macos.svg`, with its small variant for the 16 and 32px frames, `32x32.png`, and the 16, 24, and 32px `icon.ico` frames; `brand/renders/` holds the 1024 and 32px renders. Approved 2026-10-03 by the owner.
 
 ### Third-party marks
 
@@ -191,7 +192,7 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 | About window, splash | Wordmark on `mark-canvas`; no illustration |
 | Notifications | Mark-derived badge; operation outcome text only; no marketing notifications |
 | CLI (`yforge <path>`) | Opens or focuses the repository; `--version` prints the product name and version only |
-| Launcher | The logo alone, with no wordmark text beside it |
+| Launchpad | The landing screen of a window or a new tab; built from surface tokens, with no logo or wordmark |
 | Empty and error views | Built from surface tokens; no logo or wordmark |
 
 ## Accessibility
@@ -226,18 +227,19 @@ The one ambient motion is the aurora drift (B7): glows move a few viewport perce
 ## Do's and Don'ts
 
 - Do use owned tokens and the approved mark. Do test both themes, keyboard use, and conflict and error states.
-- Don't copy GitKraken assets, icons, fonts, code, microcopy, or chrome trade dress; the commit graph's conventions are the one approved exception (P-G1). Don't use the Attention hue decoratively. Don't add gradients, glows, or sheen outside the aurora (B8). Don't hide a necessary action behind hover. Don't call an unrun render check verified.
+- Don't copy GitKraken assets, icons, fonts, code, or microcopy; its graph conventions (P-G1) and its separation of regions by tone (2026-10-03) are the approved models. Don't use the Attention hue decoratively. Don't add gradients, glows, sheen, translucency, or blur (B8). Don't hide a necessary action behind hover. Don't call an unrun render check verified.
 
 ## Exceptions
 
 | Rule | Scope | Reason | Approved by | Review date |
 |---|---|---|---|---|
 | Anti-references; Do's and Don'ts (GitKraken trade dress) | Commit graph only (surface rule S13) | The owner requires the graph to match GitKraken exactly | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
-| B9 (Y family: no gradients, glow, glass, or blur) | Dark-theme aurora backdrop and the glass panel materials (`app/DESIGN.md` materials, S14); the light theme stays flat and opaque | The approved Y Aurora direction (B7, B8) | User (Y Aurora approval 2026-09-29; family review 2026-09-30) | 2026-10-31 |
-| B9 (Y family: shadow only on overlays, radii at most 4px, no pill shapes) | Panel elevation, `rounded.lg` and `rounded.xl`, pill chips | Panels float over the aurora and need separation; Y web itself uses 6, 10, and 14px radii | User (family review, 2026-09-30) | 2026-10-31 |
+| B9 (Y family: shadow only on overlays, radii at most 4px, no pill shapes) | Panel elevation, `rounded.lg` and `rounded.xl`, pill chips and toasts | Panels and overlays need separation on the backdrop; Y web itself uses 6, 10, and 14px radii | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (Y family: system UI font) | Typography: Geist Sans and Geist Mono | User directive for the Y CI typeface | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (Y motion scale 80, 140, 220, 320ms) | `motion.duration`: quick 120ms, base 180ms, slow 240ms | Kept to avoid changing tuned consumers; `base` means 180ms here, 140ms in YQuery, and 220ms in Y | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery icon grid: 16 units, stroke 1.4) | Icons: 24-unit grid, stroke 1.5 at 16px and 1.6 at 20 and 24px | The Git glyph set is drawn on the 24 grid; common chrome glyphs are not shared across products | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery S12: text-only context menus) | Menu and palette rows: leading 16px icon slot, empty without an established glyph (surface rule S15) | User directive for icon-driven controls | User (family review, 2026-09-30) | 2026-10-31 |
 | B5 (YForge marks only; another product's mark) | Settings → AI provider cards and rows: the OpenAI Blossom and the OpenRouter glyph, unmodified, as recorded in `brand/third-party/SOURCE.md` | The user must recognize which service a provider connects to; each publisher's brand page permits the unmodified mark to identify its service (OpenAI's Design Guidelines and usage terms; OpenRouter's brand assets page). Providers without a permitted mark use a neutral glyph | User (owner delegation, 2026-09-30) | 2026-10-31 |
 | B9 (YQuery single accent) | Light theme: accent fill `#0B8550` (Y `primary-bg`) with `accent-ink` `#0A7B47` for text; YQuery uses `#0A7B47` for both | Filled controls keep the Y button green; text keeps AA on tonal chrome through `accent-ink` | User (family review, 2026-09-30) | 2026-10-31 |
+| B9 (Y family neutral, text, border, and selection values) | App surfaces and ink in both themes: the charcoal palette in `app/DESIGN.md` colors (S14), with blue `selection` and `selection-edge` | The owner prefers GitKraken-style high contrast that tells regions and actions apart easily; chosen through the 2026-10 proposal rounds | User, 2026-10-03 | 2026-11-03 |
+| Anti-references and Do's and Don'ts (GitKraken chrome trade dress); B7, B8, B9 (aurora, Y family surfaces) | Offline proposals under `docs/design/proposals/2026-10-kraken-contrast/`, `docs/design/proposals/2026-10-forge-contrast/`, `docs/design/proposals/2026-10-merge-tool/`, `docs/design/proposals/2026-10-two-pane-ai/`, `docs/design/proposals/2026-10-right-panel-ai/`, `docs/design/proposals/2026-10-flow-minimal/`, `docs/design/proposals/2026-10-launchpad-settings/`, and `docs/design/proposals/2026-10-table-command/` only | Explore a GitKraken-style high-contrast charcoal palette and layout for ease of use on solid opaque surfaces with no aurora: three tweaks of the current workspace and two GitKraken-based layouts, then five variants of the chosen Forge Contrast direction for conflict resolution (with an editable result), file history, and blame, then five workspace directions around the chosen Merge Tool (three lean, one fluid, one futuristic on the brand aurora and glass), then five Two Pane variants adding AI assistance, Settings, the Launchpad, and a tree view, and the same five with Changes back in the right panel, then the chosen Flow Sheet refined and five Launchpad and Settings variants on it. Candidate values (`--cand-*`) are proposals; production tokens and the mark stay unchanged | User, 2026-10-03: GitKraken's color scheme and layout are preferred for their high contrast and easy distinction between elements and actions; Forge Contrast chosen as the base for conflict, history, and blame variants; Merge Tool chosen as the base for three lean, one fluid, and one futuristic direction; Two Pane chosen as the base for AI, Settings, Launchpad, and tree view variants; Changes moved back to the right panel; Flow Sheet chosen and its Changes panel made minimal and icon-driven; five Launchpad and Settings variants requested on that workspace; the Table Launchpad and the Command Settings chosen | 2026-11-03 |

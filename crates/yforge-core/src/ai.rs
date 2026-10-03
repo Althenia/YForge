@@ -170,16 +170,32 @@ pub enum AiFeature {
     GenerateCommit,
     Recompose,
     ConflictFix,
+    ExplainChanges,
+    ExplainCommit,
+    ComposeCommits,
+    StashMessage,
 }
 
 impl AiFeature {
-    pub const ALL: [Self; 3] = [Self::GenerateCommit, Self::Recompose, Self::ConflictFix];
+    pub const ALL: [Self; 7] = [
+        Self::GenerateCommit,
+        Self::Recompose,
+        Self::ConflictFix,
+        Self::ExplainChanges,
+        Self::ExplainCommit,
+        Self::ComposeCommits,
+        Self::StashMessage,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::GenerateCommit => "generate_commit",
             Self::Recompose => "recompose",
             Self::ConflictFix => "conflict_fix",
+            Self::ExplainChanges => "explain_changes",
+            Self::ExplainCommit => "explain_commit",
+            Self::ComposeCommits => "compose_commits",
+            Self::StashMessage => "stash_message",
         }
     }
 
@@ -194,6 +210,10 @@ impl AiFeature {
             Self::GenerateCommit => "Generate commit message",
             Self::Recompose => "Propose with AI in Recompose",
             Self::ConflictFix => "Propose conflict resolution",
+            Self::ExplainChanges => "Explain changes",
+            Self::ExplainCommit => "Explain commit",
+            Self::ComposeCommits => "Compose commits",
+            Self::StashMessage => "Generate stash message",
         }
     }
 }
@@ -263,4 +283,38 @@ pub struct ConflictRegionProposal {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct ConflictProposal {
     pub regions: Vec<ConflictRegionProposal>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct ExplanationItem {
+    pub path: String,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct Explanation {
+    pub items: Vec<ExplanationItem>,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct ComposeGroup {
+    pub message: String,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct ComposeProposal {
+    pub groups: Vec<ComposeGroup>,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct StashDraft {
+    pub summary: String,
+    pub description: String,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
 }

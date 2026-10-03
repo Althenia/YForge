@@ -4,7 +4,9 @@ use crate::branch::{self, ref_exists};
 use crate::commit::{parse_briefs, validate_sha, BRIEF_FORMAT};
 use crate::error::CoreError;
 use crate::git;
-use crate::model::{IntegrationPreview, MergeMode, OperationOutcome, ResetMode, RevisionRange};
+use crate::model::{
+    IntegrationPreview, MergeMode, Operation, OperationOutcome, ResetMode, RevisionRange,
+};
 use crate::operation::{require_no_operation, settle};
 use crate::repo;
 use crate::snapshots::{self, Action};
@@ -82,6 +84,25 @@ fn merge_operand(root: &Path, source: &str) -> Result<String, CoreError> {
     }
 }
 
+pub(crate) fn abort_unfinished_merge(
+    root: &Path,
+    args: &[&str],
+    completed: &git::Completed,
+) -> Result<Option<CoreError>, CoreError> {
+    let merging = repo::read_operation(root)?.0 == Some(Operation::Merge);
+    if !merging || repo::read_status(root)?.counts.conflicted > 0 {
+        return Ok(None);
+    }
+    git::run(root, &["merge", "--abort"])?;
+    Ok(Some(CoreError::GitFailed {
+        command: format!("git {}", args.join(" ")),
+        status: completed.status,
+        stderr: format!("{}{}", completed.stdout, completed.stderr)
+            .trim()
+            .to_owned(),
+    }))
+}
+
 pub fn merge(path: &Path, source: &str, mode: MergeMode) -> Result<OperationOutcome, CoreError> {
     let root = repo::open(path)?;
     require_no_operation(&root)?;
@@ -93,6 +114,11 @@ pub fn merge(path: &Path, source: &str, mode: MergeMode) -> Result<OperationOutc
     let completed = git::run_unchecked(&root, &args, None)?;
     if !completed.succeeded() && completed.stderr.contains("Not possible to fast-forward") {
         return Err(not_fast_forward(completed.stderr.trim()));
+    }
+    if !completed.succeeded() {
+        if let Some(failure) = abort_unfinished_merge(&root, &args, &completed)? {
+            return Err(failure);
+        }
     }
     settle(&root, &args, completed)
 }

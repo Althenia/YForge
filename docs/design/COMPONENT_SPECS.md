@@ -1,7 +1,7 @@
 # Component Specs (core set)
 
-- **Status:** approved 2026-09-29; revised the same day for the lean Y Aurora direction and Rail graph styling.
-- **Rules revision:** `DESIGN.md` + `app/DESIGN.md`, alpha, 2026-09-29 (Y Aurora, Rail).
+- **Status:** approved 2026-09-29; revised the same day for Rail graph styling, and on 2026-10-03 for the solid charcoal surfaces with no aurora (S14).
+- **Rules revision:** `DESIGN.md` + `app/DESIGN.md`, alpha, 2026-10-03 (S14 charcoal surfaces, Rail).
 - **Token names:** from [../../app/DESIGN.md](../../app/DESIGN.md).
 - **Other components:** use the token defaults in the design system until they get specs (see its Components registry).
 
@@ -42,7 +42,7 @@
   - Below 1280, freshness collapses to an icon, and the Worktrees segment collapses to its count.
   - Operation buttons never collapse.
   - Strip notices keep their text and actions; the detail line truncates first.
-- **Motion:** The banner appears with `panel-reveal`, and the `aurora-operation` recipe shifts the aurora to its attention glow; under reduced motion both change instantly.
+- **Motion:** The banner appears with `panel-reveal`; under reduced motion it appears instantly.
 - **Accessibility contract:**
   - `role="status"` region for segment updates, announced politely.
   - The operation banner is a labeled group, and its buttons are in tab order.
@@ -394,7 +394,7 @@ Rule S39 (approved; proposal `jira-sidebar`).
 
 Rule S41 (approved; proposal `launchpad`).
 
-- **Entry points:** a "Launchpad" button with the `launchpad` glyph in the launcher actions, a "Launchpad" icon button in the tab bar (toggles back to the active tab), and the palette command "Open Launchpad". The route is `/launchpad?tab=<active tab id>`.
+- **Entry points:** it is the landing screen of a window with no repository and of a new tab (`/launcher`), a "Launchpad" icon button in the tab bar (toggles back to the active tab), and the palette command "Open Launchpad". The route is `/launchpad?tab=<active tab id>`.
 - **Frame:** a head with the `launchpad` glyph, "Launchpad", "Updated <age> ago", and a Refresh icon button; a tab list "My pull requests", "My issues", "WIPs", each with its count in a pill (an ellipsis while nothing has answered); a search field named "Search Launchpad" and a "Source" Select (hidden on WIPs).
 - **My pull requests:** per-source status lines (sync glyph "Reading <host> …", check glyph "<host>: 2 pull requests", warning glyph with the failure); an alert naming each failing source with Retry and, for a refused token, Edit connection; rows grouped "Waiting for your review · n" then "Authored by you · n". A row shows `#number title`, `owner/repo`, mono `source → target`, "by <author> · <age> ago", issue chips for keys in the title or branch, and a chip "Review requested" (`chip-attention`), "Draft", or "Open". Clicking opens the repository tab with the pull request in its inspector when the repository is a recent repository, else the pull request in the browser; an icon button opens the browser. With no connection: "No pull request service is connected" and Connect GitHub, Connect GitLab, and Connect Bitbucket (each opens Settings → Platforms with that platform chosen).
 - **My issues:** the same status lines per Jira site, rows with the key in mono, summary, issue type, project, a status chip, and an Open in browser icon button (the row opens the issue in the browser); "No open issues assigned to you"; with no site: "No Jira site is connected" and Connect Jira (opens Settings → Jira).

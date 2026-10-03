@@ -1,5 +1,6 @@
 mod auth;
 mod crash;
+mod hooks_flow;
 mod instance;
 pub mod menu;
 mod open;
@@ -14,25 +15,27 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-use yforge_ai::{Ai, AiError, KeychainStore, Selection};
+use yforge_ai::{Ai, AiError, CachedStore, KeychainStore, SecretStore, Selection};
 use yforge_core::{
     ActivityEntry, AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod,
-    AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, BatchOutcome,
-    CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CliInstall, CommitDetails,
-    CommitDraft, ConflictFile, ConflictProposal, ConflictSide, CoreError, CrashRecord, CrashReport,
-    CreatePull, DiffHunk, ErrorKind, ErrorPayload, FileAtRevision, FileDiff, ForceLease,
-    ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GraphPage, GraphVisibility, Identity,
-    IdentityField, IntegrationPreview, JiraConnection, JiraIssueList, JiraIssueLookup, JiraKind,
-    KeychainPassphrases, LaunchpadPulls, LostCommit, MatchedRepo, MergeMode, MessageEdit,
-    ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore, Planned,
-    PlatformConnection, PlatformKind, PrDetail, Progress, ProviderInput, ProviderKind,
+    AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, BatchOutcome, BlameRun,
+    CachedPassphrases, CancelToken, ChangeArea, CheckoutOutcome, CheckoutTarget, CliInstall,
+    CommitDetails, CommitDraft, ComposeGroup, ComposeProposal, ConflictFile, ConflictProposal,
+    ConflictSide, CoreError, CrashRecord, CrashReport, CreatePull, DiffHunk, ErrorKind,
+    ErrorPayload, Explanation, FileAtRevision, FileDiff, FileRevision, FolderRemoved, FolderScan,
+    ForceLease, ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GraphPage, GraphVisibility,
+    Identity, IdentityField, IntegrationPreview, JiraConnection, JiraIssueList, JiraIssueLookup,
+    JiraKind, KeychainPassphrases, LaunchpadPulls, LostCommit, ManagedRepo, MatchedRepo, MergeMode,
+    MessageEdit, ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore,
+    Planned, PlatformConnection, PlatformKind, PrDetail, Progress, ProviderInput, ProviderKind,
     ProviderStatus, ProviderSummary, ProviderUpdate, PullList, PullMode, PullOutcome, PullReport,
     PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
     RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
-    ReflogEntry, RemoteInfo, RepoAlias, RepoChanged, RepoSettings, RepoSnapshot, RepoUiPrefs,
-    RepoWatcher, ResetMode, RevisionRange, SearchResult, SnapshotChange, SnapshotInfo, SshKey,
-    StashDetails, StashRestore, StashTarget, Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord,
-    WorktreeIntegration, WorktreeStatus,
+    ReflogEntry, RemoteInfo, RepoAlias, RepoChanged, RepoRemoved, RepoSettings, RepoSnapshot,
+    RepoUiPrefs, RepoWatcher, Repositories, Rescan, ResetMode, RevisionRange, ScannedFolder,
+    SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails, StashDraft, StashRestore,
+    StashTarget, Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord, WorktreeIntegration,
+    WorktreeStatus,
 };
 use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilter};
 
@@ -636,6 +639,52 @@ async fn discard_files<R: Runtime>(
 }
 
 #[tauri::command]
+async fn discard_staged_files<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    files: Vec<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!("discard_staged_files path={path} files={files:?}");
+    let count = files.len();
+    let target = path.clone();
+    let listed = files.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::Discard, true, true),
+            move |()| format!("Discarded staged changes in {}", counted(count, "file")),
+            snapshot_of(&path, listed),
+            move || yforge_core::discard_staged_files(Path::new(&target), &files),
+            discard_plan(path.clone()),
+        )
+        .await;
+    log_outcome("discard_staged_files", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn ignore_paths<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    files: Vec<String>,
+    untrack: bool,
+) -> Result<(), ErrorPayload> {
+    log::debug!("ignore_paths path={path} files={files:?} untrack={untrack}");
+    let count = files.len();
+    let target = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::Ignore, false, false),
+            move |()| format!("Ignored {}", counted(count, "file")),
+            move || yforge_core::ignore_paths(Path::new(&target), &files, untrack),
+        )
+        .await;
+    log_outcome("ignore_paths", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
 async fn stage_hunk<R: Runtime>(
     app: AppHandle<R>,
     log: State<'_, ActivityLog>,
@@ -812,6 +861,83 @@ async fn commit_file_diff(
 }
 
 #[tauri::command]
+async fn file_history(path: String, file: String) -> Result<Vec<FileRevision>, ErrorPayload> {
+    log::debug!("file_history path={path} file={file}");
+    let result = blocking(move || yforge_core::file_history(Path::new(&path), &file)).await;
+    log_outcome("file_history", &result, |revisions| {
+        format!("revisions={}", revisions.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn tracked_files(path: String) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("tracked_files path={path}");
+    let result = blocking(move || yforge_core::tracked_files(Path::new(&path))).await;
+    log_outcome("tracked_files", &result, |files| {
+        format!("files={}", files.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn commit_tree_paths(path: String, sha: String) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("commit_tree_paths path={path} sha={sha}");
+    let result = blocking(move || yforge_core::commit_tree_paths(Path::new(&path), &sha)).await;
+    log_outcome("commit_tree_paths", &result, |paths| {
+        format!("paths={}", paths.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn file_blame(
+    path: String,
+    file: String,
+    revision: Option<String>,
+) -> Result<Vec<BlameRun>, ErrorPayload> {
+    log::debug!("file_blame path={path} file={file} revision={revision:?}");
+    let result =
+        blocking(move || yforge_core::file_blame(Path::new(&path), &file, revision.as_deref()))
+            .await;
+    log_outcome("file_blame", &result, |runs| format!("runs={}", runs.len()));
+    result
+}
+
+#[tauri::command]
+async fn revert_hunk<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    sha: String,
+    file: String,
+    hunk: u32,
+) -> Result<(), ErrorPayload> {
+    log::debug!("revert_hunk path={path} sha={sha} file={file} hunk={hunk}");
+    let target = path.clone();
+    let planned = path.clone();
+    let name = file.clone();
+    let commit = short(&sha);
+    let listed = vec![file.clone()];
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::RevertHunk, true, true),
+            move |()| format!("Reverted a hunk of {name} from {commit}"),
+            snapshot_of(&path, listed),
+            move || yforge_core::revert_hunk(Path::new(&target), &sha, &file, hunk),
+            move |snapshot, ()| match snapshot {
+                Ok(files) => yforge_core::plan_revert_hunk(Path::new(&planned), files),
+                Err(reason) => Ok(Planned::Unavailable(format!(
+                    "The reverted file could not be snapshotted: {reason}"
+                ))),
+            },
+        )
+        .await;
+    log_outcome("revert_hunk", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
 async fn file_at_revision(
     path: String,
     file: String,
@@ -824,6 +950,202 @@ async fn file_at_revision(
         FileAtRevision::Text { size, .. } => format!("text size={size}"),
         FileAtRevision::Binary { size } => format!("binary size={size}"),
     });
+    result
+}
+
+#[tauri::command]
+async fn worktree_files(path: String) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("worktree_files path={path}");
+    let result = blocking(move || yforge_core::worktree_files(Path::new(&path))).await;
+    log_outcome("worktree_files", &result, |files| {
+        format!("files={}", files.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn file_editable(
+    path: String,
+    file: String,
+) -> Result<yforge_core::EditableFile, ErrorPayload> {
+    log::debug!("file_editable path={path} file={file}");
+    let result = blocking(move || yforge_core::file_editable(Path::new(&path), &file)).await;
+    log_outcome("file_editable", &result, |content| {
+        format!("size={}", content.size)
+    });
+    result
+}
+
+#[tauri::command]
+async fn file_create<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("file_create path={path} file={file}");
+    let target = path.clone();
+    let name = file.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::CreateFile, false, false),
+            move |()| format!("Created {name}"),
+            move || yforge_core::create_file(Path::new(&target), &file),
+        )
+        .await;
+    log_outcome("file_create", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn file_save<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+    text: String,
+    eol: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("file_save path={path} file={file} bytes={}", text.len());
+    let target = path.clone();
+    let name = file.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::SaveFile, false, false),
+            move |()| format!("Saved {name}"),
+            move || yforge_core::file_save(Path::new(&target), &file, &text, &eol),
+        )
+        .await;
+    log_outcome("file_save", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn file_delete<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    file: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("file_delete path={path} file={file}");
+    let target = path.clone();
+    let name = file.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::DeleteFile, true, true),
+            move |()| format!("Deleted {name}"),
+            snapshot_of(&path, vec![file.clone()]),
+            move || yforge_core::delete_file(Path::new(&target), &file),
+            discard_plan(path.clone()),
+        )
+        .await;
+    log_outcome("file_delete", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn discard_all<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("discard_all path={path}");
+    let target = path.clone();
+    let prepared = path.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::DiscardAll, true, true),
+            |()| "Discarded all changes".to_owned(),
+            move || {
+                let files = yforge_core::changed_paths(Path::new(&prepared))?;
+                snapshot_of(&prepared, files)()
+            },
+            move || yforge_core::discard_all(Path::new(&target)),
+            discard_plan(path.clone()),
+        )
+        .await;
+    log_outcome("discard_all", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn patch_create<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    files: Option<Vec<String>>,
+    destination: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("patch_create path={path} files={files:?} destination={destination}");
+    let target = path.clone();
+    let saved = destination.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::CreatePatch, false, true),
+            move |()| format!("Created the patch {saved}"),
+            move || {
+                yforge_core::patch_create(
+                    Path::new(&target),
+                    files.as_deref(),
+                    Path::new(&destination),
+                )
+            },
+        )
+        .await;
+    log_outcome("patch_create", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn patch_apply<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    patch: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("patch_apply path={path} patch={patch}");
+    let target = path.clone();
+    let prepared = path.clone();
+    let named = patch.clone();
+    let checked = patch.clone();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::ApplyPatch, true, true),
+            move |()| format!("Applied the patch {named}"),
+            move || {
+                let files = yforge_core::patch_affected(Path::new(&prepared), Path::new(&checked))?;
+                snapshot_of(&prepared, files)()
+            },
+            move || yforge_core::patch_apply(Path::new(&target), Path::new(&patch)),
+            discard_plan(path.clone()),
+        )
+        .await;
+    log_outcome("patch_apply", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn maintenance_run<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("maintenance_run path={path} id={id}");
+    let meta = track(&path, OperationKind::Maintenance, false, true);
+    let result = network(&app, &log, &operations)
+        .run(
+            meta,
+            id,
+            false,
+            |()| "Ran repository maintenance".to_owned(),
+            move |cancel, progress| {
+                yforge_core::maintenance_run(Path::new(&path), cancel, progress)
+            },
+        )
+        .await;
+    log_outcome("maintenance_run", &result, |()| String::new());
     result
 }
 
@@ -1098,6 +1420,31 @@ async fn stash_push<R: Runtime>(
         )
         .await;
     log_outcome("stash_push", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn stash_push_paths<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    message: String,
+    untracked: bool,
+    paths: Vec<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!(
+        "stash_push_paths path={path} message={message:?} untracked={untracked} paths={}",
+        paths.len()
+    );
+    let target = path.clone();
+    let result = recorder(&app, &log)
+        .recorded(
+            track(&path, OperationKind::Stash, true, true),
+            |()| "Stashed changes".to_owned(),
+            move || yforge_core::stash_push_paths(Path::new(&target), &message, untracked, &paths),
+        )
+        .await;
+    log_outcome("stash_push_paths", &result, |()| String::new());
     result
 }
 
@@ -2407,6 +2754,113 @@ async fn recent_statuses(paths: Vec<String>) -> Result<Vec<RecentStatus>, ErrorP
     .await
 }
 
+fn repositories_summary(repositories: &Repositories) -> String {
+    format!(
+        "folders={} repos={}",
+        repositories.folders.len(),
+        repositories.repos.len()
+    )
+}
+
+#[tauri::command]
+async fn repositories_list(data: State<'_, DataDir>) -> Result<Repositories, ErrorPayload> {
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repositories_list(&dir)).await;
+    log_outcome("repositories_list", &result, repositories_summary);
+    result
+}
+
+#[tauri::command]
+async fn folder_scan(
+    data: State<'_, DataDir>,
+    root: String,
+    depth: u32,
+) -> Result<FolderScan, ErrorPayload> {
+    log::debug!("folder_scan root={root} depth={depth}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::folder_scan(&dir, Path::new(&root), depth)).await;
+    log_outcome("folder_scan", &result, |scan| {
+        format!(
+            "checked={} capped={} found={}",
+            scan.checked,
+            scan.capped,
+            scan.found.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn scan_folder_save(
+    data: State<'_, DataDir>,
+    folder: ScannedFolder,
+) -> Result<Repositories, ErrorPayload> {
+    log::debug!(
+        "scan_folder_save root={} repos={} skipped={}",
+        folder.path,
+        folder.repos.len(),
+        folder.skipped.len()
+    );
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::scan_folder_save(&dir, &folder)).await;
+    log_outcome("scan_folder_save", &result, repositories_summary);
+    result
+}
+
+#[tauri::command]
+async fn scan_folder_rescan(
+    data: State<'_, DataDir>,
+    root: String,
+) -> Result<Rescan, ErrorPayload> {
+    log::debug!("scan_folder_rescan root={root}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::scan_folder_rescan(&dir, Path::new(&root))).await;
+    log_outcome("scan_folder_rescan", &result, |rescan| {
+        format!("added={}", rescan.added.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn scan_folder_remove(
+    data: State<'_, DataDir>,
+    root: String,
+) -> Result<FolderRemoved, ErrorPayload> {
+    log::debug!("scan_folder_remove root={root}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::scan_folder_remove(&dir, Path::new(&root))).await;
+    log_outcome("scan_folder_remove", &result, |removed| {
+        repositories_summary(&removed.repositories)
+    });
+    result
+}
+
+#[tauri::command]
+async fn repository_remove(
+    data: State<'_, DataDir>,
+    path: String,
+) -> Result<RepoRemoved, ErrorPayload> {
+    log::debug!("repository_remove path={path}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repository_remove(&dir, &path)).await;
+    log_outcome("repository_remove", &result, |removed| {
+        repositories_summary(&removed.repositories)
+    });
+    result
+}
+
+#[tauri::command]
+async fn repository_restore(
+    data: State<'_, DataDir>,
+    repo: ManagedRepo,
+) -> Result<Repositories, ErrorPayload> {
+    log::debug!("repository_restore path={}", repo.path);
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::repository_restore(&dir, &repo)).await;
+    log_outcome("repository_restore", &result, repositories_summary);
+    result
+}
+
 #[tauri::command]
 async fn session_load(data: State<'_, DataDir>) -> Result<TabSession, ErrorPayload> {
     let dir = data_dir(&data);
@@ -2464,10 +2918,15 @@ async fn open_path(
     let dir = data_dir(&data);
     let result = blocking(move || {
         let settings = yforge_core::load_settings(&dir)?;
+        let choices = yforge_core::tool_choices_load(&dir)?;
         let is_directory = Path::new(&path).is_dir();
         let command = open::open_command(
             with,
-            &settings,
+            &open::Tools {
+                settings: &settings,
+                choices: &choices,
+                probe: &yforge_core::SystemProbe,
+            },
             &path,
             is_directory,
             cfg!(target_os = "macos"),
@@ -2481,6 +2940,193 @@ async fn open_path(
         .spawn()
         .map(drop)
         .map_err(|error| ErrorPayload::internal(format!("could not start {program}: {error}")))
+}
+
+#[tauri::command]
+async fn external_tools_load(
+    data: State<'_, DataDir>,
+) -> Result<yforge_core::ToolChoices, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::tool_choices_load(&dir)).await
+}
+
+#[tauri::command]
+async fn external_tools_save(
+    data: State<'_, DataDir>,
+    choices: yforge_core::ToolChoices,
+) -> Result<yforge_core::ToolChoices, ErrorPayload> {
+    log::debug!("external_tools_save {choices:?}");
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::tool_choices_save(&dir, &choices)?;
+        yforge_core::tool_choices_load(&dir)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn external_tools_detected(
+    path: Option<String>,
+) -> Result<yforge_core::ToolsDetected, ErrorPayload> {
+    blocking(move || {
+        yforge_core::detect_tools_in(path.as_deref().map(Path::new), &yforge_core::SystemProbe)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn external_tools_status(
+    data: State<'_, DataDir>,
+    path: Option<String>,
+) -> Result<yforge_core::ExternalToolsStatus, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::tools_status(
+            &yforge_core::tool_choices_load(&dir)?,
+            &yforge_core::load_settings(&dir)?,
+            path.as_deref().map(Path::new),
+            &yforge_core::SystemProbe,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_in_editor(
+    data: State<'_, DataDir>,
+    path: String,
+    file: Option<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!("open_in_editor path={path} file={file:?}");
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::open_in_editor(
+            &yforge_core::tool_choices_load(&dir)?,
+            &yforge_core::load_settings(&dir)?,
+            &yforge_core::SystemProbe,
+            Path::new(&path),
+            file.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_in_diff_tool(
+    data: State<'_, DataDir>,
+    path: String,
+    file: String,
+    source: yforge_core::DiffToolSource,
+) -> Result<(), ErrorPayload> {
+    log::debug!("open_in_diff_tool path={path} file={file} source={source:?}");
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::open_in_diff_tool(
+            &yforge_core::tool_choices_load(&dir)?,
+            &yforge_core::SystemProbe,
+            Path::new(&path),
+            &file,
+            &source,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn open_in_merge_tool(
+    data: State<'_, DataDir>,
+    path: String,
+    file: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("open_in_merge_tool path={path} file={file}");
+    let dir = data_dir(&data);
+    blocking(move || {
+        yforge_core::open_in_merge_tool(
+            &yforge_core::tool_choices_load(&dir)?,
+            &yforge_core::SystemProbe,
+            Path::new(&path),
+            &file,
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+async fn profiles_list(data: State<'_, DataDir>) -> Result<yforge_core::ProfileList, ErrorPayload> {
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::profiles_list(&dir)).await
+}
+
+#[tauri::command]
+async fn profile_save(
+    data: State<'_, DataDir>,
+    id: Option<String>,
+    draft: yforge_core::ProfileDraft,
+) -> Result<yforge_core::Profile, ErrorPayload> {
+    log::debug!("profile_save id={id:?}");
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::profile_save(&dir, id.as_deref(), &draft)).await
+}
+
+#[tauri::command]
+async fn profile_delete(data: State<'_, DataDir>, id: String) -> Result<(), ErrorPayload> {
+    log::debug!("profile_delete id={id}");
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::profile_delete(&dir, &id)).await
+}
+
+#[tauri::command]
+async fn profile_switch(data: State<'_, DataDir>, id: String) -> Result<(), ErrorPayload> {
+    log::debug!("profile_switch id={id}");
+    let dir = data_dir(&data);
+    blocking(move || yforge_core::profile_switch(&dir, &id)).await
+}
+
+#[tauri::command]
+async fn lfs_status(path: String) -> Result<yforge_core::LfsStatus, ErrorPayload> {
+    blocking(move || yforge_core::lfs_status(Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn lfs_initialize(path: String) -> Result<(), ErrorPayload> {
+    log::debug!("lfs_initialize path={path}");
+    blocking(move || yforge_core::lfs_initialize(Path::new(&path))).await
+}
+
+#[tauri::command]
+async fn lfs_track(path: String, pattern: String) -> Result<(), ErrorPayload> {
+    log::debug!("lfs_track path={path} pattern={pattern}");
+    blocking(move || yforge_core::lfs_track(Path::new(&path), &pattern)).await
+}
+
+#[tauri::command]
+async fn lfs_untrack(path: String, pattern: String) -> Result<(), ErrorPayload> {
+    log::debug!("lfs_untrack path={path} pattern={pattern}");
+    blocking(move || yforge_core::lfs_untrack(Path::new(&path), &pattern)).await
+}
+
+#[tauri::command]
+async fn signing_read(
+    scope: yforge_core::SigningScope,
+    path: Option<String>,
+) -> Result<yforge_core::SigningConfig, ErrorPayload> {
+    blocking(move || yforge_core::signing_read(scope, path.as_deref().map(Path::new))).await
+}
+
+#[tauri::command]
+async fn signing_write(
+    scope: yforge_core::SigningScope,
+    path: Option<String>,
+    config: yforge_core::SigningConfig,
+) -> Result<(), ErrorPayload> {
+    log::debug!("signing_write scope={scope:?} path={path:?}");
+    blocking(move || yforge_core::signing_write(scope, path.as_deref().map(Path::new), &config))
+        .await
+}
+
+#[tauri::command]
+async fn signing_keys(program: String) -> Result<Vec<yforge_core::SigningKey>, ErrorPayload> {
+    blocking(move || Ok(yforge_core::list_signing_keys(&program))).await
 }
 
 #[tauri::command]
@@ -2502,14 +3148,15 @@ async fn activity_history(
 }
 
 #[tauri::command]
-async fn activity_clear(
+async fn activity_clear<R: Runtime>(
+    app: AppHandle<R>,
     log: State<'_, ActivityLog>,
     data: State<'_, DataDir>,
     repo: Option<String>,
 ) -> Result<(), ErrorPayload> {
     let log = log.inner().clone();
     let dir = data_dir(&data);
-    blocking(move || log.clear(&dir, repo.as_deref())).await
+    blocking(move || log.clear(&app, &dir, repo.as_deref())).await
 }
 
 #[tauri::command]
@@ -2579,7 +3226,7 @@ async fn undo_last<R: Runtime>(
     id: u32,
 ) -> Result<String, ErrorPayload> {
     log::debug!("undo_last path={path} id={id}");
-    let (operation, action) = log.undo_target(&path, id)?;
+    let (operation, plan) = log.undo_target(&path, id)?;
     let target = path.clone();
     let label = operation.clone();
     let result = network(&app, &log, &operations)
@@ -2587,16 +3234,60 @@ async fn undo_last<R: Runtime>(
             track(&path, OperationKind::Undo, false, true),
             format!("undo-{id}"),
             true,
-            move |message: &String| format!("Undid {label}: {message}"),
+            move |(message, _): &(
+                String,
+                Option<(yforge_core::UndoPlan, yforge_core::UndoPlan)>,
+            )| format!("Undid {label}: {message}"),
             move |cancel, progress| {
-                yforge_core::undo_with(Path::new(&target), &action, cancel, progress)
+                let redo = yforge_core::plan_redo(Path::new(&target), &plan.action).ok();
+                let message =
+                    yforge_core::undo_with(Path::new(&target), &plan.action, cancel, progress)?;
+                Ok((message, redo.map(|redo| (redo, plan))))
             },
         )
         .await;
-    if result.is_ok() {
+    let result = result.map(|(message, redo)| {
         log.mark_undone(&app, id);
-    }
+        if let Some(plans) = redo {
+            log.store_redo(&app, id, plans);
+        }
+        message
+    });
     log_outcome("undo_last", &result, |message| {
+        format!("operation={operation} {message}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn redo_last<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+) -> Result<String, ErrorPayload> {
+    log::debug!("redo_last path={path}");
+    let target = log.redo_target(&path)?;
+    let (id, operation) = (target.id, target.operation.clone());
+    let (redo, undo) = (target.redo, target.undo);
+    let label = operation.clone();
+    let repository = path.clone();
+    let result = network(&app, &log, &operations)
+        .run_planned(
+            track(&path, OperationKind::Redo, true, true),
+            format!("redo-{id}"),
+            true,
+            move |message: &String| format!("Redid {label}: {message}"),
+            move |cancel, progress| {
+                yforge_core::undo_with(Path::new(&repository), &redo.action, cancel, progress)
+            },
+            (|| Ok(()), move |(), _| Ok(Planned::Available(undo))),
+        )
+        .await;
+    if result.is_ok() {
+        log.consume_redo(&app, id);
+    }
+    log_outcome("redo_last", &result, |message| {
         format!("operation={operation} {message}")
     });
     result
@@ -3112,20 +3803,35 @@ async fn git_identity_for_url(
 async fn submodule_list(path: String) -> Result<Vec<Submodule>, ErrorPayload> {
     log::debug!("submodule_list path={path}");
     let result = blocking(move || yforge_core::list_submodules(Path::new(&path))).await;
-    log_outcome("submodule_list", &result, |rows| format!("submodules={}", rows.len()));
+    log_outcome("submodule_list", &result, |rows| {
+        format!("submodules={}", rows.len())
+    });
     result
 }
 
 #[tauri::command]
-async fn submodule_add(path: String, url: String, submodule_path: String, branch: Option<String>) -> Result<(), ErrorPayload> {
-    log::debug!("submodule_add path={path} url={url} submodule_path={submodule_path} branch={branch:?}");
-    let result = blocking(move || yforge_core::add_submodule(Path::new(&path), &url, &submodule_path, branch.as_deref())).await;
+async fn submodule_add(
+    path: String,
+    url: String,
+    submodule_path: String,
+    branch: Option<String>,
+) -> Result<(), ErrorPayload> {
+    log::debug!(
+        "submodule_add path={path} url={url} submodule_path={submodule_path} branch={branch:?}"
+    );
+    let result = blocking(move || {
+        yforge_core::add_submodule(Path::new(&path), &url, &submodule_path, branch.as_deref())
+    })
+    .await;
     log_outcome("submodule_add", &result, |()| String::new());
     result
 }
 
 #[tauri::command]
-async fn submodule_update(path: String, submodule_path: Option<String>) -> Result<(), ErrorPayload> {
+async fn submodule_update(
+    path: String,
+    submodule_path: Option<String>,
+) -> Result<(), ErrorPayload> {
     log::debug!("submodule_update path={path} submodule_path={submodule_path:?}");
     let result = blocking(move || match &submodule_path {
         Some(target) => yforge_core::update_submodule(Path::new(&path), target),
@@ -3139,7 +3845,8 @@ async fn submodule_update(path: String, submodule_path: Option<String>) -> Resul
 #[tauri::command]
 async fn submodule_deinit(path: String, submodule_path: String) -> Result<(), ErrorPayload> {
     log::debug!("submodule_deinit path={path} submodule_path={submodule_path}");
-    let result = blocking(move || yforge_core::deinit_submodule(Path::new(&path), &submodule_path)).await;
+    let result =
+        blocking(move || yforge_core::deinit_submodule(Path::new(&path), &submodule_path)).await;
     log_outcome("submodule_deinit", &result, |()| String::new());
     result
 }
@@ -3147,7 +3854,8 @@ async fn submodule_deinit(path: String, submodule_path: String) -> Result<(), Er
 #[tauri::command]
 async fn submodule_stage(path: String, submodule_path: String) -> Result<(), ErrorPayload> {
     log::debug!("submodule_stage path={path} submodule_path={submodule_path}");
-    let result = blocking(move || yforge_core::stage_submodule(Path::new(&path), &submodule_path)).await;
+    let result =
+        blocking(move || yforge_core::stage_submodule(Path::new(&path), &submodule_path)).await;
     log_outcome("submodule_stage", &result, |()| String::new());
     result
 }
@@ -3670,6 +4378,212 @@ async fn ai_propose_conflict<R: Runtime>(
         .await;
     log_outcome("ai_propose_conflict", &result, |proposal| {
         format!("regions={}", proposal.regions.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_explain_changes<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<Explanation, ErrorPayload> {
+    log::debug!("ai_explain_changes path={path} id={id}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::ExplainChanges)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let context =
+        blocking(move || yforge_core::working_changes_context(Path::new(&target))).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiExplainChanges,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, context) = (&ai.0, &selection, &context);
+            async move { ai.explain(selection, context, &token).await }
+        })
+        .await;
+    log_outcome("ai_explain_changes", &result, explanation_summary);
+    result
+}
+
+fn explanation_summary(explanation: &Explanation) -> String {
+    format!(
+        "items={} excluded={} truncated={}",
+        explanation.items.len(),
+        explanation.excluded.len(),
+        explanation.truncated.len()
+    )
+}
+
+#[tauri::command]
+async fn ai_explain_commit<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    sha: String,
+) -> Result<Explanation, ErrorPayload> {
+    log::debug!("ai_explain_commit path={path} id={id} sha={sha}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::ExplainCommit)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let context =
+        blocking(move || yforge_core::commit_changes_context(Path::new(&target), &sha)).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiExplainCommit,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, context) = (&ai.0, &selection, &context);
+            async move { ai.explain(selection, context, &token).await }
+        })
+        .await;
+    log_outcome("ai_explain_commit", &result, explanation_summary);
+    result
+}
+
+#[tauri::command]
+async fn ai_compose_commits<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<ComposeProposal, ErrorPayload> {
+    log::debug!("ai_compose_commits path={path} id={id}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::ComposeCommits)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let context =
+        blocking(move || yforge_core::working_changes_context(Path::new(&target))).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiComposeCommits,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, context) = (&ai.0, &selection, &context);
+            async move { ai.compose(selection, context, &token).await }
+        })
+        .await;
+    log_outcome("ai_compose_commits", &result, |proposal| {
+        format!(
+            "groups={} excluded={} truncated={}",
+            proposal.groups.len(),
+            proposal.excluded.len(),
+            proposal.truncated.len()
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn compose_apply<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    path: String,
+    groups: Vec<ComposeGroup>,
+) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("compose_apply path={path} groups={}", groups.len());
+    let target = path.clone();
+    let planned = path.clone();
+    let count = groups.len();
+    let result = recorder(&app, &log)
+        .tracked(
+            track(&path, OperationKind::ComposeCommits, true, true),
+            move |created: &Vec<String>| {
+                format!(
+                    "Composed {}{}",
+                    counted(created.len(), "commit"),
+                    created
+                        .last()
+                        .map(|sha| format!(" ending at {}", short(sha)))
+                        .unwrap_or_default()
+                )
+            },
+            state_of(&path),
+            move || yforge_core::compose_apply(Path::new(&target), &groups),
+            move |before, _| {
+                let after = yforge_core::capture_state(Path::new(&planned))?;
+                Ok(yforge_core::plan_compose(&before, &after, count))
+            },
+        )
+        .await;
+    log_outcome("compose_apply", &result, |created| {
+        format!("commits={}", created.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_stash_message<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<StashDraft, ErrorPayload> {
+    log::debug!("ai_stash_message path={path} id={id}");
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::StashMessage)
+            .await
+            .map_err(ai_payload)?;
+    let target = path.clone();
+    let context =
+        blocking(move || yforge_core::working_changes_context(Path::new(&target))).await?;
+    let call = AiCall {
+        app: &app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiStashMessage,
+        selection: &selection,
+        id: &id,
+    };
+    let result = call
+        .run(|token| {
+            let (ai, selection, context) = (&ai.0, &selection, &context);
+            async move { ai.stash_message(selection, context, &token).await }
+        })
+        .await;
+    log_outcome("ai_stash_message", &result, |draft| {
+        format!(
+            "summary_chars={} excluded={} truncated={}",
+            draft.summary.chars().count(),
+            draft.excluded.len(),
+            draft.truncated.len()
+        )
     });
     result
 }
@@ -4331,10 +5245,11 @@ async fn launchpad_wips(data: State<'_, DataDir>) -> Result<Vec<yforge_core::Wip
 }
 
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
+    let keychain: Arc<dyn SecretStore> = Arc::new(CachedStore::new(Arc::new(KeychainStore)));
     register_with(
         builder,
-        Ai::new(Arc::new(KeychainStore)),
-        PlatformService::new(Arc::new(KeychainStore)),
+        Ai::new(keychain.clone()),
+        PlatformService::new(keychain),
     )
 }
 
@@ -4343,7 +5258,12 @@ pub fn register_with<R: Runtime>(
     ai: Ai,
     platform: PlatformService,
 ) -> tauri::Builder<R> {
-    register_with_passphrases(builder, ai, platform, Arc::new(KeychainPassphrases))
+    register_with_passphrases(
+        builder,
+        ai,
+        platform,
+        Arc::new(CachedPassphrases::new(Arc::new(KeychainPassphrases))),
+    )
 }
 
 pub fn register_with_passphrases<R: Runtime>(
@@ -4372,6 +5292,8 @@ pub fn register_with_passphrases<R: Runtime>(
             stage_all,
             unstage_all,
             discard_files,
+            discard_staged_files,
+            ignore_paths,
             stage_hunk,
             unstage_hunk,
             discard_hunk,
@@ -4383,7 +5305,21 @@ pub fn register_with_passphrases<R: Runtime>(
             amend_info,
             commit_details,
             commit_file_diff,
+            file_history,
+            file_blame,
+            commit_tree_paths,
+            tracked_files,
+            revert_hunk,
             file_at_revision,
+            worktree_files,
+            file_editable,
+            file_create,
+            file_save,
+            file_delete,
+            discard_all,
+            patch_create,
+            patch_apply,
+            maintenance_run,
             stash_details,
             stash_file_diff,
             repo_ui_prefs_load,
@@ -4401,6 +5337,7 @@ pub fn register_with_passphrases<R: Runtime>(
             delete_remote_branch,
             set_upstream,
             stash_push,
+            stash_push_paths,
             stash_rename,
             switch_stashes,
             switch_stash_restore,
@@ -4459,6 +5396,14 @@ pub fn register_with_passphrases<R: Runtime>(
             submodule_update,
             submodule_deinit,
             submodule_stage,
+            hooks_flow::hooks_list,
+            hooks_flow::hook_read,
+            hooks_flow::hook_approve,
+            hooks_flow::hook_run,
+            hooks_flow::git_flow_config,
+            hooks_flow::git_flow_init,
+            hooks_flow::git_flow_start,
+            hooks_flow::git_flow_finish,
             worktree_list,
             worktree_suggest_path,
             worktree_create,
@@ -4495,6 +5440,13 @@ pub fn register_with_passphrases<R: Runtime>(
             recent_add,
             recent_remove,
             recent_statuses,
+            repositories_list,
+            folder_scan,
+            scan_folder_save,
+            scan_folder_rescan,
+            scan_folder_remove,
+            repository_remove,
+            repository_restore,
             session_load,
             session_save,
             repo_aliases_list,
@@ -4503,6 +5455,24 @@ pub fn register_with_passphrases<R: Runtime>(
             update::update_install,
             menu::menu_update,
             open_path,
+            external_tools_load,
+            external_tools_save,
+            external_tools_detected,
+            external_tools_status,
+            open_in_editor,
+            open_in_diff_tool,
+            open_in_merge_tool,
+            profiles_list,
+            profile_save,
+            profile_delete,
+            profile_switch,
+            lfs_status,
+            lfs_initialize,
+            lfs_track,
+            lfs_untrack,
+            signing_read,
+            signing_write,
+            signing_keys,
             activity_list,
             activity_history,
             activity_clear,
@@ -4514,6 +5484,7 @@ pub fn register_with_passphrases<R: Runtime>(
             usage_export,
             usage_clear,
             undo_last,
+            redo_last,
             ai_providers_list,
             ai_provider_add,
             ai_provider_update,
@@ -4526,6 +5497,11 @@ pub fn register_with_passphrases<R: Runtime>(
             ai_feature_config_reset,
             ai_sign_in,
             ai_generate_commit_message,
+            ai_explain_changes,
+            ai_explain_commit,
+            ai_compose_commits,
+            compose_apply,
+            ai_stash_message,
             ai_propose_recompose,
             ai_propose_conflict,
             platform_connections_list,
@@ -4579,6 +5555,7 @@ pub fn run() {
                 moved.display()
             );
         }
+        yforge_core::profile_activate(&dir)?;
         crash::seed_repositories(&dir);
         install_panic_hook(dir.clone());
         app.manage(DataDir(dir));

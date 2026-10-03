@@ -32,6 +32,13 @@ fn base_command() -> Command {
         .env("GIT_EDITOR", "true")
         .env("GIT_MERGE_AUTOEDIT", "no")
         .stdin(Stdio::null());
+    if let Some((name, email)) = crate::store::active_author() {
+        command
+            .env("GIT_AUTHOR_NAME", &name)
+            .env("GIT_AUTHOR_EMAIL", &email)
+            .env("GIT_COMMITTER_NAME", &name)
+            .env("GIT_COMMITTER_EMAIL", &email);
+    }
     command
 }
 

@@ -1,0 +1,83 @@
+.pal-chip.scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+}
+
+.pal-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: var(--cursors-action);
+}
+
+.pal-chip-remove:focus-visible {
+  outline: var(--controls-focus-ring) solid var(--colors-focus);
+  outline-offset: 1px;
+}
+
+.shortcut-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--spacing-4);
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.shortcut-group h4 {
+  margin: 0 0 var(--spacing-2);
+  font: var(--font-ui-caption);
+  color: var(--colors-text-muted);
+}
+
+.shortcut-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.shortcut-group li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-3);
+  padding: var(--spacing-1) 0;
+  font: var(--font-ui-body);
+}
+
+.logs-tabs {
+  display: flex;
+  gap: var(--spacing-2);
+  margin-bottom: var(--spacing-3);
+}
+
+.logs-tabs .btn.on {
+  background: var(--colors-accent-tint);
+  color: var(--colors-accent-ink);
+}
+
+.logs-list {
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.main.no-sidebar {
+  grid-template-columns: minmax(0, 1fr) var(--inspector-w);
+}
+
+.main.no-inspector {
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+.main.no-sidebar.no-inspector {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.main.no-sidebar > .sidebar,
+.main.no-inspector > .inspector {
+  display: none;
+}

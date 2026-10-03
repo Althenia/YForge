@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
-import { highlightLines, kindOfScope, languageOf, loadLanguage, MAX_HIGHLIGHT_CHARS } from "./syntax";
+import { createMemo, createRoot, createSignal } from "solid-js";
+import { afterEach, describe, expect, it } from "vitest";
+import { highlightLines, kindOfScope, languageOf, loadLanguage, MAX_HIGHLIGHT_CHARS, setSyntaxHighlighting } from "./syntax";
+
+afterEach(() => setSyntaxHighlighting(true));
 
 describe("language by file extension", () => {
   it.each([
@@ -77,5 +80,31 @@ describe("highlighting", () => {
     await loadLanguage("json");
     const long = `"${"a".repeat(MAX_HIGHLIGHT_CHARS)}"`;
     expect(highlightLines("json", [long])[0]).toEqual([{ text: long, kind: undefined }]);
+  });
+});
+
+describe("syntax highlighting switch", () => {
+  it("returns plain text for a loaded language while highlighting is off and tags it again when on", async () => {
+    await loadLanguage("rust");
+    setSyntaxHighlighting(false);
+
+    expect(highlightLines("rust", ["fn main() {}"])[0]).toEqual([{ text: "fn main() {}", kind: undefined }]);
+
+    setSyntaxHighlighting(true);
+    expect(highlightLines("rust", ["fn main() {}"])[0]).toContainEqual({ text: "fn", kind: "keyword" });
+  });
+
+  it("re-runs a memo that highlights when the switch changes", async () => {
+    await loadLanguage("rust");
+    const seen = createRoot((dispose) => {
+      const [lines] = createSignal(["fn main() {}"]);
+      const memo = createMemo(() => highlightLines("rust", lines()));
+      return { memo, dispose };
+    });
+
+    expect(seen.memo()[0]?.some((segment) => segment.kind === "keyword")).toBe(true);
+    setSyntaxHighlighting(false);
+    expect(seen.memo()[0]?.some((segment) => segment.kind === "keyword")).toBe(false);
+    seen.dispose();
   });
 });

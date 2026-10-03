@@ -1,55 +1,52 @@
 import { keepPreviousData } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
-import type { ConflictSide } from "../ipc/bindings/ConflictSide";
+import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
+import type { ConflictFile } from "../ipc/bindings/ConflictFile";
 import type { ConflictRegionProposal } from "../ipc/bindings/ConflictRegionProposal";
+import type { ConflictSide } from "../ipc/bindings/ConflictSide";
 import { client, IpcError } from "../ipc/client";
 import { featureAvailable, featuresOptions } from "../state/aiFeatures";
 import { createAiRun } from "../state/aiRun";
+import { createExternalTools } from "../state/externalTools";
+import { filesIn } from "../state/changes";
 import { conflictDescription, conflictSides } from "../state/operationModel";
 import { repoKeys } from "../state/queryKeys";
+import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import {
-  choiceLabel,
+  assemble,
   choose,
-  draftLines,
+  hasSide,
   initialState,
-  isManual,
   markResolvedReason,
-  regionLines,
+  markerCount,
+  mergeProgress,
   regionsOf,
   resolverCommand,
-  resultLines,
-  resultText,
+  savedContent,
+  sideState,
   step,
-  takeAll,
-  unresolvedCount,
-  type Choice,
+  toggleAll,
+  toggleSide,
   type ResolverState,
 } from "../state/resolverModel";
 import { MenuLabel } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { TextArea } from "./TextArea";
 import { tip } from "./Tooltip";
-import { VirtualRows } from "./VirtualRows";
+import { ToolButton } from "./ToolButton";
 
-const RESULT_LINE_HEIGHT = 20;
+const OUTPUT_LINE_HEIGHT = 20;
+const OUTPUT_ROWS = 12;
 
-const blocks: { choice: Choice; label: string; hint?: string }[] = [
-  { choice: "current", label: "Take current", hint: "1" },
-  { choice: "incoming", label: "Take incoming", hint: "2" },
-  { choice: "current_incoming", label: "Take both (current first)", hint: "3" },
-  { choice: "incoming_current", label: "Take both (incoming first)" },
-];
+type OutputState = { text: string; starts: number[] | undefined; edited: boolean };
 
-function PaneText(props: { lines: string[] }) {
-  return (
-    <Show when={props.lines.length > 0} fallback={<pre class="empty-lines">(no lines)</pre>}>
-      <pre>{props.lines.join("\n")}</pre>
-    </Show>
-  );
-}
+const sideNames: Record<ConflictSide, { title: string; word: string }> = {
+  current: { title: "Yours", word: "yours" },
+  incoming: { title: "Theirs", word: "theirs" },
+};
 
-export function ConflictResolver(props: { session: RepoSession; file: string; onClose: () => void; onOpenAiSettings: () => void }) {
+export function ConflictResolver(props: { session: RepoSession; actions: RepoActions; file: string; onClose: () => void; onOpenAiSettings: () => void }) {
   const path = props.session.path;
   const conflict = useQuery(() => ({
     queryKey: repoKeys.conflict(path, props.file),
@@ -58,15 +55,20 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
     gcTime: 0,
   }));
   const [state, setState] = createSignal<ResolverState>({ choices: [], active: 0 });
-  const [draft, setDraft] = createSignal<string | undefined>();
-  const [proposals, setProposals] = createSignal<Record<number, ConflictRegionProposal>>({});
+  const [output, setOutput] = createSignal<OutputState>({ text: "", starts: undefined, edited: false });
+  const [undo, setUndo] = createSignal<{ output: OutputState; state: ResolverState } | undefined>();
+  const [restore, setRestore] = createSignal<OutputState | undefined>();
+  const [rationales, setRationales] = createSignal<ConflictRegionProposal[]>([]);
   const proposer = createAiRun(props.session.queryClient, (id) => client.aiProposeConflict(path, id, props.file));
   const features = useQuery(featuresOptions, () => props.session.queryClient);
-  let root: HTMLElement | undefined;
-  let body: HTMLDivElement | undefined;
-  const [reveal, setReveal] = createSignal<{ nonce: number; index: number } | undefined>();
+  const tools = createExternalTools(props.session);
+  const reloadConflict = () => void props.session.queryClient.invalidateQueries({ queryKey: repoKeys.conflict(path, props.file) });
+  const panes: Partial<Record<ConflictSide, HTMLDivElement>> = {};
+  let outBody: HTMLDivElement | undefined;
+  let gutter: HTMLPreElement | undefined;
 
   const sides = () => conflictSides(props.session.snapshot());
+  const labels = () => ({ current: sides().current.name, incoming: sides().incoming.name });
   const loaded = () => (conflict.error == null ? conflict.data : undefined);
   const failure = () => (conflict.error instanceof IpcError ? conflict.error.message : conflict.error == null ? undefined : String(conflict.error));
   const regions = () => {
@@ -74,79 +76,106 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
     return file === undefined ? [] : regionsOf(file);
   };
   const active = () => regions()[state().active];
-  const position = () => `conflict ${state().active + 1} of ${regions().length}`;
-  const lines = () => {
-    const file = loaded();
-    return file === undefined ? [] : resultLines(file, state(), { current: sides().current.name, incoming: sides().incoming.name });
-  };
-  const reason = () => (regions().length === 0 ? undefined : (markResolvedReason(state()) ?? (draft() === undefined ? undefined : "Apply or cancel the edit first")));
+  const position = () => `Conflict ${state().active + 1} of ${regions().length}`;
+  const reason = () => (regions().length === 0 ? undefined : markResolvedReason(output().text));
   const stageOnly = () => {
     const file = loaded();
     return file !== undefined && regions().length === 0 && !file.binary && file.sides.current && file.sides.incoming;
   };
-  const resolvedCount = () => regions().length - unresolvedCount(state());
+  const left = () => markerCount(output().text);
+  const lineNumbers = () => Array.from({ length: output().text.split("\n").length }, (_, index) => index + 1).join("\n");
 
-  createEffect(
-    on(loaded, (file) => {
-      if (file === undefined) return;
-      setState(initialState(file));
-      setDraft(undefined);
-      setProposals({});
-    }),
-  );
+  const merging = () => props.session.snapshot().operation === "merge";
+  const progress = () =>
+    mergeProgress({
+      conflicted: filesIn(props.session.snapshot().files, "conflicted").length,
+      resolved: props.session.snapshot().operation_detail?.resolved.length ?? 0,
+      busy: props.actions.operationBusy(),
+    });
+
+  const derived = (file: ConflictFile, next: ResolverState): OutputState => {
+    const built = assemble(file, next, labels());
+    return { text: built.text, starts: built.starts, edited: false };
+  };
+
+  const load = (file: ConflictFile) => {
+    const start = initialState(file);
+    setState(start);
+    setOutput(derived(file, start));
+    setUndo(undefined);
+    setRestore(undefined);
+    setRationales([]);
+  };
+
+  createEffect(on(loaded, (file) => file !== undefined && load(file)));
+
+  const rebuild = (next: ResolverState) => {
+    const file = loaded();
+    if (file === undefined) return;
+    const previous = output();
+    setUndo(previous.edited ? { output: previous, state: state() } : undefined);
+    setState(next);
+    setOutput(derived(file, next));
+    setRestore(undefined);
+    setRationales([]);
+  };
+
+  const undoRebuild = () => {
+    const saved = undo();
+    if (saved === undefined) return;
+    setState(saved.state);
+    setOutput(saved.output);
+    setUndo(undefined);
+  };
+
+  const edit = (text: string) => {
+    setOutput({ text, starts: undefined, edited: true });
+    setUndo(undefined);
+  };
+
+  const propose = async () => {
+    const file = loaded();
+    const result = await proposer.start();
+    if (file === undefined || result === undefined || result.regions.length === 0) return;
+    const built = assemble(file, state(), labels(), Object.fromEntries(result.regions.map((region) => [region.index, region.text])));
+    setRestore(output());
+    setOutput({ text: built.text, starts: built.starts, edited: true });
+    setUndo(undefined);
+    setRationales([...result.regions].sort((a, b) => a.index - b.index));
+  };
+
+  const restoreMine = () => {
+    const saved = restore();
+    if (saved === undefined) return;
+    setOutput(saved);
+    setRestore(undefined);
+    setRationales([]);
+  };
 
   const activeIndex = createMemo(() => state().active);
   createEffect(
     on(
       activeIndex,
-      (region) => {
-        const first = lines().findIndex((line) => line.region === region);
-        if (first >= 0) setReveal((current) => ({ nonce: (current?.nonce ?? 0) + 1, index: first }));
+      (index) => {
+        for (const pane of Object.values(panes)) pane?.querySelector(`.mt-hunk[data-region="${index}"]`)?.scrollIntoView({ block: "nearest" });
+        const line = output().starts?.[index];
+        const area = outBody?.querySelector("textarea");
+        if (line !== undefined && area != null) area.scrollTop = line * OUTPUT_LINE_HEIGHT;
       },
       { defer: true },
     ),
   );
 
-  const apply = (choice: Choice) => {
-    setState(choose(state(), state().active, choice));
-    setDraft(undefined);
-    dropProposal(state().active);
-  };
-
-  const dropProposal = (index: number) =>
-    setProposals((current) => Object.fromEntries(Object.entries(current).filter(([key]) => Number(key) !== index)));
-
-  const propose = async () => {
-    const result = await proposer.start();
-    if (result === undefined) return;
-    setProposals(Object.fromEntries(result.regions.map((region) => [region.index, region])));
-  };
-
-  const activeProposal = () => proposals()[state().active];
-  const proposalCount = () => Object.keys(proposals()).length;
-
-  const startEdit = () => {
-    const region = active();
-    if (region === undefined) return;
-    const proposal = activeProposal();
-    const current = state().choices[state().active];
-    setDraft(proposal === undefined ? regionLines(region, current ?? "current_incoming").join("\n") : proposal.text);
-  };
-
-  const applyEdit = () => {
-    const text = draft();
-    if (text !== undefined) apply({ manual: draftLines(text) });
-  };
-
-  const cancelEdit = () => {
-    setDraft(undefined);
-    root?.focus();
+  const syncGutter = (event: Event) => {
+    const area = event.target;
+    if (area instanceof HTMLTextAreaElement && gutter !== undefined && gutter.scrollTop !== area.scrollTop) gutter.scrollTop = area.scrollTop;
   };
 
   const resolve = () => {
     const file = loaded();
     if (file === undefined || reason() !== undefined) return;
-    const content = regions().length === 0 ? undefined : resultText(file, state());
+    if (regions().length === 0 && !stageOnly()) return;
+    const content = regions().length === 0 ? undefined : savedContent(file, output().text);
     void props.session.mutate(() => (content === undefined ? client.markResolved(path, [props.file]) : client.conflictResolve(path, props.file, content)));
   };
 
@@ -155,18 +184,10 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
   const resetFile = async () => {
     if (!(await props.session.mutate(() => client.conflictReset(path, props.file)))) return;
     const { data: file } = await conflict.refetch();
-    if (file !== undefined) {
-      setState(initialState(file));
-      setDraft(undefined);
-    }
+    if (file !== undefined) load(file);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.key === "Escape" && draft() !== undefined) {
-      event.preventDefault();
-      cancelEdit();
-      return;
-    }
     const command = resolverCommand(event);
     if (command === undefined) return;
     const typing = event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement;
@@ -174,8 +195,7 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
     event.preventDefault();
     if (command.kind === "save") resolve();
     else if (regions().length === 0) return;
-    else if (command.kind === "choose") apply(command.choice);
-    else if (command.kind === "edit") startEdit();
+    else if (command.kind === "choose") rebuild(choose(state(), state().active, command.choice));
     else setState(step(state(), command.kind === "next" ? 1 : -1));
   };
 
@@ -188,27 +208,134 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
     return "No conflict markers remain in this file. Mark it resolved to stage its current content.";
   };
 
+  const Pane = (paneProps: { side: ConflictSide; file: ConflictFile }) => {
+    const names = sideNames[paneProps.side];
+    const allState = () => sideState(state(), paneProps.side);
+    const segments = () => {
+      let index = 0;
+      return paneProps.file.segments.map((segment) => (segment.kind === "text" ? { lines: segment.lines, region: undefined } : { lines: segment[paneProps.side], region: index++ }));
+    };
+    return (
+      <section class="mt-pane" classList={{ [`side-${paneProps.side}`]: true }} aria-label={names.title}>
+        <div class="mt-h">
+          <span class="mt-title">
+            <strong>{names.title}</strong> · <span class="mono">{sides()[paneProps.side].name}</span> · <span class="role">{sides()[paneProps.side].role}</span>
+          </span>
+          <button
+            type="button"
+            role="checkbox"
+            class="mt-all"
+            aria-checked={allState()}
+            title={allState() === "true" ? `Clear every ${names.word} block in this file` : `Use every ${names.word} block in this file`}
+            onClick={() => rebuild(toggleAll(state(), paneProps.side))}
+          >
+            <span class="mt-box" aria-hidden="true">
+              <Show when={allState() !== "false"}>
+                <Icon name={allState() === "true" ? "check" : "minus"} size={14} />
+              </Show>
+            </span>
+            Select all
+          </button>
+          <span class="mt-nav" role="group" aria-label={`Conflict navigation in ${names.title}`}>
+            <span class="mt-pos">{position()}</span>
+            <button type="button" class="icon-btn dense" {...tip("Previous conflict", "P")} onClick={() => setState(step(state(), -1))}>
+              <Icon name="previous" />
+            </button>
+            <button type="button" class="icon-btn dense" {...tip("Next conflict", "N")} onClick={() => setState(step(state(), 1))}>
+              <Icon name="next" />
+            </button>
+          </span>
+        </div>
+        <div class="mt-code" ref={(element) => (panes[paneProps.side] = element)}>
+          <Index each={segments()}>
+            {(segment) => (
+              <Show
+                when={segment().region !== undefined}
+                fallback={
+                  <Show when={segment().lines.length > 0}>
+                    <pre class="mt-ctx">{segment().lines.join("\n")}</pre>
+                  </Show>
+                }
+              >
+                {(() => {
+                  const region = () => segment().region ?? 0;
+                  const on = () => hasSide(state().choices[region()], paneProps.side);
+                  return (
+                    <div class="mt-hunk" classList={{ "is-cur": state().active === region(), "is-on": on() }} data-region={region()}>
+                      <button
+                        type="button"
+                        role="checkbox"
+                        class="mt-check"
+                        aria-checked={on()}
+                        aria-label={`Use ${names.word} for conflict ${region() + 1}`}
+                        data-region={region()}
+                        onClick={() => rebuild(toggleSide(state(), region(), paneProps.side))}
+                      >
+                        <span class="mt-box" aria-hidden="true">
+                          <Show when={on()}>
+                            <Icon name="check" size={14} />
+                          </Show>
+                        </span>
+                        Use {names.word}
+                      </button>
+                      <Show when={segment().lines.length > 0} fallback={<pre class="mt-lines empty-lines">(no lines)</pre>}>
+                        <pre class="mt-lines">{segment().lines.join("\n")}</pre>
+                      </Show>
+                    </div>
+                  );
+                })()}
+              </Show>
+            )}
+          </Index>
+        </div>
+      </section>
+    );
+  };
+
   return (
-    <section class="panel rpanel" aria-label="Conflict resolver" aria-busy={conflict.isFetching} tabindex="-1" ref={(element) => {
-      root = element;
-      queueMicrotask(() => element.focus());
-    }} onKeyDown={onKeyDown}>
+    <section
+      class="panel rpanel merge-tool"
+      aria-label="Conflict resolver"
+      aria-busy={conflict.isFetching}
+      tabindex="-1"
+      ref={(element) => queueMicrotask(() => element.focus())}
+      onKeyDown={onKeyDown}
+    >
       <div class="rhead">
         <span class="mono">{props.file}</span>
-        <Show when={regions().length > 0}>
-          <span class="dim">·</span>
-          <span class="dim">{position()}</span>
-        </Show>
         <span class="dim">·</span>
         <span class="dim">
           <MenuLabel parts={conflictDescription(props.session.snapshot())} />
         </span>
         <span class="spacer" />
+        <Show when={regions().length > 0 && (featureAvailable(features.data, "conflict_fix") || proposer.running())}>
+          <Show
+            when={proposer.running()}
+            fallback={
+              <button type="button" class="icon-btn dense ai-btn" {...tip("Propose a resolution for every conflict in this file")} onClick={() => void propose()}>
+                <Icon name="wand" size={14} />
+              </button>
+            }
+          >
+            <button type="button" class="icon-btn dense ai-btn" aria-busy="true" disabled {...tip("Proposing a resolution…")}>
+              <Icon name="wand" size={14} />
+            </button>
+            <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
+              <Icon name="close" size={14} />
+            </button>
+          </Show>
+        </Show>
+        <ToolButton
+          action="Open in external merge tool"
+          icon="merge"
+          reason={tools.mergeReason()}
+          onRun={() => void tools.openMerge(props.file, reloadConflict)}
+        />
         <button type="button" class="btn sm" onClick={props.onClose}>
           Back to graph
         </button>
       </div>
-      <div class="rbody" ref={body}>
+      <div class="rbody">
         <Show when={failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
         <Show when={loaded()}>
           {(file) => (
@@ -228,44 +355,6 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                 </>
               }
             >
-              <div class="rtool" role="toolbar" aria-label="Conflict navigation">
-                <button type="button" class="icon-btn dense" {...tip("Previous conflict", "P")} onClick={() => setState(step(state(), -1))}>
-                  <Icon name="previous" />
-                </button>
-                <button type="button" class="icon-btn dense" {...tip("Next conflict", "N")} onClick={() => setState(step(state(), 1))}>
-                  <Icon name="next" />
-                </button>
-                <span class="reason" role="status" aria-live="polite">
-                  {resolvedCount()} of {regions().length} resolved
-                  <Show when={proposalCount() > 0}> · {proposalCount()} {proposalCount() === 1 ? "proposal" : "proposals"} to review</Show>
-                </span>
-                <span class="spacer" />
-                <Show when={featureAvailable(features.data, "conflict_fix") || proposer.running()}>
-                  <Show
-                    when={proposer.running()}
-                    fallback={
-                      <button type="button" class="btn sm" title="Ask your AI provider for a resolution of every conflict in this file. Nothing changes until you accept one." onClick={() => void propose()}>
-                        <Icon name="wand" size={14} />
-                        Propose resolution
-                      </button>
-                    }
-                  >
-                    <button type="button" class="btn sm" aria-busy="true" disabled>
-                      <Icon name="wand" size={14} />
-                      Proposing…
-                    </button>
-                    <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
-                      <Icon name="close" size={14} />
-                    </button>
-                  </Show>
-                </Show>
-                <button type="button" class="btn sm" onClick={() => setState(takeAll(state(), "current"))}>
-                  Take all current
-                </button>
-                <button type="button" class="btn sm" onClick={() => setState(takeAll(state(), "incoming"))}>
-                  Take all incoming
-                </button>
-              </div>
               <Show when={proposer.failure()}>
                 {(error) => (
                   <div class="note danger" role="alert">
@@ -282,124 +371,62 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
                   </div>
                 )}
               </Show>
-              <Show when={active()}>
-                {(region) => (
-                  <>
-                    <div class="panes">
-                      <div class="cpane lane-0">
-                        <div class="chead">
-                          <span>
-                            Current · <span class="mono">{sides().current.name}</span> · <span class="role">{sides().current.role}</span>
-                          </span>
-                        </div>
-                        <PaneText lines={region().current} />
-                      </div>
-                      <div class="cpane lane-1">
-                        <div class="chead">
-                          <span>
-                            Incoming · <span class="mono">{sides().incoming.name}</span> · <span class="role">{sides().incoming.role}</span>
-                          </span>
-                        </div>
-                        <PaneText lines={region().incoming} />
-                      </div>
-                    </div>
-                    <Show when={region().base}>
-                      {(base) => (
-                        <details class="cbase">
-                          <summary>Show base</summary>
-                          <PaneText lines={base()} />
-                        </details>
-                      )}
-                    </Show>
-                    <Show when={activeProposal()}>
-                      {(proposal) => (
-                        <section class="proposal" aria-label={`Proposed resolution of ${position()}`}>
-                          <div class="chead">
-                            <Icon name="wand" size={14} />
-                            <span>Proposed resolution · draft from your AI provider</span>
-                          </div>
-                          <p class="proposal-why">{proposal().rationale}</p>
-                          <PaneText lines={draftLines(proposal().text)} />
-                          <div class="hrow">
-                            <button type="button" class="btn sm primary" onClick={() => apply({ manual: draftLines(proposal().text) })}>
-                              <Icon name="check" size={14} />
-                              Accept
-                            </button>
-                            <button type="button" class="btn sm" onClick={startEdit}>
-                              <Icon name="edit" size={14} />
-                              Edit
-                            </button>
-                            <button type="button" class="btn sm" onClick={() => dropProposal(state().active)}>
-                              <Icon name="close" size={14} />
-                              Reject
-                            </button>
-                          </div>
-                        </section>
-                      )}
-                    </Show>
-                    <div class="actions" role="group" aria-label={`Conflict ${state().active + 1} of ${regions().length}`}>
-                      <For each={blocks}>
-                        {(block) => (
-                          <button type="button" class="btn sm" aria-pressed={state().choices[state().active] === block.choice} onClick={() => apply(block.choice)}>
-                            {block.label}
-                            <Show when={block.hint}>{(hint) => <span class="hint">{hint()}</span>}</Show>
-                          </button>
-                        )}
-                      </For>
-                      <button type="button" class="btn sm" aria-pressed={isManual(state().choices[state().active])} onClick={startEdit}>
-                        <Icon name="edit" size={14} />
-                        Edit <span class="hint">E</span>
-                      </button>
-                      <span class="state" classList={{ unresolved: state().choices[state().active] === undefined }}>
-                        {state().choices[state().active] === undefined ? "! " : "✓ "}
-                        {choiceLabel(state().choices[state().active])}
-                      </span>
-                    </div>
-                    <Show when={draft() !== undefined}>
-                      <div class="editor">
-                        <label class="input area mtext">
-                          <textarea
-                            aria-label={`Edit the result of ${position()}`}
-                            spellcheck={false}
-                            value={draft()}
-                            onInput={(event) => setDraft(event.currentTarget.value)}
-                            ref={(element) => queueMicrotask(() => element.focus())}
-                          />
-                        </label>
-                        <div class="hrow">
-                          <button type="button" class="btn sm primary" onClick={applyEdit}>
-                            Apply edit
-                          </button>
-                          <button type="button" class="btn sm" onClick={cancelEdit}>
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    </Show>
-                  </>
+              <div class="mt-sides">
+                <Pane side="current" file={file()} />
+                <Pane side="incoming" file={file()} />
+              </div>
+              <Show when={active()?.base}>
+                {(base) => (
+                  <details class="cbase">
+                    <summary>Show base of conflict {state().active + 1}</summary>
+                    <pre>{base().join("\n")}</pre>
+                  </details>
                 )}
               </Show>
-              <div class="cpane result">
-                <div class="chead">Result</div>
-                <div class="lines" role="group" aria-label="Result">
-                  <VirtualRows as="div" items={lines()} scroller={() => body} estimate={RESULT_LINE_HEIGHT} reveal={reveal()} measured>
-                    {(line, row) => (
-                      <div
-                        class="rline"
-                        classList={{ active: line.region === state().active, unresolved: line.region !== undefined && state().choices[line.region] === undefined }}
-                        data-region={line.region}
-                        ref={row.measure}
-                        style={row.style}
-                        onClick={() => line.region !== undefined && setState({ ...state(), active: line.region })}
-                      >
-                        <span class="ln" aria-hidden="true">{line.number}</span>
-                        <span class="gl" classList={{ src: line.gutter === "C" || line.gutter === "I" }} aria-hidden="true">{line.gutter}</span>
-                        <span>{line.text}</span>
-                      </div>
-                    )}
-                  </VirtualRows>
+              <section class="mt-out" aria-label="Output">
+                <div class="out-h">
+                  <span class="out-title">
+                    <strong>Output</strong> <span class="dim">Exactly what will be saved. Type to edit; unresolved parts show Git's conflict markers.</span>
+                  </span>
+                  <span class="out-state" classList={{ warn: left() > 0, ok: left() === 0 }} role="status">
+                    <Icon name={left() > 0 ? "warning" : "check"} size={14} />
+                    {left() > 0 ? `${left()} ${left() === 1 ? "conflict" : "conflicts"} left` : "No conflicts left"}
+                  </span>
                 </div>
-              </div>
+                <Show when={undo()}>
+                  <div class="note attention" role="status">
+                    <span>Rebuilt the Output from your choices, replacing your edits.</span>
+                    <button type="button" class="btn sm" onClick={undoRebuild}>
+                      <Icon name="undo" size={14} />
+                      Undo
+                    </button>
+                  </div>
+                </Show>
+                <Show when={rationales().length > 0 || restore() !== undefined}>
+                  <div class="note attention" role="status">
+                    <span>Draft from your AI provider. Review and edit it; nothing changes in Git until you mark the file resolved.</span>
+                    <For each={rationales()}>{(proposal) => <span>Conflict {proposal.index + 1}: {proposal.rationale}</span>}</For>
+                    <Show when={restore() !== undefined}>
+                      <button type="button" class="btn sm" onClick={restoreMine}>
+                        <Icon name="undo" size={14} />
+                        Restore my text
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
+                <div
+                  class="out-body"
+                  ref={(element) => {
+                    outBody = element;
+                    element.addEventListener("scroll", syncGutter, true);
+                  }}
+                >
+                  <pre class="out-ln" aria-hidden="true" ref={gutter}>
+                    {lineNumbers()}
+                  </pre>
+                  <TextArea label="Output" value={output().text} minRows={OUTPUT_ROWS} maxRows={OUTPUT_ROWS} onInput={edit} />
+                </div>
+              </section>
             </Show>
           )}
         </Show>
@@ -416,6 +443,30 @@ export function ConflictResolver(props: { session: RepoSession; file: string; on
         </Show>
         <Show when={reason()}>{(text) => <span class="reason">{text()}</span>}</Show>
       </div>
+      <Show when={merging()}>
+        <section class="mergebar" aria-label="Finish the merge">
+          <span class="mb-progress">
+            <Icon name={progress().commitReason === undefined ? "check" : "merge"} />
+            <strong>{progress().label}</strong>
+          </span>
+          <Show when={progress().commitReason}>{(text) => <span class="reason" id="merge-commit-reason">{text()}</span>}</Show>
+          <span class="spacer" />
+          <button type="button" class="btn danger" disabled={props.actions.operationBusy()} onClick={props.actions.abortOperation}>
+            Abort merge
+          </button>
+          <button
+            type="button"
+            class="btn primary"
+            disabled={progress().commitReason !== undefined}
+            aria-describedby={progress().commitReason === undefined ? undefined : "merge-commit-reason"}
+            title={progress().commitReason}
+            onClick={() => void props.actions.continueOperation(null)}
+          >
+            <Icon name="commit" />
+            Commit merge
+          </button>
+        </section>
+      </Show>
     </section>
   );
 }

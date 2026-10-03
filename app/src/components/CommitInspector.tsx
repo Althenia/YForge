@@ -7,6 +7,9 @@ import type { IconName } from "../iconNames";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { Signature } from "../ipc/bindings/Signature";
 import { client, IpcError } from "../ipc/client";
+import { createExternalTools } from "../state/externalTools";
+import { featureAvailable, featuresOptions } from "../state/aiFeatures";
+import { AI_RUNNING_REASON, useAiSheet } from "../state/aiSheet";
 import { useNow } from "../state/clock";
 import { repoKeys } from "../state/queryKeys";
 import type { Anchor, RepoActions } from "../state/repoActions";
@@ -15,12 +18,17 @@ import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
 import { createIssueChips } from "../state/jiraIssues";
+import { createFolderState, useFileListMode } from "../state/fileList";
+import { requestFileHistory } from "../state/fileHistoryRequest";
+import { listRows, withUnchanged, type ListRow } from "../state/fileTree";
+import { AiTrigger } from "./AiTrigger";
 import { AuthorBadge } from "./AuthorBadge";
 import { IssueChips } from "./IssueChip";
-import { FileRow } from "./FileRow";
+import { FileListTools, FileRow, FolderRow, listAttrs, UnchangedRow } from "./FileRow";
 import { Icon } from "./Icon";
 import { MessageForm } from "./MessageForm";
 import { tip } from "./Tooltip";
+import { ToolButton } from "./ToolButton";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 const refIcon = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
@@ -106,6 +114,8 @@ function CommitVerbs(props: { actions: RepoActions; sha: string; merge: boolean;
 
 const OPERATION_REASON = "Finish the operation in progress first";
 
+type CommitEntry = { path: string; item: CommitFile | undefined };
+
 export function CommitInspector(props: {
   session: RepoSession;
   actions: RepoActions;
@@ -116,11 +126,15 @@ export function CommitInspector(props: {
   onViewFile: (target: FileViewTarget) => void;
 }) {
   const path = props.session.path;
+  const tools = createExternalTools(props.session);
   const details = useQuery(() => ({
     queryKey: repoKeys.commit(path, props.sha),
     queryFn: () => client.commitDetails(path, props.sha),
     placeholderData: keepPreviousData,
   }));
+  const features = useQuery(featuresOptions, () => props.session.queryClient);
+  const sheet = useAiSheet();
+  const explainable = () => sheet !== undefined && featureAvailable(features.data, "explain_commit");
   const chips = createIssueChips(() => (details.data === undefined ? [] : [`${details.data.summary}\n${details.data.body}`]));
   let scroller: HTMLDivElement | undefined;
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
@@ -139,10 +153,23 @@ export function CommitInspector(props: {
   const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const commitTarget = (file: CommitFile): DiffTarget => ({ source: "commit", sha: shown()?.sha ?? props.sha, file: file.path });
+  const folders = createFolderState();
+  const fileListMode = useFileListMode().mode;
+  const [viewAll, setViewAll] = createSignal(false);
+  createEffect(on(() => props.sha, () => setViewAll(false), { defer: true }));
+  const treePaths = useQuery(() => ({
+    queryKey: [...repoKeys.commit(path, props.sha), "tree-paths"],
+    queryFn: () => client.commitTreePaths(path, props.sha),
+    enabled: viewAll(),
+  }));
+  const treeFailure = () => (treePaths.error instanceof IpcError ? treePaths.error.message : treePaths.error == null ? undefined : String(treePaths.error));
+  const entries = (files: readonly CommitFile[]): CommitEntry[] =>
+    viewAll() && treePaths.data !== undefined ? withUnchanged(files, (file) => file.path, treePaths.data) : files.map((file) => ({ path: file.path, item: file }));
+  const fileRows = (files: readonly CommitFile[]) => listRows(entries(files), (entry) => entry.path, fileListMode(), folders.isOpen("commit"));
+  const rowId = (row: ListRow<CommitEntry>) => (row.kind === "folder" ? `${row.path}/` : row.path);
   const tabStop = (index: number, key: string) => {
-    const files = shown()?.files ?? [];
     const active = activeRow();
-    return active !== undefined && files.some((file) => file.path === active) ? active === key : index === 0;
+    return active !== undefined && fileRows(shown()?.files ?? []).some((row) => rowId(row) === active) ? active === key : index === 0;
   };
   return (
     <aside class="panel inspector" aria-label="Commit" aria-busy={details.isFetching}>
@@ -161,16 +188,23 @@ export function CommitInspector(props: {
             <div class="ihead">
               <h2>{commit().summary || "(no message)"}</h2>
               <p>{commit().parents.length > 1 ? "Merge commit" : "Commit"} · {commit().parents.length} {commit().parents.length === 1 ? "parent" : "parents"}</p>
-              <Show when={isHead() && !editing()}>
-                <button
-                  type="button"
-                  class="icon-btn dense ihead-action"
-                  {...tip(editReason() ?? "Edit message", undefined, "Edit message")}
-                  aria-disabled={editReason() === undefined ? undefined : "true"}
-                  onClick={() => editReason() === undefined && setEditing(true)}
-                >
-                  <Icon name="edit" />
-                </button>
+              <Show when={explainable() || (isHead() && !editing())}>
+                <span class="ihead-action ihead-tools">
+                  <Show when={explainable()}>
+                    <AiTrigger action="Explain this commit" reason={sheet?.running() ? AI_RUNNING_REASON : undefined} onRun={() => void sheet?.explainCommit(commit().sha)} />
+                  </Show>
+                  <Show when={isHead() && !editing()}>
+                    <button
+                      type="button"
+                      class="icon-btn dense"
+                      {...tip(editReason() ?? "Edit message", undefined, "Edit message")}
+                      aria-disabled={editReason() === undefined ? undefined : "true"}
+                      onClick={() => editReason() === undefined && setEditing(true)}
+                    >
+                      <Icon name="edit" />
+                    </button>
+                  </Show>
+                </span>
               </Show>
               <CommitVerbs actions={props.actions} sha={commit().sha} merge={commit().parents.length > 1} current={currentLabel()} />
             </div>
@@ -240,40 +274,111 @@ export function CommitInspector(props: {
                     <Icon name="diff" />
                     Files · {commit().files.length}
                   </span>
+                  <span class="lhead-tools">
+                    <FileListTools
+                      folders={folders.folders([{ scope: "commit", paths: entries(commit().files).map((entry) => entry.path) }])}
+                      anyClosed={folders.anyClosed([{ scope: "commit", paths: entries(commit().files).map((entry) => entry.path) }])}
+                      onCollapseAll={() => folders.collapseAll([{ scope: "commit", paths: entries(commit().files).map((entry) => entry.path) }])}
+                      onExpandAll={folders.expandAll}
+                    />
+                    <button
+                      type="button"
+                      class="chip-toggle"
+                      role="checkbox"
+                      aria-checked={viewAll()}
+                      aria-busy={viewAll() && treePaths.isFetching}
+                      title="Also list the files this commit did not change"
+                      onClick={() => setViewAll(!viewAll())}
+                    >
+                      <Icon name="file" size={14} />
+                      View all files
+                    </button>
+                  </span>
                 </div>
-                <Show when={commit().files.length > 0} fallback={<div class="empty">No file changes in this commit</div>}>
-                  <VirtualRows class="flist" items={commit().files} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={commit().files.findIndex((file) => file.path === activeRow())}>
-                    {(file, virtual) => (
-                      <FileRow
-                        rowId={file.path}
-                        path={file.path}
-                        originalPath={file.original_path}
-                        status={file.status}
-                        selected={sameTarget(props.activeTarget, commitTarget(file))}
-                        tabStop={tabStop(virtual.index, file.path)}
-                        onFocusRow={setActiveRow}
-                        onOpen={() => props.onOpenDiff(commitTarget(file))}
-                        virtual={virtual}
-                      >
-                        <Delta file={file} />
-                        <Show when={file.status !== "deleted"}>
-                          <span class="acts">
-                            <button
-                              type="button"
-                              class="icon-btn dense"
-                              tabindex="-1"
-                              {...tip("View file", undefined, `View ${file.path}`)}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                props.onViewFile(fileViewTargetOf(commitTarget(file)));
-                              }}
+                <Show when={viewAll() && treeFailure()}>{(message) => <p class="field-note error" role="alert">{message()}</p>}</Show>
+                <Show when={entries(commit().files).length > 0} fallback={<div class="empty">No file changes in this commit</div>}>
+                  <VirtualRows
+                    class="flist"
+                    items={fileRows(commit().files)}
+                    attrs={listAttrs(fileListMode(), "Files in this commit")}
+                    scroller={() => scroller}
+                    estimate={fileRowHeight()}
+                    keepIndex={fileRows(commit().files).findIndex((row) => rowId(row) === activeRow())}
+                  >
+                    {(row, virtual) =>
+                      row.kind === "folder" ? (
+                        <FolderRow
+                          rowId={rowId(row)}
+                          path={row.path}
+                          name={row.name}
+                          depth={row.depth}
+                          open={row.open}
+                          count={row.items.length}
+                          tabStop={tabStop(virtual.index, rowId(row))}
+                          onFocusRow={setActiveRow}
+                          onToggle={(open) => folders.toggle("commit", row.path, open)}
+                          virtual={virtual}
+                        />
+                      ) : (
+                        <Show
+                          when={row.item.item}
+                          fallback={<UnchangedRow rowId={row.path} path={row.path} depth={row.depth} tabStop={tabStop(virtual.index, row.path)} onFocusRow={setActiveRow} virtual={virtual} />}
+                        >
+                          {(file) => (
+                            <FileRow
+                              rowId={row.path}
+                              path={row.path}
+                              originalPath={file().original_path}
+                              status={file().status}
+                              selected={sameTarget(props.activeTarget, commitTarget(file()))}
+                              tabStop={tabStop(virtual.index, row.path)}
+                              depth={row.depth}
+                              onFocusRow={setActiveRow}
+                              onOpen={() => props.onOpenDiff(commitTarget(file()))}
+                              virtual={virtual}
                             >
-                              <Icon name="file" />
-                            </button>
-                          </span>
+                              <Delta file={file()} />
+                              <span class="acts">
+                                <button
+                                  type="button"
+                                  class="icon-btn dense"
+                                  tabindex="-1"
+                                  {...tip("History", undefined, `History of ${row.path}`)}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    requestFileHistory({ file: row.path, sha: shown()?.sha ?? props.sha });
+                                  }}
+                                >
+                                  <Icon name="history" />
+                                </button>
+                                <ToolButton
+                                  row
+                                  action="Open in editor"
+                                  name={`Open ${row.path} in editor`}
+                                  icon="edit"
+                                  reason={tools.editorReason()}
+                                  onRun={() => void tools.openEditor(row.path)}
+                                />
+                                <Show when={file().status !== "deleted"}>
+                                  <button
+                                    type="button"
+                                    class="icon-btn dense"
+                                    tabindex="-1"
+                                    {...tip("View file", undefined, `View ${row.path}`)}
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      props.onViewFile(fileViewTargetOf(commitTarget(file())));
+                                    }}
+                                  >
+                                    <Icon name="file" />
+                                  </button>
+                                </Show>
+                              </span>
+                            </FileRow>
+                          )}
                         </Show>
-                      </FileRow>
-                    )}
+                      )
+                    }
                   </VirtualRows>
                 </Show>
               </section>

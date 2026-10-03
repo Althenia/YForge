@@ -30,7 +30,7 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
   </div>
 </aside>`;
 const popover = overflow ? `<div class="popover" id="pop" role="dialog" aria-label="More branches on 5e1a9c2" style="width: 240px"><div class="ref-overflow" role="listbox" aria-label="More branches"><div class="ref-overflow-option active" role="option" aria-selected="true"><span class="label" style="--lane: var(--l1)"><span class="name">feature/greeting</span>${YF.icon.remote}</span></div><div class="ref-overflow-option" role="option" aria-selected="false"><span class="label" style="--lane: var(--l1)"><span class="name">feature/inline-branch</span>${YF.icon.local}</span></div></div></div>` : "";
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip(rebase ? { banner } : {})}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + popover);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip(rebase ? { banner } : {})}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + popover);
 if (rebase) document.body.classList.add("op");
 YF.boot(`workspace${highlight ? " · hovering feature/search" : ""}${rebase ? " · rebase conflict" : ""}${overflow ? " · +N popover" : ""}${multi ? " · multi-select" : ""}${YF.flags.has("columns") ? " · optional columns" : ""}`);
 YF.mountGraph({ hovered: highlight ? 15 : 5, highlight, multi: multi ? [2, 3, 4] : [], conflict: rebase ? "Conflicts: 1 · resolve README.md to continue the rebase" : null });

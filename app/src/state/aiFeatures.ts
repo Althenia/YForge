@@ -3,18 +3,34 @@ import type { AiFeatureSummary } from "../ipc/bindings/AiFeatureSummary";
 import { client, IpcError } from "../ipc/client";
 import { aiKeys } from "./queryKeys";
 
-export const FEATURE_ORDER: readonly AiFeature[] = ["generate_commit", "recompose", "conflict_fix"];
+export const FEATURE_ORDER: readonly AiFeature[] = [
+  "generate_commit",
+  "recompose",
+  "conflict_fix",
+  "explain_changes",
+  "explain_commit",
+  "compose_commits",
+  "stash_message",
+];
 
 export const FEATURE_TITLES: Record<AiFeature, string> = {
   generate_commit: "Generate commit message",
   recompose: "Propose with AI in Recompose",
   conflict_fix: "Propose conflict resolution",
+  explain_changes: "Explain changes",
+  explain_commit: "Explain commit",
+  compose_commits: "Compose commits",
+  stash_message: "Generate stash message",
 };
 
 export const FEATURE_BLURBS: Record<AiFeature, string> = {
   generate_commit: "Writes a commit message from your staged diff and the subjects of your last commits.",
   recompose: "Groups and rewords your unpushed commits into a cleaner series.",
   conflict_fix: "Proposes a resolution for each conflict from its current, incoming, and base text.",
+  explain_changes: "Explains each changed file in your working tree from its diff against the last commit.",
+  explain_commit: "Explains each file of the selected commit from its message and its diff against its parent.",
+  compose_commits: "Groups your working changes into a series of commits with messages you can edit.",
+  stash_message: "Writes a stash message from your uncommitted changes.",
 };
 
 export const CONTEXT_TOKEN = "{context}";

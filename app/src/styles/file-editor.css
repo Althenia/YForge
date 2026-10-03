@@ -1,0 +1,18 @@
+.feditor-body {
+  display: grid;
+  align-content: start;
+}
+
+.feditor-body .input.area {
+  display: flex;
+  min-height: 100%;
+}
+
+.feditor-body .input.area textarea {
+  font-family: var(--typography-code-font-family);
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
+  overflow-y: hidden;
+  tab-size: 4;
+}

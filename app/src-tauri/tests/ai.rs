@@ -780,7 +780,15 @@ fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
             .iter()
             .map(|s| s["feature"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["generate_commit", "recompose", "conflict_fix"]
+        [
+            "generate_commit",
+            "recompose",
+            "conflict_fix",
+            "explain_changes",
+            "explain_commit",
+            "compose_commits",
+            "stash_message"
+        ]
     );
     assert!(listed
         .as_array()

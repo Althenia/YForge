@@ -60,6 +60,8 @@ import {
 } from "./refMenu";
 import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
+import { createFileOps } from "./fileOps";
+import type { FileViewTarget } from "./fileView";
 import { authFailure, authFix, divergedPushDetail, fetchMenu, isDiverged, pullMenu, type AuthFix, type SyncState } from "./syncModel";
 
 const PREVIEW_CONCURRENCY = 4;
@@ -95,7 +97,7 @@ export type StripNotice = { id: string; text: string; icon?: IconName; detail?: 
 
 export type DialogState = { copy: ConfirmCopy; run: () => void | Promise<void> };
 
-type SyncName = "Fetch" | "Pull" | "Push" | "Push to" | "Publish" | "Force push" | "Push tag" | "Delete remote tag" | "Delete remote branch";
+type SyncName = "Fetch" | "Pull" | "Push" | "Push to" | "Publish" | "Force push" | "Push tag" | "Delete remote tag" | "Delete remote branch" | "Maintain";
 
 const progressive: Record<SyncName, string> = {
   Fetch: "Fetching",
@@ -107,6 +109,7 @@ const progressive: Record<SyncName, string> = {
   "Push tag": "Pushing tag",
   "Delete remote tag": "Deleting remote tag",
   "Delete remote branch": "Deleting remote branch",
+  Maintain: "Running maintenance",
 };
 
 export type TagRequest = { name: string; message: string | null; push: boolean };
@@ -163,6 +166,7 @@ export type RepoActionDeps = {
   openWorktree: (path: string) => Promise<boolean>;
   undoEntry: (id: number) => ActivityEntry | undefined;
   submoduleUpdateOnFetch?: () => boolean;
+  showFile?: (target: FileViewTarget) => void;
 };
 
 export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
@@ -960,6 +964,18 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const unstageAll = () => session.mutate(() => client.unstageAll(path));
 
+  const files = createFileOps(session, { confirm, fail, showFile: deps.showFile });
+
+  async function maintain(): Promise<void> {
+    if (busy()) return;
+    const result = await runSync("Maintain", (id) => client.maintenanceRun(path, id));
+    if ("value" in result) session.inform("Repository maintenance finished");
+  }
+
+  const maintainReason = () => (busy() ? "Another operation is running" : undefined);
+
+  const createPatchReason = () => (changeTotal(snapshot().counts) === 0 ? "There are no changes to put in a patch" : undefined);
+
   const markResolved = (files: string[]) => session.mutate(() => client.markResolved(path, files));
 
   return {
@@ -1045,6 +1061,18 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     markResolved,
     stageAll,
     unstageAll,
+    files,
+    createFile: files.createFile,
+    deleteFile: files.deleteFile,
+    viewFile: files.viewFile,
+    editFile: (file?: string): void => void files.editFile(file),
+    discardAll: files.discardAll,
+    discardAllReason: files.discardAllReason,
+    createPatch: (selected?: string[]): void => void files.createPatch(selected),
+    createPatchReason,
+    applyPatch: (): void => void files.applyPatch(),
+    maintain,
+    maintainReason,
   };
 }
 

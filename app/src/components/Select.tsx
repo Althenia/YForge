@@ -2,7 +2,7 @@ import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-j
 import { Icon } from "./Icon";
 import { spacingPx, VIRTUAL_LIST_FROM, VirtualRows, type VirtualRow } from "./VirtualRows";
 
-export type SelectOption = { value: string; label: string; hint?: string };
+export type SelectOption = { value: string; label: string; hint?: string; disabledReason?: string };
 
 const MARGIN = 8;
 const SEARCH_ABOVE = 8;
@@ -108,6 +108,7 @@ export function Select(props: {
   };
 
   const choose = (value: string) => {
+    if (props.options.find((option) => option.value === value)?.disabledReason !== undefined) return;
     props.onChange(value);
     close(true);
   };
@@ -158,6 +159,8 @@ export function Select(props: {
         data-value={row.option.value}
         data-index={row.index}
         aria-selected={row.option.value === props.value}
+        aria-disabled={row.option.disabledReason === undefined ? undefined : true}
+        title={row.option.disabledReason}
         ref={(button) => mountOption(row.index, button, row.row?.measure)}
         style={row.row?.style}
         onClick={() => choose(row.option.value)}

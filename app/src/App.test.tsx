@@ -66,6 +66,31 @@ describe("application root", () => {
     expect(reports[0]).toMatchObject({ kind: "error", message: "uncaught in a handler", view: "/launcher" });
   });
 
+  it("never lets the platform context menu open, anywhere in the window (B3)", async () => {
+    mockIPC(
+      (cmd) => {
+        if (cmd === "settings_load") return defaultSettings;
+        if (cmd === "repo_aliases_list") return [];
+        if (cmd === "session_load") return { tabs: [], active: 0, groups: [] };
+        if (cmd === "launch_path") return "/nowhere";
+        if (cmd === "activity_list" || cmd === "recents_list") return [];
+        return null;
+      },
+      { shouldMockEvents: true },
+    );
+    window.location.hash = "#/launcher";
+    const host = document.createElement("div");
+    document.body.append(host);
+    dispose = render(() => <App />, host);
+    await flush(80);
+
+    for (const target of [document.body, host.querySelector("main") ?? host, host.querySelector("input") ?? host]) {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      target.dispatchEvent(event);
+      expect(event.defaultPrevented, target.tagName).toBe(true);
+    }
+  });
+
   it("shows the busy tab bar with the saved tab and group counts while the session is restored, and removes it when boot ends", async () => {
     let release: () => void = () => undefined;
     const held = new Promise<void>((resolve) => {

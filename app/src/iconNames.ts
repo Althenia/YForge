@@ -15,6 +15,7 @@ export type IconName =
   | "folder"
   | "close"
   | "undo"
+  | "redo"
   | "lock"
   | "key"
   | "copy"

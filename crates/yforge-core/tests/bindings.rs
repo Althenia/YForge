@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use ts_rs::{Config, TS};
+use yforge_core::EditableFile;
 use yforge_core::{
     ActivityEntry, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthPromptEvent, AuthReply,
     CheckoutOutcome, CheckoutTarget, CloneOptions, CommitBrief, CommitDetails, ConflictFile,
@@ -18,13 +19,26 @@ use yforge_core::{
     ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal,
 };
 use yforge_core::{BatchOutcome, StashTarget};
+use yforge_core::{BlameRun, FileListMode, FileRevision};
 use yforge_core::{
     CliInstall, FileAtRevision, GraphVisibility, OpenPathRequested, RepoAlias, RepoUiPrefs,
     StashDetails, UpdateCheck,
 };
+use yforge_core::{ComposeGroup, ComposeProposal, Explanation, ExplanationItem, StashDraft};
 use yforge_core::{
     CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
     PullRequest, RepoRef,
+};
+use yforge_core::{
+    DiffToolSource, ExternalToolsStatus, LfsStatus, Profile, ProfileDraft, ProfileList,
+    SigningConfig, SigningFormat, SigningKey, SigningScope, ToolChoices, ToolEntry, ToolsDetected,
+};
+use yforge_core::{
+    FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode, HookOutcome, HookOutput, HookScript,
+};
+use yforge_core::{
+    FolderRemoved, FolderScan, FoundRepo, ManagedRepo, RepoRemoved, Repositories, Rescan,
+    ScannedFolder,
 };
 use yforge_core::{GitHost, GitHostDraft, GitHostProblem, IdentitySource, Transport, UrlIdentity};
 use yforge_core::{
@@ -33,7 +47,8 @@ use yforge_core::{
 };
 use yforge_core::{LostCommit, ReflogEntry, SnapshotChange, SnapshotInfo};
 use yforge_core::{
-    MessageEdit, PullReport, PushTarget, SshKey, Submodule, SwitchStash, WorktreeIntegration, WorktreeStatus,
+    MessageEdit, PullReport, PushTarget, SshKey, Submodule, SwitchStash, WorktreeIntegration,
+    WorktreeStatus,
 };
 use yforge_core::{
     RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecomposeChange, RecomposeGroup,
@@ -73,6 +88,7 @@ fn export_all(dir: &Path) {
     ConflictFile::export_all(&config).expect("export ConflictFile");
     ConflictSide::export_all(&config).expect("export ConflictSide");
     ActivityEntry::export_all(&config).expect("export ActivityEntry");
+    yforge_core::RedoChange::export_all(&config).expect("export RedoChange");
     AppSettings::export_all(&config).expect("export AppSettings");
     RepoSettings::export_all(&config).expect("export RepoSettings");
     AuthPromptEvent::export_all(&config).expect("export AuthPromptEvent");
@@ -102,6 +118,14 @@ fn export_all(dir: &Path) {
     WorktreeIntegration::export_all(&config).expect("export WorktreeIntegration");
     WorktreeStatus::export_all(&config).expect("export WorktreeStatus");
     Submodule::export_all(&config).expect("export Submodule");
+    HookList::export_all(&config).expect("export HookList");
+    HookScript::export_all(&config).expect("export HookScript");
+    HookMode::export_all(&config).expect("export HookMode");
+    HookOutput::export_all(&config).expect("export HookOutput");
+    HookOutcome::export_all(&config).expect("export HookOutcome");
+    GitFlowConfig::export_all(&config).expect("export GitFlowConfig");
+    FlowKind::export_all(&config).expect("export FlowKind");
+    FlowFinished::export_all(&config).expect("export FlowFinished");
     RebasePlan::export_all(&config).expect("export RebasePlan");
     RebaseStep::export_all(&config).expect("export RebaseStep");
     RebaseOutcome::export_all(&config).expect("export RebaseOutcome");
@@ -131,6 +155,7 @@ fn export_all(dir: &Path) {
     SnapshotInfo::export_all(&config).expect("export SnapshotInfo");
     SnapshotChange::export_all(&config).expect("export SnapshotChange");
     FileAtRevision::export_all(&config).expect("export FileAtRevision");
+    EditableFile::export_all(&config).expect("export EditableFile");
     GraphVisibility::export_all(&config).expect("export GraphVisibility");
     StashDetails::export_all(&config).expect("export StashDetails");
     RepoUiPrefs::export_all(&config).expect("export RepoUiPrefs");
@@ -160,6 +185,35 @@ fn export_all(dir: &Path) {
     PullList::export_all(&config).expect("export PullList");
     JiraIssueList::export_all(&config).expect("export JiraIssueList");
     Wip::export_all(&config).expect("export Wip");
+    ScannedFolder::export_all(&config).expect("export ScannedFolder");
+    ManagedRepo::export_all(&config).expect("export ManagedRepo");
+    Repositories::export_all(&config).expect("export Repositories");
+    FoundRepo::export_all(&config).expect("export FoundRepo");
+    FolderScan::export_all(&config).expect("export FolderScan");
+    Rescan::export_all(&config).expect("export Rescan");
+    FolderRemoved::export_all(&config).expect("export FolderRemoved");
+    RepoRemoved::export_all(&config).expect("export RepoRemoved");
+    FileRevision::export_all(&config).expect("export FileRevision");
+    BlameRun::export_all(&config).expect("export BlameRun");
+    FileListMode::export_all(&config).expect("export FileListMode");
+    Explanation::export_all(&config).expect("export Explanation");
+    ExplanationItem::export_all(&config).expect("export ExplanationItem");
+    ComposeGroup::export_all(&config).expect("export ComposeGroup");
+    ComposeProposal::export_all(&config).expect("export ComposeProposal");
+    StashDraft::export_all(&config).expect("export StashDraft");
+    ToolChoices::export_all(&config).expect("export ToolChoices");
+    ToolEntry::export_all(&config).expect("export ToolEntry");
+    ToolsDetected::export_all(&config).expect("export ToolsDetected");
+    ExternalToolsStatus::export_all(&config).expect("export ExternalToolsStatus");
+    DiffToolSource::export_all(&config).expect("export DiffToolSource");
+    LfsStatus::export_all(&config).expect("export LfsStatus");
+    SigningScope::export_all(&config).expect("export SigningScope");
+    SigningFormat::export_all(&config).expect("export SigningFormat");
+    SigningConfig::export_all(&config).expect("export SigningConfig");
+    SigningKey::export_all(&config).expect("export SigningKey");
+    Profile::export_all(&config).expect("export Profile");
+    ProfileList::export_all(&config).expect("export ProfileList");
+    ProfileDraft::export_all(&config).expect("export ProfileDraft");
 }
 
 fn read_all(dir: &Path) -> BTreeMap<String, String> {

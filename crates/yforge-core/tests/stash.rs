@@ -3,8 +3,32 @@ mod common;
 use common::Fixture;
 use yforge_core::{
     repo_snapshot, stash_apply, stash_details, stash_drop, stash_file_diff, stash_pop, stash_push,
-    stash_rename, DiffLineKind, ErrorKind, FileStatus, StashRestore,
+    stash_push_paths, stash_rename, DiffLineKind, ErrorKind, FileStatus, StashRestore,
 };
+
+fn folder_dirty() -> Fixture {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("top.txt", "top\n", "First");
+    repo.commit("src/ui/button.ts", "button\n", "Button");
+    repo.commit("src/ui/panel.ts", "panel\n", "Panel");
+    repo.commit("src/app.ts", "app\n", "App");
+    repo.write("top.txt", "top edited\n");
+    repo.write("src/app.ts", "app edited\n");
+    repo.write("src/ui/button.ts", "button staged\n");
+    repo.git(&["add", "--", "src/ui/button.ts"]);
+    repo.write("src/ui/button.ts", "button staged and unstaged\n");
+    repo.write("src/ui/panel.ts", "panel edited\n");
+    repo.write("src/ui/new.ts", "new\n");
+    repo.write("scratch.txt", "scratch\n");
+    repo
+}
+
+fn folder_files() -> Vec<String> {
+    ["src/ui/button.ts", "src/ui/panel.ts", "src/ui/new.ts"]
+        .map(str::to_owned)
+        .to_vec()
+}
 
 fn dirty() -> Fixture {
     let repo = Fixture::init();
@@ -351,4 +375,87 @@ fn stash_inspection_refuses_a_moved_entry_and_files_outside_the_stash() {
             .kind(),
         ErrorKind::InvalidRequest
     );
+}
+
+#[test]
+fn stashing_paths_saves_only_those_files_staged_unstaged_and_untracked() {
+    let repo = folder_dirty();
+
+    stash_push_paths(&repo.path, "  Stash src/ui/  ", true, &folder_files()).unwrap();
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert_eq!(snapshot.stashes[0].message, "On main: Stash src/ui/");
+    assert_eq!(repo.read("src/ui/button.ts"), "button\n");
+    assert_eq!(repo.read("src/ui/panel.ts"), "panel\n");
+    assert!(!repo.path.join("src/ui/new.ts").exists());
+    assert_eq!(repo.read("src/app.ts"), "app edited\n");
+    assert_eq!(repo.read("top.txt"), "top edited\n");
+    assert_eq!(repo.read("scratch.txt"), "scratch\n");
+    let mut remaining: Vec<_> = snapshot
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    remaining.sort_unstable();
+    assert_eq!(remaining, ["scratch.txt", "src/app.ts", "top.txt"]);
+}
+
+#[test]
+fn stashed_paths_come_back_with_a_pop() {
+    let repo = folder_dirty();
+    stash_push_paths(&repo.path, "Stash src/ui/", true, &folder_files()).unwrap();
+    let (index, sha) = only_stash(&repo);
+
+    assert_eq!(
+        stash_pop(&repo.path, index, &sha).unwrap(),
+        StashRestore::Applied
+    );
+
+    assert_eq!(
+        repo.read("src/ui/button.ts"),
+        "button staged and unstaged\n"
+    );
+    assert_eq!(repo.read("src/ui/panel.ts"), "panel edited\n");
+    assert_eq!(repo.read("src/ui/new.ts"), "new\n");
+    assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
+}
+
+#[test]
+fn stashing_paths_leaves_untracked_files_alone_unless_requested() {
+    let repo = folder_dirty();
+
+    let tracked = &folder_files()[..2];
+
+    stash_push_paths(&repo.path, "Stash src/ui/", false, tracked).unwrap();
+
+    assert_eq!(repo.read("src/ui/new.ts"), "new\n");
+    assert_eq!(repo.read("src/ui/panel.ts"), "panel\n");
+    assert_eq!(repo.read("src/ui/button.ts"), "button\n");
+}
+
+#[test]
+fn stashing_paths_with_nothing_changed_there_is_an_invalid_request() {
+    let repo = folder_dirty();
+
+    let error = stash_push_paths(
+        &repo.path,
+        "Stash src/ui/",
+        true,
+        &["src/missing.ts".to_owned()],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
+}
+
+#[test]
+fn stashing_no_paths_or_a_path_outside_the_repository_is_an_invalid_request() {
+    let repo = folder_dirty();
+
+    for paths in [Vec::new(), vec!["../outside.txt".to_owned()]] {
+        let error = stash_push_paths(&repo.path, "x", true, &paths).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    }
 }

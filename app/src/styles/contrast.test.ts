@@ -58,7 +58,7 @@ function measure(theme: Map<string, string>, pair: Pair, background: string): nu
   return ratio(composite(token(pair.foreground), base), base);
 }
 
-const readingSurfaces = ["canvas", "surface-1", "surface-2", "surface-3", "surface-raised", "selection"];
+const readingSurfaces = ["backdrop", "toolbar", "panel-head", "field", "canvas", "surface-1", "surface-2", "surface-3", "surface-raised", "selection"];
 
 const syntaxKinds = ["keyword", "string", "number", "comment", "function", "type", "property"].map((kind) => `syntax-${kind}`);
 const codeSurfaces = ["canvas", "accent-tint", "danger-tint", "diff-added-word", "diff-removed-word", "diff-added-selected", "diff-removed-selected"];
@@ -87,6 +87,7 @@ const pairs: Pair[] = [
   { foreground: "text-inverse", backgrounds: ["text"], minimum: TEXT },
   { foreground: "focus", backgrounds: ["backdrop", ...readingSurfaces], minimum: GRAPHIC },
   { foreground: "rule-strong", backgrounds: ["canvas"], minimum: GRAPHIC },
+  { foreground: "selection-edge", backgrounds: ["selection", "surface-1", "canvas"], minimum: GRAPHIC },
 ];
 
 describe("WCAG contrast arithmetic", () => {

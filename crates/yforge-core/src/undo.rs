@@ -9,6 +9,7 @@ use crate::git::{self, CancelToken};
 use crate::model::{ForceLease, ResetMode};
 use crate::refs;
 use crate::repo;
+use crate::stage;
 use crate::sync::{run_network, Progress};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -25,11 +26,27 @@ pub enum HeadRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexEntry {
+    pub mode: String,
+    pub oid: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexChange {
+    Unchanged,
+    Restore {
+        before: Option<IndexEntry>,
+        after: Option<IndexEntry>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnapshotFile {
     pub path: String,
     pub before: Option<String>,
     pub executable: bool,
     pub after: Option<String>,
+    pub index: IndexChange,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +110,31 @@ pub enum UndoAction {
         from: Option<String>,
         to: Option<String>,
     },
+    AdvanceSoft {
+        branch: Option<String>,
+        from: String,
+        to: String,
+        tree: String,
+    },
+    CreateBranchAt {
+        name: String,
+        sha: String,
+        switch: bool,
+    },
+    DeleteBranches {
+        branches: Vec<RestoredBranch>,
+    },
+    Restash {
+        sha: String,
+        pop: bool,
+        applied_tree: String,
+    },
+    DeleteRemoteBranchAt {
+        remote: String,
+        remote_ref: String,
+        sha: String,
+    },
+    GitFlowFinish(crate::git_flow::FlowRestore),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -482,6 +524,45 @@ fn file_hash(root: &Path, file: &str, write: bool) -> Result<Option<String>, Cor
     }
 }
 
+fn index_entry(root: &Path, file: &str) -> Result<Option<IndexEntry>, CoreError> {
+    let output = git::run(root, &["ls-files", "--stage", "--full-name", "--", file])?;
+    Ok(output.lines().find_map(|line| {
+        let (meta, _) = line.split_once('\t')?;
+        let mut parts = meta.split(' ');
+        let (mode, oid, stage) = (parts.next()?, parts.next()?, parts.next()?);
+        (stage == "0").then(|| IndexEntry {
+            mode: mode.to_owned(),
+            oid: oid.to_owned(),
+        })
+    }))
+}
+
+fn restore_index_entry(
+    root: &Path,
+    file: &str,
+    entry: &Option<IndexEntry>,
+) -> Result<(), CoreError> {
+    match entry {
+        Some(entry) => git::run(
+            root,
+            &[
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                &format!("{},{},{file}", entry.mode, entry.oid),
+            ],
+        ),
+        None => git::run(
+            root,
+            &stage::with_paths(
+                &["rm", "--cached", "--quiet", "--ignore-unmatch"],
+                &[file.to_owned()],
+            ),
+        ),
+    }
+    .map(drop)
+}
+
 fn is_executable(root: &Path, file: &str) -> bool {
     fs::metadata(root.join(file)).is_ok_and(|metadata| metadata.permissions().mode() & 0o111 != 0)
 }
@@ -491,29 +572,277 @@ pub fn snapshot_files(path: &Path, files: &[String]) -> Result<Vec<SnapshotFile>
     files
         .iter()
         .map(|file| {
+            let entry = index_entry(&root, file)?;
             Ok(SnapshotFile {
                 path: file.clone(),
                 before: file_hash(&root, file, true)?,
                 executable: is_executable(&root, file),
                 after: None,
+                index: IndexChange::Restore {
+                    before: entry.clone(),
+                    after: entry,
+                },
             })
         })
         .collect()
 }
 
-pub fn plan_discard(path: &Path, mut files: Vec<SnapshotFile>) -> Result<Planned, CoreError> {
+fn plan_restore(
+    path: &Path,
+    mut files: Vec<SnapshotFile>,
+    (verb, gerund): (&str, &str),
+) -> Result<Planned, CoreError> {
     let root = repo::open(path)?;
     for file in &mut files {
         file.after = file_hash(&root, &file.path, false)?;
+        if let IndexChange::Restore { before, .. } = &file.index {
+            let now = index_entry(&root, &file.path)?;
+            file.index = if *before == now {
+                IndexChange::Unchanged
+            } else {
+                IndexChange::Restore {
+                    before: before.clone(),
+                    after: now,
+                }
+            };
+        }
     }
     let count = files.len();
     Ok(available(
         UndoAction::RestoreFiles { files },
         format!(
-            "Undo discard: restores {count} {} from the snapshot taken before discarding, if unchanged since",
+            "Undo {verb}: restores {count} {} from the snapshot taken before {gerund}, if unchanged since",
             if count == 1 { "file" } else { "files" }
         ),
     ))
+}
+
+pub fn plan_discard(path: &Path, files: Vec<SnapshotFile>) -> Result<Planned, CoreError> {
+    plan_restore(path, files, ("discard", "discarding"))
+}
+
+pub fn plan_revert_hunk(path: &Path, files: Vec<SnapshotFile>) -> Result<Planned, CoreError> {
+    plan_restore(path, files, ("revert hunk", "reverting"))
+}
+
+pub fn plan_compose(before: &RepoState, after: &RepoState, commits: usize) -> Planned {
+    let (Some(from), Some(to)) = (after.head.clone(), before.head.clone()) else {
+        return unavailable("The first commit was composed; there is no earlier HEAD to return to");
+    };
+    if from == to {
+        return unavailable("Compose did not move HEAD");
+    }
+    let scope = format!(
+        "Undo compose: moves {} back to {} and keeps the changes of {} staged",
+        where_label(&after.branch),
+        short(&to),
+        counted(commits, "commit", "commits")
+    );
+    available(
+        UndoAction::ResetSoft {
+            branch: after.branch.clone(),
+            from,
+            to,
+        },
+        scope,
+    )
+}
+
+fn current_index_tree(root: &Path) -> Result<String, CoreError> {
+    Ok(git::run(root, &["write-tree"])?.trim().to_owned())
+}
+
+fn redo_restore_files(root: &Path, files: &[SnapshotFile]) -> Result<Vec<SnapshotFile>, CoreError> {
+    files
+        .iter()
+        .map(|file| {
+            let index = match &file.index {
+                IndexChange::Unchanged => IndexChange::Unchanged,
+                IndexChange::Restore { before, .. } => IndexChange::Restore {
+                    before: index_entry(root, &file.path)?,
+                    after: before.clone(),
+                },
+            };
+            Ok(SnapshotFile {
+                path: file.path.clone(),
+                before: file_hash(root, &file.path, true)?,
+                executable: is_executable(root, &file.path),
+                after: file.before.clone(),
+                index,
+            })
+        })
+        .collect()
+}
+
+pub fn plan_redo(path: &Path, action: &UndoAction) -> Result<UndoPlan, CoreError> {
+    let root = repo::open(path)?;
+    let (redo, scope) = match action {
+        UndoAction::ResetHard { branch, from, to } => (
+            UndoAction::ResetHard {
+                branch: branch.clone(),
+                from: to.clone(),
+                to: from.clone(),
+            },
+            format!(
+                "Redo: hard-resets {} to {}; needs a clean working tree",
+                where_label(branch),
+                short(from)
+            ),
+        ),
+        UndoAction::ResetSoft { branch, from, to } => (
+            UndoAction::AdvanceSoft {
+                branch: branch.clone(),
+                from: to.clone(),
+                to: from.clone(),
+                tree: current_index_tree(&root)?,
+            },
+            format!(
+                "Redo: moves {} forward to {} with the same staged changes, if they are unchanged since",
+                where_label(branch),
+                short(from)
+            ),
+        ),
+        UndoAction::DeleteBranch {
+            name,
+            sha,
+            restore_head,
+        } => (
+            UndoAction::CreateBranchAt {
+                name: name.clone(),
+                sha: sha.clone(),
+                switch: restore_head.is_some(),
+            },
+            format!(
+                "Redo: recreates {name} at {}{}",
+                short(sha),
+                if restore_head.is_some() {
+                    " and switches to it"
+                } else {
+                    ""
+                }
+            ),
+        ),
+        UndoAction::RecreateBranch { name, sha, .. } => (
+            UndoAction::DeleteBranch {
+                name: name.clone(),
+                sha: sha.clone(),
+                restore_head: None,
+            },
+            format!(
+                "Redo: deletes {name} at {} if it has no new commits",
+                short(sha)
+            ),
+        ),
+        UndoAction::RecreateBranches { branches } => (
+            UndoAction::DeleteBranches {
+                branches: branches.clone(),
+            },
+            format!(
+                "Redo: deletes {} if they have no new commits",
+                counted(branches.len(), "branch", "branches")
+            ),
+        ),
+        UndoAction::SwitchBack { from, to } => (
+            UndoAction::SwitchBack {
+                from: to.clone(),
+                to: from.clone(),
+            },
+            format!("Redo: switches to {}", head_label(from)),
+        ),
+        UndoAction::UnStash {
+            sha,
+            pop,
+            applied_tree,
+            ..
+        } => (
+            UndoAction::Restash {
+                sha: sha.clone(),
+                pop: *pop,
+                applied_tree: applied_tree.clone(),
+            },
+            format!(
+                "Redo: {} the stash again, if the working tree is clean",
+                if *pop { "pops" } else { "applies" }
+            ),
+        ),
+        UndoAction::RestoreFiles { files } => {
+            let swapped = redo_restore_files(&root, files)?;
+            let count = swapped.len();
+            (
+                UndoAction::RestoreFiles { files: swapped },
+                format!(
+                    "Redo: puts {count} {} back as they were before the undo, if unchanged since",
+                    if count == 1 { "file" } else { "files" }
+                ),
+            )
+        }
+        UndoAction::ForcePush {
+            remote,
+            remote_ref,
+            pushed,
+            previous,
+        } => {
+            let branch = remote_ref.strip_prefix("refs/heads/").unwrap_or(remote_ref);
+            (
+                UndoAction::ForcePush {
+                    remote: remote.clone(),
+                    remote_ref: remote_ref.clone(),
+                    pushed: previous.clone(),
+                    previous: pushed.clone(),
+                },
+                format!(
+                    "Redo: force-pushes {remote}/{branch} to {} with a lease on {}, so it is refused if the remote moved since",
+                    short(pushed),
+                    short(previous)
+                ),
+            )
+        }
+        UndoAction::RestoreRemoteBranch {
+            remote,
+            remote_ref,
+            sha,
+        } => (
+            UndoAction::DeleteRemoteBranchAt {
+                remote: remote.clone(),
+                remote_ref: remote_ref.clone(),
+                sha: sha.clone(),
+            },
+            format!(
+                "Redo: deletes {remote_ref} from {remote}, only if it still points at {}",
+                short(sha)
+            ),
+        ),
+        UndoAction::RestoreUpstream { branch, from, to } => (
+            UndoAction::RestoreUpstream {
+                branch: branch.clone(),
+                from: to.clone(),
+                to: from.clone(),
+            },
+            format!(
+                "Redo: {branch} goes to {} if its upstream is still {}",
+                upstream_label(from),
+                upstream_label(to)
+            ),
+        ),
+        UndoAction::GitFlowFinish(_) => {
+            return Err(CoreError::invalid_request(
+                "a Git Flow finish cannot be redone; finish the branch again instead",
+            ))
+        }
+        UndoAction::AdvanceSoft { .. }
+        | UndoAction::CreateBranchAt { .. }
+        | UndoAction::DeleteBranches { .. }
+        | UndoAction::Restash { .. }
+        | UndoAction::DeleteRemoteBranchAt { .. } => {
+            return Err(CoreError::invalid_request(
+                "a redo step cannot itself be redone",
+            ))
+        }
+    };
+    Ok(UndoPlan {
+        action: redo,
+        scope,
+    })
 }
 
 fn refuse(detail: impl Into<String>) -> CoreError {
@@ -758,6 +1087,7 @@ pub fn undo_with(
                 upstream_label(to)
             ))
         }
+        UndoAction::GitFlowFinish(restore) => crate::git_flow::undo_finish(&root, restore),
         UndoAction::RestoreFiles { files } => {
             for file in files {
                 if file_hash(&root, &file.path, false)? != file.after {
@@ -765,6 +1095,14 @@ pub fn undo_with(
                         "{} changed after it was discarded",
                         file.path
                     )));
+                }
+                if let IndexChange::Restore { after, .. } = &file.index {
+                    if index_entry(&root, &file.path)? != *after {
+                        return Err(refuse(format!(
+                            "{} was staged differently after it was discarded",
+                            file.path
+                        )));
+                    }
                 }
             }
             for file in files {
@@ -786,8 +1124,121 @@ pub fn undo_with(
                     }
                     None => {}
                 }
+                if let IndexChange::Restore { before, .. } = &file.index {
+                    restore_index_entry(&root, &file.path, before)?;
+                }
             }
             Ok(format!("Restored {} discarded file(s)", files.len()))
+        }
+        UndoAction::AdvanceSoft {
+            branch,
+            from,
+            to,
+            tree,
+        } => {
+            require_head(&root, branch, from)?;
+            if &current_index_tree(&root)? != tree {
+                return Err(refuse(
+                    "The staged changes changed after the undo, so they would not come back as they were",
+                ));
+            }
+            git::run(&root, &["reset", "--soft", "--quiet", to])?;
+            Ok(format!(
+                "Moved {} forward to {}",
+                where_label(branch),
+                short(to)
+            ))
+        }
+        UndoAction::CreateBranchAt { name, sha, switch } => {
+            if branch_snapshot(&root, name)?.is_some() {
+                return Err(refuse(format!("{name} exists again")));
+            }
+            recreate_branch(&root, name, sha, None)?;
+            if *switch {
+                if let Err(error) = switch_to(&root, &HeadRef::Branch(name.clone())) {
+                    git::run(&root, &["branch", "--delete", "--force", "--quiet", name])?;
+                    return Err(error);
+                }
+            }
+            Ok(format!("Recreated branch {name} at {}", short(sha)))
+        }
+        UndoAction::DeleteBranches { branches } => {
+            for restored in branches {
+                let current = branch_snapshot(&root, &restored.name)?
+                    .ok_or_else(|| refuse(format!("{} no longer exists", restored.name)))?;
+                if current.sha != restored.sha {
+                    return Err(refuse(format!("{} has new commits", restored.name)));
+                }
+            }
+            for restored in branches {
+                git::run(
+                    &root,
+                    &["branch", "--delete", "--force", "--quiet", &restored.name],
+                )?;
+            }
+            Ok(format!(
+                "Deleted {}",
+                counted(branches.len(), "branch", "branches")
+            ))
+        }
+        UndoAction::Restash {
+            sha,
+            pop,
+            applied_tree,
+        } => {
+            validate_sha(sha)?;
+            if tracked_changes(&root)? {
+                return Err(CoreError::LocalChanges {
+                    detail: "Redo needs a clean working tree; commit or stash your changes first."
+                        .to_owned(),
+                });
+            }
+            let applied = git::run_unchecked(&root, &["stash", "apply", "--quiet", sha], None)?;
+            if !applied.succeeded() || worktree_tree(&root)?.as_ref() != Some(applied_tree) {
+                git::run(&root, &["reset", "--hard", "--quiet", "HEAD"])?;
+                return Err(refuse(
+                    "The stash no longer applies to the same result as before",
+                ));
+            }
+            if *pop {
+                let listed = git::run(&root, &["stash", "list", "--format=%H"])?;
+                if let Some(index) = listed.lines().position(|entry| entry == sha) {
+                    git::run(
+                        &root,
+                        &["stash", "drop", "--quiet", &format!("stash@{{{index}}}")],
+                    )?;
+                }
+            }
+            Ok("Applied the stash changes again".to_owned())
+        }
+        UndoAction::DeleteRemoteBranchAt {
+            remote,
+            remote_ref,
+            sha,
+        } => {
+            validate_sha(sha)?;
+            if !refs::read_remotes(&root)?.contains(remote) {
+                return Err(refuse(format!(
+                    "{remote} is no longer a remote of this repository"
+                )));
+            }
+            let with_lease = format!("--force-with-lease={remote_ref}:{sha}");
+            let refspec = format!(":{remote_ref}");
+            match run_network(
+                &root,
+                &["push", "--progress", &with_lease, remote, &refspec],
+                remote,
+                cancel,
+                on_progress,
+            ) {
+                Ok(()) => Ok(format!("Deleted {remote_ref} from {remote}")),
+                Err(CoreError::PushRejected { detail }) if detail.contains("stale info") => {
+                    Err(refuse(format!(
+                        "{remote_ref} on {remote} moved since, so it was left alone"
+                    )))
+                }
+                Err(error) => Err(error),
+            }
         }
     }
 }

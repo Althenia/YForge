@@ -11,9 +11,10 @@ import type { JiraSource } from "./jiraIssues";
 import { cappedText, countOf, type Paged } from "./listCount";
 import { cardOfPlatform, type PlatformFailure } from "./platformModel";
 
-export type LaunchpadTab = "pulls" | "issues" | "wips";
+export type LaunchpadTab = "repos" | "pulls" | "issues" | "wips";
 
 export const LAUNCHPAD_TABS: ReadonlyArray<{ id: LaunchpadTab; label: string }> = [
+  { id: "repos", label: "Repositories" },
   { id: "pulls", label: "My pull requests" },
   { id: "issues", label: "My issues" },
   { id: "wips", label: "WIPs" },

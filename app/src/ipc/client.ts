@@ -13,6 +13,7 @@ import type { CrashReport } from "./bindings/CrashReport";
 import type { Identity } from "./bindings/Identity";
 import type { IdentityField } from "./bindings/IdentityField";
 import type { RecentRepo } from "./bindings/RecentRepo";
+import type { RedoChange } from "./bindings/RedoChange";
 import type { RecentStatus } from "./bindings/RecentStatus";
 import type { RemoteInfo } from "./bindings/RemoteInfo";
 import type { RepoAlias } from "./bindings/RepoAlias";
@@ -36,10 +37,13 @@ import type { DiffHunk } from "./bindings/DiffHunk";
 import type { ErrorKind } from "./bindings/ErrorKind";
 import type { ErrorPayload } from "./bindings/ErrorPayload";
 import type { FileDiff } from "./bindings/FileDiff";
+import type { FileRevision } from "./bindings/FileRevision";
+import type { BlameRun } from "./bindings/BlameRun";
 import type { ForceLease } from "./bindings/ForceLease";
 import type { ForcePushPlan } from "./bindings/ForcePushPlan";
 import type { CliInstall } from "./bindings/CliInstall";
 import type { FileAtRevision } from "./bindings/FileAtRevision";
+import type { EditableFile } from "./bindings/EditableFile";
 import type { GraphPage } from "./bindings/GraphPage";
 import type { OpenPathRequested } from "./bindings/OpenPathRequested";
 import type { GraphVisibility } from "./bindings/GraphVisibility";
@@ -66,6 +70,14 @@ import type { StashRestore } from "./bindings/StashRestore";
 import type { StashTarget } from "./bindings/StashTarget";
 import type { SwitchStash } from "./bindings/SwitchStash";
 import type { Submodule } from "./bindings/Submodule";
+import type { FlowFinished } from "./bindings/FlowFinished";
+import type { FlowKind } from "./bindings/FlowKind";
+import type { GitFlowConfig } from "./bindings/GitFlowConfig";
+import type { HookList } from "./bindings/HookList";
+import type { HookMode } from "./bindings/HookMode";
+import type { HookOutcome } from "./bindings/HookOutcome";
+import type { HookOutput } from "./bindings/HookOutput";
+import type { HookScript } from "./bindings/HookScript";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
 import type { WorktreeIntegration } from "./bindings/WorktreeIntegration";
 import type { SnapshotInfo } from "./bindings/SnapshotInfo";
@@ -79,6 +91,10 @@ import type { AiSignInEvent } from "./bindings/AiSignInEvent";
 import type { AiSignInMethod } from "./bindings/AiSignInMethod";
 import type { CommitDraft } from "./bindings/CommitDraft";
 import type { ConflictProposal } from "./bindings/ConflictProposal";
+import type { ComposeGroup } from "./bindings/ComposeGroup";
+import type { ComposeProposal } from "./bindings/ComposeProposal";
+import type { Explanation } from "./bindings/Explanation";
+import type { StashDraft } from "./bindings/StashDraft";
 import type { ProviderInput } from "./bindings/ProviderInput";
 import type { ProviderKind } from "./bindings/ProviderKind";
 import type { ProviderStatus } from "./bindings/ProviderStatus";
@@ -104,12 +120,33 @@ import type { JiraIssueLookup } from "./bindings/JiraIssueLookup";
 import type { JiraKind } from "./bindings/JiraKind";
 import type { LaunchpadPulls } from "./bindings/LaunchpadPulls";
 import type { Wip } from "./bindings/Wip";
+import type { FolderRemoved } from "./bindings/FolderRemoved";
+import type { FolderScan } from "./bindings/FolderScan";
+import type { ManagedRepo } from "./bindings/ManagedRepo";
+import type { RepoRemoved } from "./bindings/RepoRemoved";
+import type { Repositories } from "./bindings/Repositories";
+import type { Rescan } from "./bindings/Rescan";
+import type { ScannedFolder } from "./bindings/ScannedFolder";
+
+import type { DiffToolSource } from "./bindings/DiffToolSource";
+import type { ExternalToolsStatus } from "./bindings/ExternalToolsStatus";
+import type { LfsStatus } from "./bindings/LfsStatus";
+import type { Profile } from "./bindings/Profile";
+import type { ProfileDraft } from "./bindings/ProfileDraft";
+import type { ProfileList } from "./bindings/ProfileList";
+import type { SigningConfig } from "./bindings/SigningConfig";
+import type { SigningKey } from "./bindings/SigningKey";
+import type { SigningScope } from "./bindings/SigningScope";
+import type { ToolChoices } from "./bindings/ToolChoices";
+import type { ToolsDetected } from "./bindings/ToolsDetected";
 
 export const REPO_CHANGED_EVENT = "repo-changed";
 export const MENU_ACTION_EVENT = "menu-action";
 export const OPERATION_PROGRESS_EVENT = "operation-progress";
+export const HOOK_OUTPUT_EVENT = "hook-output";
 export const AUTH_PROMPT_EVENT = "auth-prompt";
 export const ACTIVITY_EVENT = "activity-recorded";
+export const REDO_EVENT = "redo-changed";
 export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
 export const AI_SIGN_IN_EVENT = "ai-sign-in";
 
@@ -162,6 +199,8 @@ export const client = {
   stageAll: (path: string) => call<null>("stage_all", { path }),
   unstageAll: (path: string) => call<null>("unstage_all", { path }),
   discardFiles: (path: string, files: string[]) => call<null>("discard_files", { path, files }),
+  discardStagedFiles: (path: string, files: string[]) => call<null>("discard_staged_files", { path, files }),
+  ignorePaths: (path: string, files: string[], untrack: boolean) => call<null>("ignore_paths", { path, files, untrack }),
   stageHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("stage_hunk", { path, file, hunk }),
   unstageHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("unstage_hunk", { path, file, hunk }),
   discardHunk: (path: string, file: string, hunk: DiffHunk) => call<null>("discard_hunk", { path, file, hunk }),
@@ -174,7 +213,12 @@ export const client = {
     call<string>("commit", { path, summary, description, amend }),
   amendInfo: (path: string) => call<AmendInfo>("amend_info", { path }),
   commitDetails: (path: string, sha: string) => call<CommitDetails>("commit_details", { path, sha }),
-  commitFileDiff: (path: string, sha: string, file: string) => call<FileDiff>("commit_file_diff", { path, sha, file }),
+  commitFileDiff: (path: string, sha: string, file: string, ignoreWhitespace = false) =>
+    call<FileDiff>("commit_file_diff", ignoreWhitespace ? { path, sha, file, ignoreWhitespace } : { path, sha, file }),
+  fileHistory: (path: string, file: string) => call<FileRevision[]>("file_history", { path, file }),
+  fileBlame: (path: string, file: string, revision: string | null) => call<BlameRun[]>("file_blame", { path, file, revision }),
+  revertHunk: (path: string, sha: string, file: string, hunk: number) => call<null>("revert_hunk", { path, sha, file, hunk }),
+  commitTreePaths: (path: string, sha: string) => call<string[]>("commit_tree_paths", { path, sha }),
   checkout: (path: string, target: CheckoutTarget, stash: boolean, leaveStashed = false) =>
     call<CheckoutOutcome>("checkout", leaveStashed ? { path, target, stash, leaveStashed } : { path, target, stash }),
   checkBranchName: (path: string, name: string) => call<string>("check_branch_name", { path, name }),
@@ -185,6 +229,7 @@ export const client = {
   deleteBranches: (path: string, names: readonly string[], forced: readonly string[]) => call<BatchOutcome>("delete_branches", { path, names, forced }),
   deleteBranch: (path: string, name: string, force: boolean) => call<null>("delete_branch", { path, name, force }),
   stashPush: (path: string, message: string, untracked: boolean) => call<null>("stash_push", { path, message, untracked }),
+  stashPushPaths: (path: string, message: string, untracked: boolean, paths: string[]) => call<null>("stash_push_paths", { path, message, untracked, paths }),
   stashApply: (path: string, index: number, sha: string) => call<StashRestore>("stash_apply", { path, index, sha }),
   stashPop: (path: string, index: number, sha: string) => call<StashRestore>("stash_pop", { path, index, sha }),
   stashDrop: (path: string, index: number, sha: string) => call<null>("stash_drop", { path, index, sha }),
@@ -216,6 +261,14 @@ export const client = {
   submoduleUpdate: (path: string, submodulePath: string | null) => call<null>("submodule_update", { path, submodulePath }),
   submoduleDeinit: (path: string, submodulePath: string) => call<null>("submodule_deinit", { path, submodulePath }),
   submoduleStage: (path: string, submodulePath: string) => call<null>("submodule_stage", { path, submodulePath }),
+  hooksList: (path: string) => call<HookList>("hooks_list", { path }),
+  hookRead: (path: string, name: string) => call<HookScript>("hook_read", { path, name }),
+  hookApprove: (path: string, name: string) => call<null>("hook_approve", { path, name }),
+  hookRun: (path: string, id: string, name: string, mode: HookMode, message: string) => call<HookOutcome>("hook_run", { path, id, name, mode, message }),
+  gitFlowConfig: (path: string) => call<GitFlowConfig | null>("git_flow_config", { path }),
+  gitFlowInit: (path: string, config: GitFlowConfig) => call<null>("git_flow_init", { path, config }),
+  gitFlowStart: (path: string, kind: FlowKind, name: string) => call<string>("git_flow_start", { path, kind, name }),
+  gitFlowFinish: (path: string) => call<FlowFinished>("git_flow_finish", { path }),
   worktreeList: (path: string) => call<WorktreeStatus[]>("worktree_list", { path }),
   worktreeSuggestPath: (path: string, branch: string) => call<string>("worktree_suggest_path", { path, branch }),
   worktreeCreate: (path: string, branch: string, create: boolean, start: string | null, destination: string) =>
@@ -283,6 +336,11 @@ export const client = {
   aiGenerateCommitMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_commit_message", { path, id }),
   aiProposeRecompose: (path: string, id: string, base: string) => call<RecomposeProposal>("ai_propose_recompose", { path, id, base }),
   aiProposeConflict: (path: string, id: string, file: string) => call<ConflictProposal>("ai_propose_conflict", { path, id, file }),
+  aiExplainChanges: (path: string, id: string) => call<Explanation>("ai_explain_changes", { path, id }),
+  aiExplainCommit: (path: string, id: string, sha: string) => call<Explanation>("ai_explain_commit", { path, id, sha }),
+  aiComposeCommits: (path: string, id: string) => call<ComposeProposal>("ai_compose_commits", { path, id }),
+  composeApply: (path: string, groups: readonly ComposeGroup[]) => call<string[]>("compose_apply", { path, groups }),
+  aiStashMessage: (path: string, id: string) => call<StashDraft>("ai_stash_message", { path, id }),
   platformConnectionsList: () => call<PlatformConnection[]>("platform_connections_list"),
   platformConnectionAdd: (kind: PlatformKind, host: string, name: string, token: string, insecureTls: boolean) =>
     call<PlatformConnection>("platform_connection_add", { kind, host, name, token, insecureTls }),
@@ -308,6 +366,15 @@ export const client = {
   searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
     call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
   fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
+  worktreeFiles: (path: string) => call<string[]>("worktree_files", { path }),
+  fileEditable: (path: string, file: string) => call<EditableFile>("file_editable", { path, file }),
+  fileCreate: (path: string, file: string) => call<null>("file_create", { path, file }),
+  fileSave: (path: string, file: string, text: string, eol: string) => call<null>("file_save", { path, file, text, eol }),
+  fileDelete: (path: string, file: string) => call<null>("file_delete", { path, file }),
+  discardAll: (path: string) => call<null>("discard_all", { path }),
+  patchCreate: (path: string, files: string[] | null, destination: string) => call<null>("patch_create", { path, files, destination }),
+  patchApply: (path: string, patch: string) => call<null>("patch_apply", { path, patch }),
+  maintenanceRun: (path: string, id: string) => call<null>("maintenance_run", { path, id }),
   cliInstall: () => call<CliInstall>("cli_install"),
   stashDetails: (path: string, index: number, sha: string) => call<StashDetails>("stash_details", { path, index, sha }),
   stashFileDiff: (path: string, index: number, sha: string, file: string, ignoreWhitespace = false) =>
@@ -341,6 +408,13 @@ export const client = {
   recentAdd: (path: string) => call<RecentRepo[]>("recent_add", { path }),
   recentRemove: (path: string) => call<RecentRepo[]>("recent_remove", { path }),
   recentStatuses: (paths: string[]) => call<RecentStatus[]>("recent_statuses", { paths }),
+  repositoriesList: () => call<Repositories>("repositories_list"),
+  folderScan: (root: string, depth: number) => call<FolderScan>("folder_scan", { root, depth }),
+  scanFolderSave: (folder: ScannedFolder) => call<Repositories>("scan_folder_save", { folder }),
+  scanFolderRescan: (root: string) => call<Rescan>("scan_folder_rescan", { root }),
+  scanFolderRemove: (root: string) => call<FolderRemoved>("scan_folder_remove", { root }),
+  repositoryRemove: (path: string) => call<RepoRemoved>("repository_remove", { path }),
+  repositoryRestore: (repo: ManagedRepo) => call<Repositories>("repository_restore", { repo }),
   sessionLoad: () => call<TabSession>("session_load"),
   sessionSave: (session: TabSession) => call<null>("session_save", { session }),
   repoAliasesList: () => call<RepoAlias[]>("repo_aliases_list"),
@@ -349,6 +423,24 @@ export const client = {
   updateInstall: () => call<null>("update_install"),
   menuUpdate: (enabled: Record<string, boolean>, checked: Record<string, boolean>) => call<null>("menu_update", { enabled, checked }),
   openPath: (path: string, with_: OpenWith) => call<null>("open_path", { path, with: with_ }),
+  externalToolsLoad: () => call<ToolChoices>("external_tools_load"),
+  externalToolsSave: (choices: ToolChoices) => call<ToolChoices>("external_tools_save", { choices }),
+  externalToolsDetected: (path: string | null) => call<ToolsDetected>("external_tools_detected", { path }),
+  externalToolsStatus: (path: string | null) => call<ExternalToolsStatus>("external_tools_status", { path }),
+  openInEditor: (path: string, file: string | null) => call<null>("open_in_editor", { path, file }),
+  openInDiffTool: (path: string, file: string, source: DiffToolSource) => call<null>("open_in_diff_tool", { path, file, source }),
+  openInMergeTool: (path: string, file: string) => call<null>("open_in_merge_tool", { path, file }),
+  profiles: () => call<ProfileList>("profiles_list"),
+  profileSave: (id: string | null, draft: ProfileDraft) => call<Profile>("profile_save", { id, draft }),
+  profileDelete: (id: string) => call<null>("profile_delete", { id }),
+  profileSwitch: (id: string) => call<null>("profile_switch", { id }),
+  lfsStatus: (path: string) => call<LfsStatus>("lfs_status", { path }),
+  lfsInitialize: (path: string) => call<null>("lfs_initialize", { path }),
+  lfsTrack: (path: string, pattern: string) => call<null>("lfs_track", { path, pattern }),
+  lfsUntrack: (path: string, pattern: string) => call<null>("lfs_untrack", { path, pattern }),
+  signingRead: (scope: SigningScope, path: string | null) => call<SigningConfig>("signing_read", { scope, path }),
+  signingWrite: (scope: SigningScope, path: string | null, config: SigningConfig) => call<null>("signing_write", { scope, path, config }),
+  signingKeys: (program: string) => call<SigningKey[]>("signing_keys", { program }),
   openUrl: (url: string): void => {
     if (!/^https?:\/\//i.test(url)) throw new IpcError({ kind: "invalid_request", message: `${url} is not an http or https address` });
     window.open(url, "_blank", "noopener,noreferrer");
@@ -364,6 +456,9 @@ export const client = {
   usageExport: (path: string) => call<number>("usage_export", { path }),
   usageClear: () => call<null>("usage_clear"),
   undoLast: (path: string, id: number) => call<string>("undo_last", { path, id }),
+  redo: (path: string) => call<string>("redo_last", { path }),
+  trackedFiles: (path: string) => call<string[]>("tracked_files", { path }),
+  setZoom: (factor: number): Promise<void> => getCurrentWebview().setZoom(factor),
   repoWatch: (path: string) => call<null>("repo_watch", { path }),
   pickFolder: async (title: string): Promise<string | undefined> => {
     const picked = await open({ directory: true, multiple: false, title });
@@ -381,10 +476,14 @@ export const client = {
     }),
   onOperationProgress: (handler: (progress: OperationProgress) => void): Promise<UnlistenFn> =>
     listen<OperationProgress>(OPERATION_PROGRESS_EVENT, (event) => handler(event.payload)),
+  onHookOutput: (handler: (output: HookOutput) => void): Promise<UnlistenFn> =>
+    listen<HookOutput>(HOOK_OUTPUT_EVENT, (event) => handler(event.payload)),
   onAuthPrompt: (handler: (event: AuthPromptEvent) => void): Promise<UnlistenFn> =>
     listen<AuthPromptEvent>(AUTH_PROMPT_EVENT, (event) => handler(event.payload)),
   onActivity: (handler: (entry: ActivityEntry) => void): Promise<UnlistenFn> =>
     listen<ActivityEntry>(ACTIVITY_EVENT, (event) => handler(event.payload)),
+  onRedoChanged: (handler: (change: RedoChange) => void): Promise<UnlistenFn> =>
+    listen<RedoChange>(REDO_EVENT, (event) => handler(event.payload)),
   onAiSignIn: (handler: (event: AiSignInEvent) => void): Promise<UnlistenFn> =>
     listen<AiSignInEvent>(AI_SIGN_IN_EVENT, (event) => handler(event.payload)),
   onOpenPathRequested: (handler: (request: OpenPathRequested) => void): Promise<UnlistenFn> =>

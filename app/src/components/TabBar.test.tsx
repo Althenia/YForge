@@ -1,6 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { TabGroup } from "../ipc/bindings/TabGroup";
 import { GROUPS_CANNOT_NEST } from "../state/tabs";
 import { repoKeys } from "../state/queryKeys";
@@ -20,9 +21,9 @@ afterEach(async () => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-type Mount = { tabs?: string[]; mains?: Record<string, string>; groups?: TabGroup[]; active?: number; failSave?: () => boolean; failSettings?: () => boolean; aliases?: Array<{ path: string; alias: string }>; count?: () => number | undefined };
+type Mount = { tabs?: string[]; mains?: Record<string, string>; groups?: TabGroup[]; active?: number; failSave?: () => boolean; failSettings?: () => boolean; aliases?: Array<{ path: string; alias: string }>; count?: () => number | undefined; profiles?: ProfileList };
 
-async function mountBar({ tabs = ["/work/sample"], mains = {}, groups = [], active = 0, failSave = () => false, failSettings = () => false, aliases = [], count = () => 1 }: Mount) {
+async function mountBar({ tabs = ["/work/sample"], mains = {}, groups = [], active = 0, failSave = () => false, failSettings = () => false, aliases = [], count = () => 1, profiles }: Mount) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -42,6 +43,7 @@ async function mountBar({ tabs = ["/work/sample"], mains = {}, groups = [], acti
         return aliases;
       }
       if (cmd === "activity_list" || cmd === "recents_list") return [];
+      if (cmd === "profiles_list") return profiles ?? null;
       if (cmd === "launch_path") return "/nowhere";
       if (cmd === "repo_open") {
         const path = (args as { path: string }).path;
@@ -706,6 +708,31 @@ describe("tab bar and the Launchpad", () => {
 
     expect(app.launchpadOpen()).toBe(false);
     expect(tabButton(host, "/work/sample").getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+describe("Launchpad tooltip names the active profile (S60)", () => {
+  const launchpad = (host: ParentNode) => host.querySelector<HTMLButtonElement>('button[aria-label="Launchpad"]');
+
+  it("names the active profile in the tooltip and keeps the accessible name Launchpad", async () => {
+    const profiles: ProfileList = {
+      active: "work",
+      profiles: [
+        { id: "default", name: "Default", author_name: "Yui", author_email: "yui@example.test" },
+        { id: "work", name: "Work", author_name: "Yui Lin", author_email: "yui@work.test" },
+      ],
+    };
+
+    const { host } = await mountBar({ profiles });
+
+    expect(launchpad(host)?.getAttribute("data-tip")).toBe("Launchpad · profile Work");
+    expect(launchpad(host)?.getAttribute("aria-label")).toBe("Launchpad");
+  });
+
+  it("shows the plain tooltip while no profile is known", async () => {
+    const { host } = await mountBar({});
+
+    expect(launchpad(host)?.getAttribute("data-tip")).toBe("Launchpad");
   });
 });
 

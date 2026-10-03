@@ -65,7 +65,7 @@ const editor = `<section class="panel rpanel" aria-label="Interactive rebase">
   </div>
   <div class="rfoot"><span class="btn primary">${G("rebase")}Rewrite history</span><span class="btn">Cancel</span></div>
 </section>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${editor}<aside class="panel inspector" aria-label="Commit"><div class="ihead"><h2>${G("commit")}Personalize greeting</h2><p><span class="ref">f86d53a</span> · Yui Lin</p></div><div class="ilist"><div class="empty">Choose Rewrite history to apply the plan. Undo restores the branch to where it was.</div></div></aside></div>${YF.activity({ command: "git rebase --interactive 3e91a2c", duration: "—", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${editor}<aside class="panel inspector" aria-label="Commit"><div class="ihead"><h2>${G("commit")}Personalize greeting</h2><p><span class="ref">f86d53a</span> · Yui Lin</p></div><div class="ilist"><div class="empty">Choose Rewrite history to apply the plan. Undo restores the branch to where it was.</div></div></aside></div>${YF.activity({ command: "git rebase --interactive 3e91a2c", duration: "—", action: "" })}</div>`);
 YF.boot("screen 17 · interactive rebase editor");
 </script>
 </body>

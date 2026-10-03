@@ -1,0 +1,243 @@
+import { emit } from "@tauri-apps/api/event";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { RecentRepo } from "../ipc/bindings/RecentRepo";
+import type { RecentStatus } from "../ipc/bindings/RecentStatus";
+import { CloneDialog, CreateDialog } from "./EntryDialogs";
+import { buttonNamed, flush, mountWithApp, type } from "./testkit";
+
+let dispose: (() => void) | undefined;
+
+beforeEach(() => {
+  mockWindows("main");
+});
+
+afterEach(async () => {
+  dispose?.();
+  dispose = undefined;
+  await flush();
+  document.body.innerHTML = "";
+  clearMocks();
+});
+
+type Call = { cmd: string; args: Record<string, unknown> };
+
+const counts = { modified: 1, added: 0, deleted: 0, renamed: 0, untracked: 1, conflicted: 0 };
+const now = Math.floor(Date.now() / 1000);
+const recents: RecentRepo[] = [
+  { path: "/Users/yui/dev/sample", opened_at: now - 300 },
+  { path: "/Users/yui/dev/other-repo", opened_at: now - 3600 },
+  { path: "/Users/yui/dev/gone", opened_at: now - 86400 },
+];
+const status = (path: string, extra: Partial<RecentStatus> = {}): RecentStatus => ({ path, exists: true, branch: "main", unborn: false, ahead_behind: null, counts: { ...counts, modified: 0, untracked: 0 }, worktrees: 1, unreadable: null, ...extra });
+
+function install(handler: (call: Call) => unknown = () => undefined, list: RecentRepo[] = recents) {
+  const calls: Call[] = [];
+  mockIPC(
+    (cmd, args) => {
+      const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+      calls.push(call);
+      const custom = handler(call);
+      if (custom !== undefined) return custom;
+      switch (cmd) {
+        case "recents_list":
+          return list;
+        case "plugin:path|resolve_directory":
+          return "/Users/yui";
+        case "app_ui_prefs_load":
+          return { palette_recents: [], last_parent_folder: null };
+        case "recent_statuses":
+          return list.map((recent) =>
+            recent.path.endsWith("gone")
+              ? status(recent.path, { exists: false, branch: null, counts: null, worktrees: 0 })
+              : recent.path.endsWith("sample")
+                ? status(recent.path, { branch: "feature/greeting", ahead_behind: { ahead: 2, behind: 0 }, counts, worktrees: 2 })
+                : recent.path.endsWith("broken")
+                  ? status(recent.path, { branch: null, counts: null, worktrees: 0, unreadable: "index file smaller than expected" })
+                  : status(recent.path),
+          );
+        case "repo_open":
+          return { root: (args as { path: string }).path };
+        case "recent_add":
+        case "recent_remove":
+          return list;
+        case "settings_load":
+        case "repo_aliases_list":
+          return [];
+        case "session_load":
+          return null;
+        default:
+          return null;
+      }
+    },
+    { shouldMockEvents: true },
+  );
+  return calls;
+}
+
+describe("clone dialog", () => {
+  async function mountClone(handler: (call: Call) => unknown = () => undefined) {
+    const calls = install(handler);
+    const mounted = mountWithApp(() => <CloneDialog onClose={() => undefined} />);
+    dispose = mounted.dispose;
+    await flush(40);
+    return { ...mounted, calls };
+  }
+
+  it("validates the address, previews the full destination path, and defaults to opening after the clone", async () => {
+    const { host } = await mountClone();
+    const clone = () => buttonNamed(host, "Clone");
+
+    expect(clone()?.disabled).toBe(true);
+    type(host.querySelector('input[aria-label="Repository URL"]'), "not a url");
+    await flush();
+    expect(host.textContent).toContain("Use an https or ssh address");
+    expect(clone()?.disabled).toBe(true);
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    expect(clone()?.disabled).toBe(false);
+    expect(host.textContent).toContain("Clones into /Users/yui/lab-app");
+    expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true);
+  });
+
+  it("starts from the parent folder the database remembers and stores the one used", async () => {
+    const { host, calls } = await mountClone((call) => (call.cmd === "app_ui_prefs_load" ? { palette_recents: ["tab.new"], last_parent_folder: "/Users/yui/code" } : undefined));
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    expect(host.textContent).toContain("Clones into /Users/yui/code/lab-app");
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "app_ui_prefs_save")?.args).toEqual({ prefs: { palette_recents: ["tab.new"], last_parent_folder: "/Users/yui/code" } });
+  });
+
+  it("sends shallow and sparse only when they are chosen, and names what each one costs", async () => {
+    const { host, calls } = await mountClone();
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    expect(host.textContent).toContain("Fetches only the latest commit of one branch");
+    expect(host.textContent).toContain("checks nothing out");
+
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "clone_repo")?.args).toMatchObject({ options: { shallow: false, sparse: false } });
+  });
+
+  it("sends shallow and sparse when they are chosen", async () => {
+    const { host, calls } = await mountClone();
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    const boxNamed = (name: string) =>
+      [...host.querySelectorAll<HTMLLabelElement>("label.check")].find((label) => label.textContent?.trim() === name)?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    boxNamed("Shallow clone")?.click();
+    boxNamed("Sparse checkout")?.click();
+    await flush();
+
+    buttonNamed(host, "Clone")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "clone_repo")?.args).toMatchObject({ options: { shallow: true, sparse: true } });
+  });
+
+  it("streams progress with Cancel, keeps the dialog open, and opens the repository when the clone finishes", async () => {
+    let finish: (root: string) => void = () => undefined;
+    const { host, calls, app } = await mountClone((call) => (call.cmd === "clone_repo" ? new Promise((resolve) => (finish = resolve)) : undefined));
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    buttonNamed(host, "Clone")?.click();
+    await flush();
+    const cloneCall = calls.find((call) => call.cmd === "clone_repo");
+    expect(cloneCall?.args).toMatchObject({ url: "https://github.com/example/lab-app.git", destination: "/Users/yui/lab-app" });
+    await emit("operation-progress", { id: cloneCall?.args.id, phase: "Receiving objects", percent: 64 });
+    await flush();
+
+    expect(host.querySelector(".entry-progress")?.textContent).toContain("Receiving objects 64%");
+    expect(buttonNamed(host, "Clone")?.disabled).toBe(true);
+    expect(buttonNamed(host, "Close")?.disabled).toBe(true);
+    buttonNamed(host, "Cancel clone")?.click();
+    await flush();
+    expect(calls.find((call) => call.cmd === "operation_cancel")?.args).toEqual({ id: cloneCall?.args.id });
+    finish("/Users/yui/lab-app");
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "repo_open")?.args).toEqual({ path: "/Users/yui/lab-app" });
+    expect(app.activePath()).toBe("/Users/yui/lab-app");
+  });
+
+  it("reports a failed or cancelled clone and offers Try again", async () => {
+    let attempt = 0;
+    const { host } = await mountClone((call) => {
+      if (call.cmd !== "clone_repo") return undefined;
+      attempt += 1;
+      throw attempt === 1 ? { kind: "cancelled", message: "The operation was cancelled", output: null } : { kind: "git_failed", message: "network is down", output: null };
+    });
+    type(host.querySelector('input[aria-label="Repository URL"]'), "https://github.com/example/lab-app.git");
+    await flush();
+
+    buttonNamed(host, "Clone")?.click();
+    await flush();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("Clone cancelled. The partial folder was removed.");
+    buttonNamed(host, "Try again")?.click();
+    await flush();
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("network is down");
+  });
+});
+
+describe("create dialog", () => {
+  async function mountCreate(handler: (call: Call) => unknown = () => undefined) {
+    const calls = install(handler);
+    const mounted = mountWithApp(() => <CreateDialog onClose={() => undefined} />);
+    dispose = mounted.dispose;
+    await flush(40);
+    return { ...mounted, calls };
+  }
+
+  it("previews the path, initializes the repository, and opens it", async () => {
+    const { host, calls, app } = await mountCreate((call) => (call.cmd === "init_repo" ? "/Users/yui/brand-new" : undefined));
+
+    expect(buttonNamed(host, "Create")?.disabled).toBe(true);
+    type(host.querySelector('input[aria-label="Name"]'), "a/b");
+    await flush();
+    expect(host.textContent).toContain("cannot contain slashes");
+    type(host.querySelector('input[aria-label="Name"]'), "brand-new");
+    await flush();
+    expect(host.textContent).toContain("Creates /Users/yui/brand-new");
+    buttonNamed(host, "Create")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "init_repo")?.args).toEqual({ path: "/Users/yui/brand-new" });
+    expect(app.activePath()).toBe("/Users/yui/brand-new");
+  });
+
+  it("stores the parent folder used to create a repository", async () => {
+    const { host, calls } = await mountCreate((call) => (call.cmd === "init_repo" ? "/Users/yui/brand-new" : undefined));
+    type(host.querySelector('input[aria-label="Name"]'), "brand-new");
+    await flush();
+
+    buttonNamed(host, "Create")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "app_ui_prefs_save")?.args).toEqual({ prefs: { palette_recents: [], last_parent_folder: "/Users/yui" } });
+  });
+
+  it("offers to open the existing repository instead when the folder already is one", async () => {
+    const { host, calls } = await mountCreate((call) => {
+      if (call.cmd === "init_repo") throw { kind: "already_a_repository", message: "/Users/yui/there is already a Git repository", output: null };
+      return undefined;
+    });
+    type(host.querySelector('input[aria-label="Name"]'), "there");
+    await flush();
+
+    buttonNamed(host, "Create")?.click();
+    await flush();
+    buttonNamed(host, "Open instead")?.click();
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "repo_open")?.args).toEqual({ path: "/Users/yui/there" });
+  });
+});

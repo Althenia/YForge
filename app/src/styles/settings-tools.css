@@ -1,0 +1,82 @@
+.tool-list {
+  display: grid;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tool-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--spacing-3);
+  padding: var(--spacing-2) var(--spacing-3);
+  border-radius: var(--rounded-md);
+  box-shadow: inset 0 0 0 1px var(--colors-rule);
+}
+
+.tool-list li.setting-note {
+  display: block;
+  box-shadow: none;
+}
+
+.tool-list .recent-acts {
+  grid-column: auto;
+}
+
+.tool-main {
+  display: grid;
+  gap: var(--spacing-0-5);
+  min-width: 0;
+}
+
+.tool-name {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font: var(--font-ui-strong);
+}
+
+.tool-detail {
+  font: var(--font-ui-small);
+  color: var(--colors-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.tool-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  align-items: end;
+  gap: var(--spacing-3);
+}
+
+.tool-form > .setting-note {
+  grid-column: 1 / -1;
+}
+
+.tool-form-actions {
+  display: flex;
+  gap: var(--spacing-2);
+}
+
+.flow-values {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--spacing-1) var(--spacing-4);
+  margin: 0;
+}
+
+.flow-values dt {
+  font: var(--font-ui-small);
+  color: var(--colors-text-muted);
+}
+
+.flow-values dd {
+  margin: 0;
+  font: var(--font-ref);
+}
+
+.select-option[aria-disabled="true"] {
+  color: var(--colors-text-muted);
+}

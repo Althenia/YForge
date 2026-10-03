@@ -1,10 +1,12 @@
-import { For, Show } from "solid-js";
-import { client } from "../ipc/client";
+import { For, Show, type JSX } from "solid-js";
+import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import { createDiffController, type DiffController } from "../state/diffController";
-import { diffModes, diffNotice, hunkLabel, targetMode, targetSource, type DiffTarget } from "../state/diffModel";
+import { createExternalTools, diffToolSource } from "../state/externalTools";
+import { diffModes, diffNotice, hunkHeader, hunkLabel, targetMode, targetSource, type DiffMode, type DiffTarget } from "../state/diffModel";
 import type { DiffPrefs } from "../state/diffPrefs";
+import { requestFileHistory } from "../state/fileHistoryRequest";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
-import type { DiffRow } from "../state/diffRows";
+import { widestLine, type DiffRow } from "../state/diffRows";
 import { selectionLabel } from "../state/lineSelection";
 import type { RepoSession } from "../state/repoSession";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -12,22 +14,40 @@ import { GapRow, HunkHead, NoteRow, SplitRow, UnifiedLine } from "./DiffLines";
 import { Icon } from "./Icon";
 import { Switch } from "./Switch";
 import { tip } from "./Tooltip";
+import { ToolButton } from "./ToolButton";
 import { VirtualRows, type VirtualRow } from "./VirtualRows";
 
 const LINE_ESTIMATE = 20;
 
-function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; virtual: VirtualRow }) {
+export type HunkActionsSlot = (hunk: DiffHunk, index: number) => JSX.Element;
+
+function HunkTitle(props: { diff: DiffController; hunk: DiffHunk; index: number; actions: HunkActionsSlot | undefined }) {
+  return (
+    <Show when={props.actions} fallback={<HunkHead diff={props.diff} hunk={props.hunk} />}>
+      {(actions) => (
+        <>
+          <span class="range">{hunkHeader(props.hunk)}</span>
+          <span class="spacer" />
+          {actions()(props.hunk, props.index)}
+        </>
+      )}
+    </Show>
+  );
+}
+
+function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; virtual: VirtualRow; actions: HunkActionsSlot | undefined }) {
   const row = () => props.row;
   return (
     <>
       <Show when={row().kind === "head" && row()}>
         {(head) => {
-          const hunk = () => props.diff.hunks()[(head() as Extract<DiffRow, { kind: "head" }>).hunk];
+          const index = () => (head() as Extract<DiffRow, { kind: "head" }>).hunk;
+          const hunk = () => props.diff.hunks()[index()];
           return (
             <Show when={hunk()}>
               {(current) => (
                 <div class="dhunk hunk-head" ref={props.virtual.measure} data-index={props.virtual.index} style={props.virtual.style}>
-                  <HunkHead diff={props.diff} hunk={current()} />
+                  <HunkTitle diff={props.diff} hunk={current()} index={index()} actions={props.actions} />
                 </div>
               )}
             </Show>
@@ -50,22 +70,21 @@ function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; vi
   );
 }
 
-export function DiffView(props: { session: RepoSession; target: DiffTarget; prefs: DiffPrefs; onClose: () => void; onViewFile: (target: FileViewTarget) => void }) {
-  const diff = createDiffController({ session: props.session, target: () => props.target, prefs: props.prefs });
-  const working = () => props.target.source === "working";
-  const mode = () => props.prefs.mode();
-
-  let panel: HTMLElement | undefined;
-  let body: HTMLDivElement | undefined;
-
+export function createDiffStep(diff: DiffController, mode: () => DiffMode, container: () => HTMLElement | undefined) {
   const stepHunk = (delta: 1 | -1) => {
-    const hunks = [...(panel?.querySelectorAll<HTMLElement>(".hunk") ?? [])];
+    const hunks = [...(container()?.querySelectorAll<HTMLElement>(".hunk") ?? [])];
     const at = hunks.indexOf(document.activeElement?.closest<HTMLElement>(".hunk") ?? document.body);
     hunks[at === -1 ? (delta === 1 ? 0 : hunks.length - 1) : at + delta]?.focus();
   };
+  return {
+    step: (delta: 1 | -1) => (mode() === "hunk" ? stepHunk(delta) : diff.stepChange(delta)),
+    unit: () => (mode() === "hunk" ? "hunk" : "change"),
+  };
+}
 
-  const step = (delta: 1 | -1) => (mode() === "hunk" ? stepHunk(delta) : diff.stepChange(delta));
-  const unit = () => (mode() === "hunk" ? "hunk" : "change");
+export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode: DiffMode; hunkActions?: HunkActionsSlot }) {
+  const diff = props.diff;
+  let body: HTMLDivElement | undefined;
 
   const onHunkKey = (event: KeyboardEvent, index: number) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.target !== event.currentTarget) return;
@@ -85,8 +104,78 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
     }
   };
 
-  const openInEditor = () =>
-    void client.openPath(`${props.session.snapshot().root}/${props.target.file}`, "editor").catch(props.session.report);
+  return (
+    <div class="dbody" ref={body} style={{ "--code-ch": String(widestLine(diff.shown()?.hunks ?? [])) }}>
+      <Show when={diff.failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
+      <Show when={diff.shown()}>
+        {(current) => (
+          <Show when={diffNotice(current(), props.target)} fallback={
+            <Show
+              when={props.mode === "hunk"}
+              fallback={
+                <VirtualRows
+                  as="div"
+                  class="dflat"
+                  measured={props.mode === "split"}
+                  items={diff.flatRows()}
+                  scroller={() => body}
+                  estimate={LINE_ESTIMATE}
+                  keepIndex={diff.keepIndex(undefined)}
+                  reveal={diff.reveal()}
+                >
+                  {(row, virtual) => <FlatRow diff={diff} row={row} split={props.mode === "split"} virtual={virtual} actions={props.hunkActions} />}
+                </VirtualRows>
+              }
+            >
+              <For each={current().hunks}>
+                {(hunk, index) => (
+                  <section
+                    class="hunk diff"
+                    tabindex="0"
+                    aria-label={hunkLabel(index(), current().hunks.length, hunk)}
+                    onKeyDown={(event) => onHunkKey(event, index())}
+                  >
+                    <div class="hunk-head">
+                      <HunkTitle diff={diff} hunk={hunk} index={index()} actions={props.hunkActions} />
+                    </div>
+                    <VirtualRows
+                      as="div"
+                      class="dtrack"
+                      items={diff.hunkRowLists()[index()] ?? []}
+                      scroller={() => body}
+                      estimate={LINE_ESTIMATE}
+                      keepIndex={diff.keepIndex(index())}
+                      reveal={diff.reveal()?.hunk === index() ? diff.reveal() : undefined}
+                    >
+                      {(row, virtual) => (
+                        <FlatRow diff={diff} row={row} split={false} virtual={virtual} actions={props.hunkActions} />
+                      )}
+                    </VirtualRows>
+                  </section>
+                )}
+              </For>
+            </Show>
+          }>
+            {(notice) => <div class="empty">{notice()}</div>}
+          </Show>
+        )}
+      </Show>
+    </div>
+  );
+}
+
+export function DiffView(props: { session: RepoSession; target: DiffTarget; prefs: DiffPrefs; onClose: () => void; onViewFile: (target: FileViewTarget) => void }) {
+  const diff = createDiffController({ session: props.session, target: () => props.target, prefs: props.prefs });
+  const working = () => props.target.source === "working";
+  const mode = () => props.prefs.mode();
+
+  let panel: HTMLElement | undefined;
+  const { step, unit } = createDiffStep(diff, mode, () => panel);
+
+  const tools = createExternalTools(props.session);
+
+  const openHistory = (view: "diff" | "blame") =>
+    requestFileHistory(props.target.source === "commit" ? { file: props.target.file, sha: props.target.sha, view } : { file: props.target.file, view });
 
   return (
     <section class="panel dpanel" aria-label="Diff" aria-busy={diff.diff.isFetching} ref={panel}>
@@ -178,67 +267,22 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
           <button type="button" class="icon-btn dense" {...tip("View file")} onClick={() => props.onViewFile(fileViewTargetOf(props.target))}>
             <Icon name="file" />
           </button>
-          <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={openInEditor}>
-            <Icon name="edit" />
+          <button type="button" class="icon-btn dense" {...tip("History")} onClick={() => openHistory("diff")}>
+            <Icon name="history" />
           </button>
+          <button type="button" class="icon-btn dense" {...tip("Blame")} onClick={() => openHistory("blame")}>
+            <Icon name="identity" />
+          </button>
+          <ToolButton action="Open in editor" icon="edit" reason={tools.editorReason()} onRun={() => void tools.openEditor(props.target.file)} />
+          <ToolButton
+            action="Open in external diff tool"
+            icon="diff"
+            reason={tools.diffReason()}
+            onRun={() => void tools.openDiff(props.target.file, diffToolSource(props.target))}
+          />
         </span>
       </div>
-      <div class="dbody" ref={body}>
-        <Show when={diff.failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
-        <Show when={diff.shown()}>
-          {(current) => (
-            <Show when={diffNotice(current(), props.target)} fallback={
-              <Show
-                when={mode() === "hunk"}
-                fallback={
-                  <VirtualRows
-                    as="div"
-                    class="dflat"
-                    measured={mode() === "split"}
-                    items={diff.flatRows()}
-                    scroller={() => body}
-                    estimate={LINE_ESTIMATE}
-                    keepIndex={diff.keepIndex(undefined)}
-                    reveal={diff.reveal()}
-                  >
-                    {(row, virtual) => <FlatRow diff={diff} row={row} split={mode() === "split"} virtual={virtual} />}
-                  </VirtualRows>
-                }
-              >
-                <For each={current().hunks}>
-                  {(hunk, index) => (
-                    <section
-                      class="hunk diff"
-                      tabindex="0"
-                      aria-label={hunkLabel(index(), current().hunks.length, hunk)}
-                      onKeyDown={(event) => onHunkKey(event, index())}
-                    >
-                      <div class="hunk-head">
-                        <HunkHead diff={diff} hunk={hunk} />
-                      </div>
-                      <VirtualRows
-                        as="div"
-                        class="dtrack"
-                        items={diff.hunkRowLists()[index()] ?? []}
-                        scroller={() => body}
-                        estimate={LINE_ESTIMATE}
-                        keepIndex={diff.keepIndex(index())}
-                        reveal={diff.reveal()?.hunk === index() ? diff.reveal() : undefined}
-                      >
-                        {(row, virtual) => (
-                          <FlatRow diff={diff} row={row} split={false} virtual={virtual} />
-                        )}
-                      </VirtualRows>
-                    </section>
-                  )}
-                </For>
-              </Show>
-            }>
-              {(notice) => <div class="empty">{notice()}</div>}
-            </Show>
-          )}
-        </Show>
-      </div>
+      <DiffBody diff={diff} target={props.target} mode={mode()} />
       <Show when={diff.pendingDiscard()}>
         {(pending) => <ConfirmDialog copy={pending().copy} onConfirm={diff.confirmDiscard} onCancel={diff.cancelDiscard} />}
       </Show>

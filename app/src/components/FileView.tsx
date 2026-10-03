@@ -1,5 +1,5 @@
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { client } from "../ipc/client";
 import { fileLines, fileViewError, formatBytes, type FileViewTarget } from "../state/fileView";
 import { repoKeys } from "../state/queryKeys";
@@ -12,22 +12,11 @@ import { VirtualRows } from "./VirtualRows";
 
 const LINE_ESTIMATE = 20;
 
-export function FileView(props: { session: RepoSession; target: FileViewTarget; onClose: () => void }) {
-  const path = props.session.path;
-  const file = useQuery(() => ({
-    queryKey: repoKeys.fileAt(path, props.target.rev, props.target.file),
-    queryFn: () => client.fileAtRevision(path, props.target.file, props.target.rev),
-  }));
-  const shown = () => (file.error == null ? file.data : undefined);
-  const text = () => {
-    const current = shown();
-    return current?.kind === "text" ? current : undefined;
-  };
-  const lines = createMemo(() => fileLines(text()?.text ?? "").map(displayText));
-
+export function FileLines(props: { file: string; lines: readonly string[]; report: (failure: unknown) => void; scroller: () => HTMLElement | undefined; gutter?: (index: number) => JSX.Element }) {
+  const lines = createMemo(() => props.lines.map(displayText));
   const [language, setLanguage] = createSignal<LanguageId | undefined>();
   createEffect(() => {
-    const id = languageOf(props.target.file);
+    const id = languageOf(props.file);
     setLanguage((current) => (current === id ? current : undefined));
     if (id === undefined) return;
     let stale = false;
@@ -36,18 +25,77 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
       () => {
         if (!stale) setLanguage(id);
       },
-      props.session.report,
+      props.report,
     );
   });
   const highlighted = createMemo(() => highlightLines(language(), lines()));
 
+  return (
+    <VirtualRows as="div" class="dflat" items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE}>
+      {(_, virtual) => (
+        <div class="fline" ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
+          {props.gutter?.(virtual.index)}
+          <span class="ln" aria-hidden="true">
+            {virtual.index + 1}
+          </span>
+          <span class="code">
+            <For each={highlighted()[virtual.index] ?? []}>{(part) => <span classList={{ [`syn-${part.kind}`]: part.kind !== undefined }}>{part.text}</span>}</For>
+          </span>
+        </div>
+      )}
+    </VirtualRows>
+  );
+}
+
+function createFileAt(session: RepoSession, target: () => { file: string; rev: string }) {
+  const path = session.path;
+  const file = useQuery(() => ({
+    queryKey: repoKeys.fileAt(path, target().rev, target().file),
+    queryFn: () => client.fileAtRevision(path, target().file, target().rev),
+  }));
+  const shown = () => (file.error == null ? file.data : undefined);
+  const text = () => {
+    const current = shown();
+    return current?.kind === "text" ? current : undefined;
+  };
+  const lines = createMemo(() => fileLines(text()?.text ?? ""));
+  return { file, shown, text, lines };
+}
+
+export function FileBody(props: { session: RepoSession; file: string; rev: string }) {
+  const content = createFileAt(props.session, () => ({ file: props.file, rev: props.rev }));
   let body: HTMLDivElement | undefined;
+  return (
+    <div class="dbody" ref={body}>
+      <Show when={content.file.error}>
+        {(error) => (
+          <div class="graph-error" role="alert">
+            {fileViewError(error())}
+          </div>
+        )}
+      </Show>
+      <Show when={content.shown()?.kind === "binary" && content.shown()}>
+        {(binary) => <div class="empty">Binary file, {formatBytes(binary().size)}. There is no text view.</div>}
+      </Show>
+      <Show when={content.text() !== undefined && content.lines().length === 0}>
+        <div class="empty">This file is empty.</div>
+      </Show>
+      <Show when={content.lines().length > 0}>
+        <FileLines file={props.file} lines={content.lines()} report={props.session.report} scroller={() => body} />
+      </Show>
+    </div>
+  );
+}
+
+export function FileView(props: { session: RepoSession; target: FileViewTarget; onClose: () => void }) {
+  const content = createFileAt(props.session, () => props.target);
+  const lines = content.lines;
 
   return (
     <section
       class="panel dpanel fpanel"
       aria-label="File"
-      aria-busy={file.isFetching}
+      aria-busy={content.file.isFetching}
       tabindex="-1"
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -69,7 +117,7 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
           </span>
         </nav>
         <span class="spacer" />
-        <Show when={text()}>
+        <Show when={content.text()}>
           {(current) => (
             <>
               <span class="chip">
@@ -86,35 +134,7 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
           <Icon name="close" />
         </button>
       </div>
-      <div class="dbody" ref={body}>
-        <Show when={file.error}>
-          {(error) => (
-            <div class="graph-error" role="alert">
-              {fileViewError(error())}
-            </div>
-          )}
-        </Show>
-        <Show when={shown()?.kind === "binary" && shown()}>
-          {(binary) => <div class="empty">Binary file, {formatBytes(binary().size)}. There is no text view.</div>}
-        </Show>
-        <Show when={text() !== undefined && lines().length === 0}>
-          <div class="empty">This file is empty.</div>
-        </Show>
-        <Show when={lines().length > 0}>
-          <VirtualRows as="div" class="dflat" items={lines()} scroller={() => body} estimate={LINE_ESTIMATE}>
-            {(_, virtual) => (
-              <div class="fline" ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
-                <span class="ln" aria-hidden="true">
-                  {virtual.index + 1}
-                </span>
-                <span class="code">
-                  <For each={highlighted()[virtual.index] ?? []}>{(part) => <span classList={{ [`syn-${part.kind}`]: part.kind !== undefined }}>{part.text}</span>}</For>
-                </span>
-              </div>
-            )}
-          </VirtualRows>
-        </Show>
-      </div>
+      <FileBody session={props.session} file={props.target.file} rev={props.target.rev} />
     </section>
   );
 }

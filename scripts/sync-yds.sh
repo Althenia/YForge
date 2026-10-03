@@ -28,6 +28,7 @@ repository, so every relative link works.
 | \`docs/design/COMPONENT_SPECS.md\` | Component specs: state strip, graph row, ref label, file row, diff hunk, conflict block |
 | \`docs/design/specimens/\` | Screen specimens 0–15 on the shared \`specimen.css\` and \`specimen.js\`, with renders |
 | \`docs/design/stitch/\` | Stitch prompts, the screen and specimen record, and the accepted Stitch references |
+| \`docs/design/proposals/\` | Offline interactive redesign proposals with their comparison pages, checks, and captures; proposals only, never production authority |
 | \`.stitch/DESIGN.md\` | Stitch design brief |
 | \`docs/*.md\` | Information architecture, screen inventory, user flows, UX patterns |
 README

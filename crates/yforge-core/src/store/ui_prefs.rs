@@ -18,6 +18,13 @@ const MAX_PALETTE_RECENTS: usize = 8;
 const MAX_PATH_CHARS: usize = 4096;
 const PALETTE_RECENTS: &str = "ui.palette_recents";
 const LAST_PARENT_FOLDER: &str = "ui.last_parent_folder";
+const FILE_LIST_MODE: &str = "ui.file_list_mode";
+const ZOOM_PERCENT: &str = "ui.zoom_percent";
+const SIDEBAR_HIDDEN: &str = "ui.sidebar_hidden";
+const INSPECTOR_HIDDEN: &str = "ui.inspector_hidden";
+const SYNTAX_HIGHLIGHTING: &str = "ui.syntax_highlighting";
+pub const ZOOM_STEPS: [u32; 9] = [80, 90, 100, 110, 125, 140, 150, 175, 200];
+pub const DEFAULT_ZOOM_PERCENT: u32 = 100;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -46,12 +53,39 @@ pub struct RepoUiPrefs {
     pub branch_visibility: GraphVisibility,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum FileListMode {
+    #[default]
+    Path,
+    Tree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(default, deny_unknown_fields)]
 pub struct AppUiPrefs {
     pub palette_recents: Vec<String>,
     #[ts(optional = nullable)]
     pub last_parent_folder: Option<String>,
+    pub file_list_mode: FileListMode,
+    pub zoom_percent: u32,
+    pub sidebar_hidden: bool,
+    pub inspector_hidden: bool,
+    pub syntax_highlighting: bool,
+}
+
+impl Default for AppUiPrefs {
+    fn default() -> Self {
+        Self {
+            palette_recents: Vec::new(),
+            last_parent_folder: None,
+            file_list_mode: FileListMode::default(),
+            zoom_percent: DEFAULT_ZOOM_PERCENT,
+            sidebar_hidden: false,
+            inspector_hidden: false,
+            syntax_highlighting: true,
+        }
+    }
 }
 
 fn invalid(detail: impl Into<String>) -> CoreError {
@@ -172,6 +206,12 @@ fn validate_app(prefs: &AppUiPrefs) -> Result<(), CoreError> {
             )));
         }
     }
+    if !ZOOM_STEPS.contains(&prefs.zoom_percent) {
+        return Err(invalid(format!(
+            "the zoom must be one of {}",
+            ZOOM_STEPS.map(|step| format!("{step}%")).join(", ")
+        )));
+    }
     Ok(())
 }
 
@@ -179,13 +219,26 @@ pub fn app_ui_prefs_load(dir: &Path) -> Result<AppUiPrefs, CoreError> {
     let conn = open(dir)?;
     let stored = stored_values(
         &conn,
-        "SELECT key, value FROM settings WHERE key IN (?1, ?2)",
-        [PALETTE_RECENTS, LAST_PARENT_FOLDER],
+        "SELECT key, value FROM settings WHERE key IN (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        [
+            PALETTE_RECENTS,
+            LAST_PARENT_FOLDER,
+            FILE_LIST_MODE,
+            ZOOM_PERCENT,
+            SIDEBAR_HIDDEN,
+            INSPECTOR_HIDDEN,
+            SYNTAX_HIGHLIGHTING,
+        ],
     )
     .map_err(sql(dir))?;
     Ok(AppUiPrefs {
         palette_recents: parse(dir, &stored, PALETTE_RECENTS, Vec::new())?,
         last_parent_folder: parse(dir, &stored, LAST_PARENT_FOLDER, None)?,
+        file_list_mode: parse(dir, &stored, FILE_LIST_MODE, FileListMode::Path)?,
+        zoom_percent: parse(dir, &stored, ZOOM_PERCENT, DEFAULT_ZOOM_PERCENT)?,
+        sidebar_hidden: parse(dir, &stored, SIDEBAR_HIDDEN, false)?,
+        inspector_hidden: parse(dir, &stored, INSPECTOR_HIDDEN, false)?,
+        syntax_highlighting: parse(dir, &stored, SYNTAX_HIGHLIGHTING, true)?,
     })
 }
 
@@ -195,5 +248,10 @@ pub fn app_ui_prefs_save(dir: &Path, prefs: &AppUiPrefs) -> Result<(), CoreError
     let tx = conn.transaction().map_err(sql(dir))?;
     put_setting(&tx, PALETTE_RECENTS, &prefs.palette_recents).map_err(sql(dir))?;
     put_setting(&tx, LAST_PARENT_FOLDER, &prefs.last_parent_folder).map_err(sql(dir))?;
+    put_setting(&tx, FILE_LIST_MODE, &prefs.file_list_mode).map_err(sql(dir))?;
+    put_setting(&tx, ZOOM_PERCENT, &prefs.zoom_percent).map_err(sql(dir))?;
+    put_setting(&tx, SIDEBAR_HIDDEN, &prefs.sidebar_hidden).map_err(sql(dir))?;
+    put_setting(&tx, INSPECTOR_HIDDEN, &prefs.inspector_hidden).map_err(sql(dir))?;
+    put_setting(&tx, SYNTAX_HIGHLIGHTING, &prefs.syntax_highlighting).map_err(sql(dir))?;
     tx.commit().map_err(sql(dir))
 }

@@ -2,6 +2,7 @@ import type { DiffTarget } from "./diffModel";
 
 export const appKeys = {
   recents: ["recents"] as const,
+  repositories: ["repositories"] as const,
   home: ["home"] as const,
   info: ["app-info"] as const,
   identity: ["identity"] as const,

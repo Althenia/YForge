@@ -37,7 +37,13 @@ pub fn fit_summary(summary: &str) -> (String, bool) {
     (cut.trim_end().to_owned(), true)
 }
 
-pub fn parse(label: &str, reply: &str, context: &CommitContext) -> Result<CommitDraft> {
+pub struct Message {
+    pub summary: String,
+    pub description: String,
+    pub summary_trimmed: bool,
+}
+
+pub fn parse_message(label: &str, reply: &str) -> Result<Message> {
     let invalid = |reason: &str| AiError::InvalidResponse {
         provider: label.to_owned(),
         reason: reason.to_owned(),
@@ -59,10 +65,19 @@ pub fn parse(label: &str, reply: &str, context: &CommitContext) -> Result<Commit
     if summary.is_empty() {
         return Err(invalid("`summary` is empty"));
     }
-    Ok(CommitDraft {
+    Ok(Message {
         summary,
         description: description.trim().to_owned(),
         summary_trimmed,
+    })
+}
+
+pub fn parse(label: &str, reply: &str, context: &CommitContext) -> Result<CommitDraft> {
+    let message = parse_message(label, reply)?;
+    Ok(CommitDraft {
+        summary: message.summary,
+        description: message.description,
+        summary_trimmed: message.summary_trimmed,
         excluded: context.excluded.clone(),
         truncated: context.truncated.clone(),
     })

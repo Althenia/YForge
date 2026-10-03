@@ -1,18 +1,19 @@
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use yforge_core::{
     collect_activity, ActivityEntry, CommandRecord, CoreError, ErrorKind, ErrorPayload,
-    OperationKind, Planned, ProviderKind, UndoAction, UndoStatus, UsageEvent,
+    OperationKind, Planned, ProviderKind, RedoChange, UndoAction, UndoPlan, UndoStatus, UsageEvent,
 };
 
 use crate::DataDir;
 
 pub const ACTIVITY_EVENT: &str = "activity-recorded";
+pub const REDO_EVENT: &str = "redo-changed";
 const LOG_LIMIT: usize = 300;
 const PRIOR_SESSION_UNDO: &str = "Undo is only available in the session that ran the operation";
 
@@ -85,14 +86,22 @@ fn error_label(kind: ErrorKind) -> String {
     label
 }
 
+struct RedoSlot {
+    sequence: u64,
+    redo: UndoPlan,
+    undo: UndoPlan,
+}
+
 struct Stored {
     entry: ActivityEntry,
     action: Option<UndoAction>,
+    redo: Option<RedoSlot>,
 }
 
 struct Inner {
     entries: Mutex<Vec<Stored>>,
     unsaved: AtomicU32,
+    redo_sequence: AtomicU64,
 }
 
 impl Default for Inner {
@@ -100,8 +109,16 @@ impl Default for Inner {
         Self {
             entries: Mutex::default(),
             unsaved: AtomicU32::new(u32::MAX),
+            redo_sequence: AtomicU64::new(0),
         }
     }
+}
+
+pub struct RedoTarget {
+    pub id: u32,
+    pub operation: String,
+    pub redo: UndoPlan,
+    pub undo: UndoPlan,
 }
 
 #[derive(Clone, Default)]
@@ -223,10 +240,30 @@ impl ActivityLog {
         Ok(entries)
     }
 
-    pub fn clear(&self, dir: &Path, repo: Option<&str>) -> Result<(), CoreError> {
+    pub fn clear<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        dir: &Path,
+        repo: Option<&str>,
+    ) -> Result<(), CoreError> {
         yforge_core::clear_activity(dir, repo)?;
-        self.lock()
-            .retain(|stored| repo.is_some_and(|repo| stored.entry.repo != repo));
+        let mut forgotten: Vec<String> = {
+            let mut entries = self.lock();
+            let forgotten = entries
+                .iter()
+                .filter(|stored| {
+                    stored.redo.is_some() && repo.is_none_or(|repo| stored.entry.repo == repo)
+                })
+                .map(|stored| stored.entry.repo.clone())
+                .collect();
+            entries.retain(|stored| repo.is_some_and(|repo| stored.entry.repo != repo));
+            forgotten
+        };
+        forgotten.sort();
+        forgotten.dedup();
+        for repository in forgotten {
+            self.announce_redo(app, &repository);
+        }
         Ok(())
     }
 
@@ -240,6 +277,9 @@ impl ActivityLog {
             Planned::Unavailable(reason) => (UndoStatus::Unavailable { reason }, None),
         };
         crate::note_repository(&draft.meta.repo);
+        let invalidates_redo = draft.meta.local
+            && draft.error.is_none()
+            && draft.meta.operation != OperationKind::Redo;
         let mut entry = ActivityEntry {
             id: 0,
             repo: draft.meta.repo,
@@ -274,20 +314,113 @@ impl ActivityLog {
         if let Err(error) = yforge_core::record_usage(&dir, env!("CARGO_PKG_VERSION"), &usage) {
             log::error!("could not record the usage event: {error}");
         }
-        {
+        let cleared = {
             let mut entries = self.lock();
+            let cleared = invalidates_redo
+                && entries
+                    .iter_mut()
+                    .filter(|stored| stored.entry.repo == entry.repo)
+                    .filter_map(|stored| stored.redo.take())
+                    .count()
+                    > 0;
             entries.push(Stored {
                 entry: entry.clone(),
                 action,
+                redo: None,
             });
             let excess = entries.len().saturating_sub(LOG_LIMIT);
             entries.drain(..excess);
-        }
+            cleared
+        };
         announce(app, &entry);
+        if cleared {
+            self.announce_redo(app, &entry.repo);
+        }
         entry
     }
 
-    pub fn undo_target(&self, repo: &str, id: u32) -> Result<(String, UndoAction), ErrorPayload> {
+    fn redo_scope(&self, repo: &str) -> Option<String> {
+        self.lock()
+            .iter()
+            .filter(|stored| stored.entry.repo == repo)
+            .filter_map(|stored| stored.redo.as_ref())
+            .max_by_key(|slot| slot.sequence)
+            .map(|slot| slot.redo.scope.clone())
+    }
+
+    fn announce_redo<R: Runtime>(&self, app: &AppHandle<R>, repo: &str) {
+        let change = RedoChange {
+            repo: repo.to_owned(),
+            scope: self.redo_scope(repo),
+        };
+        if let Err(error) = app.emit(REDO_EVENT, change) {
+            log::warn!("could not emit {REDO_EVENT}: {error}");
+        }
+    }
+
+    pub fn store_redo<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        id: u32,
+        (redo, undo): (UndoPlan, UndoPlan),
+    ) {
+        let sequence = self.0.redo_sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let repo = {
+            let mut entries = self.lock();
+            entries
+                .iter_mut()
+                .find(|stored| stored.entry.id == id)
+                .map(|stored| {
+                    stored.redo = Some(RedoSlot {
+                        sequence,
+                        redo,
+                        undo,
+                    });
+                    stored.entry.repo.clone()
+                })
+        };
+        if let Some(repo) = repo {
+            self.announce_redo(app, &repo);
+        }
+    }
+
+    pub fn redo_target(&self, repo: &str) -> Result<RedoTarget, ErrorPayload> {
+        let entries = self.lock();
+        entries
+            .iter()
+            .filter(|stored| stored.entry.repo == repo)
+            .filter_map(|stored| stored.redo.as_ref().map(|slot| (stored, slot)))
+            .max_by_key(|(_, slot)| slot.sequence)
+            .map(|(stored, slot)| RedoTarget {
+                id: stored.entry.id,
+                operation: stored.entry.operation.clone(),
+                redo: slot.redo.clone(),
+                undo: slot.undo.clone(),
+            })
+            .ok_or_else(|| ErrorPayload {
+                kind: ErrorKind::InvalidRequest,
+                message: "Invalid request: nothing to redo".to_owned(),
+                output: None,
+            })
+    }
+
+    pub fn consume_redo<R: Runtime>(&self, app: &AppHandle<R>, id: u32) {
+        let repo = {
+            let mut entries = self.lock();
+            entries
+                .iter_mut()
+                .find(|stored| stored.entry.id == id)
+                .map(|stored| {
+                    stored.redo = None;
+                    stored.entry.repo.clone()
+                })
+        };
+        if let Some(repo) = repo {
+            self.announce_redo(app, &repo);
+        }
+    }
+
+    pub fn undo_target(&self, repo: &str, id: u32) -> Result<(String, UndoPlan), ErrorPayload> {
         let invalid = |message: &str| ErrorPayload {
             kind: ErrorKind::InvalidRequest,
             message: format!("Invalid request: {message}"),
@@ -311,11 +444,13 @@ impl ActivityLog {
             .iter()
             .find(|stored| stored.entry.id == id)
             .ok_or_else(|| invalid("that operation is no longer in the activity log"))?;
-        let action = stored
-            .action
-            .clone()
-            .ok_or_else(|| invalid("that operation has no safe undo"))?;
-        Ok((stored.entry.operation.clone(), action))
+        let (action, UndoStatus::Available { scope }) =
+            (stored.action.clone(), stored.entry.undo.clone())
+        else {
+            return Err(invalid("that operation has no safe undo"));
+        };
+        let action = action.ok_or_else(|| invalid("that operation has no safe undo"))?;
+        Ok((stored.entry.operation.clone(), UndoPlan { action, scope }))
     }
 
     pub fn mark_undone<R: Runtime>(&self, app: &AppHandle<R>, id: u32) {

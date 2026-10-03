@@ -1,7 +1,7 @@
 mod common;
 
 use common::Fixture;
-use yforge_core::{commit_context, ErrorKind};
+use yforge_core::{commit_changes_context, commit_context, working_changes_context, ErrorKind};
 
 fn staged_fixture() -> Fixture {
     let repo = Fixture::init();
@@ -164,4 +164,95 @@ fn a_staged_diff_over_the_diff_view_limit_is_still_cut_to_the_context_budget() {
 
     assert_eq!(context.truncated, ["huge.txt"]);
     assert!(context.diff.contains("[diff truncated:"));
+}
+
+#[test]
+fn the_working_changes_context_covers_staged_unstaged_and_untracked_files_once_each() {
+    let repo = staged_fixture();
+    repo.write("a.txt", "one\nstaged line\n");
+    repo.git(&["add", "a.txt"]);
+    repo.write("a.txt", "one\nstaged line\nunstaged line\n");
+    repo.write("b.txt", "two\nmore\n");
+    repo.write("new.txt", "brand new\n");
+    repo.write(".env", "TOKEN=hunter2\n");
+
+    let context = working_changes_context(&repo.path).unwrap();
+
+    assert_eq!(context.files, [".env", "a.txt", "b.txt", "new.txt"]);
+    assert_eq!(context.message, None);
+    assert_eq!(context.diff.matches("=== a.txt").count(), 1);
+    assert!(context.diff.contains("+staged line\n+unstaged line"));
+    assert!(context.diff.contains("=== b.txt (modified) ==="));
+    assert!(context.diff.contains("=== new.txt (untracked) ==="));
+    assert!(context.diff.contains("+brand new"));
+    assert_eq!(context.excluded, [".env"]);
+    assert!(context
+        .diff
+        .contains("=== .env (untracked, content withheld: secret file) ==="));
+    assert!(!context.diff.contains("hunter2"));
+    assert!(context.truncated.is_empty());
+}
+
+#[test]
+fn the_working_changes_context_includes_staged_renames_and_deletions() {
+    let repo = staged_fixture();
+    repo.git(&["mv", "b.txt", "renamed.txt"]);
+    std::fs::remove_file(repo.path.join("a.txt")).unwrap();
+
+    let context = working_changes_context(&repo.path).unwrap();
+
+    assert_eq!(context.files, ["a.txt", "renamed.txt"]);
+    assert!(context.diff.contains("=== a.txt (deleted) ==="));
+    assert!(context.diff.contains("-one"));
+    assert!(context
+        .diff
+        .contains("=== renamed.txt (renamed from b.txt) ==="));
+}
+
+#[test]
+fn a_clean_or_secret_only_working_tree_is_refused() {
+    let repo = staged_fixture();
+    assert_eq!(
+        working_changes_context(&repo.path).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+    repo.write(".env", "TOKEN=hunter2\n");
+    assert_eq!(
+        working_changes_context(&repo.path).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+}
+
+#[test]
+fn the_commit_changes_context_carries_its_message_and_its_diff_against_the_first_parent() {
+    let repo = staged_fixture();
+    repo.write("a.txt", "one\nfrom the commit\n");
+    repo.write("certs/server.pem", "-----BEGIN KEY-----\n");
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-q", "-m", "Explain me", "-m", "Body text."]);
+    let sha = repo.git(&["rev-parse", "HEAD"]);
+    repo.write("a.txt", "working tree only\n");
+
+    let context = commit_changes_context(&repo.path, &sha).unwrap();
+
+    assert_eq!(context.message.as_deref(), Some("Explain me\n\nBody text."));
+    assert_eq!(context.files, ["a.txt", "certs/server.pem"]);
+    assert!(context.diff.contains("=== a.txt (modified) ==="));
+    assert!(context.diff.contains("+from the commit"));
+    assert!(!context.diff.contains("working tree only"));
+    assert_eq!(context.excluded, ["certs/server.pem"]);
+    assert!(!context.diff.contains("BEGIN KEY"));
+}
+
+#[test]
+fn the_first_commit_is_explained_against_an_empty_tree() {
+    let repo = Fixture::init();
+    repo.identity();
+    let sha = repo.commit("a.txt", "first\n", "Start");
+
+    let context = commit_changes_context(&repo.path, &sha).unwrap();
+
+    assert_eq!(context.files, ["a.txt"]);
+    assert!(context.diff.contains("=== a.txt (added) ==="));
+    assert!(context.diff.contains("+first"));
 }

@@ -24,13 +24,13 @@ const order = (left: LineRef, right: LineRef): number => left.hunk - right.hunk 
 function load(path: string, target: DiffTarget, ignoreWhitespace: boolean): Promise<FileDiff> {
   if (target.source === "working") return client.diffFile(path, target.file, target.area, ignoreWhitespace);
   if (target.source === "stash") return client.stashFileDiff(path, target.index, target.sha, target.file, ignoreWhitespace);
-  return client.commitFileDiff(path, target.sha, target.file);
+  return client.commitFileDiff(path, target.sha, target.file, ignoreWhitespace);
 }
 
-export function createDiffController(deps: { session: RepoSession; target: () => DiffTarget; prefs: DiffPrefs }) {
+export function createDiffController(deps: { session: RepoSession; target: () => DiffTarget; prefs: DiffPrefs; commitWhitespace?: boolean }) {
   const { session, prefs } = deps;
   const path = session.path;
-  const ignoreWhitespace = () => deps.target().source !== "commit" && prefs.ignoreWhitespace();
+  const ignoreWhitespace = () => (deps.target().source !== "commit" || deps.commitWhitespace === true) && prefs.ignoreWhitespace();
   const diff = useQuery(() => ({
     queryKey: repoKeys.diff(path, deps.target(), ignoreWhitespace()),
     queryFn: () => load(path, deps.target(), ignoreWhitespace()),

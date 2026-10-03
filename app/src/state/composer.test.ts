@@ -1,7 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { amendDraft, amendWarning, commitButton, commitPushReason, createCommitAction, createComposer, summaryRemaining } from "./composer";
+import { amendDraft, amendWarning, commitButton, commitIdentityLabel, commitPushReason, createCommitAction, createComposer, stashButton, stashMessage, summaryRemaining } from "./composer";
 import { testSession } from "../components/testkit";
 import { IpcError } from "../ipc/client";
 
@@ -20,7 +20,7 @@ describe("commit button", () => {
   });
 
   it("is disabled with a reason when the summary is blank", () => {
-    expect(commitButton({ ...ready, summary: "   " }).disabledReason).toBe("Enter a summary");
+    expect(commitButton({ ...ready, summary: "   " }).disabledReason).toBe("Write a summary to commit");
   });
 
   it("reports the missing stage before the missing summary", () => {
@@ -29,11 +29,48 @@ describe("commit button", () => {
 
   it("lets an amend proceed with nothing staged but still needs a summary", () => {
     expect(commitButton({ ...ready, staged: 0, amend: true })).toEqual({ label: "Amend commit", disabledReason: undefined });
-    expect(commitButton({ ...ready, staged: 0, amend: true, summary: "" }).disabledReason).toBe("Enter a summary");
+    expect(commitButton({ ...ready, staged: 0, amend: true, summary: "" }).disabledReason).toBe("Write a summary to commit");
   });
 
   it("is disabled while a commit is running", () => {
     expect(commitButton({ ...ready, busy: true })).toEqual({ label: "Committing…", disabledReason: "Committing…" });
+  });
+});
+
+describe("stash button", () => {
+  const files = [
+    { path: "a.txt", area: "staged" },
+    { path: "a.txt", area: "unstaged" },
+    { path: "b.txt", area: "unstaged" },
+    { path: "new.txt", area: "untracked" },
+  ] as const;
+
+  it("names the number of files the stash takes, untracked ones only when included", () => {
+    expect(stashButton({ files, untracked: false, busy: false })).toEqual({ label: "Stash 2 files", disabledReason: undefined });
+    expect(stashButton({ files, untracked: true, busy: false })).toEqual({ label: "Stash 3 files", disabledReason: undefined });
+    expect(stashButton({ files: [files[2]], untracked: false, busy: false }).label).toBe("Stash 1 file");
+  });
+
+  it("is disabled with a reason when there is nothing to stash", () => {
+    expect(stashButton({ files: [], untracked: true, busy: false })).toEqual({ label: "Stash", disabledReason: "No local changes to stash" });
+  });
+
+  it("asks to include untracked files when only untracked files changed", () => {
+    expect(stashButton({ files: [files[3]], untracked: false, busy: false }).disabledReason).toBe("Only untracked files changed; include them to stash");
+    expect(stashButton({ files: [files[3]], untracked: true, busy: false }).disabledReason).toBeUndefined();
+  });
+
+  it("is disabled while a stash is running", () => {
+    expect(stashButton({ files, untracked: false, busy: true })).toEqual({ label: "Stashing…", disabledReason: "Stashing…" });
+  });
+});
+
+describe("stash message", () => {
+  it("joins the title and the description with a blank line and drops an empty part", () => {
+    expect(stashMessage("Half done", "Login form\nstill failing")).toBe("Half done\n\nLogin form\nstill failing");
+    expect(stashMessage("  Half done ", "  ")).toBe("Half done");
+    expect(stashMessage("", "Only a body")).toBe("Only a body");
+    expect(stashMessage(" ", "")).toBe("");
   });
 });
 
@@ -91,7 +128,7 @@ describe("commit and push reason", () => {
   });
 
   it("repeats the commit reason first", () => {
-    expect(commitPushReason({ ...pushInput, button: { label: "Commit", disabledReason: "Enter a summary" } })).toBe("Enter a summary");
+    expect(commitPushReason({ ...pushInput, button: { label: "Commit", disabledReason: "Write a summary to commit" } })).toBe("Write a summary to commit");
   });
 
   it.each([
@@ -242,5 +279,25 @@ describe("commit action", () => {
 
     expect(pushes).toEqual([]);
     expect(composer.failure()?.kind).toBe("commit_failed");
+  });
+});
+
+describe("committing as", () => {
+  const profiles = (author_name: string, author_email: string) => ({
+    active: "work",
+    profiles: [
+      { id: "default", name: "Default", author_name: "", author_email: "" },
+      { id: "work", name: "Work", author_name, author_email },
+    ],
+  });
+
+  it("states the active profile's author name and email", () => {
+    expect(commitIdentityLabel(profiles("Ada Lovelace", "ada@example.com"))).toBe("Committing as Ada Lovelace ada@example.com");
+  });
+
+  it("states nothing while the profiles are unknown or the active profile has no author", () => {
+    expect(commitIdentityLabel(undefined)).toBeUndefined();
+    expect(commitIdentityLabel(profiles("", ""))).toBeUndefined();
+    expect(commitIdentityLabel({ active: "gone", profiles: [] })).toBeUndefined();
   });
 });

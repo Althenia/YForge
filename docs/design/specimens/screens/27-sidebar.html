@@ -87,7 +87,7 @@ const inspector = `<aside class="panel inspector" aria-label="Commit"><div class
   </div></div>
   <div class="note-line">The Author picture is the identicon Gravatar returns for the hashed email; with Settings → Privacy → Profile pictures off, or when the image fails, the initial shows instead (the Pull requests rows show it: the platform reports a login, never an email).</div></aside>`;
 
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${sidebar}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git branch", duration: "0.0 s", action: "" })}</div>` + menu);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${sidebar}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git branch", duration: "0.0 s", action: "" })}</div>` + menu);
 YF.mountGraph({ selected: -1, hovered: -1 });
 YF.boot("screen 27 · sidebar");
 </script>

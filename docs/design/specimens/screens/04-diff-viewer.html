@@ -125,7 +125,7 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
   </div>
 </aside>`;
 
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${diffPanel}${inspector}</div>${YF.activity()}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${diffPanel}${inspector}</div>${YF.activity()}</div>`);
 YF.boot("screen 4 · diff viewer");
 </script>
 </body>

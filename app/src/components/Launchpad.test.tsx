@@ -1,15 +1,21 @@
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JiraConnection } from "../ipc/bindings/JiraConnection";
 import type { JiraIssue } from "../ipc/bindings/JiraIssue";
 import type { LaunchpadPull } from "../ipc/bindings/LaunchpadPull";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
+import type { RecentStatus } from "../ipc/bindings/RecentStatus";
+import type { Repositories } from "../ipc/bindings/Repositories";
 import type { Wip } from "../ipc/bindings/Wip";
 import { takeConnectKind, takePullInspector } from "../state/connectRequest";
 import { Launchpad } from "./Launchpad";
 import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
+
+beforeEach(() => {
+  mockWindows("main");
+});
 
 afterEach(async () => {
   dispose?.();
@@ -45,6 +51,10 @@ type Data = {
   issues?: JiraIssue[];
   issuePage?: { total: number | null; capped: boolean };
   wips?: Wip[];
+  repositories?: Repositories;
+  statuses?: RecentStatus[];
+  answer?: (call: Call) => unknown;
+  tab?: string;
 };
 
 type Call = { cmd: string; args: Record<string, unknown> };
@@ -63,6 +73,10 @@ async function mount(data: Data) {
       if (cmd === "jira_connections_list") return data.jira ?? [];
       if (cmd === "jira_my_issues") return { issues: data.issues ?? [], ...(data.issuePage ?? { total: (data.issues ?? []).length, capped: false }) };
       if (cmd === "launchpad_wips") return data.wips ?? [];
+      if (cmd === "repositories_list") return data.repositories ?? { folders: [], repos: [] };
+      if (cmd === "recent_statuses") return data.statuses ?? [];
+      const answered = data.answer?.({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      if (answered !== undefined) return answered;
       if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
       if (cmd === "jira_issues_lookup") return (args as { keys: string[] }).keys.map((key) => ({ key, issue: issue(key, "Retry login"), failure: null }));
       return null;
@@ -72,6 +86,11 @@ async function mount(data: Data) {
   const view = mountWithApp(() => <Launchpad />);
   dispose = view.dispose;
   await flush(80);
+  const start = data.tab ?? "My pull requests";
+  if (start !== "Repositories") {
+    tab(view.host, start).click();
+    await flush();
+  }
   return { ...view, calls };
 }
 
@@ -363,6 +382,165 @@ describe("Launchpad issues and WIPs", () => {
     await flush(80);
 
     expect(calls.length).toBeGreaterThan(before);
-    expect(calls.every((call) => /^(platform_connections_list|platform_my_pulls|jira_connections_list|jira_my_issues|launchpad_wips|jira_issue_keys|jira_issues_lookup)$/.test(call.cmd))).toBe(true);
+    expect(calls.every((call) => /^(platform_connections_list|platform_my_pulls|jira_connections_list|jira_my_issues|launchpad_wips|repositories_list|recent_statuses|jira_issue_keys|jira_issues_lookup)$/.test(call.cmd))).toBe(true);
+  });
+});
+
+const status = (path: string, overrides: Partial<RecentStatus> = {}): RecentStatus => ({
+  path,
+  exists: true,
+  branch: "main",
+  unborn: false,
+  ahead_behind: null,
+  counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 },
+  worktrees: 1,
+  unreadable: null,
+  ...overrides,
+});
+
+const managed: Repositories = {
+  folders: [{ path: "/u/Code", depth: 2, scanned_at: 1, repos: ["/u/Code/web", "/u/Code/api", "/u/Code/old"], skipped: [] }],
+  repos: [
+    { path: "/u/Code/web", folder: "/u/Code", opened_at: 100 },
+    { path: "/u/dotfiles", folder: null, opened_at: 50 },
+    { path: "/u/Code/api", folder: "/u/Code", opened_at: null },
+    { path: "/u/Code/old", folder: "/u/Code", opened_at: null },
+  ],
+};
+
+const managedStatuses = [
+  status("/u/Code/web", { branch: "feature/login", counts: { modified: 2, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, ahead_behind: { ahead: 0, behind: 3 } }),
+  status("/u/dotfiles", { ahead_behind: { ahead: 1, behind: 0 } }),
+  status("/u/Code/api", { unreadable: "permission denied" }),
+  status("/u/Code/old", { exists: false, branch: null, counts: null }),
+];
+
+const repoRows = (host: ParentNode) => [...host.querySelectorAll<HTMLElement>('.repo-list [role="option"]')];
+const actions = (host: ParentNode) => host.querySelector<HTMLElement>('.repo-actbar[role="toolbar"]');
+
+describe("Launchpad repositories (S41, S46)", () => {
+  it("opens on Repositories: a table grouped by scanned folder with each status in words", async () => {
+    const { host } = await mount({ repositories: managed, statuses: managedStatuses, tab: "Repositories" });
+
+    expect(tab(host, "Repositories").getAttribute("aria-selected")).toBe("true");
+    expect(tab(host, "Repositories").querySelector(".count")?.textContent).toBe("4");
+    expect(host.querySelector(".repo-head")?.textContent).toBe("RepositoryBranchStatusLast opened");
+    expect([...host.querySelectorAll('.repo-list [role="group"]')].map((group) => group.getAttribute("aria-label"))).toEqual(["/u/Code · 3", "Added when you opened them · 1"]);
+    expect(repoRows(host).map((row) => row.getAttribute("aria-label"))).toEqual([
+      expect.stringMatching(/^web, feature\/login, 2 changes, 3 to pull, Opened \w+ ago$/),
+      "api, no branch, Status unavailable, Never opened",
+      "old, no branch, Not found, Never opened",
+      expect.stringMatching(/^dotfiles, main, 1 to push, Opened \w+ ago$/),
+    ]);
+    expect(host.querySelector('.fold-chips [role="group"], .fold-chips')?.textContent).toContain("/u/Code");
+  });
+
+  it("acts on the selected row from the bar under the table, and offers no Open for a missing repository", async () => {
+    const { host, calls } = await mount({ repositories: managed, statuses: managedStatuses, tab: "Repositories" });
+
+    expect(actions(host)?.getAttribute("aria-label")).toBe("Actions for web");
+    buttonNamed(actions(host) as HTMLElement, "Reveal in Finder")?.click();
+    await flush();
+    expect(calls.find((call) => call.cmd === "open_path")?.args).toEqual({ path: "/u/Code/web", with: "finder" });
+
+    repoRows(host)[2]?.click();
+    await flush();
+    expect(actions(host)?.getAttribute("aria-label")).toBe("Actions for old");
+    expect(actions(host)?.textContent).toContain("Not found at this path");
+    expect(buttonNamed(actions(host) as HTMLElement, "Open")).toBeUndefined();
+  });
+
+  it("moves with the arrow keys and opens the selected repository with Enter", async () => {
+    const { host, app } = await mount({ repositories: managed, statuses: managedStatuses, tab: "Repositories" });
+    const opened = vi.spyOn(app, "openRepository").mockResolvedValue(true);
+    const list = host.querySelector<HTMLElement>('.repo-list[role="listbox"]') as HTMLElement;
+
+    list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    await flush();
+    expect(actions(host)?.getAttribute("aria-label")).toBe("Actions for dotfiles");
+    list.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+    expect(opened).toHaveBeenCalledWith("/u/dotfiles");
+  });
+
+  it("searches names, paths, and branches", async () => {
+    const { host } = await mount({ repositories: managed, statuses: managedStatuses, tab: "Repositories" });
+
+    type(host.querySelector('input[aria-label="Search repositories"]'), "login");
+    await flush();
+    expect(repoRows(host).map((row) => row.querySelector("strong")?.textContent)).toEqual(["web"]);
+    type(host.querySelector('input[aria-label="Search repositories"]'), "zzz");
+    await flush();
+    expect(host.textContent).toContain("No repository matches “zzz”");
+  });
+
+  it("removes a repository from the list, says nothing on disk changed, and puts it back with Undo", async () => {
+    const without: Repositories = { ...managed, repos: managed.repos.filter((repo) => repo.path !== "/u/Code/web") };
+    const { host, calls } = await mount({
+      repositories: managed,
+      statuses: managedStatuses,
+      tab: "Repositories",
+      answer: (call) => (call.cmd === "repository_remove" ? { removed: managed.repos[0], repositories: without } : call.cmd === "repository_restore" ? managed : undefined),
+    });
+
+    buttonNamed(actions(host) as HTMLElement, "Remove from list")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "repository_remove")?.args).toEqual({ path: "/u/Code/web" });
+    expect(host.querySelector(".list-change")?.textContent).toContain("Removed web from the list. Nothing on disk changed. Rescans of /u/Code skip it.");
+    expect(repoRows(host)).toHaveLength(3);
+
+    buttonNamed(host.querySelector(".list-change") as HTMLElement, "Undo")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "repository_restore")?.args).toEqual({ repo: managed.repos[0] });
+    expect(repoRows(host)).toHaveLength(4);
+    expect(host.querySelector(".list-change")).toBeNull();
+  });
+
+  it("rescans and stops scanning a folder from its chip, with Undo for Stop scanning", async () => {
+    const stopped: Repositories = { folders: [], repos: [managed.repos[0], managed.repos[1]].map((repo) => ({ ...repo, folder: null })) as Repositories["repos"] };
+    const { host, calls } = await mount({
+      repositories: managed,
+      statuses: managedStatuses,
+      tab: "Repositories",
+      answer: (call) =>
+        call.cmd === "scan_folder_rescan" ? { added: ["/u/Code/cli"], repositories: managed } : call.cmd === "scan_folder_remove" ? { folder: managed.folders[0], repositories: stopped } : call.cmd === "scan_folder_save" ? managed : undefined,
+    });
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Rescan /u/Code"]')?.click();
+    await flush(40);
+    expect(host.querySelector(".list-change")?.textContent).toContain("Found 1 new repository in /u/Code: cli.");
+
+    host.querySelector<HTMLButtonElement>('button[aria-label="Stop scanning /u/Code"]')?.click();
+    await flush(40);
+    expect(host.querySelector(".list-change")?.textContent).toContain("Stopped scanning /u/Code. Took 2 repositories off the list; kept 1 repository you opened. Nothing on disk changed.");
+    buttonNamed(host.querySelector(".list-change") as HTMLElement, "Undo")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "scan_folder_save")?.args).toEqual({ folder: managed.folders[0] });
+  });
+
+  it("offers Add folder… when nothing is listed yet and opens the scan dialog", async () => {
+    const { host } = await mount({ tab: "Repositories" });
+
+    expect(host.textContent).toContain("No repositories yet");
+    buttonNamed(host.querySelector(".lp-empty-box") as HTMLElement, "Add folder…")?.click();
+    await flush();
+    expect(document.querySelector('[role="dialog"] h3')?.textContent).toBe("Add a folder to scan");
+  });
+});
+
+describe("Launchpad as the landing screen (S41)", () => {
+  it("offers Open…, Clone…, and Create… in its header", async () => {
+    const { host, app, calls } = await mount({ tab: "Repositories", answer: (call) => (call.cmd === "plugin:dialog|open" ? "/u/picked" : undefined) });
+    const opened = vi.spyOn(app, "openRepository").mockResolvedValue(true);
+    const head = host.querySelector(".lp-head") as HTMLElement;
+
+    buttonNamed(head, "Clone…")?.click();
+    expect(app.entryDialog()).toBe("clone");
+    buttonNamed(head, "Create…")?.click();
+    expect(app.entryDialog()).toBe("create");
+    buttonNamed(head, "Open…")?.click();
+    await flush(40);
+    expect(calls.some((call) => call.cmd === "plugin:dialog|open")).toBe(true);
+    expect(opened).toHaveBeenCalledWith("/u/picked");
   });
 });

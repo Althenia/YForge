@@ -119,8 +119,6 @@
   function boot(label) {
     document.documentElement.dataset.theme = theme;
     if (still) {
-      const phase = Number(still.slice(5)) || 0;
-      document.querySelectorAll(".aurora i").forEach((el, k) => { el.style.animationDelay = `-${k * 17 + phase * 23}s`; });
       document.body.classList.add("paused", "still");
     } else {
       const syncPause = () => document.body.classList.toggle("paused", document.hidden || !document.hasFocus());
@@ -134,7 +132,6 @@
     document.body.appendChild(wm);
   }
 
-  const aurora = () => '<div class="aurora" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a4"></i></div>';
 
   function tabs({ repo = "sample", meta = "2 worktrees", others = ["other-repo"] } = {}) {
     const close = name => `<span class="tab-close" aria-label="Close ${name}">${glyph("close", 14)}</span>`;
@@ -323,5 +320,5 @@
     }
   }
 
-  window.YF = { pullsSection, flags, theme, icon, glyph, notice, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, aurora, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
+  window.YF = { pullsSection, flags, theme, icon, glyph, notice, sec, iconBtn, acts, lhead, tip, item, tool, brand, boot, tabs, command, headChip, strip, sidebar, graphPanel, activity, mountGraph };
 })();

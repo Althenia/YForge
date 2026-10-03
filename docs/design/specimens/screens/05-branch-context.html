@@ -77,7 +77,7 @@ const inspector = `<aside class="panel inspector" aria-label="Changes">
     <div class="hrow"><span class="btn primary">${YF.glyph("commit")}Commit 2 files</span><span class="spacer"></span><span class="btn">Amend</span></div>
   </div>
 </aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + ctx + reset + drop + multi);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${YF.graphPanel()}${inspector}</div>${YF.activity()}</div>` + ctx + reset + drop + multi);
 YF.boot("screen 5 · branch context actions (context menu and drop menu shown together)");
 YF.mountGraph({ selected: 0, hovered: 1 });
 const label = document.getElementById("gbody").children[2].querySelector(".label").getBoundingClientRect();

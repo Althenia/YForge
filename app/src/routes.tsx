@@ -1,6 +1,5 @@
 import { createHashHistory, createRootRoute, createRoute, createRouter, type RouterHistory } from "@tanstack/solid-router";
 import { Show } from "solid-js";
-import { Launcher } from "./components/Launcher";
 import { Launchpad } from "./components/Launchpad";
 import { SettingsView } from "./components/SettingsView";
 import { TabBar } from "./components/TabBar";
@@ -15,9 +14,9 @@ const launcherRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/launcher",
   component: () => (
-    <div class="app launcher-app">
+    <div class="app launchpad-app">
       <TabBar />
-      <Launcher />
+      <Launchpad />
     </div>
   ),
 });

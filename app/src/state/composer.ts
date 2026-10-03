@@ -1,4 +1,6 @@
 import type { AmendInfo } from "../ipc/bindings/AmendInfo";
+import type { FileChange } from "../ipc/bindings/FileChange";
+import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
 import { createStoreFields } from "./clientStore";
@@ -14,9 +16,28 @@ export function commitButton(input: { staged: number; summary: string; amend: bo
   if (input.busy) return { label: "Committing…", disabledReason: "Committing…" };
   const label = input.amend ? "Amend commit" : input.staged > 0 ? `Commit ${input.staged} ${input.staged === 1 ? "file" : "files"}` : "Commit";
   if (!input.amend && input.staged === 0) return { label, disabledReason: "Stage files to commit" };
-  if (input.summary.trim() === "") return { label, disabledReason: "Enter a summary" };
+  if (input.summary.trim() === "") return { label, disabledReason: "Write a summary to commit" };
   return { label, disabledReason: undefined };
 }
+
+export function stashButton(input: { files: ReadonlyArray<Pick<FileChange, "path" | "area">>; untracked: boolean; busy: boolean }): CommitButton {
+  if (input.busy) return { label: "Stashing…", disabledReason: "Stashing…" };
+  if (input.files.length === 0) return { label: "Stash", disabledReason: "No local changes to stash" };
+  const taken = new Set(input.files.filter((file) => input.untracked || file.area !== "untracked").map((file) => file.path)).size;
+  if (taken === 0) return { label: "Stash", disabledReason: "Only untracked files changed; include them to stash" };
+  return { label: `Stash ${taken} ${taken === 1 ? "file" : "files"}`, disabledReason: undefined };
+}
+
+export const stashMessage = (title: string, description: string): string =>
+  [title.trim(), description.trim()].filter((part) => part !== "").join("\n\n");
+
+export function commitIdentityLabel(list: ProfileList | undefined): string | undefined {
+  const profile = list?.profiles.find((candidate) => candidate.id === list.active);
+  if (profile === undefined || (profile.author_name === "" && profile.author_email === "")) return undefined;
+  return `Committing as ${profile.author_name} ${profile.author_email}`.trim();
+}
+
+export type ComposerTab = "commit" | "stash";
 
 export function commitPushReason(input: {
   button: CommitButton;
@@ -47,13 +68,30 @@ export const amendDraft = (current: Draft, info: Pick<AmendInfo, "summary" | "de
     : current;
 
 export function createComposer() {
-  const field = createStoreFields<{ summary: string; description: string; amend: boolean; pushed: boolean; busy: boolean; failure: IpcError | undefined }>({
+  const field = createStoreFields<{
+    summary: string;
+    description: string;
+    amend: boolean;
+    pushed: boolean;
+    busy: boolean;
+    failure: IpcError | undefined;
+    tab: ComposerTab;
+    stashTitle: string;
+    stashDescription: string;
+    stashUntracked: boolean;
+    stashing: boolean;
+  }>({
     summary: "",
     description: "",
     amend: false,
     pushed: false,
     busy: false,
     failure: undefined,
+    tab: "commit",
+    stashTitle: "",
+    stashDescription: "",
+    stashUntracked: false,
+    stashing: false,
   });
   const [summary, setSummary] = field("summary");
   const [description, setDescription] = field("description");
@@ -61,7 +99,35 @@ export function createComposer() {
   const [pushed, setPushed] = field("pushed");
   const [busy, setBusy] = field("busy");
   const [failure, setFailure] = field("failure");
-  return { summary, setSummary, description, setDescription, amend, setAmend, pushed, setPushed, busy, setBusy, failure, setFailure };
+  const [tab, setTab] = field("tab");
+  const [stashTitle, setStashTitle] = field("stashTitle");
+  const [stashDescription, setStashDescription] = field("stashDescription");
+  const [stashUntracked, setStashUntracked] = field("stashUntracked");
+  const [stashing, setStashing] = field("stashing");
+  return {
+    summary,
+    setSummary,
+    description,
+    setDescription,
+    amend,
+    setAmend,
+    pushed,
+    setPushed,
+    busy,
+    setBusy,
+    failure,
+    setFailure,
+    tab,
+    setTab,
+    stashTitle,
+    setStashTitle,
+    stashDescription,
+    setStashDescription,
+    stashUntracked,
+    setStashUntracked,
+    stashing,
+    setStashing,
+  };
 }
 
 export type Composer = ReturnType<typeof createComposer>;

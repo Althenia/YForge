@@ -5,6 +5,7 @@ use crate::error::CoreError;
 use crate::git::{self, CancelToken};
 use crate::refs;
 use crate::repo;
+use crate::signing;
 use crate::sync::{run_network, Progress};
 
 fn validated_name(root: &Path, name: &str) -> Result<(), CoreError> {
@@ -60,6 +61,7 @@ pub fn create_tag(
             ))
         }
         Some(text) => args.extend(["--annotate", "--message", text]),
+        None if signing::signs_tags(&root)? => args.extend(["--annotate", "--message", name]),
         None => {}
     }
     args.push(name);

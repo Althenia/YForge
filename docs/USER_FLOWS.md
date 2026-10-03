@@ -12,7 +12,7 @@ A "major interaction" is one deliberate click, drag, key command, or form submis
 
 | Step | GitKraken [H] | YForge |
 |---|---|---|
-| Open | + tab → Open → native folder picker (Go to folder, path, Open) (5) | Launcher recent row (1), or `yforge .` from the terminal (0) |
+| Open | + tab → Open → native folder picker (Go to folder, path, Open) (5) | Launchpad Repositories row (1), or `yforge .` from the terminal (0) |
 | Inspect graph | Visible (0) | Visible; the graph scrolls to HEAD (0) |
 | Modify files | External editor | External editor ("Open in editor" from any file) |
 | Find staging | Click the WIP row, which only exists when there are changes (1) | The state strip shows `✎2 +1`; the Changes row is always present (1) |
@@ -82,7 +82,7 @@ What YForge removes: menu hunting. The commit inspector carries the common commi
 
 | Step | GitKraken [H] (GitHub integration connected) | YForge MVP (system credentials) |
 |---|---|---|
-| Start clone | Repository Management → Clone → GitHub.com tab (3) | ⌘⇧C, or Launcher Clone (1) |
+| Start clone | Repository Management → Clone → GitHub.com tab (3) | ⌘⇧C, or Launchpad Clone… (1) |
 | Choose repo | Search Remotes → select (2) | Paste the URL (1) |
 | Destination | Keep the default, or Browse (native picker) (0–3) | Last-used parent, with a full-path preview (0) |
 | Clone and open | Clone the repo! → open (2) | Clone (1); opens automatically |

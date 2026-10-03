@@ -40,6 +40,8 @@ function expectCursor(element: Element | null | undefined, token: Token): void {
 }
 
 const idleGenerate = { run: async () => undefined, cancel: () => undefined, running: () => false, failure: () => undefined, dismissFailure: () => undefined, drafted: () => false, notes: () => [], replaced: () => undefined, restore: () => undefined } as unknown as ComponentProps<typeof Composer>["generate"];
+const idleStashDraft = { run: async () => undefined, cancel: () => undefined, running: () => false, failure: () => undefined, drafted: () => false, notes: () => [], replaced: () => undefined, restore: () => undefined } as unknown as ComponentProps<typeof Composer>["stashDraft"];
+const noCompose = { available: false, reason: undefined, run: () => undefined };
 
 let stylesheet: HTMLStyleElement;
 let dispose: (() => void) | undefined;
@@ -77,7 +79,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     const snapshot = { head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot;
     const host = mount(() => (
       <>
-        <Composer snapshot={snapshot} state={state} action={action} generate={generate} generateAvailable={true} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />
+        <Composer snapshot={snapshot} state={state} action={action} generate={generate} generateAvailable={true} stashDraft={idleStashDraft} stashDraftAvailable={false} compose={noCompose} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} stash={async () => true} />
         <Switch label="Usage" checked={false} onChange={() => undefined} />
         <Switch label="Locked" checked disabled onChange={() => undefined} />
       </>
@@ -88,8 +90,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     expectCursor(commit?.querySelector(".hint"), "disabled");
     setReason(undefined);
     expectCursor(commit, "action");
-    expectCursor(host.querySelector("label.check"), "action");
-    expectCursor(host.querySelector('input[type="checkbox"]'), "action");
+    expectCursor(host.querySelector('.chip-toggle[role="checkbox"]'), "action");
     expectCursor(host.querySelector('[role="switch"]:not(:disabled)'), "action");
     expectCursor(host.querySelector('[role="switch"]:disabled'), "disabled");
   });
@@ -98,12 +99,11 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
     const state = createRoot(() => createComposer());
     const generate = idleGenerate;
     const action = { button: () => ({ label: "Commit", disabledReason: undefined }), submit: async () => undefined, toggleAmend: async () => undefined } as unknown as ComponentProps<typeof Composer>["action"];
-    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} generate={generate} generateAvailable={true} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} />);
+    const host = mount(() => <Composer snapshot={{ head: { kind: "branch" }, upstream: undefined } as unknown as RepoSnapshot} state={state} action={action} generate={generate} generateAvailable={true} stashDraft={idleStashDraft} stashDraftAvailable={false} compose={noCompose} clean={false} staged={0} onOpenAiSettings={() => undefined} pushReason={undefined} summaryRef={() => undefined} stash={async () => true} />);
 
     expectCursor(host.querySelector('input[type="text"]'), "text");
     expectCursor(host.querySelector("textarea"), "text");
-    expectCursor(host.querySelector("label.input"), "text");
-    expectCursor(host.querySelector("label.input.area"), "text");
+    expectCursor(host.querySelector("label.input.summary-field"), "text");
   });
 
   it("shows the action cursor on menu items, the disabled cursor on a disabled item, and the static cursor on the separator", () => {

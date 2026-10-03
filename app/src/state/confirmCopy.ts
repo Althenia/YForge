@@ -26,13 +26,21 @@ const plural = (count: number, one: string, many: string) => `${formatCount(coun
 
 export function discardFilesCopy(files: readonly FileChange[]): ConfirmCopy {
   const untracked = files.filter((file) => file.area === "untracked");
-  const tracked = files.length - untracked.length;
+  const staged = files.filter((file) => file.area === "staged");
+  const tracked = files.length - untracked.length - staged.length;
   const consequences: string[] = [];
   if (tracked > 0) {
     consequences.push(
       tracked === 1
         ? "The file returns to its staged content, or to the last commit where nothing is staged. Undo can restore the unstaged edits from a snapshot taken before discarding, while the file is unchanged since; without a snapshot they are lost."
         : "The files return to their staged content, or to the last commit where nothing is staged. Undo can restore the unstaged edits from a snapshot taken before discarding, while the files are unchanged since; without a snapshot they are lost.",
+    );
+  }
+  if (staged.length > 0) {
+    consequences.push(
+      staged.length === 1
+        ? "This file loses its staged and unstaged changes and returns to the last commit; a file that is new is removed from disk. Undo can restore its staged and working tree content from a snapshot taken before discarding, while the file is unchanged since."
+        : "These files lose their staged and unstaged changes and return to the last commit; a file that is new is removed from disk. Undo can restore their staged and working tree content from a snapshot taken before discarding, while the files are unchanged since.",
     );
   }
   if (untracked.length > 0) {
@@ -50,6 +58,28 @@ export function discardFilesCopy(files: readonly FileChange[]): ConfirmCopy {
   const confirmLabel =
     files.length === 1 && untracked.length === 1 ? "Delete file" : untracked.length === files.length ? "Delete files" : "Discard changes";
   return { title, consequences, names: files.map((file) => file.path), confirmLabel };
+}
+
+export function ignoreFilesCopy(files: readonly FileChange[]): ConfirmCopy {
+  return {
+    title: `Ignore ${plural(files.length, "file", "files")} and stop tracking ${files.length === 1 ? "it" : "them"}?`,
+    consequences: [
+      files.length === 1
+        ? "The path is added to .gitignore, and the file is removed from Git's index so the next commit deletes it from the repository. It stays on disk."
+        : "Each path is added to .gitignore, and the files are removed from Git's index so the next commit deletes them from the repository. They stay on disk.",
+    ],
+    names: files.map((file) => file.path),
+    confirmLabel: "Ignore and untrack",
+    neutral: true,
+  };
+}
+
+export function discardFolderCopy(folder: string, files: readonly FileChange[]): ConfirmCopy {
+  return {
+    ...discardFilesCopy(files),
+    title: `Discard all changes in ${folder}/ (${plural(files.length, "file", "files")})?`,
+    confirmLabel: "Discard all changes",
+  };
 }
 
 export function discardHunkCopy(file: string, hunk: DiffHunk): ConfirmCopy {

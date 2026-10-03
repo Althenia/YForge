@@ -6,35 +6,16 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 
 ## Windows and main views
 
-### S01 · Launcher (MVP)
-- **Purpose:** Start or resume work on a repository.
+### S01 · Launchpad (landing; S41, S46)
+- **Purpose:** Start or resume work on a repository, and see pull requests, issues, and unfinished work. It replaced the launcher on 2026-10-03.
 - **Primary actions:**
-  - Open…
-  - Clone…
-  - Create…
-  - Open a recent repository.
+  - Open…, Clone…, Create… in the header; drop a folder to open it.
+  - Open a repository from the Repositories table (Enter or Open in the bar under the table).
+  - Add folder… to scan for repositories.
 - **Secondary actions:**
-  - Filter recents.
-  - Remove from recents.
-  - Reveal in Finder.
-  - Open in terminal.
-  - Drop a folder to open it.
-- **Information displayed:**
-  - Each recent row shows:
-    - repository name;
-    - path, left-truncated with `~`;
-    - current branch;
-    - ahead/behind;
-    - change counts;
-    - worktree count;
-    - last opened.
-- **Entry points:** App start with no restored tabs; "+" in the tab bar; ⌘T; palette "Open repository…".
-- **Exit points:** A repository tab opens; the Clone or Create dialog opens.
-- **Empty state:** "No recent repositories. Open a folder, clone a URL, or create a new repository", with the three buttons and a drop zone.
-- **Loading state:** Status chips reserve their width and show "…" until the per-repo status resolves. Rows never reorder while loading.
-- **Error state:** Missing path → the row is marked "Not found" with Locate… and Remove.
-- **Destructive actions:** Remove from recents only; files are never touched.
-- **Keyboard:** Type to filter · ↑↓ · Enter open · ⌘O open · ⌘⇧C clone · ⌘N create.
+  - Search and sort repositories; Rescan or Stop scanning a folder.
+  - Reveal in Finder, Open in Terminal, Remove from list (with Undo).
+- **Information displayed:** for each repository: name, path, branch, status in words (changes, to push, to pull, Clean, Not found, Status unavailable), and when it was last opened; each scanned folder's repository count, depth, and scan time; the S41 lists with counts and per-source update times.
 
 ### S02 · Repository workspace: graph (MVP)
 - **Purpose:** Understand and act on history and the current state.
@@ -366,7 +347,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 - **Primary actions:** Clone.
 - **Secondary actions:** Choose a destination; "Open after clone" (default on); the GitHub tab (Post-MVP, when connected).
 - **Information displayed:** URL (validated: https, ssh, local path); destination parent plus a full-path preview; progress (objects, deltas).
-- **Entry points:** Launcher; palette; ⌘⇧C.
+- **Entry points:** Launchpad; palette; ⌘⇧C.
 - **Exit points:** The repository tab opens.
 - **Empty state:** —
 - **Loading state:** Progress with cancel; the dialog stays open.
@@ -383,7 +364,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 - **Primary actions:** Create.
 - **Secondary actions:** Default branch; `.gitignore` and license templates (Post-MVP).
 - **Information displayed:** Name, location, full-path preview.
-- **Entry points:** Launcher; palette.
+- **Entry points:** Launchpad; palette.
 - **Exit points:** S26 (empty repository).
 - **Empty state:** —
 - **Loading state:** —

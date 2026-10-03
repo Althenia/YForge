@@ -87,7 +87,7 @@ const panel = `<section class="panel dpanel" aria-label="File">
   <div class="dbody"><div class="code-box">${lines.map((line, i) => `<div class="fline"><span class="ln" aria-hidden="true">${i + 1}</span><span class="code">${line}</span></div>`).join("")}</div></div>
 </section>`;
 const inspector = `<aside class="panel inspector" aria-label="Commit"><div class="ihead"><h2>${G("commit")}Export shout helper</h2><p><span class="ref">b7d4e10</span> · Yui Lin</p></div><div class="ilist"><div class="lhead"><span class="lhead-title">${G("diff")}Files · 2</span></div><div class="frow sel"><span class="badge st-M">M</span><span class="path">src/<b>retry.ts</b></span><span class="acts" style="opacity:1">${YF.iconBtn("file", "View src/retry.ts")}</span></div><div class="frow"><span class="badge st-D">D</span><span class="path">src/<b>old.ts</b></span></div></div></aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${panel}${inspector}</div>${YF.activity({ command: "git cat-file blob b7d4e10:src/retry.ts", duration: "0.0 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar()}${panel}${inspector}</div>${YF.activity({ command: "git cat-file blob b7d4e10:src/retry.ts", duration: "0.0 s", action: "" })}</div>`);
 YF.boot("screen 25 · file view");
 </script>
 </body>

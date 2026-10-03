@@ -43,7 +43,7 @@ const sidebar = `<aside class="panel sidebar" aria-label="Repository">
   <div class="srow">sample <span class="meta">main worktree</span></div>
   <div class="srow">hotfix/wt-demo <span class="meta">clean</span></div>
 </aside>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command({ crumb: ["sample", "main worktree", "main"] })}${YF.strip({ banner })}<div class="main">${sidebar}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git merge origin/main", duration: "0.3 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command({ crumb: ["sample", "main worktree", "main"] })}${YF.strip({ banner })}<div class="main">${sidebar}${YF.graphPanel()}${inspector}</div>${YF.activity({ command: "git merge origin/main", duration: "0.3 s", action: "" })}</div>`);
 document.body.classList.add("op");
 YF.boot("screen 7 · merge conflict");
 YF.mountGraph({ hovered: -1, conflict: "Conflicts: 1 · resolve README.md to continue the merge" });

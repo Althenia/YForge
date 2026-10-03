@@ -94,7 +94,7 @@ const sidebar = `<aside class="panel sidebar" aria-label="Repository">
   <div class="srow">hotfix/wt-demo <span class="meta">clean</span></div>
 </aside>`;
 
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs()}${YF.command({ crumb: ["sample", "main worktree", "main"] })}${YF.strip({ banner })}<div class="main">${sidebar}${resolver}${inspector}</div>${YF.activity({ command: "git merge origin/main", duration: "0.3 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs()}${YF.command({ crumb: ["sample", "main worktree", "main"] })}${YF.strip({ banner })}<div class="main">${sidebar}${resolver}${inspector}</div>${YF.activity({ command: "git merge origin/main", duration: "0.3 s", action: "" })}</div>`);
 document.body.classList.add("op");
 YF.boot("screen 8 · conflict resolver");
 </script>

@@ -39,8 +39,9 @@ const NOW = 1_000_000;
 const source = (id: string, pulls: LaunchpadPull[], overrides: Partial<PullSource> = {}): PullSource => ({ connection: connection(id), pulls, total: pulls.length, capped: false, loading: false, failure: undefined, updatedAt: NOW - 90, ...overrides });
 
 describe("Launchpad tabs", () => {
-  it("names the three lists", () => {
+  it("names the four lists, Repositories first", () => {
     expect(LAUNCHPAD_TABS.map((tab) => [tab.id, tab.label])).toEqual([
+      ["repos", "Repositories"],
       ["pulls", "My pull requests"],
       ["issues", "My issues"],
       ["wips", "WIPs"],

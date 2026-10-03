@@ -66,7 +66,7 @@ const panel = `<section class="panel rpanel" aria-label="Recovery"><div class="r
     <li class="recrow snap">${head("Interactive rebase", "Edit history from 3e91a2c", "0 files", "feature/greeting", "9d ago")}</li>
   </ul>
 </div></section>`;
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${tabsBar("main")}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ recovery: true })}${panel}<aside class="panel inspector" aria-label="Changes"><div class="ihead"><h2>${G("changes")}Changes on feature/greeting</h2><p>2 files</p></div></aside></div>${YF.activity({ command: "git update-index --add", duration: "0.1 s", action: "" })}</div>`);
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${tabsBar("main")}${YF.command()}${YF.strip()}<div class="main">${YF.sidebar({ recovery: true })}${panel}<aside class="panel inspector" aria-label="Changes"><div class="ihead"><h2>${G("changes")}Changes on feature/greeting</h2><p>2 files</p></div></aside></div>${YF.activity({ command: "git update-index --add", duration: "0.1 s", action: "" })}</div>`);
 YF.boot("screen 24 · recovery snapshots");
 </script>
 </body>

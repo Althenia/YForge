@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { NOTHING_TO_UNDO } from "./activityModel";
+import { NOTHING_TO_REDO, NOTHING_TO_UNDO } from "./activityModel";
 import {
   buildCommands,
   commandIcon,
@@ -12,6 +12,7 @@ import {
   parseQuery,
   rank,
   refOptions,
+  repositoryChoices,
   type PaletteApp,
   type PaletteContext,
 } from "./palette";
@@ -63,6 +64,22 @@ const app = (): PaletteApp => ({
   nextTab: vi.fn(),
   previousTab: vi.fn(),
   checkForUpdate: vi.fn(),
+  openRepositorySearch: vi.fn(),
+  openShortcuts: vi.fn(),
+  openLogs: vi.fn(),
+  openDrawer: vi.fn(),
+  openReleaseNotes: vi.fn(),
+  zoom: vi.fn(),
+  toggleSidebar: vi.fn(),
+  toggleInspector: vi.fn(),
+  toggleSyntaxHighlighting: vi.fn(),
+  toggleTheme: vi.fn(),
+  switchProfile: vi.fn(),
+  profileList: () => ({ active: "default", profiles: [{ id: "default", name: "Default", author_name: "Yui", author_email: "yui@example.test" }, { id: "work", name: "Work", author_name: "Yui Lin", author_email: "yui@work.test" }] }),
+  profileOptions: async () => [{ value: "default", label: "Default", disabledReason: "This is the active profile" }, { value: "work", label: "Work" }],
+  openFileInTool: vi.fn(),
+  openFileInEditor: vi.fn(),
+  initializeLfs: vi.fn(),
 });
 
 const fakeActions = () => {
@@ -72,8 +89,9 @@ const fakeActions = () => {
     (...args: unknown[]) => {
       calls.push([name, ...args]);
     };
-  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash", "openSquash", "openRecompose", "openRebaseEditor"];
-  const actions = { sync: () => ({ kind: "idle" as const }), ...Object.fromEntries(names.map((name) => [name, record(name)])) };
+  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash", "openSquash", "openRecompose", "openRebaseEditor", "maintain", "createFile", "deleteFile", "viewFile", "editFile", "discardAll", "createPatch", "applyPatch"];
+  const reasons = { discardAllReason: () => undefined as string | undefined, createPatchReason: () => undefined as string | undefined, maintainReason: () => undefined as string | undefined };
+  const actions = { sync: () => ({ kind: "idle" as const }), ...reasons, ...Object.fromEntries(names.map((name) => [name, record(name)])) };
   return { actions: actions as unknown as RepoActions, calls };
 };
 
@@ -87,6 +105,11 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     pullMode: "fast_forward_or_merge",
     offline: false,
     undo: { kind: "unavailable", reason: NOTHING_TO_UNDO },
+    redo: { kind: "unavailable", reason: NOTHING_TO_REDO },
+    zoomPercent: 100,
+    theme: "system",
+    externalTools: { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" },
+    lfs: undefined,
     anchor: { left: 10, top: 20 },
     app: app(),
     platform: undefined,
@@ -95,6 +118,11 @@ function context(overrides: Partial<PaletteContext> = {}, repo: RepoSnapshot | n
     focusComposer: vi.fn(),
     revealHead: vi.fn(),
     openPanel: vi.fn(),
+    trackedFiles: async () => ["README.md", "src/main.rs"],
+    openFileHistory: vi.fn(),
+    viewChanges: vi.fn(),
+    redoLast: vi.fn(),
+    createTag: vi.fn(),
     loadCommits: async () => [
       { sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false },
       { sha: "1234567abcdef", summary: "Merge topic", merge: true, root: false },
@@ -588,3 +616,296 @@ describe("tab and menu-bar commands", () => {
   });
 });
 
+
+describe("repository scope (S55)", () => {
+  it("lists open tabs and recents first, then scanned folders, each once, with its alias", () => {
+    const choices = repositoryChoices({ repositories: () => ["/open", "/recent"], aliasOf: (path) => (path === "/recent" ? "Recent API" : undefined) }, ["/recent", "/scanned/a", "/open"]);
+
+    expect(choices).toEqual([
+      { path: "/open", alias: undefined },
+      { path: "/recent", alias: "Recent API" },
+      { path: "/scanned/a", alias: undefined },
+    ]);
+  });
+
+  it("registers Open repo with ⇧⌘O from the registry and runs the scoped search through the app", () => {
+    const run = context({}, null);
+    const search = find(buildCommands(run), "repository.search");
+
+    expect(search.shortcut).toBe("⌘⇧O");
+    expect(search.disabledReason).toBeUndefined();
+    search.run([]);
+    expect(run.app.openRepositorySearch).toHaveBeenCalledOnce();
+  });
+});
+
+describe("external tool commands (S54, S61)", () => {
+  it("opens the repository in the external editor with ⇧⌘E and says why it cannot when none is chosen", () => {
+    const run = context();
+    const open = find(buildCommands(run), "open.editor");
+    expect(open.title).toBe("Open in external editor");
+    expect(open.shortcut).toBe("⌘⇧E");
+    open.run([]);
+    expect(run.app.openExternal).toHaveBeenCalledWith("editor");
+
+    const none = buildCommands(context({ externalTools: { editor: null, diff: null, merge: null } }));
+    expect(find(none, "open.editor").disabledReason).toBe("Choose an external editor in Settings → External tools");
+    expect(find(none, "file.open_editor").disabledReason).toBe("Choose an external editor in Settings → External tools");
+  });
+
+  it("picks a changed file and opens it in the diff tool, or the merge tool when it is conflicted", async () => {
+    const files = [
+      { path: "a.txt", original_path: null, area: "unstaged", status: "modified" },
+      { path: "b.txt", original_path: null, area: "staged", status: "added" },
+      { path: "c.txt", original_path: null, area: "conflicted", status: "conflicted" },
+    ] as RepoSnapshot["files"];
+    const run = context({}, snapshot({ files }));
+    const pick = find(buildCommands(run), "open.diffmerge");
+
+    expect(pick.title).toBe("Open in external diff or merge tool…");
+    expect((await pick.args[0]?.options())?.map((option) => [option.value, option.disabledReason])).toEqual([
+      ["unstaged:a.txt", undefined],
+      ["staged:b.txt", undefined],
+      ["conflicted:c.txt", undefined],
+    ]);
+    pick.run(["conflicted:c.txt"]);
+    pick.run(["staged:b.txt"]);
+    expect(run.app.openFileInTool).toHaveBeenNthCalledWith(1, "c.txt", "conflicted");
+    expect(run.app.openFileInTool).toHaveBeenNthCalledWith(2, "b.txt", "staged");
+  });
+
+  it("disables a file per option when its tool is missing and the whole command when nothing changed", async () => {
+    const files = [
+      { path: "a.txt", original_path: null, area: "unstaged", status: "modified" },
+      { path: "c.txt", original_path: null, area: "conflicted", status: "conflicted" },
+    ] as RepoSnapshot["files"];
+    const tools = { editor: "Zed", diff: null, merge: null };
+    const pick = find(buildCommands(context({ externalTools: tools }, snapshot({ files }))), "open.diffmerge");
+
+    expect((await pick.args[0]?.options())?.map((option) => option.disabledReason)).toEqual(["Choose an external diff tool in Settings → External tools", "Choose an external merge tool in Settings → External tools"]);
+    expect(find(buildCommands(context()), "open.diffmerge").disabledReason).toBe("No changed files to open in a tool");
+  });
+});
+
+describe("settings and appearance commands (S61)", () => {
+  it("sends Git Flow, LFS, signing, and accounts to their Settings sections", () => {
+    const run = context();
+    const commands = buildCommands(run);
+    for (const id of ["settings.git_flow", "settings.lfs_configure", "settings.signing", "accounts.manage"]) find(commands, id).run([]);
+
+    expect((run.app.openSettings as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual(["repository", "repository", "git", "platforms"]);
+    expect(find(commands, "settings.lfs_init").title).toBe("Initialize LFS");
+    expect(find(commands, "accounts.manage").title).toBe("Manage accounts");
+  });
+
+  it("initializes LFS through the app and says why it cannot when Git LFS is missing or already set up", () => {
+    const run = context();
+    find(buildCommands(run), "settings.lfs_init").run([]);
+    expect(run.app.initializeLfs).toHaveBeenCalledOnce();
+
+    const missing = buildCommands(context({ lfs: { installed: false, version: null, initialized: false, patterns: [] } }));
+    expect(find(missing, "settings.lfs_init").disabledReason).toBe("Git LFS is not installed on this Mac");
+    const done = buildCommands(context({ lfs: { installed: true, version: "3.5.1", initialized: true, patterns: ["*.psd"] } }));
+    expect(find(done, "settings.lfs_init").disabledReason).toBe("Git LFS is already initialized in this repository");
+    const ready = buildCommands(context({ lfs: { installed: true, version: "3.5.1", initialized: false, patterns: [] } }));
+    expect(find(ready, "settings.lfs_init").disabledReason).toBeUndefined();
+    expect(find(done, "settings.lfs_configure").disabledReason).toBeUndefined();
+  });
+
+  it("needs a repository for Git Flow and LFS but not for signing or accounts", () => {
+    const commands = buildCommands(context({}, null));
+
+    expect(find(commands, "settings.git_flow").disabledReason).toBe("Open a repository first");
+    expect(find(commands, "settings.lfs_configure").disabledReason).toBe("Open a repository first");
+    expect(find(commands, "settings.lfs_init").disabledReason).toBe("Open a repository first");
+    expect(find(commands, "settings.signing").disabledReason).toBeUndefined();
+    expect(find(commands, "accounts.manage").disabledReason).toBeUndefined();
+  });
+
+  it("joins a side, disables the side already chosen with the reason, and toggles the theme", () => {
+    const run = context({ theme: "dark" });
+    const commands = buildCommands(run);
+
+    find(commands, "theme.light").run([]);
+    find(commands, "theme.toggle").run([]);
+
+    expect(run.app.setTheme).toHaveBeenCalledWith("light");
+    expect(run.app.toggleTheme).toHaveBeenCalledOnce();
+    expect(find(commands, "theme.dark").disabledReason).toBe("The theme is already dark");
+    expect(find(commands, "theme.light").title).toBe("Join the light side");
+    expect(find(commands, "theme.dark").title).toBe("Join the dark side");
+    expect(find(buildCommands(context({ theme: "light" })), "theme.light").disabledReason).toBe("The theme is already light");
+  });
+
+  it("switches profile through a profile argument that disables the active one, and needs a second profile", async () => {
+    const run = context();
+    const commands = buildCommands(run);
+    const switcher = find(commands, "profile.switch");
+
+    expect(switcher.title).toBe("Switch to profile…");
+    expect((await switcher.args[0]?.options())?.map((option) => [option.label, option.disabledReason])).toEqual([
+      ["Default", "This is the active profile"],
+      ["Work", undefined],
+    ]);
+    switcher.run(["work"]);
+    expect(run.app.switchProfile).toHaveBeenCalledWith("work");
+    const lone = context({ app: { ...app(), profileList: () => ({ active: "default", profiles: [{ id: "default", name: "Default", author_name: "", author_email: "" }] }) } });
+    expect(find(buildCommands(lone), "profile.switch").disabledReason).toBe("Create another profile in Settings to switch");
+  });
+});
+
+describe("view commands (S61)", () => {
+  it("zooms in, out, and back with the registry shortcuts", () => {
+    const run = context({ zoomPercent: 125 });
+    const commands = buildCommands(run);
+
+    expect([find(commands, "zoom.in").shortcut, find(commands, "zoom.out").shortcut, find(commands, "zoom.reset").shortcut]).toEqual(["⌘=", "⌘-", "⌘0"]);
+    find(commands, "zoom.in").run([]);
+    find(commands, "zoom.out").run([]);
+    find(commands, "zoom.reset").run([]);
+    expect((run.app.zoom as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual(["in", "out", "reset"]);
+  });
+
+  it("disables zooming past 80 and 200 percent and resetting at 100 percent, each with its reason, even without a repository", () => {
+    expect(find(buildCommands(context({ zoomPercent: 200 }, null)), "zoom.in").disabledReason).toBe("Already at 200%, the largest size");
+    expect(find(buildCommands(context({ zoomPercent: 80 }, null)), "zoom.out").disabledReason).toBe("Already at 80%, the smallest size");
+    expect(find(buildCommands(context({ zoomPercent: 100 }, null)), "zoom.reset").disabledReason).toBe("Already at 100%");
+    expect(find(buildCommands(context({ zoomPercent: 125 }, null)), "zoom.in").disabledReason).toBeUndefined();
+  });
+
+  it("opens the shortcuts sheet, toggles the panels and syntax highlighting, and needs a repository only for the panels", () => {
+    const run = context();
+    const commands = buildCommands(run);
+    for (const id of ["shortcuts.show", "view.sidebar", "view.inspector", "view.syntax"]) find(commands, id).run([]);
+
+    expect(run.app.openShortcuts).toHaveBeenCalledOnce();
+    expect(run.app.toggleSidebar).toHaveBeenCalledOnce();
+    expect(run.app.toggleInspector).toHaveBeenCalledOnce();
+    expect(run.app.toggleSyntaxHighlighting).toHaveBeenCalledOnce();
+    expect(find(commands, "view.sidebar").shortcut).toBe("⌘\\");
+    expect(find(commands, "view.inspector").shortcut).toBe("⌥⌘\\");
+    const none = buildCommands(context({}, null));
+    expect(find(none, "view.sidebar").disabledReason).toBe("Open a repository first");
+    expect(find(none, "view.inspector").disabledReason).toBe("Open a repository first");
+    expect(find(none, "view.syntax").disabledReason).toBeUndefined();
+    expect(find(none, "shortcuts.show").disabledReason).toBeUndefined();
+  });
+});
+
+describe("history, core, and branch commands (S61)", () => {
+  it("picks a tracked file for the file history and for the blame, and asks the right view", async () => {
+    const run = context();
+    const commands = buildCommands(run);
+
+    expect(await find(commands, "history.file").args[0]?.options()).toEqual([
+      { value: "README.md", label: "README.md" },
+      { value: "src/main.rs", label: "src/main.rs" },
+    ]);
+    find(commands, "history.file").run(["src/main.rs"]);
+    find(commands, "history.blame").run(["README.md"]);
+
+    expect((run.openFileHistory as ReturnType<typeof vi.fn>).mock.calls).toEqual([["src/main.rs", "diff"], ["README.md", "blame"]]);
+    expect(find(commands, "history.file").title).toBe("History of file…");
+    expect(find(commands, "history.blame").title).toBe("Blame of file…");
+  });
+
+  it("redoes the last undone operation with ⇧⌘Z and says Nothing to redo otherwise", () => {
+    expect(find(buildCommands(context()), "redo").disabledReason).toBe("Nothing to redo");
+    const run = context({ redo: { kind: "available", scope: "Redo: moves main forward" } });
+    const redo = find(buildCommands(run), "redo");
+
+    expect(redo.shortcut).toBe("⌘⇧Z");
+    expect(redo.disabledReason).toBeUndefined();
+    redo.run([]);
+    expect(run.redoLast).toHaveBeenCalledOnce();
+  });
+
+  it("creates an annotated tag from a name and a message and views the working directory changes", () => {
+    const run = context();
+    const commands = buildCommands(run);
+    const annotated = find(commands, "tag.create_annotated");
+
+    expect(annotated.title).toBe("Create annotated tag…");
+    expect(annotated.args.map((arg) => [arg.name, arg.text])).toEqual([["name", true], ["message", true]]);
+    annotated.run(["v2", "Second release"]);
+    find(commands, "wip.view").run([]);
+
+    expect(run.createTag).toHaveBeenCalledWith("v2", "Second release");
+    expect(run.viewChanges).toHaveBeenCalledOnce();
+    expect(find(buildCommands(context({}, null)), "tag.create_annotated").disabledReason).toBe("Open a repository first");
+  });
+});
+
+describe("file, patch, maintenance, and log commands (S61)", () => {
+  it("runs the file commands through the repository actions with the chosen tracked file", () => {
+    const run = context();
+    const commands = buildCommands(run);
+    find(commands, "file.create").run([]);
+    find(commands, "file.delete").run(["README.md"]);
+    find(commands, "file.view").run(["README.md"]);
+    find(commands, "file.edit").run(["src/main.rs"]);
+    find(commands, "file.open_editor").run(["src/main.rs"]);
+
+    expect(run.calls).toEqual([["createFile"], ["deleteFile", "README.md"], ["viewFile", "README.md"], ["editFile", "src/main.rs"]]);
+    expect(run.app.openFileInEditor).toHaveBeenCalledWith("src/main.rs");
+    for (const id of ["file.delete", "file.view", "file.edit", "file.open_editor"]) expect(find(commands, id).args).toHaveLength(1);
+  });
+
+  it("takes the reasons for Discard all, Create patch, and maintenance from the repository actions", () => {
+    const run = context();
+    const blocked = {
+      discardAllReason: () => "No changes to discard",
+      createPatchReason: () => "There are no changes to put in a patch",
+      maintainReason: () => "Another operation is running",
+    };
+    Object.assign(run.actions as object, blocked);
+    const commands = buildCommands(run);
+
+    expect(find(commands, "file.discard_all").disabledReason).toBe("No changes to discard");
+    expect(find(commands, "patch.create").disabledReason).toBe("There are no changes to put in a patch");
+    expect(find(commands, "repository.maintain").disabledReason).toBe("Another operation is running");
+    expect(find(buildCommands(context()), "file.discard_all").disabledReason).toBeUndefined();
+    expect(find(buildCommands(context()), "patch.create").disabledReason).toBeUndefined();
+    expect(find(buildCommands(context()), "repository.maintain").disabledReason).toBeUndefined();
+    expect(find(buildCommands(context({}, null)), "repository.maintain").disabledReason).toBe("Open a repository first");
+  });
+
+  it("runs discard all, create patch, apply patch, and maintenance through the actions", () => {
+    const run = context();
+    const commands = buildCommands(run);
+    find(commands, "file.discard_all").run([]);
+    find(commands, "patch.create").run([]);
+    find(commands, "patch.apply").run([]);
+    find(commands, "repository.maintain").run([]);
+
+    expect(run.calls).toEqual([["discardAll"], ["createPatch"], ["applyPatch"], ["maintain"]]);
+    expect(find(commands, "patch.create").title).toBe("Create patch from working directory changes");
+    expect(find(commands, "repository.maintain").title).toBe("Perform repository maintenance");
+  });
+
+  it("opens the activity, error, and performance logs and the release notes without a repository", () => {
+    const run = context({}, null);
+    const commands = buildCommands(run);
+    for (const id of ["logs.activity", "logs.errors", "logs.performance", "logs.release_notes"]) {
+      expect(find(commands, id).disabledReason).toBeUndefined();
+      find(commands, id).run([]);
+    }
+
+    expect(run.app.openDrawer).toHaveBeenCalledOnce();
+    expect((run.app.openLogs as ReturnType<typeof vi.fn>).mock.calls.map((call) => call[0])).toEqual(["errors", "performance"]);
+    expect(run.app.openReleaseNotes).toHaveBeenCalledOnce();
+  });
+
+  it("gives every command a title that names its S61 action", () => {
+    const titles = new Set(buildCommands(context()).map((command) => command.title));
+    for (const title of [
+      "Open repo…", "Open in external editor", "Open in external diff or merge tool…", "Open in terminal", "Reveal in Finder", "Close tab", "Clone repository…", "Create repository…", "Open repository…", "Open settings",
+      "Configure Git Flow", "Configure LFS", "Initialize LFS", "Configure commit signing", "Join the light side", "Join the dark side", "Manage accounts", "Switch to profile…",
+      "Zoom in", "Zoom out", "Reset zoom", "Keyboard shortcuts", "Toggle sidebar", "Toggle inspector", "Toggle syntax highlighting", "Toggle theme",
+      "History of file…", "Blame of file…", "Undo last operation", "Redo last operation",
+      "Create file…", "Delete file…", "Open file in editor…", "View file…", "Edit file…", "Discard all changes", "Stage all changes", "Unstage all changes",
+      "Stash changes…", "Apply stash…", "Pop stash…", "Create tag…", "Create annotated tag…", "Fetch all", "Rename branch…", "Create pull request…", "View working directory changes", "Checkout…",
+      "Create patch from working directory changes", "Apply patch…", "Activity log", "Error log", "Performance log", "Release notes", "Perform repository maintenance",
+    ]) expect(titles.has(title), title).toBe(true);
+  });
+});

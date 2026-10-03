@@ -1495,3 +1495,259 @@ describe("bulk branch and stash actions", () => {
     expect(calls.some((call) => call.cmd === "stash_drop")).toBe(false);
   });
 });
+
+describe("file operations", () => {
+  const change = (path: string, area: "unstaged" | "untracked" | "staged" = "unstaged") => ({ path, original_path: null, area, status: "modified" });
+  const shown: unknown[] = [];
+
+  function files(handler: (call: Call) => unknown, initial: RepoSnapshot = snapshot()) {
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+      calls.push(call);
+      if (cmd === "repo_open") return initial;
+      return handler(call);
+    });
+    shown.length = 0;
+    const session = testSession("/r", initial);
+    const actions = createRepoActions(session, {
+      selectedSha: () => undefined,
+      onSelectionGone: () => undefined,
+      pullMode: () => "fast_forward_or_merge",
+      offline: () => false,
+      inspectStash: () => undefined,
+      openWorktree: async () => true,
+      undoEntry: () => undefined,
+      showFile: (target) => shown.push(target),
+    });
+    return { calls, session, actions };
+  }
+
+  it("creates a file from the name dialog, refreshes the changes, and closes the dialog", async () => {
+    const { actions, calls } = files(() => null);
+
+    actions.createFile();
+    expect(actions.files.dialog()).toEqual({ kind: "create" });
+    const problem = await actions.files.submitCreate("  deep/er/new.txt  ");
+
+    expect(problem).toBeUndefined();
+    expect(calls.find((call) => call.cmd === "file_create")?.args).toEqual({ path: "/r", file: "deep/er/new.txt" });
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
+    expect(actions.files.dialog()).toBeUndefined();
+  });
+
+  it("keeps the dialog open and returns the refusal when the path exists", async () => {
+    const { actions } = files((call) => {
+      if (call.cmd === "file_create") throw rejection("invalid_request", "Invalid request: a.txt already exists");
+      return null;
+    });
+
+    actions.createFile();
+    const problem = await actions.files.submitCreate("a.txt");
+
+    expect(problem).toBe("Invalid request: a.txt already exists");
+    expect(actions.files.dialog()).toEqual({ kind: "create" });
+  });
+
+  it("confirms Delete file with a text-labelled danger copy before deleting, then refreshes", async () => {
+    const { actions, calls } = files(() => null);
+
+    actions.deleteFile("src/a.txt");
+    const dialog = actions.dialog();
+
+    expect(dialog?.copy).toMatchObject({ title: "Delete src/a.txt?", names: ["src/a.txt"], confirmLabel: "Delete file" });
+    expect(dialog?.copy.neutral).toBeUndefined();
+    expect(dialog?.copy.consequences.join(" ")).toMatch(/Undo/);
+    expect(calls.some((call) => call.cmd === "file_delete")).toBe(false);
+    await dialog?.run();
+    expect(calls.find((call) => call.cmd === "file_delete")?.args).toEqual({ path: "/r", file: "src/a.txt" });
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
+  });
+
+  it("picks the file to delete from the tracked and untracked files when none is given", async () => {
+    const { actions, calls } = files((call) => (call.cmd === "worktree_files" ? ["a.txt", "new/b.txt"] : null));
+
+    actions.deleteFile();
+    await settle();
+
+    expect(calls.find((call) => call.cmd === "worktree_files")?.args).toEqual({ path: "/r" });
+    expect(actions.files.dialog()).toEqual({ kind: "pick", purpose: "delete", files: ["a.txt", "new/b.txt"] });
+    expect(actions.dialog()).toBeUndefined();
+    actions.files.choose("delete", "new/b.txt");
+    expect(actions.files.dialog()).toBeUndefined();
+    expect(actions.dialog()?.copy.title).toBe("Delete new/b.txt?");
+  });
+
+  it("opens the working-tree file in the existing file view", async () => {
+    const { actions } = files((call) => (call.cmd === "worktree_files" ? ["a.txt"] : null));
+
+    actions.viewFile("a.txt");
+    actions.viewFile();
+    await settle();
+    actions.files.choose("view", "a.txt");
+
+    expect(shown).toEqual([
+      { file: "a.txt", rev: ":worktree", source: "Working tree" },
+      { file: "a.txt", rev: ":worktree", source: "Working tree" },
+    ]);
+  });
+
+  it("opens a text file in the editor with its content and line ending", async () => {
+    const { actions, calls } = files((call) => (call.cmd === "file_editable" ? { text: "one\r\n", eol: "\r\n", size: 5 } : null));
+
+    actions.editFile("a.txt");
+    await settle();
+
+    expect(calls.find((call) => call.cmd === "file_editable")?.args).toEqual({ path: "/r", file: "a.txt" });
+    expect(actions.files.editing()).toEqual({ file: "a.txt", text: "one\r\n", eol: "\r\n", size: 5 });
+    actions.files.closeEditor();
+    expect(actions.files.editing()).toBeUndefined();
+  });
+
+  it("states the reason and opens no editor when the file is binary or too large", async () => {
+    const { actions, session } = files((call) => {
+      if (call.cmd === "file_editable") throw rejection("invalid_request", "Invalid request: image.bin is a binary file; the editor opens text files only");
+      return null;
+    });
+
+    actions.editFile("image.bin");
+    await settle();
+
+    expect(actions.files.editing()).toBeUndefined();
+    expect(session.notice()).toBe("Invalid request: image.bin is a binary file; the editor opens text files only");
+  });
+
+  it("saves the editor text with its line ending and refreshes the changes", async () => {
+    const { actions, calls } = files(() => null);
+
+    await actions.files.save("a.txt", "x\ny\n", "\r\n");
+
+    expect(calls.find((call) => call.cmd === "file_save")?.args).toEqual({ path: "/r", file: "a.txt", text: "x\ny\n", eol: "\r\n" });
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(true);
+  });
+
+  it("names the count in the Discard all confirmation and discards after confirming", async () => {
+    const initial = snapshot({ counts: { ...counts, modified: 2, untracked: 1 }, files: [change("a.txt"), change("a.txt", "staged"), change("b.txt"), change("c.txt", "untracked")] as never });
+    const { actions, calls } = files(() => null, initial);
+
+    expect(actions.discardAllReason()).toBeUndefined();
+    actions.discardAll();
+    const dialog = actions.dialog();
+
+    expect(dialog?.copy).toMatchObject({ title: "Discard all 3 changed files?", confirmLabel: "Discard all changes" });
+    expect(dialog?.copy.consequences.join(" ")).toMatch(/untracked/);
+    expect(dialog?.copy.consequences.join(" ")).toMatch(/Undo/);
+    expect(calls.some((call) => call.cmd === "discard_all")).toBe(false);
+    await dialog?.run();
+    expect(calls.find((call) => call.cmd === "discard_all")?.args).toEqual({ path: "/r" });
+  });
+
+  it("is unavailable with its reason when there is nothing to discard or an operation is running", () => {
+    const clean = files(() => null);
+    expect(clean.actions.discardAllReason()).toBe("There are no changes to discard");
+    clean.actions.discardAll();
+    expect(clean.actions.dialog()).toBeUndefined();
+
+    const merging = files(() => null, snapshot({ counts: { ...counts, modified: 1 }, files: [change("a.txt")] as never, operation: "merge" }));
+    expect(merging.actions.discardAllReason()).toBe("Finish or abort the merge in progress first");
+  });
+
+  it("creates a patch of every working-directory change at the chosen path", async () => {
+    const { actions, calls } = files((call) => (call.cmd === "plugin:dialog|save" ? "/tmp/all.patch" : null), snapshot({ counts: { ...counts, modified: 1 }, files: [change("a.txt")] as never }));
+
+    actions.createPatch();
+    await settle();
+    await settle();
+
+    expect(calls.find((call) => call.cmd === "patch_create")?.args).toEqual({ path: "/r", files: null, destination: "/tmp/all.patch" });
+  });
+
+  it("creates a patch of the given files and does nothing when the save dialog is cancelled", async () => {
+    const chosen = files((call) => (call.cmd === "plugin:dialog|save" ? "/tmp/two.patch" : null));
+    chosen.actions.createPatch(["a.txt", "b.txt"]);
+    await settle();
+    await settle();
+    expect(chosen.calls.find((call) => call.cmd === "patch_create")?.args).toEqual({ path: "/r", files: ["a.txt", "b.txt"], destination: "/tmp/two.patch" });
+
+    const cancelled = files((call) => (call.cmd === "plugin:dialog|save" ? null : null));
+    cancelled.actions.createPatch(["a.txt"]);
+    await settle();
+    await settle();
+    expect(cancelled.calls.some((call) => call.cmd === "patch_create")).toBe(false);
+  });
+
+  it("reports a failed patch creation with its reason", async () => {
+    const { actions, session } = files((call) => {
+      if (call.cmd === "plugin:dialog|save") return "/tmp/x.patch";
+      if (call.cmd === "patch_create") throw rejection("invalid_request", "Invalid request: there are no changes to put in a patch");
+      return null;
+    });
+
+    actions.createPatch(["a.txt"]);
+    await settle();
+    await settle();
+
+    expect(session.notice()).toBe("Invalid request: there are no changes to put in a patch");
+  });
+
+  it("applies the chosen patch and refreshes, and shows Git's message when it is refused", async () => {
+    const applied = files((call) => (call.cmd === "plugin:dialog|open" ? "/tmp/p.patch" : null));
+    applied.actions.applyPatch();
+    await settle();
+    await settle();
+    expect(applied.calls.find((call) => call.cmd === "patch_apply")?.args).toEqual({ path: "/r", patch: "/tmp/p.patch" });
+    expect(applied.calls.some((call) => call.cmd === "repo_open")).toBe(true);
+    expect(applied.session.notice()).toBe("Applied p.patch");
+
+    const refused = files((call) => {
+      if (call.cmd === "plugin:dialog|open") return "/tmp/bad.patch";
+      if (call.cmd === "patch_apply") throw rejection("git_failed", "git apply --3way /tmp/bad.patch exited with status 1: error: a.txt: does not match index");
+      return null;
+    });
+    refused.actions.applyPatch();
+    await settle();
+    await settle();
+    expect(refused.session.notice()).toBe("git apply --3way /tmp/bad.patch exited with status 1: error: a.txt: does not match index");
+  });
+
+  it("does nothing when the patch chooser is cancelled", async () => {
+    const { actions, calls } = files(() => null);
+
+    actions.applyPatch();
+    await settle();
+    await settle();
+
+    expect(calls.some((call) => call.cmd === "patch_apply")).toBe(false);
+  });
+
+  it("runs repository maintenance with progress for its id, then reports the outcome", async () => {
+    let release: () => void = () => {};
+    const { actions, calls, session } = files((call) => (call.cmd === "maintenance_run" ? new Promise((resolve) => (release = () => resolve(null))) : null));
+
+    const done = actions.maintain();
+    const running = actions.sync();
+    expect(running).toMatchObject({ kind: "running", label: "Running maintenance" });
+    const id = running.kind === "running" ? running.id : "";
+    expect(actions.maintainReason()).toBe("Another operation is running");
+    actions.onProgress({ id, phase: "Running repository maintenance", percent: null });
+    expect(actions.sync()).toMatchObject({ phase: "Running repository maintenance" });
+    release();
+    await done;
+
+    expect(calls.find((call) => call.cmd === "maintenance_run")?.args).toEqual({ path: "/r", id });
+    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(session.notice()).toBe("Repository maintenance finished");
+    expect(actions.maintainReason()).toBeUndefined();
+  });
+
+  it("shows a failed maintenance run's message", async () => {
+    const { actions, session } = files((call) => {
+      if (call.cmd === "maintenance_run") throw rejection("git_failed", "git maintenance run exited with status 1: fatal: unable to lock");
+      return null;
+    });
+
+    await actions.maintain();
+
+    expect(session.notice()).toBe("git maintenance run exited with status 1: fatal: unable to lock");
+  });
+});

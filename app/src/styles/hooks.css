@@ -1,0 +1,126 @@
+.sec .sec-note {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: var(--font-ui-small);
+  font-family: var(--typography-ref-font-family);
+  color: var(--colors-text-muted);
+}
+
+.srow.flow .acts {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  margin-left: auto;
+  flex: none;
+}
+
+.srow.hook .acts {
+  position: absolute;
+  inset-inline-end: var(--spacing-1);
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-1);
+  border-radius: var(--rounded-md);
+  background: var(--colors-surface-3);
+  opacity: 0;
+}
+
+.srow.hook:focus-within .acts {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .srow.hook:hover .acts {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .srow.hook .acts {
+    opacity: 1;
+  }
+}
+
+.srow.hook .acts .icon-btn[aria-disabled="true"] {
+  opacity: 0.5;
+}
+
+.srow.flow .name {
+  flex: 1;
+}
+
+.dialog.hook-sheet {
+  width: 720px;
+  max-height: calc(100vh - 2 * var(--spacing-6));
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto auto auto;
+}
+
+.hook-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-2);
+  font: var(--font-ui-small);
+  color: var(--colors-text-muted);
+}
+
+.hook-path {
+  margin: 0;
+  font: var(--font-ui-small);
+  font-family: var(--typography-code-font-family);
+  color: var(--colors-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.hook-script,
+.hook-output {
+  margin: 0;
+  min-height: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: var(--spacing-2);
+  border-radius: var(--rounded-md);
+  background: var(--colors-canvas);
+  border: 1px solid var(--colors-rule-panel);
+  font: var(--font-ui-small);
+  font-family: var(--typography-code-font-family);
+  color: var(--colors-text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.hook-output {
+  min-height: 72px;
+  display: block;
+}
+
+.hook-line {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.hook-line.err {
+  color: var(--colors-danger-ink);
+}
+
+.hook-note,
+.hook-result,
+.flow-note {
+  margin: 0;
+  font: var(--font-ui-small);
+  color: var(--colors-text-muted);
+}
+
+.hook-result {
+  color: var(--colors-text);
+}
+
+.hook-result.bad,
+.flow-note.error {
+  color: var(--colors-danger-ink);
+}

@@ -1,5 +1,6 @@
 import type { LanguageFn } from "highlight.js";
 import hljs from "highlight.js/lib/core";
+import { createSignal } from "solid-js";
 
 export type SyntaxKind = "keyword" | "string" | "number" | "comment" | "function" | "type" | "property";
 
@@ -144,8 +145,12 @@ function splitLines(segments: readonly Segment[]): Segment[][] {
 
 const plain = (lines: readonly string[]): Segment[][] => lines.map((text) => (text === "" ? [] : [{ text, kind: undefined }]));
 
+const [highlighting, setSyntaxHighlighting] = createSignal(true);
+
+export { setSyntaxHighlighting };
+
 export function highlightLines(language: LanguageId | undefined, lines: readonly string[]): Segment[][] {
-  if (language === undefined || !registered.has(language)) return plain(lines);
+  if (!highlighting() || language === undefined || !registered.has(language)) return plain(lines);
   const code = lines.join("\n");
   if (code.length > MAX_HIGHLIGHT_CHARS) return plain(lines);
   const split = splitLines(segmentsOf(hljs.highlight(code, { language, ignoreIllegals: true }).value));

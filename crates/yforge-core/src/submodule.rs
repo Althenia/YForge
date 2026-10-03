@@ -31,7 +31,12 @@ pub fn list_submodules(path: &Path) -> Result<Vec<Submodule>, CoreError> {
     Ok(assemble(configs, status, recorded))
 }
 
-pub fn add_submodule(path: &Path, url: &str, submodule_path: &str, branch: Option<&str>) -> Result<(), CoreError> {
+pub fn add_submodule(
+    path: &Path,
+    url: &str,
+    submodule_path: &str,
+    branch: Option<&str>,
+) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[submodule_path])?;
     let url = url.trim();
@@ -56,7 +61,11 @@ pub fn add_submodule(path: &Path, url: &str, submodule_path: &str, branch: Optio
 pub fn update_submodule(path: &Path, submodule_path: &str) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[submodule_path])?;
-    git::run(&root, &["submodule", "update", "--init", "--", submodule_path]).map(drop)
+    git::run(
+        &root,
+        &["submodule", "update", "--init", "--", submodule_path],
+    )
+    .map(drop)
 }
 
 pub fn update_submodules(path: &Path) -> Result<(), CoreError> {
@@ -73,9 +82,13 @@ pub fn deinit_submodule(path: &Path, submodule_path: &str) -> Result<(), CoreErr
 pub fn stage_submodule(path: &Path, submodule_path: &str) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[submodule_path])?;
-    let known = list_submodules(&root)?.iter().any(|entry| entry.path == submodule_path);
+    let known = list_submodules(&root)?
+        .iter()
+        .any(|entry| entry.path == submodule_path);
     if !known {
-        return Err(CoreError::invalid_request(format!("{submodule_path} is not a submodule")));
+        return Err(CoreError::invalid_request(format!(
+            "{submodule_path} is not a submodule"
+        )));
     }
     stage::stage_files(&root, &[submodule_path.to_owned()])
 }
@@ -93,13 +106,21 @@ fn parse_gitmodules(text: &str) -> Vec<ModuleConfig> {
     let mut current: Option<ModuleConfig> = None;
     for raw in text.lines() {
         let line = raw.trim();
-        if let Some(name) = line.strip_prefix("[submodule \"").and_then(|rest| rest.strip_suffix("\"]")) {
+        if let Some(name) = line
+            .strip_prefix("[submodule \"")
+            .and_then(|rest| rest.strip_suffix("\"]"))
+        {
             if let Some(done) = current.take() {
                 if !done.path.is_empty() {
                     modules.push(done);
                 }
             }
-            current = Some(ModuleConfig { name: name.to_owned(), path: String::new(), url: String::new(), branch: None });
+            current = Some(ModuleConfig {
+                name: name.to_owned(),
+                path: String::new(),
+                url: String::new(),
+                branch: None,
+            });
         } else if let Some(module) = current.as_mut() {
             if let Some((key, value)) = line.split_once('=') {
                 match key.trim() {
@@ -120,28 +141,49 @@ fn parse_gitmodules(text: &str) -> Vec<ModuleConfig> {
 }
 
 fn parse_status(output: &str) -> Result<Vec<StatusLine>, CoreError> {
-    output.lines().filter(|line| !line.is_empty()).map(parse_status_line).collect()
+    output
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(parse_status_line)
+        .collect()
 }
 
 fn parse_status_line(line: &str) -> Result<StatusLine, CoreError> {
     let mut chars = line.chars();
-    let prefix = chars.next().ok_or_else(|| CoreError::invalid_output(STATUS_COMMAND, format!("empty status {line:?}")))?;
+    let prefix = chars.next().ok_or_else(|| {
+        CoreError::invalid_output(STATUS_COMMAND, format!("empty status {line:?}"))
+    })?;
     if !matches!(prefix, ' ' | '+' | '-' | 'U') {
-        return Err(CoreError::invalid_output(STATUS_COMMAND, format!("unknown status {line:?}")));
+        return Err(CoreError::invalid_output(
+            STATUS_COMMAND,
+            format!("unknown status {line:?}"),
+        ));
     }
     let rest = chars.as_str();
-    let (sha, after) = rest.split_once(' ').ok_or_else(|| CoreError::invalid_output(STATUS_COMMAND, format!("expected sha and path in {line:?}")))?;
+    let (sha, after) = rest.split_once(' ').ok_or_else(|| {
+        CoreError::invalid_output(STATUS_COMMAND, format!("expected sha and path in {line:?}"))
+    })?;
     if sha.len() < 4 || !sha.chars().all(|char| char.is_ascii_hexdigit()) {
-        return Err(CoreError::invalid_output(STATUS_COMMAND, format!("expected a sha in {line:?}")));
+        return Err(CoreError::invalid_output(
+            STATUS_COMMAND,
+            format!("expected a sha in {line:?}"),
+        ));
     }
     let path = match after.rfind(" (") {
         Some(index) if after.ends_with(')') => &after[..index],
         _ => after,
     };
     if path.is_empty() {
-        return Err(CoreError::invalid_output(STATUS_COMMAND, format!("expected a path in {line:?}")));
+        return Err(CoreError::invalid_output(
+            STATUS_COMMAND,
+            format!("expected a path in {line:?}"),
+        ));
     }
-    Ok(StatusLine { prefix, sha: sha.to_owned(), path: path.to_owned() })
+    Ok(StatusLine {
+        prefix,
+        sha: sha.to_owned(),
+        path: path.to_owned(),
+    })
 }
 
 fn parse_gitlinks(output: &str) -> Vec<(String, String)> {
@@ -157,29 +199,59 @@ fn parse_gitlinks(output: &str) -> Vec<(String, String)> {
         .collect()
 }
 
-fn assemble(configs: Vec<ModuleConfig>, status: Vec<StatusLine>, gitlinks: Vec<(String, String)>) -> Vec<Submodule> {
-    let by_status: BTreeMap<_, _> = status.into_iter().map(|line| (line.path.clone(), line)).collect();
+fn assemble(
+    configs: Vec<ModuleConfig>,
+    status: Vec<StatusLine>,
+    gitlinks: Vec<(String, String)>,
+) -> Vec<Submodule> {
+    let by_status: BTreeMap<_, _> = status
+        .into_iter()
+        .map(|line| (line.path.clone(), line))
+        .collect();
     let recorded_of: BTreeMap<_, _> = gitlinks.into_iter().collect();
     let mut seen = Vec::new();
     let mut rows = Vec::new();
     for config in configs {
         seen.push(config.path.clone());
-        rows.push(row_from(config.name, config.path, config.url, config.branch, &by_status, &recorded_of));
+        rows.push(row_from(
+            config.name,
+            config.path,
+            config.url,
+            config.branch,
+            &by_status,
+            &recorded_of,
+        ));
     }
     for (path, line) in &by_status {
         if seen.iter().any(|item| item == path) {
             continue;
         }
-        rows.push(row_from(path.clone(), line.path.clone(), String::new(), None, &by_status, &recorded_of));
+        rows.push(row_from(
+            path.clone(),
+            line.path.clone(),
+            String::new(),
+            None,
+            &by_status,
+            &recorded_of,
+        ));
     }
     rows
 }
 
-fn row_from(name: String, path: String, url: String, branch: Option<String>, status: &BTreeMap<String, StatusLine>, recorded_of: &BTreeMap<String, String>) -> Submodule {
+fn row_from(
+    name: String,
+    path: String,
+    url: String,
+    branch: Option<String>,
+    status: &BTreeMap<String, StatusLine>,
+    recorded_of: &BTreeMap<String, String>,
+) -> Submodule {
     let line = status.get(&path);
     let prefix = line.map(|entry| entry.prefix);
     let gitlink = recorded_of.get(&path).cloned();
-    let from_status = (prefix == Some('-')).then(|| line.map(|entry| entry.sha.clone())).flatten();
+    let from_status = (prefix == Some('-'))
+        .then(|| line.map(|entry| entry.sha.clone()))
+        .flatten();
     let recorded = gitlink.or(from_status).unwrap_or_default();
     let checked_out = match prefix {
         Some('-') | None => None,
@@ -189,10 +261,23 @@ fn row_from(name: String, path: String, url: String, branch: Option<String>, sta
         Some('-') | None => SubmoduleStatus::Uninitialized,
         Some('U') => SubmoduleStatus::UpdateFailed,
         Some('+') => SubmoduleStatus::Dirty,
-        _ if checked_out.as_deref().is_some_and(|sha| !recorded.is_empty() && sha != recorded) => SubmoduleStatus::Dirty,
+        _ if checked_out
+            .as_deref()
+            .is_some_and(|sha| !recorded.is_empty() && sha != recorded) =>
+        {
+            SubmoduleStatus::Dirty
+        }
         _ => SubmoduleStatus::Current,
     };
-    Submodule { name, path, url, branch, status, recorded, checked_out }
+    Submodule {
+        name,
+        path,
+        url,
+        branch,
+        status,
+        recorded,
+        checked_out,
+    }
 }
 
 #[cfg(test)]
@@ -214,10 +299,16 @@ mod tests {
         let rows = assemble(modules, status, gitlinks);
         assert_eq!(rows[0].path, "vendor/core");
         assert_eq!(rows[0].status, SubmoduleStatus::Current);
-        assert_eq!(rows[0].checked_out.as_deref(), Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2"));
+        assert_eq!(
+            rows[0].checked_out.as_deref(),
+            Some("a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2")
+        );
         assert_eq!(rows[1].status, SubmoduleStatus::Dirty);
         assert_eq!(rows[1].recorded, "9f0e1aa9f0e1aa9f0e1aa9f0e1aa9f0e1aa9f0e1");
-        assert_eq!(rows[1].checked_out.as_deref(), Some("c4d5e6f7a8b9c4d5e6f7a8b9c4d5e6f7a8b9c4d5"));
+        assert_eq!(
+            rows[1].checked_out.as_deref(),
+            Some("c4d5e6f7a8b9c4d5e6f7a8b9c4d5e6f7a8b9c4d5")
+        );
         assert_eq!(rows[1].url, "git@example.com:sample/theme.git");
         assert_eq!(rows[1].branch.as_deref(), Some("main"));
         assert_eq!(rows[2].status, SubmoduleStatus::Uninitialized);

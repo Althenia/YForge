@@ -31,6 +31,38 @@ describe("typed IPC client", () => {
     ]);
   });
 
+  it("invokes the file, patch, and maintenance commands with their arguments", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return undefined;
+    });
+
+    await client.worktreeFiles("/r");
+    await client.fileEditable("/r", "a.txt");
+    await client.fileCreate("/r", "dir/new.txt");
+    await client.fileSave("/r", "a.txt", "text\n", "\r\n");
+    await client.fileDelete("/r", "a.txt");
+    await client.discardAll("/r");
+    await client.patchCreate("/r", null, "/tmp/all.patch");
+    await client.patchCreate("/r", ["a.txt"], "/tmp/one.patch");
+    await client.patchApply("/r", "/tmp/one.patch");
+    await client.maintenanceRun("/r", "op-1");
+
+    expect(calls).toEqual([
+      { cmd: "worktree_files", args: { path: "/r" } },
+      { cmd: "file_editable", args: { path: "/r", file: "a.txt" } },
+      { cmd: "file_create", args: { path: "/r", file: "dir/new.txt" } },
+      { cmd: "file_save", args: { path: "/r", file: "a.txt", text: "text\n", eol: "\r\n" } },
+      { cmd: "file_delete", args: { path: "/r", file: "a.txt" } },
+      { cmd: "discard_all", args: { path: "/r" } },
+      { cmd: "patch_create", args: { path: "/r", files: null, destination: "/tmp/all.patch" } },
+      { cmd: "patch_create", args: { path: "/r", files: ["a.txt"], destination: "/tmp/one.patch" } },
+      { cmd: "patch_apply", args: { path: "/r", patch: "/tmp/one.patch" } },
+      { cmd: "maintenance_run", args: { path: "/r", id: "op-1" } },
+    ]);
+  });
+
   it("sends the repository path to repo_open", async () => {
     let received: unknown;
     mockIPC((_cmd, args) => {
@@ -58,6 +90,8 @@ describe("typed IPC client", () => {
     await client.stageAll("/r");
     await client.unstageAll("/r");
     await client.discardFiles("/r", ["a.txt"]);
+    await client.discardStagedFiles("/r", ["a.txt"]);
+    await client.ignorePaths("/r", ["a.txt"], true);
     await client.stageHunk("/r", "a.txt", hunk);
     await client.unstageHunk("/r", "a.txt", hunk);
     await client.discardHunk("/r", "a.txt", hunk);
@@ -79,6 +113,8 @@ describe("typed IPC client", () => {
       { cmd: "stage_all", args: { path: "/r" } },
       { cmd: "unstage_all", args: { path: "/r" } },
       { cmd: "discard_files", args: { path: "/r", files: ["a.txt"] } },
+      { cmd: "discard_staged_files", args: { path: "/r", files: ["a.txt"] } },
+      { cmd: "ignore_paths", args: { path: "/r", files: ["a.txt"], untrack: true } },
       { cmd: "stage_hunk", args: { path: "/r", file: "a.txt", hunk } },
       { cmd: "unstage_hunk", args: { path: "/r", file: "a.txt", hunk } },
       { cmd: "discard_hunk", args: { path: "/r", file: "a.txt", hunk } },
@@ -109,6 +145,7 @@ describe("typed IPC client", () => {
     await client.branchDeletePreview("/r", "topic2");
     await client.deleteBranch("/r", "topic2", true);
     await client.stashPush("/r", "wip", true);
+    await client.stashPushPaths("/r", "Stash src/", true, ["src/a.ts", "src/b.ts"]);
     await client.stashApply("/r", 1, "s1");
     await client.stashPop("/r", 1, "s1");
     await client.stashDrop("/r", 1, "s1");
@@ -133,6 +170,7 @@ describe("typed IPC client", () => {
       { cmd: "branch_delete_preview", args: { path: "/r", name: "topic2" } },
       { cmd: "delete_branch", args: { path: "/r", name: "topic2", force: true } },
       { cmd: "stash_push", args: { path: "/r", message: "wip", untracked: true } },
+      { cmd: "stash_push_paths", args: { path: "/r", message: "Stash src/", untracked: true, paths: ["src/a.ts", "src/b.ts"] } },
       { cmd: "stash_apply", args: { path: "/r", index: 1, sha: "s1" } },
       { cmd: "stash_pop", args: { path: "/r", index: 1, sha: "s1" } },
       { cmd: "stash_drop", args: { path: "/r", index: 1, sha: "s1" } },
@@ -601,7 +639,7 @@ describe("typed IPC client", () => {
     });
 
     await client.appUiPrefsLoad();
-    await client.appUiPrefsSave({ palette_recents: ["a"], last_parent_folder: null });
+    await client.appUiPrefsSave({ palette_recents: ["a"], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true });
     await client.worktreeSuggestPath("/r", "feature/x");
     await client.worktreeCreate("/r", "feature/x", true, "refs/heads/main", "/w/r-feature-x");
     await client.worktreeCreate("/r", "spare", false, null, "/w/r-spare");
@@ -622,7 +660,7 @@ describe("typed IPC client", () => {
 
     expect(calls).toEqual([
       { cmd: "app_ui_prefs_load", args: {} },
-      { cmd: "app_ui_prefs_save", args: { prefs: { palette_recents: ["a"], last_parent_folder: null } } },
+      { cmd: "app_ui_prefs_save", args: { prefs: { palette_recents: ["a"], last_parent_folder: null, file_list_mode: "path", zoom_percent: 100, sidebar_hidden: false, inspector_hidden: false, syntax_highlighting: true } } },
       { cmd: "worktree_suggest_path", args: { path: "/r", branch: "feature/x" } },
       { cmd: "worktree_create", args: { path: "/r", branch: "feature/x", create: true, start: "refs/heads/main", destination: "/w/r-feature-x" } },
       { cmd: "worktree_create", args: { path: "/r", branch: "spare", create: false, start: null, destination: "/w/r-spare" } },
@@ -771,6 +809,39 @@ describe("Git host identity commands", () => {
       { cmd: "git_host_generate_key", args: { host: "gitlab.corp-b.com:2222", keyPath: "~/.ssh/yforge_gitlab.corp-b.com", passphrase: "open sesame" } },
       { cmd: "git_host_generate_key", args: { host: "github.com", keyPath: "~/.ssh/yforge_github.com", passphrase: null } },
       { cmd: "git_host_field_problem", args: { field: "new_key", value: "~/.ssh/yforge_github.com" } },
+    ]);
+  });
+});
+
+describe("external tool, profile, LFS, and signing commands", () => {
+  it("sends each request under its command name with the argument names the Tauri commands declare", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return null;
+    });
+    const config = { sign_commits: true, sign_tags: false, format: "ssh" as const, key: "/k.pub", program: "" };
+
+    await client.externalToolsStatus(null);
+    await client.openInEditor("/r", "a.txt");
+    await client.openInDiffTool("/r", "a.txt", { kind: "commit", sha: "abc1234" });
+    await client.openInMergeTool("/r", "a.txt");
+    await client.profileSwitch("work");
+    await client.profileSave(null, { name: "Work", author_name: "Ana", author_email: "ana@work.test" });
+    await client.lfsTrack("/r", "*.psd");
+    await client.signingWrite("repository", "/r", config);
+    await client.signingKeys("");
+
+    expect(calls).toEqual([
+      { cmd: "external_tools_status", args: { path: null } },
+      { cmd: "open_in_editor", args: { path: "/r", file: "a.txt" } },
+      { cmd: "open_in_diff_tool", args: { path: "/r", file: "a.txt", source: { kind: "commit", sha: "abc1234" } } },
+      { cmd: "open_in_merge_tool", args: { path: "/r", file: "a.txt" } },
+      { cmd: "profile_switch", args: { id: "work" } },
+      { cmd: "profile_save", args: { id: null, draft: { name: "Work", author_name: "Ana", author_email: "ana@work.test" } } },
+      { cmd: "lfs_track", args: { path: "/r", pattern: "*.psd" } },
+      { cmd: "signing_write", args: { scope: "repository", path: "/r", config } },
+      { cmd: "signing_keys", args: { program: "" } },
     ]);
   });
 });

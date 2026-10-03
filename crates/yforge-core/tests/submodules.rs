@@ -1,7 +1,10 @@
 mod common;
 
 use common::Fixture;
-use yforge_core::{add_submodule, deinit_submodule, list_submodules, load_repo_settings, save_repo_settings, stage_submodule, update_submodule, RepoSettings, SubmoduleStatus};
+use yforge_core::{
+    add_submodule, deinit_submodule, list_submodules, load_repo_settings, save_repo_settings,
+    stage_submodule, update_submodule, RepoSettings, SubmoduleStatus,
+};
 
 #[test]
 fn lists_a_current_submodule_then_a_dirty_pointer_and_an_uninitialized_checkout() {
@@ -36,7 +39,15 @@ fn lists_a_current_submodule_then_a_dirty_pointer_and_an_uninitialized_checkout(
     let staged = parent.git(&["diff", "--cached", "--raw"]);
     assert!(staged.contains("160000"), "{staged}");
     assert!(staged.contains("vendor/icons"), "{staged}");
-    assert!(!parent.git(&["diff", "--cached", "--name-only", "--", "vendor/icons/lib.txt"]).contains("lib.txt"));
+    assert!(!parent
+        .git(&[
+            "diff",
+            "--cached",
+            "--name-only",
+            "--",
+            "vendor/icons/lib.txt"
+        ])
+        .contains("lib.txt"));
 
     deinit_submodule(&parent.path, "vendor/icons").unwrap();
     let removed = list_submodules(&parent.path).unwrap();
@@ -46,15 +57,41 @@ fn lists_a_current_submodule_then_a_dirty_pointer_and_an_uninitialized_checkout(
     assert!(!checkout.join("lib.txt").exists());
 
     update_submodule(&parent.path, "vendor/icons").unwrap();
-    assert_eq!(list_submodules(&parent.path).unwrap()[0].status, SubmoduleStatus::Current);
+    assert_eq!(
+        list_submodules(&parent.path).unwrap()[0].status,
+        SubmoduleStatus::Current
+    );
 }
 
 #[test]
 fn keeps_update_on_fetch_off_until_it_is_saved() {
     let dir = tempfile::tempdir().unwrap();
-    assert_eq!(load_repo_settings(dir.path(), "/repo").unwrap().submodule_update_on_fetch, None);
-    save_repo_settings(dir.path(), "/repo", &RepoSettings { submodule_update_on_fetch: Some(true), ..RepoSettings::default() }).unwrap();
-    assert_eq!(load_repo_settings(dir.path(), "/repo").unwrap().submodule_update_on_fetch, Some(true));
+    assert_eq!(
+        load_repo_settings(dir.path(), "/repo")
+            .unwrap()
+            .submodule_update_on_fetch,
+        None
+    );
+    save_repo_settings(
+        dir.path(),
+        "/repo",
+        &RepoSettings {
+            submodule_update_on_fetch: Some(true),
+            ..RepoSettings::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        load_repo_settings(dir.path(), "/repo")
+            .unwrap()
+            .submodule_update_on_fetch,
+        Some(true)
+    );
     save_repo_settings(dir.path(), "/repo", &RepoSettings::default()).unwrap();
-    assert_eq!(load_repo_settings(dir.path(), "/repo").unwrap().submodule_update_on_fetch, None);
+    assert_eq!(
+        load_repo_settings(dir.path(), "/repo")
+            .unwrap()
+            .submodule_update_on_fetch,
+        None
+    );
 }

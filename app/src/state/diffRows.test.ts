@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
-import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, wordMarks } from "./diffRows";
+import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, widestLine, wordMarks } from "./diffRows";
 
 const line = (kind: DiffLine["kind"], text: string, no_newline = false): DiffLine => ({
   kind,
@@ -117,5 +117,13 @@ describe("word marks", () => {
 
   it("marks nothing for a pure addition", () => {
     expect(wordMarks(second).size).toBe(0);
+  });
+});
+
+describe("widest line", () => {
+  it("measures the longest code line in characters, with tabs at eight columns, so every row can share its width", () => {
+    expect(widestLine([first, second])).toBe("old one".length);
+    expect(widestLine([make(1, 1, [line("added", "\tx"), line("context", "ab\tc")])])).toBe(9);
+    expect(widestLine([])).toBe(0);
   });
 });

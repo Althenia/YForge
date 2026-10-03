@@ -358,6 +358,30 @@ pub struct CommitFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct FileRevision {
+    pub sha: String,
+    pub short: String,
+    pub summary: String,
+    pub author: String,
+    pub email: String,
+    pub time: i64,
+    pub path: String,
+    pub status: FileStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct BlameRun {
+    pub sha: String,
+    pub short: String,
+    pub author: String,
+    pub email: String,
+    pub time: i64,
+    pub summary: String,
+    pub start: u32,
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct CommitDetails {
     pub sha: String,
     pub summary: String,

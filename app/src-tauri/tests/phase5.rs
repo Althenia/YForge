@@ -355,7 +355,12 @@ fn app_ui_prefs_round_trip_through_the_database_and_reject_invalid_values() {
     let h = harness();
     let prefs = json!({
         "palette_recents": ["tab.new", "repo.fetch"],
-        "last_parent_folder": "/Users/dev/code"
+        "last_parent_folder": "/Users/dev/code",
+        "file_list_mode": "tree",
+        "zoom_percent": 125,
+        "sidebar_hidden": true,
+        "inspector_hidden": false,
+        "syntax_highlighting": false
     });
 
     let initial = call(&h, "app_ui_prefs_load", json!({})).unwrap();
@@ -370,7 +375,15 @@ fn app_ui_prefs_round_trip_through_the_database_and_reject_invalid_values() {
 
     assert_eq!(
         initial,
-        json!({ "palette_recents": [], "last_parent_folder": null })
+        json!({
+            "palette_recents": [],
+            "last_parent_folder": null,
+            "file_list_mode": "path",
+            "zoom_percent": 100,
+            "sidebar_hidden": false,
+            "inspector_hidden": false,
+            "syntax_highlighting": true
+        })
     );
     assert_eq!(loaded, prefs);
     assert_eq!(invalid["kind"], "invalid_request");

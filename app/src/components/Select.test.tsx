@@ -98,6 +98,33 @@ describe("owned select", () => {
     dispose();
   });
 
+  it("shows an option with a disabled reason as aria-disabled with that reason, and never chooses it", async () => {
+    const chosen: string[] = [];
+    const options_: readonly SelectOption[] = [
+      { value: "none", label: "None" },
+      { value: "git_config", label: "Git config default", disabledReason: "No merge.tool in your Git config" },
+    ];
+    const { host, dispose } = mount({ value: "none", options: options_, onChange: (next) => chosen.push(next) });
+    await open(host);
+
+    const blocked = options(host)[1] as HTMLElement;
+    expect(blocked.getAttribute("aria-disabled")).toBe("true");
+    expect(blocked.getAttribute("title")).toBe("No merge.tool in your Git config");
+    expect(options(host)[0]?.hasAttribute("aria-disabled")).toBe(false);
+    blocked.click();
+    await flush();
+    expect(chosen).toEqual([]);
+    expect(options(host)).toHaveLength(2);
+
+    list(host)?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    await flush();
+    expect(document.activeElement).toBe(blocked);
+    press(blocked, "Enter");
+    await flush();
+    expect(chosen).toEqual([]);
+    dispose();
+  });
+
   it("moves with the arrow keys and chooses with Enter, reporting the value once", async () => {
     const chosen: string[] = [];
     const { host, value, dispose } = mount({ value: "main", onChange: (next) => chosen.push(next) });

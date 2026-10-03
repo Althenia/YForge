@@ -124,7 +124,7 @@ const keyDialog = `<div class="scrim"></div><div class="dialog" role="dialog" ar
   <div class="foot"><span class="btn text-danger">${G("trash", 14)}Remove provider</span><span class="spacer"></span><span class="btn">Done</span></div>
 </div>`;
 const overlay = flags.has("signin") ? signIn : flags.has("key") ? keyDialog : flags.has("dialog") ? addDialog : "";
-document.body.insertAdjacentHTML("afterbegin", YF.aurora() + `<div class="app">${YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"')}
+document.body.insertAdjacentHTML("afterbegin", `<div class="app">${YF.tabs().replace('class="icon-btn" aria-label="Settings"', 'class="icon-btn on" aria-current="page" aria-label="Settings"')}
 <main class="settings"><nav class="panel nav" aria-label="Settings sections"><h2>Settings</h2>${nav("General", "settings")}${nav("Git", "branch")}${nav("Appearance", "theme")}${nav("AI", "wand", true)}${nav("Privacy &amp; diagnostics", "lock")}</nav>
 <div class="panel content">${settings}</div></main></div>${overlay}`);
 YF.boot("screen 16 · AI settings and add provider");

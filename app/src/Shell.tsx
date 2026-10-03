@@ -5,7 +5,8 @@ import { AuthDialog } from "./components/AuthDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { CloneDialog, CreateDialog } from "./components/EntryDialogs";
 import { EmptyState } from "./components/EmptyState";
-import { Notice } from "./components/Notice";
+import { LogsSheet } from "./components/LogsSheet";
+import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { TabRestoring } from "./components/TabRestoring";
 import { Toasts } from "./components/Toasts";
 import { TooltipHost } from "./components/Tooltip";
@@ -19,10 +20,13 @@ function bindWindowEnvironment(): () => void {
     root.toggleAttribute("data-paused", document.hidden || !document.hasFocus());
   };
   applyPause();
+  const ownMenusOnly = (event: MouseEvent) => event.preventDefault();
+  document.addEventListener("contextmenu", ownMenusOnly);
   document.addEventListener("visibilitychange", applyPause);
   window.addEventListener("blur", applyPause);
   window.addEventListener("focus", applyPause);
   return () => {
+    document.removeEventListener("contextmenu", ownMenusOnly);
     document.removeEventListener("visibilitychange", applyPause);
     window.removeEventListener("blur", applyPause);
     window.removeEventListener("focus", applyPause);
@@ -39,11 +43,6 @@ export function Shell() {
   const paletteContext = () => app.paletteContext();
   return (
     <>
-      <div class="aurora" aria-hidden="true">
-        <i class="a1" />
-        <i class="a2" />
-        <i class="a4" />
-      </div>
       <Show when={app.fatal()}>{(message) => <EmptyState title="YForge could not start" message={message()} danger />}</Show>
       <Show when={!app.ready() ? app.restoring() : undefined}>{(restoring) => <TabRestoring restoring={restoring()} />}</Show>
       <Show when={app.ready()}>
@@ -53,9 +52,13 @@ export function Shell() {
         </Show>
         <Toasts onUndo={(id) => void app.undoEntry(id)} />
         <TooltipHost />
-        <Show when={app.paletteOpen()}>
-          <CommandPalette context={paletteContext()} onClose={() => app.setPaletteOpen(false)} />
+        <Show when={app.paletteOpen() ? app.paletteSession() : undefined} keyed>
+          {(_session) => <CommandPalette context={paletteContext()} scope={app.paletteScope()} onClose={() => app.setPaletteOpen(false)} />}
         </Show>
+        <Show when={app.shortcutsOpen()}>
+          <ShortcutsSheet onClose={app.closeShortcuts} />
+        </Show>
+        <Show when={app.logsTab()}>{(tab) => <LogsSheet tab={tab()} onTab={app.openLogs} onClose={app.closeLogs} />}</Show>
         <Show when={app.entryDialog() === "clone"}>
           <CloneDialog onClose={() => app.setEntryDialog(undefined)} />
         </Show>
@@ -68,7 +71,6 @@ export function Shell() {
         <Show when={app.prompts()[0]} keyed>
           {(pending) => <AuthDialog pending={pending} />}
         </Show>
-        <Notice message={app.notice()} onDismiss={() => app.setNotice(undefined)} />
       </Show>
     </>
   );

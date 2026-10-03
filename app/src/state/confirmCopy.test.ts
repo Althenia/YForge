@@ -16,10 +16,12 @@ import {
   detachCopy,
   removeRemoteCopy,
   discardFilesCopy,
+  discardFolderCopy,
   discardHunkCopy,
   discardLinesCopy,
   dropStashCopy,
   forcePushCopy,
+  ignoreFilesCopy,
   pullStashKeptCopy,
   rebaseCopy,
   resetCopy,
@@ -60,6 +62,19 @@ describe("discard confirmation copy", () => {
     expect(copy.confirmLabel).toBe("Discard changes");
   });
 
+  it("names the folder and its file count, keeps the file consequences, and labels the danger button in text", () => {
+    const copy = discardFolderCopy("src/ui", [file("src/ui/a.ts", "unstaged"), file("src/ui/b.ts", "untracked"), file("src/ui/c.ts", "untracked")]);
+    expect(copy.title).toBe("Discard all changes in src/ui/ (3 files)?");
+    expect(copy.names).toEqual(["src/ui/a.ts", "src/ui/b.ts", "src/ui/c.ts"]);
+    expect(copy.confirmLabel).toBe("Discard all changes");
+    expect(copy.neutral).toBeUndefined();
+    expect(copy.consequences).toEqual(discardFilesCopy([file("a", "unstaged"), file("b", "untracked"), file("c", "untracked")]).consequences);
+  });
+
+  it("counts one file in the singular", () => {
+    expect(discardFolderCopy("src", [file("src/a.ts", "unstaged")]).title).toBe("Discard all changes in src/ (1 file)?");
+  });
+
   it("describes a hunk discard with its line range", () => {
     const hunk: DiffHunk = { old_start: 3, old_lines: 7, new_start: 3, new_lines: 7, heading: "", lines: [] };
     const copy = discardHunkCopy("src/util.js", hunk);
@@ -68,6 +83,38 @@ describe("discard confirmation copy", () => {
     expect(copy.confirmLabel).toBe("Discard hunk");
     expect(copy.consequences).toEqual([
       "Its lines return to their content in the index. Undo can restore the edit from a snapshot taken before discarding, while the file is unchanged since; without a snapshot it is lost.",
+    ]);
+  });
+});
+
+describe("staged discard and ignore confirmation copy", () => {
+  it("says a staged file loses its staged and unstaged changes and that Undo restores both", () => {
+    const copy = discardFilesCopy([file("a.ts", "staged"), file("b.ts", "staged")]);
+
+    expect(copy.title).toBe("Discard changes to 2 files?");
+    expect(copy.names).toEqual(["a.ts", "b.ts"]);
+    expect(copy.confirmLabel).toBe("Discard changes");
+    expect(copy.consequences).toEqual([
+      "These files lose their staged and unstaged changes and return to the last commit; a file that is new is removed from disk. Undo can restore their staged and working tree content from a snapshot taken before discarding, while the files are unchanged since.",
+    ]);
+  });
+
+  it("words one staged file for that file", () => {
+    const copy = discardFilesCopy([file("a.ts", "staged")]);
+
+    expect(copy.title).toBe("Discard changes to a.ts?");
+    expect(copy.consequences[0]).toMatch(/^This file loses its staged and unstaged changes and returns to the last commit; /);
+  });
+
+  it("names the files Git stops tracking when ignoring tracked files, and asks for a neutral confirmation", () => {
+    const copy = ignoreFilesCopy([file("a.ts", "unstaged"), file("b.ts", "staged")]);
+
+    expect(copy.title).toBe("Ignore 2 files and stop tracking them?");
+    expect(copy.names).toEqual(["a.ts", "b.ts"]);
+    expect(copy.confirmLabel).toBe("Ignore and untrack");
+    expect(copy.neutral).toBe(true);
+    expect(copy.consequences).toEqual([
+      "Each path is added to .gitignore, and the files are removed from Git's index so the next commit deletes them from the repository. They stay on disk.",
     ]);
   });
 });
