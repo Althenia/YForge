@@ -105,20 +105,17 @@ const radios = (container: ParentNode) => [...container.querySelectorAll<HTMLInp
 const radioNamed = (container: ParentNode, color: string) => radios(container).find((entry) => entry.closest("label")?.textContent?.trim() === color) as HTMLInputElement;
 
 describe("tab bar", () => {
-  it("leads a repository tab with the hidden YForge logo (small-size variant), so the tab is named by its repository alone", async () => {
+  it("names a repository tab by its repository alone, with no leading mark", async () => {
     const host = await mountTabs();
 
     const tab = host.querySelector<HTMLElement>('[role="tab"]');
-    const mark = tab?.querySelector("svg.brand-mark");
-    expect(mark?.getAttribute("viewBox")).toBe("0 0 1024 1024");
-    expect(mark?.getAttribute("aria-hidden")).toBe("true");
-    expect(mark?.getAttribute("width")).toBe("24");
-    expect(mark?.querySelector("circle")?.getAttribute("r")).toBe("96");
+    expect(tab?.querySelector("svg.brand-mark")).toBeNull();
+    expect(tab?.querySelector(".icon")).toBeNull();
     expect(tab?.textContent).not.toContain("Y");
     expect(tab?.textContent?.replace(/\s+/g, " ").trim().startsWith("sample")).toBe(true);
   });
 
-  it("groups a worktree's tab under its repository with the worktree glyph instead of the logo, and leaves single tabs ungrouped", async () => {
+  it("groups a worktree's tab under its repository with the worktree glyph, marks no tab with the logo, and leaves single tabs ungrouped", async () => {
     const host = await mountTabs(["/work/sample", "/work/other", "/work/sample-feature"], { "/work/sample-feature": "/work/sample" });
 
     const groups = [...host.querySelectorAll(".tab-group")];
@@ -127,9 +124,9 @@ describe("tab bar", () => {
     expect(groups.map(names)).toEqual([["/work/sample", "/work/sample-feature"], ["/work/other"]]);
     expect(groups[0]?.getAttribute("role")).toBe("group");
     expect(groups[0]?.getAttribute("aria-label")).toBe("sample and its worktrees");
-    expect(groups[0]?.querySelectorAll("svg.brand-mark")).toHaveLength(1);
-    expect(groups[0]?.querySelector(".tab.linked svg.brand-mark")).toBeNull();
-    expect(groups[0]?.querySelector(".tab.linked .icon")).not.toBeNull();
+    expect(groups[0]?.querySelectorAll("svg.brand-mark")).toHaveLength(0);
+    expect(groups[0]?.querySelector(".tab:not(.linked) .tab-main .icon")).toBeNull();
+    expect(groups[0]?.querySelector(".tab.linked .tab-main .icon")).not.toBeNull();
     expect(groups[1]?.getAttribute("role")).toBeNull();
   });
 

@@ -370,11 +370,6 @@ p {
   color: var(--colors-text-muted);
 }
 
-.brand-mark {
-  flex: none;
-  display: block;
-}
-
 .sr-only {
   position: absolute;
   width: 1px;
@@ -2629,6 +2624,7 @@ body.dragging * {
   align-items: center;
   gap: var(--spacing-2);
   height: 100%;
+  flex-grow: 1;
   padding: 0 var(--spacing-2) 0 var(--spacing-3);
   border-radius: var(--rounded-pill);
   background: none;
@@ -2642,7 +2638,7 @@ body.dragging * {
   place-items: center;
   width: var(--controls-hit-min);
   height: var(--controls-hit-min);
-  margin-right: var(--spacing-1);
+  margin-right: var(--spacing-1-5);
   border-radius: var(--rounded-pill);
   color: var(--colors-text-muted);
   background: none;

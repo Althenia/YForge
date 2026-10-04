@@ -6,7 +6,6 @@ import type { Anchor } from "../state/repoActions";
 import { tabDragHit } from "../state/tabDrag";
 import { repoName, tabLabel, type SegmentCluster, type SegmentTab, type Tab, type TabDragHit, type TabDragSource, type TabSegment, type UserGroup } from "../state/tabs";
 import { Icon } from "./Icon";
-import { Mark } from "./Mark";
 import { anchorBelow, laneOf, opensMenu, tabCountText, TabGroupLayer, type TabGroupOverlay } from "./TabGroupLayer";
 import { tip } from "./Tooltip";
 
@@ -82,7 +81,7 @@ function TabItem(props: {
         }}
       >
         <Show when={path() !== undefined} fallback={<Icon name="plus" />}>
-          <Show when={props.entry.linked} fallback={<Mark size={24} />}>
+          <Show when={props.entry.linked}>
             <Icon name="worktree" />
           </Show>
         </Show>
