@@ -182,8 +182,8 @@
 
 ## Commit inspector actions
 
-- **Purpose:** Carry the common commit verbs in the header of the commit inspector, so a selected commit needs no context menu (Flow C).
-- **Anatomy:** a row of four `btn sm` buttons under the header text: Branch here (`branch` glyph), Cherry-pick, Revert (`undo` glyph), and "Reset <current branch or HEAD> to here ▸" (the ▸ is `aria-hidden`). Each has an `aria-label` equal to its text and a tooltip that names the action in full ("Cherry-pick 1a2b3c4 onto main").
+- **Purpose:** Carry the common commit verbs in the header of the commit inspector as compact icon controls, so a selected commit needs no context menu (Flow C).
+- **Anatomy:** a row of four `icon-btn dense` icon-only controls under the header text, 4px apart: Branch here (`branch` glyph), Cherry-pick (`cherry` glyph), Revert (`undo` glyph), and Reset (`reset` glyph). Each carries an `aria-label` naming the action and its target ("Branch here", "Reset main to here") and a tooltip naming the action in full ("Cherry-pick 1a2b3c4 onto main", "Reset main to 1a2b3c4"); no text is shown in the control.
 - **States:** enablement and disabled reasons are those of the commit context menu: Cherry-pick and Revert are `aria-disabled` on a merge commit ("A merge commit needs a parent choice, which is not available yet"); Cherry-pick, Revert, and Reset are `aria-disabled` while an operation is in progress ("Finish or abort the rebase first"), with the reason as tooltip.
 - **Interaction:** Branch here opens the Create branch form at that commit (button, name, Enter). Cherry-pick and Revert run at once. Reset opens the Soft, Mixed, Hard menu below the button, then the same confirmation as the context menu.
 - **Consumers:** S03, S15.
@@ -227,7 +227,7 @@
 
 - **Toolbar collapse:** At 1280 and above the command bar shows icon and label; below 1280 it shows the icon only, keeping the ahead count on Sync and moving the label into the accessible name and tooltip.
 - **Tooltip behavior:** It appears after 450ms of hover and immediately on keyboard focus, never after a pointer click, hides on Escape, blur, scroll, or resize, and never takes pointer events.
-- **Established glyphs:** sync, fetch, pull, push, branch, commit, merge, stash, undo, tag, worktree, folder, terminal, diff, edit, copy, trash, plus, minus, check, previous, next, activity, theme, settings, changes, more, close.
+- **Established glyphs:** sync, fetch, pull, push, branch, commit, merge, cherry, reset, stash, undo, tag, worktree, folder, terminal, diff, edit, copy, trash, plus, minus, check, previous, next, activity, theme, settings, changes, more, close.
 - **Accessibility:** An icon never carries state alone (B4): counts, letters, and words stay beside the glyph.
 - **Consumers:** S15 and every screen with chrome; the component sheet (screen 0) shows the three tiers.
 

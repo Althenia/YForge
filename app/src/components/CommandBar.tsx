@@ -44,8 +44,6 @@ function Tool(props: {
   name?: string;
   primary?: boolean;
   hint?: string;
-  caret?: boolean;
-  menu?: boolean;
   disabled?: boolean;
   ariaDisabled?: boolean;
   reason?: string | undefined;
@@ -58,7 +56,6 @@ function Tool(props: {
       class="btn"
       classList={{ primary: props.primary === true, "icon-only": !props.labelled }}
       {...(props.labelled ? { "aria-label": props.name } : tip(quietReason() ? (props.reason ?? props.label) : (props.name ?? props.label), props.shortcut, props.name ?? props.label))}
-      aria-haspopup={props.menu === true ? "menu" : undefined}
       disabled={props.disabled === true}
       aria-disabled={props.ariaDisabled === true ? "true" : undefined}
       aria-description={props.ariaDisabled === true ? props.reason : undefined}
@@ -68,9 +65,6 @@ function Tool(props: {
       <Icon name={props.icon} size={props.labelled ? 16 : 20} />
       <Show when={props.labelled}>{props.label}</Show>
       <Show when={props.hint}>{(hint) => <span class="hint">{hint()}</span>}</Show>
-      <Show when={props.labelled && props.caret === true}>
-        <Icon name="chevron" size={14} />
-      </Show>
     </button>
   );
 }
@@ -85,10 +79,14 @@ function Split(props: {
   shortcut?: string;
   disabled?: boolean;
   reason?: string | undefined;
+  menuDisabled?: boolean;
+  menuReason?: string | undefined;
   menuLabel: string;
   onClick: () => void;
   onMenu: (event: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
 }) {
+  const caretDisabled = () => props.menuDisabled ?? props.disabled === true;
+  const caretReason = () => props.menuReason ?? props.reason;
   return (
     <span class="split-btn" role="group" aria-label={props.label}>
       <Tool
@@ -108,8 +106,8 @@ function Split(props: {
         class="btn chev icon-only"
         classList={{ primary: props.primary === true }}
         aria-haspopup="menu"
-        disabled={props.disabled === true}
-        title={props.reason}
+        disabled={caretDisabled()}
+        title={caretReason()}
         {...tip(props.menuLabel)}
         onClick={props.onMenu}
       >
@@ -147,6 +145,7 @@ export function CommandBar(props: {
   const fetchReason = () => reasonOf(fetchMenu(props.snapshot, syncing(), offline()), "fetch");
   const pullReason = () => reasonOf(pullMenu(props.snapshot, syncing(), mode(), offline()), `pull:${mode()}`);
   const pushReason = () => reasonOf(syncMenu(props.snapshot, syncing(), mode(), offline()), "push");
+  const pushToReason = () => reasonOf(syncMenu(props.snapshot, syncing(), mode(), offline()), "push_to");
   const stashReason = () => {
     if (syncing()) return "A sync is running";
     const counts = props.snapshot.counts;
@@ -157,10 +156,9 @@ export function CommandBar(props: {
     if (unborn()) return "Make a first commit before publishing";
     return syncing() ? "A sync is running" : undefined;
   };
-  const publish = (anchor: Anchor) => {
-    const remotes = props.snapshot.remotes;
-    if (remotes.length > 1) props.actions.openPublishMenu(anchor);
-    else if (pushRemote(remotes) !== undefined) void props.actions.publish(pushRemote(remotes) ?? "");
+  const publish = (): void => {
+    const remote = pushRemote(props.snapshot.remotes);
+    if (remote !== undefined) void props.actions.publish(remote);
   };
   return (
     <div class="bar commandbar">
@@ -218,7 +216,7 @@ export function CommandBar(props: {
       <Show
         when={publishing()}
         fallback={
-          <Tool
+          <Split
             icon="push"
             label="Push"
             labelled={labelled()}
@@ -227,19 +225,26 @@ export function CommandBar(props: {
             shortcut={SHORTCUTS.push}
             disabled={pushReason() !== undefined}
             reason={pushReason()}
+            menuDisabled={pushToReason() !== undefined}
+            menuReason={pushToReason()}
+            menuLabel="Push to…"
             onClick={() => void props.actions.push()}
+            onMenu={(event) => props.actions.openPushTo(below(event.currentTarget))}
           />
         }
       >
-        <Tool
+        <Split
           icon="push"
           label="Publish"
           labelled={labelled()}
           primary
-          menu={props.snapshot.remotes.length > 1}
           disabled={publishReason() !== undefined}
           reason={publishReason()}
-          onClick={(event) => publish(below(event.currentTarget))}
+          menuDisabled={pushToReason() !== undefined}
+          menuReason={pushToReason()}
+          menuLabel="Push to…"
+          onClick={publish}
+          onMenu={(event) => props.actions.openPushTo(below(event.currentTarget))}
         />
       </Show>
       <Tool

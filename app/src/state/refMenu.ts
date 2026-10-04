@@ -68,6 +68,7 @@ const menuIcons: Partial<Record<string, IconName>> = {
   delete_remote_tag: "trash",
   drop: "trash",
   revert: "undo",
+  reset: "reset",
   copy: "copy",
   edit_history: "rebase",
   squash: "squash",

@@ -26,6 +26,8 @@ export type IconName =
   | "branch"
   | "commit"
   | "merge"
+  | "cherry"
+  | "reset"
   | "trash"
   | "diff"
   | "edit"

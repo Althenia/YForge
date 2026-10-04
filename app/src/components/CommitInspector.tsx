@@ -68,7 +68,7 @@ function RefChip(props: { entry: GraphRef }) {
 
 type MenuItem = Extract<MenuEntry, { kind: "item" }>;
 
-type Verb = { id: string; label: string; icon?: IconName };
+type Verb = { id: string; label: string; icon: IconName };
 
 const anchorBelow = (element: Element): Anchor => {
   const rect = element.getBoundingClientRect();
@@ -80,13 +80,13 @@ const plain = (entry: MenuItem) => entry.label.map((part) => (typeof part === "s
 function CommitVerbs(props: { actions: RepoActions; sha: string; merge: boolean; current: string }) {
   const verbs = (): Verb[] => [
     { id: "create_branch", label: "Branch here", icon: "branch" },
-    { id: "cherry_pick", label: "Cherry-pick" },
+    { id: "cherry_pick", label: "Cherry-pick", icon: "cherry" },
     { id: "revert", label: "Revert", icon: "undo" },
-    { id: "reset", label: `Reset ${props.current} to here` },
+    { id: "reset", label: `Reset ${props.current} to here`, icon: "reset" },
   ];
   const items = () => props.actions.commitEntries(props.sha, props.merge).filter((entry): entry is MenuItem => entry.kind === "item");
   return (
-    <div class="hrow ihead-actions">
+    <div class="ihead-actions">
       <For each={verbs()}>
         {(verb) => {
           const item = () => items().find((entry) => entry.id === verb.id);
@@ -94,16 +94,12 @@ function CommitVerbs(props: { actions: RepoActions; sha: string; merge: boolean;
           return (
             <button
               type="button"
-              class="btn sm"
+              class="icon-btn dense"
               {...tip(reason() ?? plain(item() as MenuItem), undefined, verb.label)}
               aria-disabled={reason() === undefined ? undefined : "true"}
               onClick={(event) => reason() === undefined && props.actions.runCommitItem(verb.id, props.sha, anchorBelow(event.currentTarget))}
             >
-              <Show when={verb.icon}>{(icon) => <Icon name={icon()} size={14} />}</Show>
-              {verb.label}
-              <Show when={verb.id === "reset"}>
-                <span aria-hidden="true">▸</span>
-              </Show>
+              <Icon name={verb.icon} />
             </button>
           );
         }}

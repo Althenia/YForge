@@ -83,6 +83,20 @@ const glyphs: Record<IconName, () => JSX.Element> = {
       <path d="M6 7.5v9M6 7.5c0 5 12 2 12 5.5" />
     </>
   ),
+  cherry: () => (
+    <>
+      <circle cx="9" cy="15.5" r="3.4" />
+      <path d="M9 12.1C10.5 9.5 13 8.5 15.6 8" />
+      <circle cx="17" cy="7" r="1.8" />
+    </>
+  ),
+  reset: () => (
+    <>
+      <circle cx="6.5" cy="12" r="2.5" />
+      <path d="M11 12h9" />
+      <path d="m14 9-3 3 3 3" />
+    </>
+  ),
   trash: () => <path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5" />,
   diff: () => (
     <>

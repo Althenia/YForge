@@ -903,14 +903,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     });
   }
 
-  function openPublishMenu(anchor: Anchor): void {
-    setMenu({
-      anchor,
-      entries: snapshot().remotes.map((remote): MenuEntry => ({ kind: "item", id: remote, label: ["Publish to ", { ref: remote }], icon: "push" })),
-      run: (remote) => void publish(remote),
-    });
-  }
-
   function openFetchMenu(anchor: Anchor): void {
     setMenu({
       anchor,
@@ -1025,7 +1017,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     deleteRemoteBranch,
     deleteBranchAndRemote,
     offerSwitchStashes,
-    openPublishMenu,
     fetchAll,
     pull,
     pullDefault,

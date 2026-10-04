@@ -3827,8 +3827,11 @@ button.cmd {
 }
 
 .ihead-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: var(--spacing-1);
   margin-top: var(--spacing-2);
-  flex-wrap: wrap;
 }
 
 .input select {

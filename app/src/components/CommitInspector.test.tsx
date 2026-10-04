@@ -129,6 +129,8 @@ describe("commit verbs in the header", () => {
     await flush(60);
 
     expect(["Branch here", "Cherry-pick", "Revert", "Reset main to here"].map((name) => verb(host, name)?.getAttribute("aria-disabled"))).toEqual([null, null, null, null]);
+    expect(["Branch here", "Cherry-pick", "Revert", "Reset main to here"].map((name) => verb(host, name)?.textContent === "")).toEqual([true, true, true, true]);
+    expect(["Branch here", "Cherry-pick", "Revert", "Reset main to here"].map((name) => verb(host, name)?.querySelector("svg") !== null)).toEqual([true, true, true, true]);
     expect(verb(host, "Cherry-pick")?.getAttribute("data-tip")).toBe(`Cherry-pick ${OLDER.slice(0, 7)} onto main`);
     expect(verb(host, "Reset main to here")?.getAttribute("data-tip")).toBe(`Reset main to ${OLDER.slice(0, 7)}`);
   });

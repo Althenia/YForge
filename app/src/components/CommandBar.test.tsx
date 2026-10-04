@@ -76,7 +76,7 @@ function mountActions(shape: RepoSnapshot, sync: SyncState = { kind: "idle" }) {
     publish: () => calls.push("publish"),
     openFetchMenu: () => calls.push("fetch-menu"),
     openPullMenu: () => calls.push("pull-menu"),
-    openPublishMenu: () => calls.push("publish-menu"),
+    openPushTo: () => calls.push("push-to"),
     openStashForm: () => calls.push("stash"),
     openBranchPicker: () => calls.push("branch-picker"),
     openCreateBranch: () => calls.push("branch"),
@@ -109,8 +109,10 @@ describe("fetch, pull, and push", () => {
     button("Pull")?.click();
     host.querySelector<HTMLButtonElement>('button[aria-label="Pull menu"]')?.click();
     button("Push")?.click();
+    expect(host.querySelector('[role="group"][aria-label="Push"] button[aria-haspopup="menu"]')).not.toBeNull();
+    host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Push"] button[aria-label="Push to…"]')?.click();
 
-    expect(calls).toEqual(["fetch", "fetch-menu", "pull", "pull-menu", "push"]);
+    expect(calls).toEqual(["fetch", "fetch-menu", "pull", "pull-menu", "push", "push-to"]);
     expect(host.querySelector('[role="group"][aria-label="Fetch"] button[aria-haspopup="menu"]')).not.toBeNull();
     expect(host.querySelector('[role="group"][aria-label="Pull"] button[aria-haspopup="menu"]')).not.toBeNull();
     expect(button("Push")?.getAttribute("aria-haspopup")).toBeNull();
@@ -132,26 +134,33 @@ describe("fetch, pull, and push", () => {
     expect(dirty.button("Push")?.disabled).toBe(true);
     expect(dirty.host.querySelector<HTMLButtonElement>('button[aria-label="Fetch menu"]')?.disabled).toBe(true);
     expect(dirty.host.querySelector<HTMLButtonElement>('button[aria-label="Pull menu"]')?.disabled).toBe(true);
+    expect(dirty.host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Push"] button[aria-label="Push to…"]')?.disabled).toBe(true);
   });
 
-  it("disables Push when the branch has diverged and leaves force push out of the toolbar", () => {
+  it("disables Push when the branch has diverged and leaves force push out of the toolbar, while the target picker still acts", () => {
     const { button, host } = mountActions(tracked({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } }, counts: { ...clean, modified: 1 } }));
 
     expect(button("Push")?.disabled).toBe(true);
     expect(button("Push")?.title).toBe("This branch has diverged. Force push with lease is in the status strip.");
+    expect(host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Push"] button[aria-label="Push to…"]')?.disabled).toBe(false);
     expect(button("Pull")?.disabled).toBe(false);
     expect(button("Fetch")?.disabled).toBe(false);
     expect(button("Stash")?.disabled).toBe(false);
     expect(host.textContent).not.toContain("Force push");
   });
 
-  it("disables Pull when the branch has no upstream and offers Publish instead of Push", () => {
-    const { button } = mountActions(tracked({ upstream: null }));
+  it("disables Pull when the branch has no upstream and offers Publish with its own target picker instead of Push", () => {
+    const { button, calls, host } = mountActions(tracked({ upstream: null }));
 
     expect(button("Publish")).toBeDefined();
     expect(button("Pull")?.disabled).toBe(true);
     expect(button("Pull")?.title).toBe("No upstream branch to pull from");
     expect(button("Push")).toBeUndefined();
+
+    host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Publish"] button[aria-label="Push to…"]')?.click();
+    expect(calls).toEqual(["push-to"]);
+    button("Publish")?.click();
+    expect(calls).toEqual(["push-to", "publish"]);
   });
 });
 
