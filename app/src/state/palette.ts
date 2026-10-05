@@ -12,6 +12,7 @@ import { zoomBlockReason, type ZoomMove } from "./appUiPrefs";
 import { commitMenu, localTarget, NOT_AVAILABLE, operationBlock, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
 import type { Anchor, RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
+import { THEME_OPTIONS } from "./settingsModel";
 import { pullModes, syncMenu } from "./syncModel";
 import type { PlatformActions } from "./platformActions";
 
@@ -173,7 +174,7 @@ export type PaletteApp = {
   toggleDrawer: () => void;
   openSearch: () => void;
   openExternal: (with_: "editor" | "terminal" | "finder") => void;
-  setTheme: (theme: "light" | "dark" | "system") => void;
+  setTheme: (theme: AppSettings["theme"]) => void;
   openRepository: (path: string) => void;
   repositories: () => string[];
   openRepositorySearch: () => void;
@@ -408,8 +409,11 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       id: "settings.theme",
       title: "Change theme…",
       group: "Application",
-      args: [{ name: "theme", label: "Theme", options: () => [{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }] }],
-      run: (values) => app.setTheme((values[0] ?? "system") as "light" | "dark" | "system"),
+      args: [{ name: "theme", label: "Theme", options: () => [...THEME_OPTIONS] }],
+      run: (values) => {
+        const chosen = THEME_OPTIONS.find((theme) => theme.value === values[0]);
+        if (chosen !== undefined) app.setTheme(chosen.value);
+      },
     }),
     command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: SHORTCUTS.activity, run: () => app.toggleDrawer() }),
     command({ id: "head.reveal", title: "Reveal HEAD in the graph", group: "Repository", shortcut: SHORTCUTS.revealHead, run: () => context.revealHead() }),

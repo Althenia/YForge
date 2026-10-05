@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { Geometry } from "./geometry";
 import { edgePath, laneClass, nodeX, orthogonalPath, placeRowEdges, rowY, visibleEdges, type PlacedEdge } from "./laneArt";
@@ -6,7 +8,7 @@ import { edgePath, laneClass, nodeX, orthogonalPath, placeRowEdges, rowY, visibl
 const geometry: Geometry = {
   row: 28,
   pitch: 22,
-  gutter: 28,
+  gutter: 4,
   node: 22,
   mergeNode: 12,
   line: 2,
@@ -17,7 +19,7 @@ const geometry: Geometry = {
   authorColumn: 130,
   dateColumn: 130,
   shaColumn: 100,
-  graphColumn: 150,
+  graphColumn: 56,
   laneColors: 10,
 };
 
@@ -29,9 +31,17 @@ const placed = (row: number, column: number, lane: number, parentRow: number | n
 });
 
 describe("lane art geometry", () => {
+  it("starts the default first node 4px clear of the ref divider while compact lanes retain 10px", () => {
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/tokens.css"), "utf8");
+    const defaultGutter = Number(/--controls-graph-gutter:\s*(\d+)px/.exec(css)?.[1]);
+    const compactGutter = Number(/--controls-graph-gutter-compact:\s*(\d+)px/.exec(css)?.[1]);
+    expect(defaultGutter).toBe(4);
+    expect(nodeX(0, { ...geometry, gutter: defaultGutter }) - geometry.refColumn - geometry.node / 2).toBe(4);
+    expect(compactGutter).toBe(10);
+  });
   it("places nodes after the ref column and gutter, one pitch per column", () => {
-    expect(nodeX(0, geometry)).toBe(130 + 28 + 11);
-    expect(nodeX(2, geometry)).toBe(130 + 28 + 44 + 11);
+    expect(nodeX(0, geometry)).toBe(130 + 4 + 11);
+    expect(nodeX(2, geometry)).toBe(130 + 4 + 44 + 11);
     expect(rowY(3, geometry)).toBe(3 * 28 + 14);
   });
 

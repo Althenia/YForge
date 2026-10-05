@@ -18,6 +18,16 @@ type Row = { kind: "entry"; entry: ActivityEntry; earlier: boolean } | { kind: "
 export function ActivityDrawer(props: { repo: string | undefined; onUndo: (id: number) => void }) {
   const app = useApp();
   const [everything, setEverything] = createSignal(false);
+  const [clearing, setClearing] = createSignal(false);
+  const [clearFailure, setClearFailure] = createSignal<string>();
+  const clear = async () => {
+    if (clearing()) return;
+    setClearing(true);
+    setClearFailure(undefined);
+    try { await app.clearActivity(everything() ? undefined : props.repo); }
+    catch (error) { setClearFailure(error instanceof Error ? error.message : String(error)); }
+    finally { setClearing(false); }
+  };
   const shown = createMemo(() => entriesFor(app.activity(), everything() ? undefined : props.repo).slice().reverse());
   const history = createPagedList(() => {
     const repo = props.repo;
@@ -55,19 +65,21 @@ export function ActivityDrawer(props: { repo: string | undefined; onUndo: (id: n
         </Show>
         <Show when={props.repo}>
           <label class="check">
-            <input type="checkbox" checked={everything()} onChange={(event) => setEverything(event.currentTarget.checked)} />
+            <input type="checkbox" checked={everything()} disabled={clearing()} onChange={(event) => setEverything(event.currentTarget.checked)} />
             All repositories
           </label>
         </Show>
         <span class="spacer" />
-        <button type="button" class="btn sm" onClick={() => void app.clearActivity(everything() ? undefined : props.repo)}>
+        <button type="button" class="btn sm" disabled={clearing()} aria-busy={clearing()} onClick={() => void clear()}>
           <Icon name="trash" size={14} />
-          Clear
+          {clearing() ? "Clearing…" : "Clear"}
         </button>
         <button type="button" class="icon-btn dense" {...tip("Collapse Activity", "⌘⇧Y")} onClick={app.closeDrawer}>
           <Icon name="close" size={14} />
         </button>
       </div>
+      <Show when={clearing()}><p class="field-note" role="status"><span class="busy-spinner" aria-hidden="true" />Clearing activity…</p></Show>
+      <Show when={clearFailure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <div class="act-list" ref={scroller}>
         <Show when={rows().length > 0} fallback={<p class="setting-note act-empty">No operations yet in this session</p>}>
           <VirtualRows as="ul" class="act-rows" items={rows()} scroller={() => scroller} estimate={listRowHeight()} gap={spacingPx("1")} measured>

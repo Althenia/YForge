@@ -19,6 +19,26 @@ function mount(view: () => import("solid-js").JSX.Element): HTMLElement {
 }
 
 describe("CreateFileDialog", () => {
+  it("locks the path and announces creation until the file command settles", async () => {
+    let finish: ((failure: string | undefined) => void) | undefined;
+    const submit = vi.fn(() => new Promise<string | undefined>((resolve) => { finish = resolve; }));
+    const closed = vi.fn();
+    const host = mount(() => <CreateFileDialog submit={submit} onClose={closed} />);
+    typeInto(host.querySelector<HTMLInputElement>('input[aria-label="Path"]'), "new.txt");
+    buttonNamed(host, "Create")?.click();
+    await flush();
+
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Path"]')?.disabled).toBe(true);
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Creating file");
+    expect(host.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(host, "Creating…")?.click();
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(buttonNamed(host, "Cancel")?.disabled).toBe(true);
+    finish?.("File exists");
+    await flush();
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Path"]')?.disabled).toBe(false);
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe("File exists");
+  });
   it("creates the typed repository-relative path and keeps Create unavailable while the path is blank", async () => {
     const submit = vi.fn(async () => undefined);
     const host = mount(() => <CreateFileDialog submit={submit} onClose={() => undefined} />);

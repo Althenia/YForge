@@ -5,6 +5,9 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ActivityEntry } from "./bindings/ActivityEntry";
 import type { AppSettings } from "./bindings/AppSettings";
+
+export type LspStarted = { id: string; root_uri: string; file_uri: string; language_id: string };
+export type LspEvent = { id: string; body: string };
 import type { AppUiPrefs } from "./bindings/AppUiPrefs";
 import type { AuthPromptEvent } from "./bindings/AuthPromptEvent";
 import type { AuthReply } from "./bindings/AuthReply";
@@ -334,6 +337,10 @@ export const client = {
   aiFeatureConfigReset: (feature: AiFeature) => call<AiFeatureSummary>("ai_feature_config_reset", { feature }),
   aiSignIn: (provider: string, id: string, method: AiSignInMethod) => call<ProviderStatus>("ai_sign_in", { provider, id, method }),
   aiGenerateCommitMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_commit_message", { path, id }),
+  aiGenerateAmendMessage: (path: string, id: string) => call<CommitDraft>("ai_generate_amend_message", { path, id }),
+  lspStart: (path: string, file: string) => call<LspStarted>("lsp_start", { path, file }),
+  lspSend: (id: string, body: string) => call<null>("lsp_send", { id, body }),
+  lspStop: (id: string) => call<null>("lsp_stop", { id }),
   aiProposeRecompose: (path: string, id: string, base: string) => call<RecomposeProposal>("ai_propose_recompose", { path, id, base }),
   aiProposeConflict: (path: string, id: string, file: string) => call<ConflictProposal>("ai_propose_conflict", { path, id, file }),
   aiExplainChanges: (path: string, id: string) => call<Explanation>("ai_explain_changes", { path, id }),
@@ -366,6 +373,8 @@ export const client = {
   searchCommits: (path: string, query: string, visibility?: GraphVisibility) =>
     call<SearchResult>("search_commits", visibility === undefined ? { path, query } : { path, query, visibility }),
   fileAtRevision: (path: string, file: string, rev: string) => call<FileAtRevision>("file_at_revision", { path, file, rev }),
+  previewStart: (path: string, file: string, rev: string) => call<[string, string]>("preview_start", { path, file, rev }),
+  previewStop: (id: string) => call<void>("preview_stop", { id }),
   worktreeFiles: (path: string) => call<string[]>("worktree_files", { path }),
   fileEditable: (path: string, file: string) => call<EditableFile>("file_editable", { path, file }),
   fileCreate: (path: string, file: string) => call<null>("file_create", { path, file }),
@@ -476,6 +485,10 @@ export const client = {
     }),
   onOperationProgress: (handler: (progress: OperationProgress) => void): Promise<UnlistenFn> =>
     listen<OperationProgress>(OPERATION_PROGRESS_EVENT, (event) => handler(event.payload)),
+  onLspMessage: (handler: (message: LspEvent) => void): Promise<UnlistenFn> =>
+    listen<LspEvent>("lsp-message", (event) => handler(event.payload)),
+  onLspError: (handler: (message: LspEvent) => void): Promise<UnlistenFn> =>
+    listen<LspEvent>("lsp-error", (event) => handler(event.payload)),
   onHookOutput: (handler: (output: HookOutput) => void): Promise<UnlistenFn> =>
     listen<HookOutput>(HOOK_OUTPUT_EVENT, (event) => handler(event.payload)),
   onAuthPrompt: (handler: (event: AuthPromptEvent) => void): Promise<UnlistenFn> =>

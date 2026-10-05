@@ -24,7 +24,7 @@ const standard = (): ProfileList => ({
   ],
 });
 
-async function open(refuse?: { cmd: string; message: string }) {
+async function open(refuse?: { cmd: string; message: string }, holdSave?: () => Promise<void>) {
   const state = standard();
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
@@ -36,8 +36,11 @@ async function open(refuse?: { cmd: string; message: string }) {
       const draft = call.args.draft as Omit<Profile, "id">;
       const id = call.args.id as string | null;
       const saved = { id: id ?? "profile-3", ...draft };
-      state.profiles = id === null ? [...state.profiles, saved] : state.profiles.map((profile) => (profile.id === id ? saved : profile));
-      return saved;
+      const commit = () => {
+        state.profiles = id === null ? [...state.profiles, saved] : state.profiles.map((profile) => (profile.id === id ? saved : profile));
+        return saved;
+      };
+      return holdSave === undefined ? commit() : holdSave().then(commit);
     }
     if (cmd === "profile_delete") {
       state.profiles = state.profiles.filter((profile) => profile.id !== call.args.id);
@@ -64,6 +67,23 @@ const input = (host: ParentNode, label: string) => host.querySelector<HTMLInputE
 const saves = (calls: Call[]) => calls.filter((call) => call.cmd === "profile_save").map((call) => call.args);
 
 describe("profiles (S60)", () => {
+  it("locks a profile form and announces its pending save without repeating it", async () => {
+    let finish: (() => void) | undefined;
+    const { host, calls } = await open(undefined, () => new Promise<void>((resolve) => { finish = resolve; }));
+    buttonNamed(host, "Add profile…")?.click();
+    type(input(host, "Profile name"), "Client");
+    buttonNamed(host, "Add profile")?.click();
+    await flush();
+
+    expect(input(host, "Profile name")?.disabled).toBe(true);
+    expect(host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Saving profile");
+    expect(host.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(host, "Saving…")?.click();
+    expect(saves(calls)).toHaveLength(1);
+    finish?.();
+    await flush(40);
+    expect(input(host, "Profile name")).toBeNull();
+  });
   it("lists the profiles with their authors, marks the active one, and says the Default author comes from Git config", async () => {
     const { host } = await open();
 

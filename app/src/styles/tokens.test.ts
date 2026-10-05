@@ -14,7 +14,7 @@ type FrontMatter = {
   layout: Group;
   cursors: Group;
   elevation: Group;
-  themes: { light: { colors: Group; elevation: Group } };
+  themes: { light: { colors: Group; elevation: Group } } & Record<string, { colors: Group; elevation?: Group }>;
 };
 
 const root = resolve(import.meta.dirname, "../../..");
@@ -65,6 +65,8 @@ const expectedLight = merge(
   flat("elevation", surface.themes.light.elevation),
 );
 
+const namedThemes = ["classic", "ocean", "eighties", "gruvbox", "nord", "dracula", "monokai", "woodland"];
+
 function declarations(css: string, selector: string): Map<string, string> {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const blocks = [...css.matchAll(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`, "g"))];
@@ -91,12 +93,32 @@ function drift(expected: Map<string, string>, actual: Map<string, string>): stri
 const tokenSource = readFileSync(resolve(import.meta.dirname, "tokens.css"), "utf8");
 
 describe("app/DESIGN.md front matter vs src/styles/tokens.css", () => {
+  it("sets the graph column to the approved 56px default while retaining its 56px minimum", () => {
+    expect(surface.layout["graph-column"]).toBe("56px");
+    expect(surface.layout["graph-column-min"]).toBe("56px");
+    expect(declarations(tokenSource, ":root").get("--layout-graph-column")).toBe("56px");
+  });
+  it("raises non-graph typography one pixel while leaving graph typography at its approved size", () => {
+    const sizes = Object.fromEntries(Object.entries(surface.typography).map(([role, values]) => [role, values.fontSize]));
+    expect(sizes).toMatchObject({ "ui-body": "14px", "ui-label": "14px", "ui-strong": "14px", "ui-small": "13px", "ui-caption": "13px", "ui-section": "13px", "ui-micro": "12px", title: "17px", heading: "21px", code: "13px", ref: "13px" });
+    expect(Object.fromEntries(Object.entries(sizes).filter(([role]) => role.startsWith("graph")))).toEqual({ graph: "12px", "graph-strong": "12px", "graph-tag": "11px", "graph-micro": "10px", "graph-initials": "10px" });
+  });
   it("has identical dark (root) tokens in both directions", () => {
     expect(drift(expectedDark, declarations(tokenSource, ":root"))).toEqual([]);
   });
 
   it("has identical light theme override tokens in both directions", () => {
     expect(drift(expectedLight, declarations(tokenSource, '[data-theme="light"]'))).toEqual([]);
+  });
+
+  it("has exactly the eight additional named palette overrides in both directions", () => {
+    expect(Object.keys(surface.themes).sort()).toEqual(["light", ...namedThemes].sort());
+    for (const name of namedThemes) {
+      const override = surface.themes[name]?.colors;
+      expect(override, name).toBeDefined();
+      const expected = flat("colors", override ?? {}, { ...surface.colors, ...override });
+      expect(drift(expected, declarations(tokenSource, `[data-theme="${name}"]`)), name).toEqual([]);
+    }
   });
 
   it("defines the nine cursor tokens in front matter and token source alike", () => {

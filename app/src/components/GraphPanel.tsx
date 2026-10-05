@@ -70,7 +70,7 @@ function ExtraCell(props: { column: OptionalColumn; row: GraphRow; width: number
   );
 }
 
-const rowText = (row: GraphRow): string => [row.summary, ...row.refs.map((ref) => ref.name)].join("\n");
+const rowText = (row: GraphRow): string => [row.summary, row.body, ...row.refs.map((ref) => ref.name)].join("\n");
 
 function RowView(props: {
   index: number;
@@ -121,6 +121,7 @@ function RowView(props: {
       onContextMenu={(event) => props.onMenu(props.index, event)}
     >
       <div class="gbg" />
+      <div class="lane-band" aria-hidden="true" />
       <div class="lstrip" style={{ left: `${props.messageLeft}px` }} />
       <Show when={labels().shown}>
         {(shown) => (
@@ -152,6 +153,9 @@ function RowView(props: {
           {props.row.summary || "(no message)"}
         </span>
         <IssueChips keys={props.chips.keysFor(rowText(props.row))} lookup={props.chips.lookup} />
+        <Show when={props.row.body !== ""}>
+          <span class="body" title={props.row.body}>{props.row.body}</span>
+        </Show>
       </div>
       <Show when={props.extras.length > 0}>
         <div class="gextra">
@@ -162,8 +166,12 @@ function RowView(props: {
   );
 }
 
-function PlaceholderRow(props: { index: number; geometry: Geometry }) {
-  return <div class="grow placeholder" style={{ top: `${props.index * props.geometry.row}px` }} aria-hidden="true" />;
+function PlaceholderRow(props: { index: number; geometry: Geometry; loading: boolean }) {
+  return <div class="grow placeholder" style={{ top: `${props.index * props.geometry.row}px` }} aria-hidden={props.loading ? undefined : "true"}>
+    <Show when={props.loading}>
+      <span class="graph-loading" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />Loading commits…</span>
+    </Show>
+  </div>;
 }
 
 function LaneArt(props: {
@@ -349,6 +357,7 @@ export function GraphPanel(props: {
     overscan: OVERSCAN,
   });
   const items = () => virtualizer.getVirtualItems();
+  const firstMissing = createMemo(() => items().find((item) => !store.rows().has(item.index))?.index);
   const range = createMemo(() => {
     const visible = items();
     const last = visible.at(-1);
@@ -614,7 +623,7 @@ export function GraphPanel(props: {
         <div class="gspacer" style={{ height: `${virtualizer.getTotalSize()}px` }}>
           <For each={items()}>
             {(item) => (
-              <Show when={store.rows().get(item.index)} fallback={<PlaceholderRow index={item.index} geometry={props.geometry} />}>
+              <Show when={store.rows().get(item.index)} fallback={<PlaceholderRow index={item.index} geometry={props.geometry} loading={firstMissing() === item.index} />}>
                 {(row) => (
                   <RowView
                     index={item.index}

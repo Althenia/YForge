@@ -43,6 +43,26 @@ const rows = (host: ParentNode) => [...host.querySelectorAll('[data-nav^="flow:"
 const row = (host: ParentNode, label: string) => host.querySelector<HTMLElement>(`[aria-label="${label}"]`) as HTMLElement;
 
 describe("git flow section", () => {
+  it("locks the start dialog and announces progress until the branch command settles", async () => {
+    let finish: ((branch: string) => void) | undefined;
+    const { host, calls } = mount({ start: () => new Promise<string>((resolve) => { finish = resolve; }) });
+    await flush();
+    row(host, "Start feature…").click();
+    await flush();
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    type(dialog.querySelector<HTMLInputElement>('input[aria-label="Feature name"]'), "login");
+    buttonNamed(dialog, "Start")?.click();
+    await flush();
+
+    expect(dialog.querySelector<HTMLInputElement>('input[aria-label="Feature name"]')?.disabled).toBe(true);
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain("Starting feature");
+    expect(dialog.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(dialog, "Starting…")?.click();
+    expect(calls.filter((call) => call.cmd === "git_flow_start")).toHaveLength(1);
+    finish?.("feature/login");
+    await flush();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+  });
   it("is absent until Git Flow is initialized", async () => {
     const { host } = mount({ config: null });
     await flush();

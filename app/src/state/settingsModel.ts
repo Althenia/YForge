@@ -16,6 +16,20 @@ export const AUTO_FETCH_OPTIONS: ReadonlyArray<{ minutes: number; label: string 
   { minutes: 30, label: "30 min" },
 ];
 
+export const THEME_OPTIONS: ReadonlyArray<{ value: AppSettings["theme"]; label: string }> = [
+  { value: "system", label: "System" },
+  { value: "dark", label: "YForge Dark" },
+  { value: "light", label: "YForge Light" },
+  { value: "classic", label: "Classic Dark" },
+  { value: "ocean", label: "Ocean" },
+  { value: "eighties", label: "Eighties" },
+  { value: "gruvbox", label: "Gruvbox" },
+  { value: "nord", label: "Nord" },
+  { value: "dracula", label: "Dracula" },
+  { value: "monokai", label: "Monokai" },
+  { value: "woodland", label: "Woodland" },
+];
+
 export const defaultSettings: AppSettings = {
   theme: "system",
   density: "default",
@@ -23,6 +37,7 @@ export const defaultSettings: AppSettings = {
   pull_mode: "fast_forward_or_merge",
   auto_fetch_minutes: 0,
   editor_command: "",
+  language_servers: {},
   terminal_command: "",
   telemetry_opt_in: false,
     gravatar_avatars: true,
@@ -58,7 +73,7 @@ export function remoteProblem(name: string, url: string): string | undefined {
   return cloneUrlProblem(url);
 }
 
-export function resolveTheme(theme: AppSettings["theme"], prefersLight: boolean): "light" | "dark" {
+export function resolveTheme(theme: AppSettings["theme"], prefersLight: boolean): Exclude<AppSettings["theme"], "system"> {
   return theme === "system" ? (prefersLight ? "light" : "dark") : theme;
 }
 

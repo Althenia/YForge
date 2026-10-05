@@ -44,24 +44,30 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
   const [branch, setBranch] = createSignal("");
   const [problem, setProblem] = createSignal<string | undefined>();
   const [confirmPath, setConfirmPath] = createSignal<string | undefined>();
+  const [running, setRunning] = createSignal<string>();
   const rows = () => list.data ?? [];
   const visible = () => rows().filter((row) => matchesFilter(props.filter, row.path, row.url, submoduleStatusWord(row.status)));
   const updateOnFetch = () => app.repoSettings(props.root)?.submodule_update_on_fetch === true;
   const refresh = () => void app.queryClient.invalidateQueries({ queryKey: repoKeys.submodules(props.root) });
 
   const saveFetch = (value: boolean) => {
+    if (running() !== undefined) return;
     const current = app.repoSettings(props.root);
     const next: RepoSettings = { pull_mode: current?.pull_mode ?? null, ssh_key_path: current?.ssh_key_path ?? null };
     if (value) next.submodule_update_on_fetch = true;
-    void app.saveRepoSettings(props.root, next);
+    void run("Saving update on fetch", () => app.saveRepoSettings(props.root, next));
   };
 
-  const run = async (work: () => Promise<unknown>) => {
+  const run = async (label: string, work: () => Promise<unknown>) => {
+    if (running() !== undefined) return;
+    setRunning(label);
     try {
       await work();
       refresh();
     } catch (failure) {
       app.setNotice(messageOf(failure));
+    } finally {
+      setRunning(undefined);
     }
   };
 
@@ -72,11 +78,12 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
   };
 
   const submitAdd = () => {
+    if (running() !== undefined) return;
     const issue = addSubmoduleProblem(path(), url());
     setProblem(issue);
     if (issue !== undefined) return;
     const chosen = branch().trim();
-    void run(async () => {
+    void run("Adding submodule", async () => {
       await client.submoduleAdd(props.root, url().trim(), path().trim(), chosen === "" ? null : chosen);
       setPath("");
       setUrl("");
@@ -86,14 +93,15 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
   };
 
   const openMenu = (row: Submodule, anchor: Anchor) => {
+    if (running() !== undefined) return;
     setMenu({
       anchor,
       entries: submoduleEntries(row),
       run: (id) => {
         setMenu(undefined);
-        if (id === "update") void run(() => client.submoduleUpdate(props.root, row.path));
+        if (id === "update") void run("Updating submodule", () => client.submoduleUpdate(props.root, row.path));
         else if (id === "open") void app.openRepository(submoduleCheckout(props.root, row.path));
-        else if (id === "stage") void run(() => client.submoduleStage(props.root, row.path));
+        else if (id === "stage") void run("Staging submodule pointer", () => client.submoduleStage(props.root, row.path));
         else if (id === "deinit") setConfirmPath(row.path);
       },
     });
@@ -112,13 +120,13 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
         <Show when={list.isSuccess}>
           <span class="count">{countLabel(rows().length, visible().length, props.filter !== "")}</span>
         </Show>
-        <button type="button" class="icon-btn dense" {...tip("Add submodule")} onClick={(event) => openAdd(event.currentTarget)}>
+        <button type="button" class="icon-btn dense" disabled={running() !== undefined} {...tip("Add submodule")} onClick={(event) => openAdd(event.currentTarget)}>
           <Icon name="plus" size={14} />
         </button>
       </div>
       <Show when={props.expanded}>
         <div class="submod-fetch">
-          <Switch label="Update on fetch" checked={updateOnFetch()} onChange={saveFetch} />
+          <Switch label="Update on fetch" checked={updateOnFetch()} disabled={running() !== undefined} onChange={saveFetch} />
           <span>Update on fetch</span>
         </div>
         <p class="submod-note">{updateOnFetch() ? UPDATE_ON_FETCH_ON : UPDATE_ON_FETCH_OFF}</p>
@@ -155,12 +163,13 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
           )}
         </For>
       </Show>
+      <Show when={running()}>{(label) => <p class="submod-note" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />{label()}…</p>}</Show>
       <Show when={menu()} keyed>
         {(state) => <ContextMenu menu={state} onClose={() => setMenu(undefined)} />}
       </Show>
       <Show when={addAt()} keyed>
         {(anchor) => (
-          <Popover anchor={anchor} label="Add submodule" onClose={() => setAddAt(undefined)}>
+          <Popover anchor={anchor} label="Add submodule" onClose={() => { if (running() === undefined) setAddAt(undefined); }}>
             <form
               class="popform"
               onSubmit={(event) => {
@@ -171,15 +180,15 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
               <h3>Add submodule</h3>
               <label class="field">
                 Path
-                <input aria-label="Submodule path" value={path()} onInput={(event) => setPath(event.currentTarget.value)} />
+                <input aria-label="Submodule path" value={path()} disabled={running() !== undefined} onInput={(event) => setPath(event.currentTarget.value)} />
               </label>
               <label class="field">
                 URL
-                <input aria-label="Submodule URL" value={url()} onInput={(event) => setUrl(event.currentTarget.value)} />
+                <input aria-label="Submodule URL" value={url()} disabled={running() !== undefined} onInput={(event) => setUrl(event.currentTarget.value)} />
               </label>
               <label class="field">
                 Branch
-                <input aria-label="Submodule branch" placeholder="Optional" value={branch()} onInput={(event) => setBranch(event.currentTarget.value)} />
+                <input aria-label="Submodule branch" placeholder="Optional" value={branch()} disabled={running() !== undefined} onInput={(event) => setBranch(event.currentTarget.value)} />
               </label>
               <p class="submod-note">The parent stores one commit, not a copy of the history. Update on fetch starts off.</p>
               <Show when={problem()}>
@@ -187,8 +196,8 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
                   {problem()}
                 </p>
               </Show>
-              <button type="submit" class="btn primary">
-                Add
+              <button type="submit" class="btn primary" disabled={running() !== undefined} aria-busy={running() === "Adding submodule"}>
+                {running() === "Adding submodule" ? "Adding…" : "Add"}
               </button>
             </form>
           </Popover>
@@ -201,7 +210,7 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
             onCancel={() => setConfirmPath(undefined)}
             onConfirm={() => {
               setConfirmPath(undefined);
-              void run(() => client.submoduleDeinit(props.root, target));
+              void run("Deinitializing submodule", () => client.submoduleDeinit(props.root, target));
             }}
           />
         )}

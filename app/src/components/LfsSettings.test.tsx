@@ -48,6 +48,29 @@ const installed: LfsStatus = { installed: true, version: "3.5.1", initialized: f
 const lfsCalls = (calls: Call[]) => calls.filter((call) => call.cmd !== "lfs_status" && call.cmd.startsWith("lfs_")).map((call) => [call.cmd, call.args]);
 
 describe("Git LFS settings (S58)", () => {
+  it("announces a running LFS action and prevents a second operation until it settles", async () => {
+    let finish: (() => void) | undefined;
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === "lfs_status") return structuredClone(installed);
+      if (cmd === "lfs_initialize") return new Promise<void>((resolve) => { finish = resolve; });
+      return null;
+    });
+    const mounted = mountWithApp(() => <LfsSettings path="/repo" />);
+    dispose = mounted.dispose;
+    await flush(40);
+    buttonNamed(mounted.host, "Initialize LFS")?.click();
+    await flush();
+
+    expect(mounted.host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Initializing LFS");
+    expect(mounted.host.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(mounted.host, "Initializing LFS…")?.click();
+    expect(calls.filter((cmd) => cmd === "lfs_initialize")).toHaveLength(1);
+    finish?.();
+    await flush(40);
+    expect(mounted.host.querySelector('button[aria-busy="true"]')).toBeNull();
+  });
   it("says Git LFS is not installed and offers no LFS action", async () => {
     const { host } = await open({ installed: false, version: null, initialized: false, patterns: [] });
 

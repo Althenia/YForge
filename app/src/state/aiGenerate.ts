@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, on } from "solid-js";
 import type { CommitDraft } from "../ipc/bindings/CommitDraft";
 import { client } from "../ipc/client";
 import { createAiRun } from "./aiRun";
@@ -19,7 +19,15 @@ export function createGenerateAction(deps: { session: RepoSession; composer: Com
   const [drafted, setDrafted] = createSignal(false);
   const [notes, setNotes] = createSignal<string[]>([]);
   const [replaced, setReplaced] = createSignal<{ summary: string; description: string } | undefined>();
-  const run = createAiRun(session.queryClient, (id) => client.aiGenerateCommitMessage(session.path, id));
+  const run = createAiRun(session.queryClient, (id) => composer.amend()
+    ? client.aiGenerateAmendMessage(session.path, id)
+    : client.aiGenerateCommitMessage(session.path, id));
+
+  createEffect(on(composer.amend, () => {
+    setDrafted(false);
+    setNotes([]);
+    setReplaced(undefined);
+  }, { defer: true }));
 
   createEffect(() => {
     if (composer.summary() === "" && composer.description() === "") {

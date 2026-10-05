@@ -70,11 +70,7 @@ fn worktree_bytes(root: &Path, file: &str) -> Result<Vec<u8>, CoreError> {
     fs::read(&resolved).map_err(|error| failure(&resolved, error))
 }
 
-pub fn file_at_revision(
-    path: &Path,
-    file: &str,
-    revision: &str,
-) -> Result<FileAtRevision, CoreError> {
+pub fn preview_file_bytes(path: &Path, file: &str, revision: &str) -> Result<Vec<u8>, CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[file])?;
     let bytes = match revision {
@@ -85,6 +81,15 @@ pub fn file_at_revision(
             blob_bytes(&root, &format!("{sha}:{file}"), file, revision)?
         }
     };
+    Ok(bytes)
+}
+
+pub fn file_at_revision(
+    path: &Path,
+    file: &str,
+    revision: &str,
+) -> Result<FileAtRevision, CoreError> {
+    let bytes = preview_file_bytes(path, file, revision)?;
     let size = bytes.len() as u64;
     let text = (!bytes.contains(&0))
         .then(|| String::from_utf8(bytes).ok())

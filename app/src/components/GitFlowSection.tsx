@@ -18,11 +18,12 @@ function StartDialog(props: { kind: FlowKind; prefix: string; note: string; onSt
   const submit = async () => {
     if (busy()) return;
     setBusy(true);
-    setProblem(await props.onStart(name()));
-    setBusy(false);
+    try { setProblem(await props.onStart(name())); }
+    catch (failure) { setProblem(messageOf(failure)); }
+    finally { setBusy(false); }
   };
   return (
-    <DialogFrame title={startLabel(props.kind)} onEscape={props.onClose}>
+    <DialogFrame title={startLabel(props.kind)} onEscape={() => { if (!busy()) props.onClose(); }}>
       <form
         class="popform"
         onSubmit={(event) => {
@@ -32,7 +33,7 @@ function StartDialog(props: { kind: FlowKind; prefix: string; note: string; onSt
       >
         <label class="field">
           {kindTitle(props.kind)} name
-          <input aria-label={`${kindTitle(props.kind)} name`} value={name()} placeholder="name" ref={(input) => queueMicrotask(() => input.focus())} onInput={(event) => setName(event.currentTarget.value)} />
+          <input aria-label={`${kindTitle(props.kind)} name`} value={name()} placeholder="name" disabled={busy()} ref={(input) => queueMicrotask(() => input.focus())} onInput={(event) => setName(event.currentTarget.value)} />
         </label>
         <p class="flow-note">{props.note}</p>
         <Show when={name().trim() !== ""}>
@@ -46,12 +47,13 @@ function StartDialog(props: { kind: FlowKind; prefix: string; note: string; onSt
             {problem()}
           </p>
         </Show>
+        <Show when={busy()}><p class="flow-note" role="status">Starting {kindTitle(props.kind).toLowerCase()}…</p></Show>
         <div class="foot">
-          <button type="button" class="btn" onClick={props.onClose}>
+          <button type="button" class="btn" disabled={busy()} onClick={props.onClose}>
             Cancel
           </button>
-          <button type="submit" class="btn primary" aria-disabled={busy() || name().trim() === ""}>
-            Start
+          <button type="submit" class="btn primary" aria-busy={busy()} aria-disabled={busy() || name().trim() === ""}>
+            {busy() ? "Starting…" : "Start"}
           </button>
         </div>
       </form>
@@ -143,6 +145,7 @@ export function GitFlowSection(props: { root: string; head: string | undefined; 
                   <span class="tree-guide" data-level="0" style={{ "--level": 0 }} aria-hidden="true" />
                   <Icon name={row.icon} size={14} />
                   <span class="name">{row.label}</span>
+                  <Show when={row.id === "finish" && finishing()}><span class="busy-spinner" role="status" aria-label="Finishing Git Flow…" /></Show>
                 </div>
               )}
             </For>

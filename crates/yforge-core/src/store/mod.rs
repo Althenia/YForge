@@ -13,7 +13,7 @@ mod stashes;
 mod tool_choices;
 mod ui_prefs;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -71,6 +71,7 @@ const DEFAULT_BRANCH: &str = "git.default_branch";
 const PULL_MODE: &str = "git.pull_mode";
 const AUTO_FETCH: &str = "git.auto_fetch_minutes";
 const EDITOR: &str = "tools.editor_command";
+const LANGUAGE_SERVERS: &str = "tools.language_servers";
 const TERMINAL: &str = "tools.terminal_command";
 const TELEMETRY: &str = "privacy.telemetry_opt_in";
 const AVATARS: &str = "privacy.gravatar_avatars";
@@ -109,6 +110,14 @@ pub enum Theme {
     Light,
     Dark,
     System,
+    Classic,
+    Ocean,
+    Eighties,
+    Gruvbox,
+    Nord,
+    Dracula,
+    Monokai,
+    Woodland,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -127,6 +136,7 @@ pub struct AppSettings {
     pub pull_mode: PullMode,
     pub auto_fetch_minutes: u32,
     pub editor_command: String,
+    pub language_servers: BTreeMap<String, String>,
     pub terminal_command: String,
     pub telemetry_opt_in: bool,
     pub gravatar_avatars: bool,
@@ -143,6 +153,7 @@ impl Default for AppSettings {
             pull_mode: PullMode::FastForwardOrMerge,
             auto_fetch_minutes: 0,
             editor_command: String::new(),
+            language_servers: BTreeMap::new(),
             terminal_command: String::new(),
             telemetry_opt_in: false,
             gravatar_avatars: true,
@@ -251,6 +262,7 @@ pub(crate) fn read_settings(conn: &Connection, dir: &Path) -> Result<AppSettings
         pull_mode: parse(dir, &stored, PULL_MODE, defaults.pull_mode)?,
         auto_fetch_minutes: parse(dir, &stored, AUTO_FETCH, defaults.auto_fetch_minutes)?,
         editor_command: parse(dir, &stored, EDITOR, defaults.editor_command)?,
+        language_servers: parse(dir, &stored, LANGUAGE_SERVERS, defaults.language_servers)?,
         terminal_command: parse(dir, &stored, TERMINAL, defaults.terminal_command)?,
         telemetry_opt_in: parse(dir, &stored, TELEMETRY, defaults.telemetry_opt_in)?,
         gravatar_avatars: parse(dir, &stored, AVATARS, defaults.gravatar_avatars)?,
@@ -265,6 +277,7 @@ pub(crate) fn write_settings(conn: &Connection, settings: &AppSettings) -> rusql
     put_setting(conn, PULL_MODE, &settings.pull_mode)?;
     put_setting(conn, AUTO_FETCH, &settings.auto_fetch_minutes)?;
     put_setting(conn, EDITOR, &settings.editor_command)?;
+    put_setting(conn, LANGUAGE_SERVERS, &settings.language_servers)?;
     put_setting(conn, TERMINAL, &settings.terminal_command)?;
     put_setting(conn, TELEMETRY, &settings.telemetry_opt_in)?;
     put_setting(conn, AVATARS, &settings.gravatar_avatars)?;
@@ -277,6 +290,23 @@ pub fn load_settings(dir: &Path) -> Result<AppSettings, CoreError> {
 
 pub fn save_settings(dir: &Path, settings: &AppSettings) -> Result<(), CoreError> {
     let default_branch = valid_default_branch(&settings.default_branch)?;
+    if settings
+        .language_servers
+        .iter()
+        .any(|(extension, command)| {
+            extension.is_empty()
+                || extension.len() > 16
+                || !extension
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                || command.trim().is_empty()
+                || command.len() > 1024
+        })
+    {
+        return Err(CoreError::invalid_request(
+            "language servers need a lower-case file extension and an installed command",
+        ));
+    }
     if !AUTO_FETCH_CHOICES.contains(&settings.auto_fetch_minutes) {
         return Err(CoreError::invalid_request(
             "auto-fetch must be off, 5, 10, or 30 minutes",

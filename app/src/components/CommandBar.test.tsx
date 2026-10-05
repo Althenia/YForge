@@ -64,8 +64,8 @@ const tracked = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as unknown as RepoSnapshot;
 
-function mountActions(shape: RepoSnapshot, sync: SyncState = { kind: "idle" }) {
-  Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+function mountActions(shape: RepoSnapshot, sync: SyncState = { kind: "idle" }, width = 1600) {
+  Object.defineProperty(window, "innerWidth", { value: width, configurable: true });
   window.dispatchEvent(new Event("resize"));
   const calls: string[] = [];
   const actions = {
@@ -94,6 +94,29 @@ function mountActions(shape: RepoSnapshot, sync: SyncState = { kind: "idle" }) {
 }
 
 describe("fetch, pull, and push", () => {
+  it("keeps all command-bar actions named at 960–1440 while truncating long breadcrumb parts, and labels actions when wide", () => {
+    const long = tracked({
+      root: `/work/${"repository".repeat(9)}`,
+      head: { kind: "branch", name: `feature/${"overflow".repeat(12)}`, sha: "a" },
+      worktrees: [
+        { ...tracked().worktrees[0]!, path: "/work/main", current: false },
+        { ...tracked().worktrees[0]!, path: `/work/${"worktree".repeat(12)}`, current: true },
+      ],
+    });
+    for (const width of [960, 1280, 1440]) {
+      const current = mountActions(long, { kind: "idle" }, width);
+      expect(current.host.querySelector('.crumb-repo[title]')?.textContent).toContain("repository");
+      expect(current.host.querySelector('.crumb-worktree[title]')?.textContent).toContain("worktree");
+      expect(current.host.querySelector('.branch-name')?.textContent).toContain("overflow");
+      for (const name of ["Fetch", "Pull, 0 behind", "Push, 1 ahead", "Branch", "Stash", "Undo", "Redo"]) {
+        expect(current.host.querySelector(`.commandbar button[aria-label="${name}"]`), `${width}: ${name}`).not.toBeNull();
+      }
+      expect(current.host.querySelectorAll(".commandbar button.btn.icon-only").length).toBeGreaterThanOrEqual(7);
+      current.dispose();
+    }
+    const wide = mountActions(long, { kind: "idle" }, 1600);
+    expect(wide.button("Fetch")?.textContent).toContain("Fetch");
+  });
   it("keeps Fetch, Pull, and Push as separate controls, with the pull mode only in the caret", () => {
     const { host, button, calls } = mountActions(tracked());
 
@@ -166,7 +189,7 @@ describe("fetch, pull, and push", () => {
 
 describe("undo and redo controls (S61)", () => {
   function mountHistory(undo: UndoState, redo: RedoState) {
-    Object.defineProperty(window, "innerWidth", { value: 1440, configurable: true });
+    Object.defineProperty(window, "innerWidth", { value: 1600, configurable: true });
     window.dispatchEvent(new Event("resize"));
     const onUndo = vi.fn();
     const onRedo = vi.fn();

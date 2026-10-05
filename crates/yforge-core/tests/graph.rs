@@ -41,6 +41,25 @@ fn row_of<'a>(page: &'a yforge_core::GraphPage, sha: &str) -> (usize, &'a yforge
 }
 
 #[test]
+fn graph_rows_include_the_first_nonempty_description_line() {
+    let repo = Fixture::init();
+    repo.commit("a.txt", "a\n", "Add file");
+    repo.git(&[
+        "commit",
+        "--amend",
+        "-m",
+        "Add file",
+        "-m",
+        "\nExplain the change\nMore detail",
+    ]);
+
+    let page = graph_page(&repo.path, 0, 10, &GraphVisibility::All).unwrap();
+    let row = serde_json::to_value(&page.rows[0]).unwrap();
+    assert_eq!(row["summary"], "Add file");
+    assert_eq!(row["body"], "Explain the change");
+}
+
+#[test]
 fn merge_history_has_merge_row_lanes_and_refs() {
     let history = merged_history();
 

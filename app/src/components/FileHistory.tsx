@@ -153,7 +153,7 @@ function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; re
           )}
         </Show>
         <Show when={lines().length > 0}>
-          <FileLines file={props.revision().path} lines={lines()} report={props.session.report} scroller={() => body} gutter={gutter} />
+          <FileLines file={props.revision().path} lines={lines()} report={props.session.report} scroller={() => body} gutter={gutter} highlight={(index) => runs()[rows()[index]?.run ?? -1]?.sha === props.state.selected()?.sha} />
         </Show>
       </div>
     </div>

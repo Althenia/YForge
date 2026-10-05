@@ -26,10 +26,31 @@ afterEach(() => {
 });
 
 describe("solid surfaces told apart by tone (S14)", () => {
-  it("never uses a gradient, translucent material, backdrop blur, or the aurora in any stylesheet", () => {
+  it("keeps the centered command field within its approved width while breadcrumb labels can truncate", () => {
+    const css = read("app.css");
+    const block = css.slice(css.indexOf(".commandbar .cmd {"), css.indexOf("}", css.indexOf(".commandbar .cmd {")));
+    expect(block).toContain("max-width: var(--command-w);");
+    expect(block).toContain("min-width: var(--controls-hit-min);");
+    expect(css).toContain(".commandbar .crumb-repo,");
+    expect(css).toContain(".commandbar .branch-name {");
+  });
+  it("gives busy action buttons visible motion with a reduced-motion static state", () => {
+    const css = read("app.css");
+    expect(css).toContain('button[aria-busy="true"]:not(:has(.busy-spinner))::after');
+    expect(css).toMatch(/button\[aria-busy="true"\]:not\(:has\(\.busy-spinner\)\)::after\s*\{[^}]*animation: busy-turn/);
+    expect(css).toMatch(/prefers-reduced-motion: reduce[^}]*\}\s*button\[aria-busy="true"\]:not\(:has\(\.busy-spinner\)\)::after\s*\{\s*animation: none;/);
+  });
+  it("permits only the approved opaque lane-color graph fade, never other gradients or translucent materials", () => {
     for (const name of sheets) {
       const css = read(name);
-      expect(css, name).not.toMatch(/gradient\(|backdrop-filter|\.aurora|--material-glass/);
+      const gradientRules = [...css.matchAll(/([^{}]+)\{([^{}]*linear-gradient\([^{}]*\)[^{}]*)\}/g)].map((match) => ({ selector: match[1]?.trim(), body: match[2] ?? "" }));
+      expect(gradientRules.map((rule) => rule.selector), name).toEqual(name === "app.css" ? [".lane-band", ".grow.sel .lane-band"] : []);
+      for (const rule of gradientRules) {
+        expect(rule.body).toContain("var(--lane)");
+        expect(rule.body).not.toMatch(/transparent|rgba\(/);
+        expect(rule.body, rule.selector).toContain(rule.selector === ".grow.sel .lane-band" ? "var(--colors-selection) 100%" : "var(--canvas) 100%");
+      }
+      expect(css.replace(/[^{}]+\{[^{}]*linear-gradient\([^{}]*\)[^{}]*\}/g, ""), name).not.toMatch(/gradient\(|backdrop-filter|\.aurora|--material-glass/);
     }
   });
 
@@ -82,7 +103,17 @@ describe("solid surfaces told apart by tone (S14)", () => {
     const block = (selector: string) => css.slice(css.indexOf(`\n${selector} {`), css.indexOf("}", css.indexOf(`\n${selector} {`)));
     expect(block(".ghead .gh + .gh")).toContain("var(--colors-text-muted)");
     expect(block(".refstack")).toContain("display: none");
-    expect(block(".refcell:hover .refstack,\n.refcell:focus-within .refstack")).toContain("display: flex");
+    expect(block(".refcell:focus-within .refstack")).toContain("display: flex");
+    expect(css).toContain("@media (hover: hover) {\n  .refcell:hover .refstack { display: flex; }");
+  });
+
+  it("anchors graph search below the header at the top right", () => {
+    const css = read("app.css");
+    const start = css.indexOf("\n.center > .searchbar {");
+    const block = css.slice(start, css.indexOf("}", start));
+    expect(block).toContain("align-self: start;");
+    expect(block).toContain("justify-self: end;");
+    expect(block).toContain("var(--controls-graph-header)");
   });
 
   it("fits the settings body to its content, scrolling only when it is taller than the window", () => {

@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 
-export const TOOLBAR_LABELS_MIN_WIDTH = 1280;
+export const TOOLBAR_LABELS_MIN_WIDTH = 1600;
 export const GRAPH_COLUMNS_MIN_WIDTH = 1024;
 
 export function createMinWidth(min: number): () => boolean {

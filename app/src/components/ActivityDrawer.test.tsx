@@ -41,7 +41,7 @@ const entry = (id: number, overrides: Partial<ActivityEntry> = {}): ActivityEntr
   ...overrides,
 });
 
-async function open(options: { history: ActivityEntry[]; session: ActivityEntry[]; repo?: string | undefined; identity?: unknown }) {
+async function open(options: { history: ActivityEntry[]; session: ActivityEntry[]; repo?: string | undefined; identity?: unknown; holdClear?: () => Promise<void> }) {
   let history = options.history;
   let session = options.session;
   const calls: Call[] = [];
@@ -72,8 +72,8 @@ async function open(options: { history: ActivityEntry[]; session: ActivityEntry[
         return history.filter((each) => before === null || each.id < before).slice(0, call.args.limit as number);
       }
       case "activity_clear":
-        history = [];
-        session = [];
+        if (options.holdClear !== undefined) return options.holdClear().then(() => { history = []; session = []; return null; });
+        history = []; session = [];
         return null;
       default:
         return null;
@@ -91,6 +91,22 @@ async function open(options: { history: ActivityEntry[]; session: ActivityEntry[
 const rowsOf = (host: ParentNode) => [...host.querySelectorAll("li.act-entry")].map((row) => row.textContent?.replace(/\s+/g, " ").trim() ?? "");
 
 describe("activity drawer earlier group", () => {
+  it("announces clearing and locks the scope until the activity is removed", async () => {
+    let finish: (() => void) | undefined;
+    const { host, calls } = await open({ history: [entry(8)], session: [entry(9)], holdClear: () => new Promise<void>((resolve) => { finish = resolve; }) });
+    buttonNamed(host, "Clear")?.click();
+    await flush();
+    const button = buttonNamed(host, "Clearing…");
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute("aria-busy")).toBe("true");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Clearing activity");
+    expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.disabled).toBe(true);
+    button?.click();
+    expect(calls.filter((call) => call.cmd === "activity_clear")).toHaveLength(1);
+    finish?.();
+    await flush(40);
+    expect(buttonNamed(host, "Clear")?.disabled).toBe(false);
+  });
   it("lists persisted entries of earlier sessions under Earlier, read-only and marked as having no undo", async () => {
     const { host, calls } = await open({
       history: [entry(9), entry(8), entry(7)],

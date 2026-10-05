@@ -4,4 +4,4 @@ import type { GraphEdge } from "./GraphEdge";
 import type { GraphRef } from "./GraphRef";
 import type { NodeKind } from "./NodeKind";
 
-export type GraphRow = { sha: string | null, parents: Array<string>, summary: string, author: Author | null, time: number | null, refs: Array<GraphRef>, kind: NodeKind, column: number, edges: Array<GraphEdge>, };
+export type GraphRow = { sha: string | null, parents: Array<string>, summary: string, body: string, author: Author | null, time: number | null, refs: Array<GraphRef>, kind: NodeKind, column: number, edges: Array<GraphEdge>, };

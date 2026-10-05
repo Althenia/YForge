@@ -11,7 +11,7 @@ const message = (failure: unknown): string => (failure instanceof Error ? failur
 
 type Editing = { id: string | null; draft: ProfileDraft };
 
-function ProfileForm(props: { editing: Editing; onSubmit: (draft: ProfileDraft) => Promise<void>; onCancel: () => void }) {
+function ProfileForm(props: { editing: Editing; busy: boolean; onSubmit: (draft: ProfileDraft) => Promise<void>; onCancel: () => void }) {
   const [name, setName] = createSignal(props.editing.draft.name);
   const [author, setAuthor] = createSignal(props.editing.draft.author_name);
   const [email, setEmail] = createSignal(props.editing.draft.author_email);
@@ -19,7 +19,7 @@ function ProfileForm(props: { editing: Editing; onSubmit: (draft: ProfileDraft) 
     <label class="field">
       <span class="field-label">{label}</span>
       <span class="input">
-        <input type="text" aria-label={label} value={value()} placeholder={placeholder} onInput={(event) => set(event.currentTarget.value)} />
+        <input type="text" aria-label={label} value={value()} placeholder={placeholder} disabled={props.busy} onInput={(event) => set(event.currentTarget.value)} />
       </span>
     </label>
   );
@@ -28,17 +28,17 @@ function ProfileForm(props: { editing: Editing; onSubmit: (draft: ProfileDraft) 
       class="tool-form"
       onSubmit={(event) => {
         event.preventDefault();
-        void props.onSubmit({ name: name(), author_name: author(), author_email: email() });
+        if (!props.busy) void props.onSubmit({ name: name(), author_name: author(), author_email: email() });
       }}
     >
       {field("Profile name", name, setName, "Work")}
       {field("Author name", author, setAuthor, "Ana Ruiz")}
       {field("Author email", email, setEmail, "ana@example.com")}
       <span class="tool-form-actions">
-        <button type="submit" class="btn primary">
-          {props.editing.id === null ? "Add profile" : "Save profile"}
+        <button type="submit" class="btn primary" disabled={props.busy} aria-busy={props.busy}>
+          {props.busy ? "Saving…" : props.editing.id === null ? "Add profile" : "Save profile"}
         </button>
-        <button type="button" class="btn" onClick={props.onCancel}>
+        <button type="button" class="btn" disabled={props.busy} onClick={props.onCancel}>
           Cancel
         </button>
       </span>
@@ -52,9 +52,12 @@ export function ProfilesSettings() {
   const [editing, setEditing] = createSignal<Editing | undefined>();
   const [pendingDelete, setPendingDelete] = createSignal<Profile | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
+  const [running, setRunning] = createSignal<string>();
   onMount(() => void app.loadProfiles());
 
-  const attempt = async (run: () => Promise<unknown>): Promise<boolean> => {
+  const attempt = async (label: string, run: () => Promise<unknown>): Promise<boolean> => {
+    if (running() !== undefined) return false;
+    setRunning(label);
     setFailure(undefined);
     try {
       await run();
@@ -63,16 +66,24 @@ export function ProfilesSettings() {
     } catch (error) {
       setFailure(message(error));
       return false;
+    } finally {
+      setRunning(undefined);
     }
   };
   const save = async (draft: ProfileDraft) => {
     const target = editing();
-    if (target !== undefined && (await attempt(() => client.profileSave(target.id, draft)))) setEditing(undefined);
+    if (target !== undefined && (await attempt("Saving profile", () => client.profileSave(target.id, draft)))) setEditing(undefined);
   };
   const confirmDelete = async () => {
     const profile = pendingDelete();
     setPendingDelete(undefined);
-    if (profile !== undefined) await attempt(() => client.profileDelete(profile.id));
+    if (profile !== undefined) await attempt("Deleting profile", () => client.profileDelete(profile.id));
+  };
+  const switchTo = async (id: string) => {
+    if (running() !== undefined) return;
+    setRunning("Switching profile");
+    try { await app.switchProfile(id); }
+    finally { setRunning(undefined); }
   };
 
   return (
@@ -100,13 +111,13 @@ export function ProfilesSettings() {
                       <span class="tool-detail">{authorLine(profile)}</span>
                     </span>
                     <span class="recent-acts">
-                      <button type="button" class="btn sm" aria-disabled={active() ? "true" : undefined} {...(active() ? tip("This is the active profile", undefined, "Switch") : {})} onClick={() => !active() && void app.switchProfile(profile.id)}>
+                      <button type="button" class="btn sm" disabled={running() !== undefined} aria-busy={running() === "Switching profile" && !active()} aria-disabled={active() ? "true" : undefined} {...(active() ? tip("This is the active profile", undefined, "Switch") : {})} onClick={() => !active() && void switchTo(profile.id)}>
                         Switch
                       </button>
-                      <button type="button" class="btn sm" onClick={() => setEditing({ id: profile.id, draft: { name: profile.name, author_name: profile.author_name, author_email: profile.author_email } })}>
+                      <button type="button" class="btn sm" disabled={running() !== undefined} onClick={() => setEditing({ id: profile.id, draft: { name: profile.name, author_name: profile.author_name, author_email: profile.author_email } })}>
                         Edit
                       </button>
-                      <button type="button" class="btn sm text-danger" aria-disabled={blocked() === undefined ? undefined : "true"} {...(blocked() === undefined ? {} : tip(blocked() as string, undefined, "Delete"))} onClick={() => blocked() === undefined && setPendingDelete(profile)}>
+                      <button type="button" class="btn sm text-danger" disabled={running() !== undefined} aria-disabled={blocked() === undefined ? undefined : "true"} {...(blocked() === undefined ? {} : tip(blocked() as string, undefined, "Delete"))} onClick={() => blocked() === undefined && setPendingDelete(profile)}>
                         Delete
                       </button>
                     </span>
@@ -122,13 +133,14 @@ export function ProfilesSettings() {
         when={editing()}
         keyed
         fallback={
-          <button type="button" class="btn" onClick={() => setEditing({ id: null, draft: { name: "", author_name: "", author_email: "" } })}>
+          <button type="button" class="btn" disabled={running() !== undefined} onClick={() => setEditing({ id: null, draft: { name: "", author_name: "", author_email: "" } })}>
             Add profile…
           </button>
         }
       >
-        {(target) => <ProfileForm editing={target} onSubmit={save} onCancel={() => setEditing(undefined)} />}
+        {(target) => <ProfileForm editing={target} busy={running() !== undefined} onSubmit={save} onCancel={() => setEditing(undefined)} />}
       </Show>
+      <Show when={running()}>{(label) => <p class="field-note" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />{label()}…</p>}</Show>
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={pendingDelete()}>{(profile) => <ConfirmDialog copy={deleteProfileCopy(profile())} onConfirm={() => void confirmDelete()} onCancel={() => setPendingDelete(undefined)} />}</Show>
     </>

@@ -14,7 +14,7 @@ import { useApp } from "../state/app";
 import { removeRemoteCopy, type ConfirmCopy } from "../state/confirmCopy";
 import { appKeys, repoKeys } from "../state/queryKeys";
 import { SETTINGS_SECTIONS } from "../state/palette";
-import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel } from "../state/settingsModel";
+import { AUTO_FETCH_OPTIONS, effectivePullMode, pullModeLabel, remoteProblem, SSH_AGENT_LABEL, sourceLabel, sshKeyLabel, THEME_OPTIONS } from "../state/settingsModel";
 import { pullModes } from "../state/syncModel";
 import { crumb, matchCounts, searchSettings, settingAnchor, type SettingEntry } from "../state/settingsSearch";
 import { AiSettings } from "./AiSettings";
@@ -531,8 +531,11 @@ export function SettingsView(props: { section: string }) {
           <Match when={section() === "appearance"}>
             <h2>Appearance</h2>
             <p class="setting-note">Applies to every repository.</p>
-            <SettingRow id="theme" title="Theme" note="Dark, light, or follow the system.">
-              <Segmented label="Theme" value={settings().theme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} onChange={(value) => void change({ theme: value })} />
+            <SettingRow id="theme" title="Theme" note="Choose a named theme, or follow the system.">
+              <Select label="Theme" value={settings().theme} options={THEME_OPTIONS} onChange={(value) => {
+                const chosen = THEME_OPTIONS.find((option) => option.value === value);
+                if (chosen !== undefined) void change({ theme: chosen.value });
+              }} />
             </SettingRow>
             <SettingRow id="density" title="Density" note="Compact graph lanes are 10px apart; default lanes are 22px.">
               <Segmented label="Density" value={settings().density} options={[{ value: "compact", label: "Compact" }, { value: "default", label: "Default" }]} onChange={(value) => void change({ density: value })} />

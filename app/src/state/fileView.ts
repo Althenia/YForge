@@ -3,6 +3,14 @@ import type { DiffTarget } from "./diffModel";
 
 export type FileViewTarget = { file: string; rev: string; source: string };
 
+export function previewKind(file: string): "image" | "markdown" | "html" | undefined {
+  const extension = file.split(".").at(-1)?.toLowerCase();
+  if (["png", "jpg", "jpeg", "gif", "webp", "avif", "svg"].includes(extension ?? "")) return "image";
+  if (extension === "md" || extension === "markdown") return "markdown";
+  if (extension === "html" || extension === "htm") return "html";
+  return undefined;
+}
+
 const MEBIBYTE = 1024 * 1024;
 
 export function fileViewTargetOf(target: DiffTarget): FileViewTarget {

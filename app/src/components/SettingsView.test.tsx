@@ -89,20 +89,50 @@ async function open(section: string) {
 const savedSettings = (calls: Call[]): AppSettings[] => calls.filter((call) => call.cmd === "settings_save").map((call) => call.args.settings as AppSettings);
 
 describe("settings view", () => {
+  it("announces and locks a language-server settings save until it finishes", async () => {
+    let finish: ((value: unknown) => void) | undefined;
+    const calls = install((call) => call.cmd === "settings_save" ? new Promise((resolve) => { finish = resolve; }) : undefined);
+    const mounted = mountWithApp(() => <SettingsView section="tools" />);
+    dispose = mounted.dispose;
+    await flush();
+    type(mounted.host.querySelector<HTMLInputElement>('input[aria-label="Language server extension"]'), "rs");
+    type(mounted.host.querySelector<HTMLInputElement>('input[aria-label="Language server command"]'), "rust-analyzer");
+    buttonNamed(mounted.host, "Add language server")?.click();
+    await flush();
+
+    expect(mounted.host.querySelector<HTMLInputElement>('input[aria-label="Language server command"]')?.disabled).toBe(true);
+    expect(mounted.host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Saving language server");
+    expect(mounted.host.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    expect(calls.filter((call) => call.cmd === "settings_save")).toHaveLength(1);
+    finish?.(calls.find((call) => call.cmd === "settings_save")?.args.settings);
+    await flush();
+    expect(mounted.host.querySelector<HTMLInputElement>('input[aria-label="Language server command"]')?.disabled).toBe(false);
+  });
+  it("saves installed language-server commands per extension and removes them", async () => {
+    const { host, calls } = await open("tools");
+    type(host.querySelector<HTMLInputElement>('input[aria-label="Language server extension"]'), "rs");
+    type(host.querySelector<HTMLInputElement>('input[aria-label="Language server command"]'), "rust-analyzer");
+    buttonNamed(host, "Add language server")?.click();
+    await flush();
+
+    expect(savedSettings(calls).at(-1)?.language_servers).toEqual({ rs: "rust-analyzer" });
+    buttonNamed(host, "Remove language server for .rs")?.click();
+    await flush();
+    expect(savedSettings(calls).at(-1)?.language_servers).toEqual({});
+  });
   it("saves the theme and density as soon as they are chosen and applies the saved value", async () => {
     const { host, calls, app } = await open("appearance");
 
-    buttonNamed(host, "Light")?.click();
-    await flush();
+    await choose(host, "Theme", "Gruvbox");
     buttonNamed(host, "Compact")?.click();
     await flush();
 
     expect(savedSettings(calls).map((settings) => [settings.theme, settings.density])).toEqual([
-      ["light", "default"],
-      ["light", "compact"],
+      ["gruvbox", "default"],
+      ["gruvbox", "compact"],
     ]);
-    expect(app.settings()).toMatchObject({ theme: "light", density: "compact" });
-    expect(host.querySelector('[aria-label="Theme"] [aria-checked="true"]')?.textContent).toBe("Light");
+    expect(app.settings()).toMatchObject({ theme: "gruvbox", density: "compact" });
+    expect(host.querySelector('button[aria-label="Theme"]')?.textContent).toContain("Gruvbox");
   });
 
   it("offers auto-fetch as off, 5, 10, or 30 minutes and saves the chosen interval", async () => {
@@ -358,10 +388,13 @@ describe("settings view", () => {
     expect(calls.length).toBeGreaterThan(0);
   });
 
-  it("offers Light, Dark, and System themes and both densities", async () => {
+  it("offers System and the ten named palettes in an owned dropdown, alongside both densities", async () => {
     const { host } = await open("appearance");
-
-    expect([...host.querySelectorAll('[aria-label="Theme"] button')].map((button) => button.textContent)).toEqual(["Light", "Dark", "System"]);
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Theme"]');
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("listbox");
+    trigger?.click();
+    await flush();
+    expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent?.trim())).toEqual(["System", "YForge Dark", "YForge Light", "Classic Dark", "Ocean", "Eighties", "Gruvbox", "Nord", "Dracula", "Monokai", "Woodland"]);
     expect([...host.querySelectorAll('[aria-label="Density"] button')].map((button) => button.textContent)).toEqual(["Compact", "Default"]);
   });
 
@@ -505,6 +538,21 @@ const closeList = async () => {
 const savedChoices = (calls: Call[]) => calls.filter((call) => call.cmd === "external_tools_save").map((call) => call.args.choices);
 
 describe("external tools (S54)", () => {
+  it("locks tool choices and announces a pending save until it settles", async () => {
+    let finish: (() => void) | undefined;
+    const calls = install((call) => call.cmd === "external_tools_save" ? new Promise<void>((resolve) => { finish = resolve; }) : undefined);
+    const mounted = mountWithApp(() => <SettingsView section="tools" />);
+    dispose = mounted.dispose;
+    await flush();
+    await choose(mounted.host, "External merge tool", "FileMerge");
+
+    expect(mounted.host.querySelector<HTMLButtonElement>('button[aria-label="External merge tool"]')?.disabled).toBe(true);
+    expect(mounted.host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Saving external tools");
+    expect(calls.filter((call) => call.cmd === "external_tools_save")).toHaveLength(1);
+    finish?.();
+    await flush();
+    expect(mounted.host.querySelector<HTMLButtonElement>('button[aria-label="External merge tool"]')?.disabled).toBe(false);
+  });
   it("lists None, Git config default, then only the merge tools found, and saves the chosen tool", async () => {
     const { host, calls } = await open("tools");
 
@@ -616,6 +664,25 @@ describe("external tools (S54)", () => {
 
 describe("commit signing (S59)", () => {
   const written = (calls: Call[]) => calls.filter((call) => call.cmd === "signing_write").map((call) => call.args);
+
+  it("locks signing choices and announces the save until Git finishes", async () => {
+    let finish: (() => void) | undefined;
+    const calls = install((call) => call.cmd === "signing_write" ? new Promise<void>((resolve) => { finish = resolve; }) : undefined);
+    const mounted = mountWithApp(() => <SettingsView section="git" />);
+    dispose = mounted.dispose;
+    await flush();
+    mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.click();
+    await flush();
+
+    expect(mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.disabled).toBe(true);
+    expect(mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Signing format"]')?.disabled).toBe(true);
+    expect(mounted.host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Saving signing settings");
+    mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Sign tags"]')?.click();
+    expect(written(calls)).toHaveLength(1);
+    finish?.();
+    await flush();
+    expect(mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Sign commits"]')?.disabled).toBe(false);
+  });
 
   it("reads the global Git config first and saves each change to it", async () => {
     const { host, calls } = await open("git");

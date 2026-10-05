@@ -163,9 +163,9 @@ export function CommandBar(props: {
   return (
     <div class="bar commandbar">
       <span class="crumb">
-        {basename(props.snapshot.root)}
+        <span class="crumb-repo" title={basename(props.snapshot.root)}>{basename(props.snapshot.root)}</span>
         <span class="sep">›</span>
-        {worktreeLabel()}
+        <span class="crumb-worktree" title={worktreeLabel()}>{worktreeLabel()}</span>
         <span class="sep">›</span>
         <button
           type="button"
@@ -176,7 +176,7 @@ export function CommandBar(props: {
           title={unborn() ? "Make a first commit before switching branches" : undefined}
           onClick={(event) => props.actions.openBranchPicker(below(event.currentTarget))}
         >
-          {headLabel(props.snapshot)}
+          <span class="branch-name">{headLabel(props.snapshot)}</span>
           <Icon name="chevron" />
         </button>
       </span>

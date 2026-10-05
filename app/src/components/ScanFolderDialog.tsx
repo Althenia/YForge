@@ -83,6 +83,7 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
   }
 
   const toggle = (repoPath: string) => {
+    if (saving()) return;
     const next = new Set(picked());
     if (next.has(repoPath)) next.delete(repoPath);
     else next.add(repoPath);
@@ -90,6 +91,7 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
   };
 
   const back = () => {
+    if (saving()) return;
     attempt += 1;
     setResult(undefined);
     setScanning(false);
@@ -97,7 +99,7 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
   };
 
   return (
-    <DialogFrame title="Add a folder to scan" onEscape={props.onClose}>
+    <DialogFrame title="Add a folder to scan" onEscape={() => { if (!saving()) props.onClose(); }}>
       <div class="scan-dialog">
         <Switch>
           <Match when={result() === undefined}>
@@ -175,7 +177,7 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
                             </span>
                           }
                         >
-                          <input type="checkbox" aria-label={`Add ${basename(repo.path)}`} checked={picked().has(repo.path)} onChange={() => toggle(repo.path)} />
+                          <input type="checkbox" aria-label={`Add ${basename(repo.path)}`} checked={picked().has(repo.path)} disabled={saving()} onChange={() => toggle(repo.path)} />
                         </Show>
                         <span class="scan-repo">
                           <strong>{basename(repo.path)}</strong>
@@ -202,12 +204,13 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
             </p>
           )}
         </Show>
+        <Show when={saving()}><p class="field-note" role="status" aria-busy="true">Adding repositories…</p></Show>
         <div class="foot">
           <Show
             when={result()}
             fallback={
               <>
-                <button type="button" class="btn" onClick={props.onClose}>
+                <button type="button" class="btn" disabled={saving()} onClick={props.onClose}>
                   Cancel
                 </button>
                 <button type="button" class="btn primary" disabled={path().trim() === "" || scanning()} aria-busy={scanning()} onClick={() => void scan()}>
@@ -219,7 +222,7 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
           >
             {(found) => (
               <>
-                <button type="button" class="btn" onClick={back}>
+                <button type="button" class="btn" disabled={saving()} onClick={back}>
                   Back
                 </button>
                 <Show
@@ -233,9 +236,9 @@ export function ScanFolderDialog(props: { onClose: () => void; onAdded: (next: R
                     </Show>
                   }
                 >
-                  <button type="button" class="btn primary" disabled={picked().size === 0 || saving()} title={picked().size === 0 ? "Tick at least one repository" : undefined} onClick={() => void add()}>
+                  <button type="button" class="btn primary" disabled={picked().size === 0 || saving()} aria-busy={saving()} title={picked().size === 0 ? "Tick at least one repository" : undefined} onClick={() => void add()}>
                     <Icon name="plus" />
-                    {addButtonText(picked().size)}
+                    {saving() ? "Adding…" : addButtonText(picked().size)}
                   </button>
                 </Show>
               </>

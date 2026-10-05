@@ -18,8 +18,9 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
     onSubmit: async ({ value }) => {
       setBusy(true);
       setFailure(undefined);
-      setFailure(await props.actions.create(value));
-      setBusy(false);
+      try { setFailure(await props.actions.create(value)); }
+      catch (error) { setFailure(error instanceof Error ? error.message : String(error)); }
+      finally { setBusy(false); }
     },
   }));
   const mode = form.useSelector((state) => state.values.mode);
@@ -33,7 +34,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
       if (edited() || name === "" || (current === "new" && newBranchProblem(name, props.snapshot.branches) !== undefined)) return;
       try {
         const suggested = await props.actions.suggest(name);
-        if (branch() === name && !edited()) form.setFieldValue("destination", suggested);
+        if (branch() === name && !edited() && !busy()) form.setFieldValue("destination", suggested);
       } catch {
         return;
       }
@@ -41,13 +42,14 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
   );
 
   const choose = (next: CreateMode) => {
+    if (busy()) return;
     form.setFieldValue("mode", next);
     form.setFieldValue("branch", next === "existing" ? (existing()[0] ?? "") : "");
     setEdited(false);
   };
 
   return (
-    <DialogFrame title="Create worktree" onEscape={props.actions.closeDialog}>
+    <DialogFrame title="Create worktree" onEscape={() => { if (!busy()) props.actions.closeDialog(); }}>
       <form
         class="entry-form"
         onSubmit={(event) => {
@@ -56,10 +58,10 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
         }}
       >
         <div class="segmented" role="radiogroup" aria-label="Branch source">
-          <button type="button" role="radio" aria-checked={mode() === "new"} classList={{ on: mode() === "new" }} onClick={() => choose("new")}>
+          <button type="button" role="radio" disabled={busy()} aria-checked={mode() === "new"} classList={{ on: mode() === "new" }} onClick={() => choose("new")}>
             New branch
           </button>
-          <button type="button" role="radio" aria-checked={mode() === "existing"} classList={{ on: mode() === "existing" }} onClick={() => choose("existing")}>
+          <button type="button" role="radio" disabled={busy()} aria-checked={mode() === "existing"} classList={{ on: mode() === "existing" }} onClick={() => choose("existing")}>
             Existing branch
           </button>
         </div>
@@ -75,8 +77,8 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
                     value={field().state.value}
                     options={existing().map((name) => ({ value: name, label: name }))}
                     placeholder="Choose a branch…"
-                    disabled={existing().length === 0}
-                    disabledReason="Every local branch is already checked out in a worktree"
+                    disabled={existing().length === 0 || busy()}
+                    disabledReason={busy() ? "Creating worktree" : "Every local branch is already checked out in a worktree"}
                     onChange={(value) => field().handleChange(value)}
                   />
                 )}
@@ -91,7 +93,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
             <span class="field-label">Branch name</span>
             <span class="input" classList={{ invalid: branch() !== "" && newBranchProblem(branch(), props.snapshot.branches) !== undefined }}>
               <form.Field name="branch">
-                {(field) => <input type="text" spellcheck={false} autocapitalize="off" ref={(element) => queueMicrotask(() => element.focus())} value={field().state.value} aria-label="Branch name" onInput={(event) => field().handleChange(event.currentTarget.value)} />}
+                {(field) => <input type="text" spellcheck={false} autocapitalize="off" ref={(element) => queueMicrotask(() => element.focus())} value={field().state.value} aria-label="Branch name" disabled={busy()} onInput={(event) => field().handleChange(event.currentTarget.value)} />}
               </form.Field>
             </span>
             <Show when={branch() !== "" && newBranchProblem(branch(), props.snapshot.branches)}>{(text) => <span class="field-note error">{text()}</span>}</Show>
@@ -105,6 +107,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
                   value={field().state.value}
                   options={startPointChoices(props.snapshot.branches, props.snapshot.remote_branches).map((choice) => ({ value: choice.value, label: choice.label }))}
                   placeholder="Choose a start point…"
+                  disabled={busy()}
                   onChange={(value) => field().handleChange(value)}
                 />
               )}
@@ -122,6 +125,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
                   autocapitalize="off"
                   value={field().state.value}
                   aria-label="Folder"
+                  disabled={busy()}
                   onInput={(event) => {
                     setEdited(true);
                     field().handleChange(event.currentTarget.value);
@@ -139,14 +143,15 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
             </p>
           )}
         </Show>
+        <Show when={busy()}><p class="field-note" role="status">Creating worktree…</p></Show>
         <div class="foot">
-          <button type="button" class="btn" onClick={props.actions.closeDialog}>
+          <button type="button" class="btn" disabled={busy()} onClick={props.actions.closeDialog}>
             Cancel
           </button>
           <Show when={block()}>{(reason) => <span class="reason">{reason()}</span>}</Show>
-          <button type="submit" class="btn primary" disabled={!ready()}>
+          <button type="submit" class="btn primary" disabled={!ready()} aria-busy={busy()}>
             <Icon name="plus" />
-            Create worktree
+            {busy() ? "Creating…" : "Create worktree"}
           </button>
         </div>
       </form>
@@ -164,14 +169,16 @@ export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: 
   const copy = () => integrateCopy(props.worktree, target(), cleanup());
 
   async function submit(): Promise<void> {
+    if (busy()) return;
     setBusy(true);
     setFailure(undefined);
-    setFailure(await props.actions.submitIntegrate(branch(), props.worktree.path, target(), cleanup()));
-    setBusy(false);
+    try { setFailure(await props.actions.submitIntegrate(branch(), props.worktree.path, target(), cleanup())); }
+    catch (error) { setFailure(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
 
   return (
-    <DialogFrame title={copy().title} onEscape={props.actions.closeDialog}>
+    <DialogFrame title={copy().title} onEscape={() => { if (!busy()) props.actions.closeDialog(); }}>
       <form
         class="entry-form"
         onSubmit={(event) => {
@@ -186,6 +193,8 @@ export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: 
             value={target()}
             options={targets().map((entry) => ({ value: entry.branch, label: entry.branch }))}
             placeholder="Choose a target…"
+            disabled={busy()}
+            disabledReason="Integration in progress"
             onChange={(value) => setTarget(value)}
           />
           <span class="field-note">
@@ -193,7 +202,7 @@ export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: 
           </span>
         </label>
         <label class="choice">
-          <input type="checkbox" checked={cleanup()} onChange={(event) => setCleanup(event.currentTarget.checked)} />
+          <input type="checkbox" checked={cleanup()} disabled={busy()} onChange={(event) => setCleanup(event.currentTarget.checked)} />
           <span class="choice-text">Remove the worktree and delete {branch()} afterwards</span>
         </label>
         <For each={copy().consequences}>{(line) => <p class="field-note">{line}</p>}</For>
@@ -204,13 +213,14 @@ export function IntegrateWorktreeDialog(props: { worktree: WorktreeStatus; all: 
             </p>
           )}
         </Show>
+        <Show when={busy()}><p class="field-note" role="status">Integrating worktree…</p></Show>
         <div class="foot">
-          <button type="button" class="btn" onClick={props.actions.closeDialog}>
+          <button type="button" class="btn" disabled={busy()} onClick={props.actions.closeDialog}>
             Cancel
           </button>
-          <button type="submit" class="btn primary" disabled={busy() || target() === ""}>
+          <button type="submit" class="btn primary" disabled={busy() || target() === ""} aria-busy={busy()}>
             <Icon name="merge" />
-            Integrate
+            {busy() ? "Integrating…" : "Integrate"}
           </button>
         </div>
       </form>

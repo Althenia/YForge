@@ -6,6 +6,7 @@ const row = (sha: string | null, parents: string[], extra: Partial<GraphRow> = {
   sha,
   parents,
   summary: "",
+  body: "",
   author: null,
   time: null,
   refs: [],

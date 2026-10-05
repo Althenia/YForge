@@ -15,8 +15,11 @@ export function LfsSettings(props: { path: string }) {
   const status = useQuery(() => ({ queryKey: key(), queryFn: () => client.lfsStatus(props.path) }));
   const [tracking, setTracking] = createSignal<string | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
+  const [running, setRunning] = createSignal<string>();
 
-  const attempt = async (run: () => Promise<unknown>): Promise<boolean> => {
+  const attempt = async (label: string, run: () => Promise<unknown>): Promise<boolean> => {
+    if (running() !== undefined) return false;
+    setRunning(label);
     setFailure(undefined);
     try {
       await run();
@@ -25,11 +28,13 @@ export function LfsSettings(props: { path: string }) {
     } catch (error) {
       setFailure(message(error));
       return false;
+    } finally {
+      setRunning(undefined);
     }
   };
   const track = async () => {
     const pattern = tracking();
-    if (pattern !== undefined && (await attempt(() => client.lfsTrack(props.path, pattern)))) setTracking(undefined);
+    if (pattern !== undefined && (await attempt("Tracking pattern", () => client.lfsTrack(props.path, pattern)))) setTracking(undefined);
   };
 
   return (
@@ -56,8 +61,8 @@ export function LfsSettings(props: { path: string }) {
               <Show
                 when={current().initialized}
                 fallback={
-                  <button type="button" class="btn sm" onClick={() => void attempt(() => client.lfsInitialize(props.path))}>
-                    Initialize LFS
+                  <button type="button" class="btn sm" disabled={running() !== undefined} aria-busy={running() === "Initializing LFS"} onClick={() => void attempt("Initializing LFS", () => client.lfsInitialize(props.path))}>
+                    {running() === "Initializing LFS" ? "Initializing LFS…" : "Initialize LFS"}
                   </button>
                 }
               >
@@ -77,7 +82,7 @@ export function LfsSettings(props: { path: string }) {
                       </span>
                     </span>
                     <span class="recent-acts">
-                      <button type="button" class="btn sm" aria-label={`Untrack ${pattern}`} onClick={() => void attempt(() => client.lfsUntrack(props.path, pattern))}>
+                      <button type="button" class="btn sm" aria-label={`Untrack ${pattern}`} disabled={running() !== undefined} aria-busy={running() === `Untracking ${pattern}`} onClick={() => void attempt(`Untracking ${pattern}`, () => client.lfsUntrack(props.path, pattern))}>
                         Untrack
                       </button>
                     </span>
@@ -103,14 +108,14 @@ export function LfsSettings(props: { path: string }) {
                 <label class="field">
                   <span class="field-label">Pattern</span>
                   <span class="input">
-                    <input type="text" aria-label="Pattern to track" placeholder="*.psd" spellcheck={false} value={tracking() ?? ""} onInput={(event) => setTracking(event.currentTarget.value)} />
+                    <input type="text" aria-label="Pattern to track" placeholder="*.psd" spellcheck={false} value={tracking() ?? ""} disabled={running() !== undefined} onInput={(event) => setTracking(event.currentTarget.value)} />
                   </span>
                 </label>
                 <span class="tool-form-actions">
-                  <button type="submit" class="btn primary">
-                    Track
+                  <button type="submit" class="btn primary" disabled={running() !== undefined} aria-busy={running() === "Tracking pattern"}>
+                    {running() === "Tracking pattern" ? "Tracking…" : "Track"}
                   </button>
-                  <button type="button" class="btn" onClick={() => setTracking(undefined)}>
+                  <button type="button" class="btn" disabled={running() !== undefined} onClick={() => setTracking(undefined)}>
                     Cancel
                   </button>
                 </span>
@@ -119,6 +124,7 @@ export function LfsSettings(props: { path: string }) {
           </Show>
         )}
       </Show>
+      <Show when={running()}>{(label) => <p class="field-note" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />{label()}…</p>}</Show>
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={status.error}>{(error) => <p class="field-note error" role="alert">{message(error())}</p>}</Show>
     </>

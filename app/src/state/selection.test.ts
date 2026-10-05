@@ -6,6 +6,7 @@ const row = (kind: GraphRow["kind"], sha: string | null): GraphRow => ({
   sha,
   parents: [],
   summary: "",
+  body: "",
   author: null,
   time: null,
   refs: [],

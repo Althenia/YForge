@@ -206,7 +206,7 @@ export function CommitInspector(props: {
             </div>
             <div class="ilist commit-body" ref={scroller}>
               <Show when={editing()}>
-                <MessageForm session={props.session} onClose={() => setEditing(false)} onSaved={props.onSelectCommit} />
+                <MessageForm session={props.session} generateAvailable={featureAvailable(features.data, "generate_commit")} onClose={() => setEditing(false)} onSaved={props.onSelectCommit} />
               </Show>
               <Show when={commit().body && !editing()}>{(body) => <p class="cbody">{body()}</p>}</Show>
               <div class="cmeta">

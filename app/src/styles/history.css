@@ -101,6 +101,14 @@
   grid-template-columns: 220px 56px minmax(max-content, 1fr);
 }
 
+.blame .fline.blame-selected {
+  background: var(--colors-selection);
+}
+
+.blame .fline.blame-selected .bgut {
+  background: var(--colors-selection);
+}
+
 .bgut {
   position: sticky;
   left: 0;

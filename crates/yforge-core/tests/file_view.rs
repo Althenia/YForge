@@ -3,7 +3,7 @@ mod common;
 use std::fs;
 
 use common::Fixture;
-use yforge_core::{file_at_revision, ErrorKind, ErrorPayload, FileAtRevision};
+use yforge_core::{file_at_revision, preview_file_bytes, ErrorKind, ErrorPayload, FileAtRevision};
 
 const LIMIT: usize = 2 * 1024 * 1024;
 
@@ -193,5 +193,47 @@ fn a_directory_that_is_not_a_repository_is_a_typed_error() {
             .unwrap_err()
             .kind(),
         ErrorKind::NotARepository
+    );
+}
+
+#[test]
+fn preview_bytes_use_the_selected_revision_for_binary_assets_and_enforce_file_boundaries() {
+    let repo = ready_repository();
+    fs::create_dir(repo.path.join("assets")).unwrap();
+    fs::write(repo.path.join("assets/logo.png"), b"old\0image").unwrap();
+    repo.git(&["add", "assets/logo.png"]);
+    repo.git(&["commit", "-q", "-m", "Add image"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    fs::write(repo.path.join("assets/logo.png"), b"new\0image").unwrap();
+
+    assert_eq!(
+        preview_file_bytes(&repo.path, "assets/logo.png", &head).unwrap(),
+        b"old\0image"
+    );
+    assert_eq!(
+        preview_file_bytes(&repo.path, "assets/logo.png", ":worktree").unwrap(),
+        b"new\0image"
+    );
+    for unsafe_file in ["../a.txt", "/etc/hosts", "missing.png"] {
+        assert_eq!(
+            preview_file_bytes(&repo.path, unsafe_file, ":worktree")
+                .unwrap_err()
+                .kind(),
+            ErrorKind::InvalidRequest
+        );
+    }
+    fs::write(repo.path.join("assets/large.png"), vec![0; LIMIT + 1]).unwrap();
+    assert_eq!(
+        preview_file_bytes(&repo.path, "assets/large.png", ":worktree")
+            .unwrap_err()
+            .kind(),
+        ErrorKind::FileTooLarge
+    );
+    std::os::unix::fs::symlink("logo.png", repo.path.join("assets/link.png")).unwrap();
+    assert_eq!(
+        preview_file_bytes(&repo.path, "assets/link.png", ":worktree")
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidRequest
     );
 }

@@ -31,12 +31,13 @@ const listed = [
   row({ path: "ext/docs", status: "uninitialized", url: "git@example.com:sample/docs.git", recorded: "1122334000000000000000000000000000000000", checked_out: null }),
 ];
 
-function mount(rows: Submodule[] = listed) {
+function mount(rows: Submodule[] = listed, holdAdd?: () => Promise<void>) {
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
     const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
     calls.push(call);
     if (cmd === "submodule_list") return rows;
+    if (cmd === "submodule_add" && holdAdd !== undefined) return holdAdd();
     if (cmd === "repo_open") return { root: call.args.path, head: { kind: "branch", name: "main" } };
     if (cmd === "recent_add") return [];
     if (cmd === "session_save") return null;
@@ -56,6 +57,26 @@ const openMenu = async (host: ParentNode, path: string) => {
 };
 
 describe("submodules", () => {
+  it("locks an add while pending and announces progress without sending it twice", async () => {
+    let finish: (() => void) | undefined;
+    const { host, calls } = mount([], () => new Promise<void>((resolve) => { finish = resolve; }));
+    await flush();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Add submodule"]')?.click();
+    await flush();
+    type(document.querySelector<HTMLInputElement>('input[aria-label="Submodule path"]'), "vendor/icons");
+    type(document.querySelector<HTMLInputElement>('input[aria-label="Submodule URL"]'), "git@example.com:sample/icons.git");
+    buttonNamed(document.body, "Add")?.click();
+    await flush();
+
+    expect(document.querySelector<HTMLInputElement>('input[aria-label="Submodule path"]')?.disabled).toBe(true);
+    expect(host.querySelector('[role="status"][aria-busy="true"]')?.textContent).toContain("Adding submodule");
+    expect(document.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(document.body, "Adding…")?.click();
+    expect(calls.filter((call) => call.cmd === "submodule_add")).toHaveLength(1);
+    finish?.();
+    await flush(40);
+    expect(document.querySelector('input[aria-label="Submodule path"]')).toBeNull();
+  });
   it("lists status words and the recorded and checked-out commits", async () => {
     const { host } = mount();
     await flush();

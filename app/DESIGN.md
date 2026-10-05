@@ -100,58 +100,58 @@ colors:
 typography:
   ui-body:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 13px
+    fontSize: 14px
     fontWeight: 400
     lineHeight: 1.54
   ui-label:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 13px
+    fontSize: 14px
     fontWeight: 500
     lineHeight: 1.54
   ui-strong:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 13px
+    fontSize: 14px
     fontWeight: 600
     lineHeight: 1.54
   ui-small:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 12px
+    fontSize: 13px
     fontWeight: 400
     lineHeight: 1.33
   ui-caption:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 12px
+    fontSize: 13px
     fontWeight: 500
     lineHeight: 1.33
   ui-section:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 12px
+    fontSize: 13px
     fontWeight: 600
     lineHeight: 1.33
   ui-micro:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 11px
+    fontSize: 12px
     fontWeight: 500
     lineHeight: 1.45
   title:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 16px
+    fontSize: 17px
     fontWeight: 600
     lineHeight: 1.375
     letterSpacing: -0.01em
   heading:
     fontFamily: "Geist, system-ui, -apple-system, Segoe UI, sans-serif"
-    fontSize: 20px
+    fontSize: 21px
     fontWeight: 600
     lineHeight: 1.3
   code:
     fontFamily: "Geist Mono, ui-monospace, SF Mono, Menlo, monospace"
-    fontSize: 12px
+    fontSize: 13px
     fontWeight: 400
     lineHeight: 1.5
   ref:
     fontFamily: "Geist Mono, ui-monospace, SF Mono, Menlo, monospace"
-    fontSize: 12px
+    fontSize: 13px
     fontWeight: 500
     lineHeight: 1.33
   graph:
@@ -209,7 +209,7 @@ controls:
   row-graph: 28px
   graph-row-inner: 22px
   graph-header: 30px
-  graph-gutter: 28px
+  graph-gutter: 4px
   graph-lane-pitch: 22px
   graph-node: 22px
   graph-merge-node: 12px
@@ -248,7 +248,7 @@ layout:
   graph-ref-column: 130px
   graph-ref-column-min: 32px
   graph-ref-column-max: 300px
-  graph-column: 150px
+  graph-column: 56px
   graph-column-min: 56px
   graph-message-column-min: 50px
   graph-author-column: 130px
@@ -763,6 +763,486 @@ themes:
       raised: "0 1px 2px rgba(16, 24, 40, 0.06), 0 0 0 1px rgba(16, 24, 40, 0.08)"
       overlay: "0 8px 24px rgba(16, 24, 40, 0.12), 0 2px 6px rgba(16, 24, 40, 0.08)"
       modal: "0 24px 48px rgba(16, 24, 40, 0.18), 0 4px 12px rgba(16, 24, 40, 0.10)"
+  classic:
+    colors:
+      backdrop: "#181818"
+      canvas: "#181818"
+      surface-1: "#282828"
+      surface-2: "#383838"
+      surface-3: "#383838"
+      surface-raised: "#282828"
+      rule: "#383838"
+      rule-panel: "#383838"
+      rule-strong: "#b8b8b8"
+      text: "#d8d8d8"
+      text-muted: "#b8b8b8"
+      text-subtle: "#b8b8b8"
+      text-inverse: "#181818"
+      accent: "#a1b56c"
+      on-accent: "#000000"
+      accent-tint: "#282828"
+      accent-ink: "#a1b56c"
+      on-attention: "#181818"
+      attention-tint: "#282828"
+      attention-ink: "#f7ca88"
+      head-junction: "#f7ca88"
+      danger: "#d19a98"
+      on-danger: "#000000"
+      danger-tint: "#282828"
+      danger-ink: "#d19a98"
+      info: "#7cafc2"
+      info-tint: "#282828"
+      info-ink: "#7cafc2"
+      focus: "#7cafc2"
+      toolbar: "#282828"
+      toolbar-hover: "#383838"
+      panel-head: "#282828"
+      field: "#181818"
+      selection-edge: "#7cafc2"
+      selection: "#383838"
+      status-added: "#a1b56c"
+      status-modified: "#f7ca88"
+      status-deleted: "#c37b78"
+      status-renamed: "#7cafc2"
+      status-untracked: "#86c1b9"
+      status-conflicted: "#ba8baf"
+      status-ignored: "#8f8f8f"
+      graph-text: "#d8d8d8"
+      graph-text-body: "#b8b8b8"
+      graph-text-active: "#e8e8e8"
+      graph-row-hover: "#282828"
+      graph-pill: "#282828"
+      diff-added-word: "#181818"
+      diff-removed-word: "#181818"
+      diff-added-selected: "#282828"
+      diff-removed-selected: "#282828"
+      syntax-keyword: "#ba8baf"
+      syntax-string: "#a1b56c"
+      syntax-number: "#dc9656"
+      syntax-comment: "#b8b8b8"
+      syntax-function: "#7cafc2"
+      syntax-type: "#f7ca88"
+      syntax-property: "#86c1b9"
+  ocean:
+    colors:
+      backdrop: "#2b303b"
+      canvas: "#2b303b"
+      surface-1: "#343d46"
+      surface-2: "#4f5b66"
+      surface-3: "#4f5b66"
+      surface-raised: "#343d46"
+      rule: "#4f5b66"
+      rule-panel: "#4f5b66"
+      rule-strong: "#a7adba"
+      text: "#d7dae0"
+      text-muted: "#cfd2d9"
+      text-subtle: "#a7adba"
+      text-inverse: "#2b303b"
+      accent: "#a3be8c"
+      on-accent: "#000000"
+      accent-tint: "#343d46"
+      accent-ink: "#c5d6b6"
+      on-attention: "#2b303b"
+      attention-tint: "#343d46"
+      attention-ink: "#eed29b"
+      head-junction: "#ebcb8b"
+      danger: "#eac8cb"
+      on-danger: "#000000"
+      danger-tint: "#343d46"
+      danger-ink: "#eac8cb"
+      info: "#8fa1b3"
+      info-tint: "#343d46"
+      info-ink: "#9faebe"
+      focus: "#9faebe"
+      toolbar: "#343d46"
+      toolbar-hover: "#4f5b66"
+      panel-head: "#343d46"
+      field: "#2b303b"
+      selection-edge: "#9faebe"
+      selection: "#4f5b66"
+      status-added: "#c5d6b6"
+      status-modified: "#ebcb8b"
+      status-deleted: "#d4959c"
+      status-renamed: "#97a8b8"
+      status-untracked: "#96b5b4"
+      status-conflicted: "#bd9cb7"
+      status-ignored: "#9ea7ad"
+      graph-text: "#c0c5ce"
+      graph-text-body: "#a7adba"
+      graph-text-active: "#dfe1e8"
+      graph-row-hover: "#343d46"
+      graph-pill: "#343d46"
+      diff-added-word: "#2b303b"
+      diff-removed-word: "#2b303b"
+      diff-added-selected: "#343d46"
+      diff-removed-selected: "#343d46"
+      syntax-keyword: "#bf9eb8"
+      syntax-string: "#a3be8c"
+      syntax-number: "#d79884"
+      syntax-comment: "#a7adba"
+      syntax-function: "#9faebe"
+      syntax-type: "#ebcb8b"
+      syntax-property: "#96b5b4"
+  eighties:
+    colors:
+      backdrop: "#2d2d2d"
+      canvas: "#2d2d2d"
+      surface-1: "#393939"
+      surface-2: "#515151"
+      surface-3: "#515151"
+      surface-raised: "#393939"
+      rule: "#515151"
+      rule-panel: "#515151"
+      rule-strong: "#a09f93"
+      text: "#deddd7"
+      text-muted: "#cbcbc4"
+      text-subtle: "#a09f93"
+      text-inverse: "#2d2d2d"
+      accent: "#99cc99"
+      on-accent: "#000000"
+      accent-tint: "#393939"
+      accent-ink: "#a7d3a7"
+      on-attention: "#2d2d2d"
+      attention-tint: "#393939"
+      attention-ink: "#ffcc66"
+      head-junction: "#ffcc66"
+      danger: "#f8b4b7"
+      on-danger: "#000000"
+      danger-tint: "#393939"
+      danger-ink: "#f8b4b7"
+      info: "#6699cc"
+      info-tint: "#393939"
+      info-ink: "#7ba7d3"
+      focus: "#7ba7d3"
+      toolbar: "#393939"
+      toolbar-hover: "#515151"
+      panel-head: "#393939"
+      field: "#2d2d2d"
+      selection-edge: "#7ba7d3"
+      selection: "#515151"
+      status-added: "#a7d3a7"
+      status-modified: "#ffcc66"
+      status-deleted: "#f38082"
+      status-renamed: "#7aa6d3"
+      status-untracked: "#66cccc"
+      status-conflicted: "#cc99cc"
+      status-ignored: "#a3a29c"
+      graph-text: "#d3d0c8"
+      graph-text-body: "#a09f93"
+      graph-text-active: "#e8e6df"
+      graph-row-hover: "#393939"
+      graph-pill: "#393939"
+      diff-added-word: "#2d2d2d"
+      diff-removed-word: "#2d2d2d"
+      diff-added-selected: "#393939"
+      diff-removed-selected: "#393939"
+      syntax-keyword: "#cc99cc"
+      syntax-string: "#99cc99"
+      syntax-number: "#f99157"
+      syntax-comment: "#adaca2"
+      syntax-function: "#7ba7d3"
+      syntax-type: "#ffcc66"
+      syntax-property: "#66cccc"
+  gruvbox:
+    colors:
+      backdrop: "#282828"
+      canvas: "#282828"
+      surface-1: "#3c3836"
+      surface-2: "#504945"
+      surface-3: "#504945"
+      surface-raised: "#3c3836"
+      rule: "#504945"
+      rule-panel: "#504945"
+      rule-strong: "#bdae93"
+      text: "#e4d9c3"
+      text-muted: "#c6b9a2"
+      text-subtle: "#bdae93"
+      text-inverse: "#282828"
+      accent: "#b8bb26"
+      on-accent: "#000000"
+      accent-tint: "#3c3836"
+      accent-ink: "#c2c544"
+      on-attention: "#282828"
+      attention-tint: "#3c3836"
+      attention-ink: "#fabd2f"
+      head-junction: "#fabd2f"
+      danger: "#fca9a0"
+      on-danger: "#000000"
+      danger-tint: "#3c3836"
+      danger-ink: "#fca9a0"
+      info: "#83a598"
+      info-tint: "#3c3836"
+      info-ink: "#94b2a6"
+      focus: "#83a598"
+      toolbar: "#3c3836"
+      toolbar-hover: "#504945"
+      panel-head: "#3c3836"
+      field: "#282828"
+      selection-edge: "#83a598"
+      selection: "#504945"
+      status-added: "#c2c544"
+      status-modified: "#fabd2f"
+      status-deleted: "#fc7b6b"
+      status-renamed: "#88a99c"
+      status-untracked: "#8ec07c"
+      status-conflicted: "#d68da1"
+      status-ignored: "#a6a19c"
+      graph-text: "#d5c4a1"
+      graph-text-body: "#bdae93"
+      graph-text-active: "#ebdbb2"
+      graph-row-hover: "#3c3836"
+      graph-pill: "#3c3836"
+      diff-added-word: "#282828"
+      diff-removed-word: "#282828"
+      diff-added-selected: "#3c3836"
+      diff-removed-selected: "#3c3836"
+      syntax-keyword: "#d997a9"
+      syntax-string: "#b8bb26"
+      syntax-number: "#fe8019"
+      syntax-comment: "#bdae93"
+      syntax-function: "#94b2a6"
+      syntax-type: "#fabd2f"
+      syntax-property: "#8ec07c"
+  nord:
+    colors:
+      backdrop: "#2E3440"
+      canvas: "#2E3440"
+      surface-1: "#3B4252"
+      surface-2: "#434C5E"
+      surface-3: "#434C5E"
+      surface-raised: "#3B4252"
+      rule: "#434C5E"
+      rule-panel: "#434C5E"
+      rule-strong: "#D8DEE9"
+      text: "#E5E9F0"
+      text-muted: "#D8DEE9"
+      text-subtle: "#D8DEE9"
+      text-inverse: "#2E3440"
+      accent: "#BF616A"
+      on-accent: "#000000"
+      accent-tint: "#3B4252"
+      accent-ink: "#e2b4b8"
+      on-attention: "#2E3440"
+      attention-tint: "#3B4252"
+      attention-ink: "#b3c4d8"
+      head-junction: "#5E81AC"
+      danger: "#99c9d7"
+      on-danger: "#000000"
+      danger-tint: "#3B4252"
+      danger-ink: "#99c9d7"
+      info: "#EBCB8B"
+      info-tint: "#3B4252"
+      info-ink: "#EBCB8B"
+      focus: "#EBCB8B"
+      toolbar: "#3B4252"
+      toolbar-hover: "#434C5E"
+      panel-head: "#3B4252"
+      field: "#2E3440"
+      selection-edge: "#EBCB8B"
+      selection: "#434C5E"
+      status-added: "#e2b4b8"
+      status-modified: "#99b0cb"
+      status-deleted: "#88C0D0"
+      status-renamed: "#EBCB8B"
+      status-untracked: "#daa18e"
+      status-conflicted: "#A3BE8C"
+      status-ignored: "#a9aeb7"
+      graph-text: "#E5E9F0"
+      graph-text-body: "#D8DEE9"
+      graph-text-active: "#ECEFF4"
+      graph-row-hover: "#3B4252"
+      graph-pill: "#3B4252"
+      diff-added-word: "#2E3440"
+      diff-removed-word: "#2E3440"
+      diff-added-selected: "#3B4252"
+      diff-removed-selected: "#3B4252"
+      syntax-keyword: "#A3BE8C"
+      syntax-string: "#dda8ad"
+      syntax-number: "#a2b9d1"
+      syntax-comment: "#D8DEE9"
+      syntax-function: "#EBCB8B"
+      syntax-type: "#a7bad2"
+      syntax-property: "#dda695"
+  dracula:
+    colors:
+      backdrop: "#282936"
+      canvas: "#282936"
+      surface-1: "#3a3c4e"
+      surface-2: "#4d4f68"
+      surface-3: "#4d4f68"
+      surface-raised: "#3a3c4e"
+      rule: "#4d4f68"
+      rule-panel: "#4d4f68"
+      rule-strong: "#62d6e8"
+      text: "#e9e9f4"
+      text-muted: "#62d6e8"
+      text-subtle: "#62d6e8"
+      text-inverse: "#282936"
+      accent: "#ebff87"
+      on-accent: "#000000"
+      accent-tint: "#3a3c4e"
+      accent-ink: "#ebff87"
+      on-attention: "#282936"
+      attention-tint: "#3a3c4e"
+      attention-ink: "#00f769"
+      head-junction: "#00f769"
+      danger: "#f6addb"
+      on-danger: "#000000"
+      danger-tint: "#3a3c4e"
+      danger-ink: "#f6addb"
+      info: "#62d6e8"
+      info-tint: "#3a3c4e"
+      info-ink: "#62d6e8"
+      focus: "#62d6e8"
+      toolbar: "#3a3c4e"
+      toolbar-hover: "#4d4f68"
+      panel-head: "#3a3c4e"
+      field: "#282936"
+      selection-edge: "#62d6e8"
+      selection: "#4d4f68"
+      status-added: "#ebff87"
+      status-modified: "#00f769"
+      status-deleted: "#f083c8"
+      status-renamed: "#62d6e8"
+      status-untracked: "#a1efe4"
+      status-conflicted: "#cd92df"
+      status-ignored: "#a5a6b8"
+      graph-text: "#e9e9f4"
+      graph-text-body: "#62d6e8"
+      graph-text-active: "#f1f2f8"
+      graph-row-hover: "#3a3c4e"
+      graph-pill: "#3a3c4e"
+      diff-added-word: "#282936"
+      diff-removed-word: "#282936"
+      diff-added-selected: "#3a3c4e"
+      diff-removed-selected: "#3a3c4e"
+      syntax-keyword: "#d097e1"
+      syntax-string: "#ebff87"
+      syntax-number: "#d097e1"
+      syntax-comment: "#62d6e8"
+      syntax-function: "#62d6e8"
+      syntax-type: "#00f769"
+      syntax-property: "#a1efe4"
+  monokai:
+    colors:
+      backdrop: "#272822"
+      canvas: "#272822"
+      surface-1: "#383830"
+      surface-2: "#49483e"
+      surface-3: "#49483e"
+      surface-raised: "#383830"
+      rule: "#49483e"
+      rule-panel: "#49483e"
+      rule-strong: "#a59f85"
+      text: "#f8f8f2"
+      text-muted: "#bdb8a5"
+      text-subtle: "#a59f85"
+      text-inverse: "#272822"
+      accent: "#a6e22e"
+      on-accent: "#000000"
+      accent-tint: "#383830"
+      accent-ink: "#a6e22e"
+      on-attention: "#272822"
+      attention-tint: "#383830"
+      attention-ink: "#f4bf75"
+      head-junction: "#f4bf75"
+      danger: "#fc99bd"
+      on-danger: "#000000"
+      danger-tint: "#383830"
+      danger-ink: "#fc99bd"
+      info: "#66d9ef"
+      info-tint: "#383830"
+      info-ink: "#66d9ef"
+      focus: "#66d9ef"
+      toolbar: "#383830"
+      toolbar-hover: "#49483e"
+      panel-head: "#383830"
+      field: "#272822"
+      selection-edge: "#66d9ef"
+      selection: "#49483e"
+      status-added: "#a6e22e"
+      status-modified: "#f4bf75"
+      status-deleted: "#fb72a3"
+      status-renamed: "#66d9ef"
+      status-untracked: "#a1efe4"
+      status-conflicted: "#b48aff"
+      status-ignored: "#a3a094"
+      graph-text: "#f8f8f2"
+      graph-text-body: "#a59f85"
+      graph-text-active: "#f5f4f1"
+      graph-row-hover: "#383830"
+      graph-pill: "#383830"
+      diff-added-word: "#272822"
+      diff-removed-word: "#272822"
+      diff-added-selected: "#383830"
+      diff-removed-selected: "#383830"
+      syntax-keyword: "#b993ff"
+      syntax-string: "#a6e22e"
+      syntax-number: "#fd971f"
+      syntax-comment: "#b2ac96"
+      syntax-function: "#66d9ef"
+      syntax-type: "#f4bf75"
+      syntax-property: "#a1efe4"
+  woodland:
+    colors:
+      backdrop: "#231e18"
+      canvas: "#231e18"
+      surface-1: "#302b25"
+      surface-2: "#48413a"
+      surface-3: "#48413a"
+      surface-raised: "#302b25"
+      rule: "#48413a"
+      rule-panel: "#48413a"
+      rule-strong: "#b4a490"
+      text: "#e2dad4"
+      text-muted: "#bfb1a0"
+      text-subtle: "#b4a490"
+      text-inverse: "#231e18"
+      accent: "#b7ba53"
+      on-accent: "#000000"
+      accent-tint: "#302b25"
+      accent-ink: "#b7ba53"
+      on-attention: "#231e18"
+      attention-tint: "#302b25"
+      attention-ink: "#e0ac16"
+      head-junction: "#e0ac16"
+      danger: "#e7a6a6"
+      on-danger: "#000000"
+      danger-tint: "#302b25"
+      danger-ink: "#e7a6a6"
+      info: "#88a4d3"
+      info-tint: "#302b25"
+      info-ink: "#88a4d3"
+      focus: "#88a4d3"
+      toolbar: "#302b25"
+      toolbar-hover: "#48413a"
+      panel-head: "#302b25"
+      field: "#231e18"
+      selection-edge: "#88a4d3"
+      selection: "#48413a"
+      status-added: "#b7ba53"
+      status-modified: "#e0ac16"
+      status-deleted: "#da7575"
+      status-renamed: "#88a4d3"
+      status-untracked: "#6eb958"
+      status-conflicted: "#bb90e2"
+      status-ignored: "#a19076"
+      graph-text: "#cabcb1"
+      graph-text-body: "#b4a490"
+      graph-text-active: "#e2d6ce"
+      graph-row-hover: "#302b25"
+      graph-pill: "#302b25"
+      diff-added-word: "#231e18"
+      diff-removed-word: "#231e18"
+      diff-added-selected: "#302b25"
+      diff-removed-selected: "#302b25"
+      syntax-keyword: "#bb90e2"
+      syntax-string: "#b7ba53"
+      syntax-number: "#d1914f"
+      syntax-comment: "#b4a490"
+      syntax-function: "#88a4d3"
+      syntax-type: "#e0ac16"
+      syntax-property: "#6eb958"
 elevation:
   panel: "0 10px 30px rgba(0, 0, 0, 0.45)"
   raised: "0 1px 2px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.04)"
@@ -855,7 +1335,7 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 ## Principles
 
 - **The graph is the canvas.** Chrome recedes into flat, quiet controls and panels so that lanes, ref labels, and nodes carry the signal.
-- **Separation by tone.** Every region is a solid surface: the tab bar, command bar, state strip, and activity bar sit on the darkest `backdrop`; the sidebar, graph, and inspector are rounded panels 8px apart; panels are lighter than the graph; fields are recessed; menus, dialogs, and toasts are raised. There are no gradients, translucency, glows, or blur (brand B8).
+- **Separation by tone.** Every region is opaque: the tab bar, command bar, state strip, and activity bar sit on the darkest `backdrop`; the sidebar, graph, and inspector are rounded panels 8px apart; panels are lighter than the graph; fields are recessed; menus, dialogs, and toasts are raised. Only commit-graph rows may fade opaque lane color into canvas (brand B8); there is no other gradient, translucency, glow, or blur.
 - **Graph topology parity with GitKraken.** The commit graph reproduces GitKraken Desktop 12.5.0's lane colors, lane assignment, geometry, edge routing, and node kinds (change P-G1, approved 2026-09-29), so users read topology the way they already know it. Row and ref label styling is YForge's own **tinted Rail** treatment, and the chrome around the graph stays YForge's own.
 - **Meaning is layered.** Every state is encoded in at least two channels:
   - color;
@@ -884,7 +1364,7 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 | S11 | approved | Motion MUST use brand durations, animate only opacity and transform, and NEVER slide graph rows; there is no ambient motion. | review-only: approved 2026-09-29; aurora drift withdrawn 2026-10-03 (owner) |
 | S12 | approved | SHAs, paths, commands, and ref names outside the graph MUST use the mono roles; graph ref labels MUST use the `graph` role and graph tags the `graph-tag` role; paths MUST truncate from the left. | review-only: approved 2026-09-29 (Rail) |
 | S13 | approved | The commit graph MUST follow GitKraken 12.5.0: lane color by column index over 10 colors, leftmost-free column reuse, 22px lane pitch and author discs, 2px orthogonal edges with 11px rounded corners; row treatments MUST follow COMPONENT_SPECS § Graph row. | review-only: approved 2026-09-29 (P-G1, Rail); render checks after implementation |
-| S14 | approved | Every region MUST be an opaque surface told apart by tone, NEVER by a gradient, translucency, glow, or blur: the tab bar, command bar, state strip, and activity bar on `backdrop` (the darkest), the sidebar and inspector on `surface-1` with `panel-head` headers, the graph and center views on `canvas`, fields recessed on `field`, toolbar-style controls on `toolbar` with `toolbar-hover`, and menus, popovers, dialogs, tooltips, and toasts raised on `surface-raised` with their elevation; the three panels MUST be `rounded.lg` with a 1px `rule-panel` border and `layout.panel-gap` apart; selected rows use `selection` with the S6 `selection-edge` bar, and `accent` is kept for affirmative actions (Commit, Push, primary buttons) and success. | `app/src/styles/tokens.test.ts`, `app/src/styles/contrast.test.ts`, `app/src/styles/surfaces.render.test.tsx` · approved 2026-10-03 by the owner (proposal `docs/design/proposals/2026-10-kraken-contrast/`, Forge Contrast; replaces the 2026-09-29 aurora rule) |
+| S14 | approved | Every region MUST be an opaque surface told apart by tone, NEVER by translucency, glow, or blur; only the graph-row band may use the opaque lane-color fade in S64, with no other gradients. The tab bar, command bar, state strip, and activity bar use `backdrop` (the darkest); the sidebar and inspector use `surface-1` with `panel-head` headers; the graph and center views use `canvas`; fields recess on `field`; toolbar-style controls use `toolbar` with `toolbar-hover`; and menus, popovers, dialogs, tooltips, and toasts rise on `surface-raised` with their elevation. The three panels MUST be `rounded.lg` with a 1px `rule-panel` border and `layout.panel-gap` apart; selected rows use `selection` with the S6 `selection-edge` bar, and `accent` stays for affirmative actions and success. | `app/src/styles/tokens.test.ts`, `app/src/styles/contrast.test.ts`, `app/src/styles/surfaces.render.test.tsx` · scoped graph exception approved 2026-10-04 by the owner |
 | S15 | approved | Controls and labels MUST be icon-driven where an established glyph carries the meaning (row actions, tab and pane controls, toolbar actions, section headers, state chips, menu items); every icon-only control MUST have an accessible name and a tooltip naming the action and its shortcut; confirmation, dialog, operation-banner, and destructive buttons MUST keep a text label; an icon MUST NEVER be the only carrier of state (B4). | review-only: approved 2026-09-30 |
 | S16 | approved | Diagnostics data (usage events, crash reports, persisted activity history) MUST stay on this Mac and MUST be managed in Settings → Privacy & diagnostics: usage recording MUST be opt-in, off by default, and its setting MUST state exactly what is recorded and that nothing leaves the Mac; turning it off MUST state that stored events are deleted; every Delete or Clear MUST confirm in a dialog with a text-labelled danger button (S5, S15); an entry from an earlier session MUST say in text that it has no undo (B4). | review-only: approved 2026-09-30 (owner delegation) |
 | S17 | approved | Every cursor MUST come from the `cursors` tokens as `var(--cursors-*)`, and the browser default MUST NEVER decide one: a raw cursor keyword, an inline cursor style, or a `--cursors-*` value outside `tokens.css` MUST NEVER appear. Buttons, links, tabs, menu items, palette and option rows, selectable graph, file, sidebar, and list rows, actionable chips, switches, checkboxes and radios with their labels, segmented controls, selects, and cards that act MUST use `action`; text inputs, textareas, contenteditable regions, and selectable text regions (diff content, commit message body, command output) MUST use `text`; disabled controls (`[disabled]`, `aria-disabled="true"`) MUST use `disabled` and MUST keep their reason tooltip; draggable ref labels MUST use `drag`, and the whole window MUST use `dragging` while one is dragged; panel and column dividers MUST use `resize-column` or `resize-row` by orientation; a control whose operation is running (`aria-busy="true"`) MUST use `busy`; every non-interactive surface MUST use `static`. An element that acts on click MUST be a native button or link, or carry the matching role, so the global mapping applies. | `app/src/styles/cursors.test.ts` (token-only scan of `app/src` and the specimen stylesheet, drift-checked mirror) and `app/src/styles/cursors.render.test.tsx` (rendered components) · approved 2026-09-30 (owner delegation) |
@@ -933,6 +1413,15 @@ This file extends the brand root [../DESIGN.md](../DESIGN.md). Its rules and val
 | S60 | approved | Settings MUST offer Profiles: Default always exists; each profile has a name, an author name, and an author email, and can be added, renamed, and deleted (never the active profile or the last one). Switching profile (the palette's Switch to profile, or Settings) MUST save the current profile's open tabs, open the new profile's tabs (the Launchpad when it has none), and make every commit, merge commit, and tag YForge creates use the profile's author while it is active, without changing the Git config; the composer MUST state "Committing as <name> <email>" and the active profile's name MUST show in the tab bar's Launchpad tooltip. | `app/src/components/ProfilesSettings.test.tsx`, `crates/yforge-core/tests/profiles.rs` · approved 2026-10-03 at the owner's request |
 | S61 | approved | The palette MUST offer every GitKraken command-palette action, each disabled with its reason when it cannot act: Repo (Close tab, Open repo ⇧⌘O, Reveal in Finder, Open in external editor ⇧⌘E, Open in external diff or merge tool…, Open in terminal, Clone, Create, Open, Perform repository maintenance, which runs `git maintenance run --task=gc --task=commit-graph --task=loose-objects --task=incremental-repack` with progress in the Activity drawer); Settings (Configure Git Flow, Configure LFS, Initialize LFS, Configure commit signing, Join the light side, Join the dark side, Manage accounts (Settings → Platforms), Settings, Switch to profile…); View (Zoom in ⌘=, Zoom out ⌘−, Reset zoom ⌘0, stepping 80, 90, 100, 110, 125, 140, 150, 175, 200 percent and remembered for the app; Keyboard shortcuts; Toggle sidebar ⌘\; Toggle inspector ⌥⌘\; Toggle syntax highlighting, remembered for the app; Toggle theme); History (History of file…, Blame of file…, both picking any tracked file; Search commits); Core (Undo, Redo); File (Create file…, Delete file…, Open file in editor…, View file…, Edit file…, Discard all changes, Stage all changes, Unstage all changes); Stash (Stash, Apply, Pop); Branch (Create branch, Create tag, Create annotated tag, Fetch all, Pull, Push, Rename branch, Start pull request, View working directory changes); Checkout…; Patch (Create patch from working directory changes, saved where the user chooses; Apply patch…, applied with a three-way fallback, recorded with Undo, refused with Git's message and nothing changed); and Logs (Activity log, Error log, Performance log, Release notes). Redo MUST re-apply the operation the last Undo reverted, from the palette, ⇧⌘Z outside text fields, and a Redo control beside Undo in the command bar, `aria-disabled` with "Nothing to redo" otherwise. Keyboard shortcuts (palette and Help → Keyboard Shortcuts) MUST open a sheet listing every shortcut from the registry by group. Edit file… opens the file in the center in an owned TextArea with Save (⌘S) and Close, refusing binary files and files over 1 MiB with that reason; Create file… refuses an existing path; Delete file… and Discard all changes MUST confirm with a text-labelled danger button and be recorded with Undo. Error log lists the recorded crashes and failed operations with time, kind, and message; Performance log lists the recorded operations with their durations and states when usage recording is off. | `app/src/state/palette.test.ts`, `app/src/components/CommandPalette.test.tsx`, `app/src/state/shortcuts.test.ts`, `crates/yforge-core/tests` · approved 2026-10-03 at the owner's request (GitKraken command palette parity) |
 | S62 | approved | Every Unstaged, Untracked, and Staged file list MUST support multi-select (`aria-multiselectable`, each row `aria-selected`): click selects one file, ⌘-click toggles a file, ⇧-click and ⇧↑/⇧↓ extend the range, and ⌘A selects the whole list; a selection never spans two lists, and Escape clears it. With two or more files selected, the list header's action MUST read "Stage <n> files" (or "Unstage <n> files") as a text-labelled button, and a selected row's context menu (right-click, ⇧F10, or its More icon control) MUST act on the whole selection, in this order: Stage <n> files or Unstage <n> files, Discard <n> files (a confirmation naming the count and the files, with a text-labelled danger button; a staged file loses its staged and unstaged changes, and the discard is recorded with Undo), Ignore <n> files (appends each path to the repository's `.gitignore`, left unstaged, and untracks a tracked file only after confirmation), Stash <n> files (one stash named "Stash <n> files"), then a separator and Create patch from changes in <n> files (saved where the user chooses). One selected file keeps the single-file menu with the same items worded for that file. | `app/src/components/ChangesInspector.test.tsx`, `app/src/state/changes.test.ts`, `crates/yforge-core/tests/stage.rs` · approved 2026-10-03 at the owner's request (GitKraken multi-select) |
+
+| S63 | approved | Theme selection MUST use the owned Select with System, YForge Dark, YForge Light, Classic Dark, Ocean, Eighties, Gruvbox, Nord, Dracula, Monokai, and Woodland; System follows macOS light/dark, YForge Dark remains the default named dark palette, and every named palette MUST supply its own opaque semantic color tokens with S10 contrast. The View menu and command palette MUST offer the same named choices. | `app/src/components/SettingsView.test.tsx`, `app/src/styles/tokens.test.ts`, `app/src/styles/contrast.test.ts`, `app/src/state/settingsModel.test.ts` · approved 2026-10-04 by the owner |
+| S64 | approved | Each graph row MUST show an opaque lane-tinted band across its graph column, fading horizontally from lane color into canvas at the message edge (into selection fill when selected). The graph column MUST default to 56px and expand when active lanes need more room; default-density lane 0 MUST start 4px after the ref/graph divider, with its node ring clear of the divider; compact lanes retain their 10px gutter. The first nonblank commit-body line stays inline after the summary in muted graph text; 28px row height and S6 selection state stay unchanged. The ⌘F search surface MUST anchor at the graph's top right without hiding its header. | `app/src/graph/columns.test.ts`, `app/src/graph/laneArt.test.ts`, `app/src/styles/tokens.test.ts`, `app/src/components/GraphPanel.test.tsx` · 56px default approved 2026-10-05 by the owner |
+| S65 | approved | Every non-graph typography role MUST grow by one pixel from its current size, while every graph typography role and graph row height remain unchanged; controls at 960px and 1280px MUST reflow without clipped text or hidden actions. | `app/src/styles/tokens.test.ts`, `app/src/styles/surfaces.render.test.tsx` · approved 2026-10-04 by the owner |
+| S66 | approved | Every user-triggered asynchronous action MUST show visible progress while it waits, announce its state in text, prevent conflicting edits and repeat submissions, and restore input on success, failure, or cancellation; a cancellable action MUST keep Cancel enabled. Loading motion MUST follow B7 and stop under reduced motion. | `app/src/components/Composer.test.tsx`, `app/src/components/MessageForm.test.tsx`, `app/src/styles/surfaces.render.test.tsx` · approved 2026-10-04 by the owner |
+| S67 | approved | File and diff views MUST preview supported images and Markdown. HTML preview MUST resolve relative styles, scripts, images, and linked assets within the selected repository revision, run local scripts only in an opaque-origin sandbox without YForge IPC or external network access, and refuse path traversal, symlink escape, unsupported schemes, and oversized resources. Text, binary, missing, and error states MUST remain explicit. | `app/src/components/FileView.test.tsx`, `app/src/components/DiffView.test.tsx`, `crates/yforge-core/tests/file_view.rs`, `app/src-tauri/tests` · approved 2026-10-04 by the owner |
+| S68 | approved | Edit file MUST use an owned LSP-capable editor with optional Vim normal, insert, and visual modes; connect only to configured installed language servers, show diagnostics, completion, hover, definition, and references, preserve Save, undo, EOL, dirty confirmation, and keyboard access, and keep editor content inside its repository. LSP server start and failure MUST be explicit and cancellable, never automatic code execution from file content. | `app/src/components/FileEditor.test.tsx`, `app/src/state/editor.test.ts`, `crates/yforge-core/tests` · approved 2026-10-04 by the owner |
+| S69 | approved | Blame MUST highlight the code lines attributed to the selected commit, pair the fill with its selected commit label, update the highlight when selection changes, and leave other lines readable in every theme. | `app/src/components/FileHistory.test.tsx`, `app/src/styles/history.render.test.tsx` · approved 2026-10-04 by the owner |
+| S70 | approved | Editing or amending HEAD MUST offer Generate message from the resulting commit (HEAD changes plus staged changes) when the AI feature is ready, as a cancellable draft that preserves and restores the user's prior summary and description and never writes Git until Save or Commit. While generation runs, both fields and Save MUST be locked and visibly busy. | `app/src/components/MessageForm.test.tsx`, `app/src/components/ChangesInspector.test.tsx`, `crates/yforge-core/tests/ai_context.rs` · approved 2026-10-04 by the owner |
 
 ## Colors
 
@@ -1048,18 +1537,18 @@ The graph never relies on hue alone: column position, ref labels, and author ini
 
 | Role | Spec | Use |
 |---|---|---|
-| ui-body | Sans 13/20, 400 | Default UI, inputs, command field |
-| ui-label | Sans 13/20, 500 | Buttons, tabs |
-| ui-strong | Sans 13/20, 600 | Primary buttons, banner text |
-| ui-small | Sans 12/16, 400 | Metadata, sidebar row meta |
-| ui-caption | Sans 12/16, 500 | State strip chips |
-| ui-section | Sans 12/16, 600 | Sidebar section and list headers (sentence case) |
-| ui-micro | Sans 11/16, 500 | Counts in badges and keyboard hints |
-| title | Sans 16/22, 600, −0.01em | Inspector titles, dialog titles |
-| heading | Sans 20/26, 600 | Settings section titles |
+| ui-body | Sans 14/22, 400 | Default UI, inputs, command field |
+| ui-label | Sans 14/22, 500 | Buttons, tabs |
+| ui-strong | Sans 14/22, 600 | Primary buttons, banner text |
+| ui-small | Sans 13/17, 400 | Metadata, sidebar row meta |
+| ui-caption | Sans 13/17, 500 | State strip chips |
+| ui-section | Sans 13/17, 600 | Sidebar section and list headers (sentence case) |
+| ui-micro | Sans 12/17, 500 | Counts in badges and keyboard hints |
+| title | Sans 17/23, 600, −0.01em | Inspector titles, dialog titles |
+| heading | Sans 21/27, 600 | Settings section titles |
 | display | Brand display 24/30, 600 | Reserved for the About window; unused in the workspace |
-| code | Mono 12/18, 400 | Diffs, commands, output, file paths |
-| ref | Mono 12/16, 500 | Branch, tag, and remote names outside the graph; SHAs; status letters |
+| code | Mono 13/20, 400 | Diffs, commands, output, file paths |
+| ref | Mono 13/17, 500 | Branch, tag, and remote names outside the graph; SHAs; status letters |
 | graph | Sans 12/16, 400 | Graph messages and ref labels |
 | graph-strong | Sans 12/16, 500 | The checked-out ref label |
 | graph-tag | Mono 11/16, 400 | Tag labels in the graph |
@@ -1081,7 +1570,7 @@ Section labels are never uppercase: GitKraken's uppercase sections read as heavy
 - **Command bar:** breadcrumb (repository › worktree › branch in `accent-ink`), a centered command field (search commits, branches, files, or run a command; ⌘K) up to 440px, then Sync (primary), Branch, Stash, and Undo.
 - **Graph columns** (GitKraken defaults; widths are resizable and saved per repository):
   - Branch / Tag 130 (32–300);
-  - Graph 150 (min 56): a 28px gutter, then lanes every 22px;
+  - Graph 56 (min 56, grows for active lanes): a 4px gutter, then lanes every 22px;
   - Commit message fills the remaining width (min 50);
   - optional and hidden by default: Author 130 (initials at 32), Date / Time 130, SHA 100.
 - **Graph header:** 30px, with the labels "BRANCH / TAG", "GRAPH", and "COMMIT MESSAGE", the labels of the shown optional columns, and a column-settings button (a `controls.hit-min` square) at the end. Each resizable column has a `controls.divider-hit` separator at its inner edge; the message column and the settings square sit at the row end, so rows reserve the settings square. The optional columns are hidden below 1024px without forgetting the choice.
@@ -1116,7 +1605,7 @@ Required device profiles: `minimum`, `laptop`, `desktop`, `wide`.
 
 ## Elevation & Depth
 
-- **Strategy:** solid panels on the backdrop. Depth comes from tone (panels lighter than the graph, fields recessed, overlays raised), a 1px `rule-panel` border, and the `panel` shadow; there is no sheen, glow, gradient, translucency, or blur (brand B8, S14).
+- **Strategy:** solid panels on the backdrop. Depth comes from tone (panels lighter than the graph, fields recessed, overlays raised), a 1px `rule-panel` border, and the `panel` shadow; only graph-row lane bands may fade opaque color, with no other sheen, glow, gradient, translucency, or blur (brand B8, S14).
 - **Materials:** `panel` (sidebar, inspector), `graph` (graph and center views), `raised` (composer, overlays), and `control` / `control-hover` for bar items and buttons; every material is opaque in both themes.
 - **Overlays:** menus, the palette, dialogs, and toasts use the `overlay` and `modal` shadows, always paired with a 1px `rule-panel` border for a crisp edge.
 - **Themes:** dark and light have their own shadow values.
@@ -1296,15 +1785,16 @@ The danger button is an outline: transparent fill, a 1px `danger` border, and `d
 ## Do's and Don'ts
 
 - Do encode state in two channels, keep tags visible, name both refs in integration verbs, and put every bar item on a control or chip.
-- Don't add card grids, gradients, glows, translucency, or blur, uppercase section labels, hover-only actions, a default-focused destructive button, or GitKraken service surfaces.
+- Don't add card grids, gradients outside the approved graph-row band, glows, translucency, or blur, uppercase section labels, hover-only actions, a default-focused destructive button, or GitKraken service surfaces.
 
 ## Exceptions
 
 | Rule | Scope | Reason | Approved by | Review date |
 |---|---|---|---|---|
 | S10 | Rendered contrast | Only token pairs are linted until an implementation exists; specimen renders and the worst-case composites are advisory | User (Phase 8 approval, 2026-09-29) | 2026-10-29 |
+| S14, S64; brand B8 | Commit-graph row band only: opaque horizontal lane-color fade ending at canvas or selected-row fill | Brings the graph closer to the supplied GitKraken reference without changing any other surface | User, 2026-10-04 | 2026-11-04 |
 | S10 | Graph lane lines: dark lane 2 (2.57:1); light lanes 7 (1.58:1), 8 (1.78:1), and 9 (2.01:1) | GitKraken-exact palette (P-G1); column position, labels, and initials also identify lanes. Contrast-safe values if revisited: dark 2 `#A800E6`; light 7 `#B4900B`, 8 `#58A720`, 9 `#26A880` | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
 | S10 | Dimmed graph rows (branch-hover highlight, search non-match): 1.86:1 dark, 1.61:1 light | Transient de-emphasis that matches GitKraken; highlighted rows keep full contrast | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
 | Brand Typography (no uppercase headers) | Graph column header | GitKraken parity (P-G1) | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
 | Colors (surface roles), S14, Layout and Responsive panel placement, S36 (toast placement) | Offline proposals under `docs/design/proposals/2026-10-kraken-contrast/`, `docs/design/proposals/2026-10-forge-contrast/`, `docs/design/proposals/2026-10-merge-tool/`, `docs/design/proposals/2026-10-two-pane-ai/`, `docs/design/proposals/2026-10-right-panel-ai/`, `docs/design/proposals/2026-10-flow-minimal/`, `docs/design/proposals/2026-10-launchpad-settings/`, and `docs/design/proposals/2026-10-table-command/` only | Compare five interactive workspace layouts, then five Forge Contrast variants of the conflict resolver (editable result), file history, and blame, then five workspace directions around the chosen Merge Tool, then five Two Pane variants of AI assistance (S24 wand buttons, editable drafts), Settings, the Launchpad, and file-list tree view, revised with Changes in the right panel, on candidate charcoal surfaces (tab bar darkest, distinct toolbar, panels lighter than the graph, blue selection with an edge bar, green kept for affirmative actions), each with its own top-right stacked, auto-dismissing toast. Production surfaces, components, and layout stay unchanged until one direction is approved | User, 2026-10-03: GitKraken's color scheme and layout are preferred for their high contrast and easy distinction between elements and actions; Forge Contrast chosen as the base for conflict, history, and blame variants; Merge Tool chosen as the base for three lean, one fluid, and one futuristic direction; Two Pane chosen as the base for AI, Settings, Launchpad, and tree view variants; Changes moved back to the right panel; Flow Sheet chosen and its Changes panel made minimal and icon-driven; five Launchpad and Settings variants requested on that workspace; the Table Launchpad and the Command Settings chosen | 2026-11-03 |
-| Colors (surface roles), S14 | Offline proposals under `docs/design/proposals/2026-10-themes/` only | Ten named themes. The Theme control is a dropdown. YForge Dark remains the default and YForge Light remains the shipped light theme. The other eight are Base16 schemes, each a 16-color combination. Production tokens stay unchanged | User, 2026-10-04 | 2026-11-04 |
+| S35, S61 (Edit file uses TextArea) | Edit file center view only | An owned code editor is necessary for Vim modes and LSP interaction; all other multi-line fields keep the owned TextArea | User, 2026-10-04 (S68 approval) | 2026-11-04 |

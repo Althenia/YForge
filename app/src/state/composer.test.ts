@@ -101,7 +101,7 @@ describe("amend", () => {
   });
 });
 
-function commitFixture(staged: number, push: () => Promise<void> = () => Promise.resolve()) {
+function commitFixture(staged: number, push: () => Promise<void> = () => Promise.resolve(), generating: () => boolean = () => false) {
   const composer = createComposer();
   const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const committed: string[] = [];
@@ -110,6 +110,7 @@ function commitFixture(staged: number, push: () => Promise<void> = () => Promise
     session,
     composer,
     staged: () => staged,
+    generating,
     onCommitted: (sha) => committed.push(sha),
     push: () => {
       pushes.push("push");
@@ -151,6 +152,19 @@ describe("commit and push reason", () => {
 });
 
 describe("commit action", () => {
+  it("refuses a commit while an AI message draft is generating", async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => { calls.push(cmd); return cmd === "commit" ? "c0ffee" : { root: "/r" }; });
+    let generating = true;
+    const { composer, action } = commitFixture(1, undefined, () => generating);
+    composer.setSummary("Mine");
+    expect(action.button().disabledReason).toBe("Generating a commit message…");
+
+    await action.submit();
+    expect(calls).not.toContain("commit");
+    generating = false;
+    expect(action.button().disabledReason).toBeUndefined();
+  });
   it("commits the draft, clears it, refreshes, and reports the new sha", async () => {
     const calls: Array<{ cmd: string; args: unknown }> = [];
     mockIPC((cmd, args) => {

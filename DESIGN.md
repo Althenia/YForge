@@ -78,7 +78,7 @@ icons:
 ## Principles
 
 - **Identity through structure, not ornament.** Layout, the junction signature, glyph grammar, and voice carry the brand in every theme, so user theme changes never erase it.
-- **Separation, not decoration.** Every region is a solid surface told apart by tone: the bars on the darkest backdrop, rounded panels lighter than the graph, recessed fields, raised overlays. There are no gradients anywhere; chrome, controls, text, and marks stay flat.
+- **Separation, not decoration.** Every region is an opaque surface told apart by tone: the bars on the darkest backdrop, rounded panels lighter than the graph, recessed fields, raised overlays. Chrome, controls, text, and marks stay flat; only a lane-color fade within graph rows may use an opaque gradient.
 - **One palette, owned here.** The primitives in the front matter are YForge's own and derive from the Y family baseline (B9); the app's surface neutrals and selection are the owner-chosen charcoal palette, a recorded B9 exception. Surface roles are derived per theme in the surface file.
 - **Explicit state beats hidden state.** Git's most dangerous moments (rebase, conflict, force push, detached HEAD) get the most orientation, never the least.
 - **Local-first trust.** The brand never implies a cloud dependency: no account prompts, plan badges, or upsell surfaces.
@@ -94,7 +94,7 @@ icons:
 | B5 | approved | YForge marks MUST come from the approved YForge mark source; NEVER substitute another product's mark. | review-only: approved 2026-09-29 |
 | B6 | approved | Operational copy MUST name the Git operation and its consequence; NEVER use playful or marketing wording in operational UI. | review-only: approved 2026-09-29 |
 | B7 | approved | Motion MUST be functional; all motion MUST have a reduced-motion variant. | review-only: approved 2026-09-29; the ambient aurora drift withdrawn 2026-10-03 by the owner |
-| B8 | approved | NEVER use gradients, glows, sheen, translucency, or blur on any surface, control, text, or mark. | review-only: approved 2026-09-29; the aurora exception withdrawn 2026-10-03 by the owner |
+| B8 | approved | NEVER use gradients, glows, sheen, translucency, or blur on any surface, control, text, or mark, except an opaque horizontal lane-color fade inside commit-graph rows that resolves into the graph canvas or selected-row fill; it MUST NOT spread to chrome or other components. | review-only: graph-only exception approved 2026-10-04 by the owner after visual review |
 | B9 | approved | Neutral, text, border, focus, accent, status, and app-icon construction values MUST derive from the Y family baseline as recorded in the YQuery design system (`YDS/YQuery/DESIGN.md`, §Colors and §App icon); every departure from a Y-family rule MUST be a row in Exceptions. | review-only: compare with `YDS/YQuery/DESIGN.md` and `tokens/tokens.css`; visual comparison in `docs/design/review/y-family.html`; approved 2026-09-30 |
 
 ## Colors
@@ -227,13 +227,14 @@ There is no ambient motion (B7). Graph relayout is instant or a short cross-fade
 ## Do's and Don'ts
 
 - Do use owned tokens and the approved mark. Do test both themes, keyboard use, and conflict and error states.
-- Don't copy GitKraken assets, icons, fonts, code, or microcopy; its graph conventions (P-G1) and its separation of regions by tone (2026-10-03) are the approved models. Don't use the Attention hue decoratively. Don't add gradients, glows, sheen, translucency, or blur (B8). Don't hide a necessary action behind hover. Don't call an unrun render check verified.
+- Don't copy GitKraken assets, icons, fonts, code, or microcopy; its graph conventions (P-G1) and its separation of regions by tone (2026-10-03) are the approved models. Don't use the Attention hue decoratively. Don't add gradients outside the scoped graph-row fade, glows, sheen, translucency, or blur (B8). Don't hide a necessary action behind hover. Don't call an unrun render check verified.
 
 ## Exceptions
 
 | Rule | Scope | Reason | Approved by | Review date |
 |---|---|---|---|---|
 | Anti-references; Do's and Don'ts (GitKraken trade dress) | Commit graph only (surface rule S13) | The owner requires the graph to match GitKraken exactly | User (P-G1 approval, 2026-09-29) | 2026-10-29 |
+| B8 | Commit-graph row bands only: opaque horizontal lane-color fade into canvas or selection fill | The owner chose the closer GitKraken graph treatment without extending gradients to chrome or other surfaces | User, 2026-10-04 | 2026-11-04 |
 | B9 (Y family: shadow only on overlays, radii at most 4px, no pill shapes) | Panel elevation, `rounded.lg` and `rounded.xl`, pill chips and toasts | Panels and overlays need separation on the backdrop; Y web itself uses 6, 10, and 14px radii | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (Y family: system UI font) | Typography: Geist Sans and Geist Mono | User directive for the Y CI typeface | User (family review, 2026-09-30) | 2026-10-31 |
 | B9 (Y motion scale 80, 140, 220, 320ms) | `motion.duration`: quick 120ms, base 180ms, slow 240ms | Kept to avoid changing tuned consumers; `base` means 180ms here, 140ms in YQuery, and 220ms in Y | User (family review, 2026-09-30) | 2026-10-31 |

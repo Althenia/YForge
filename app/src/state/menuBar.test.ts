@@ -115,10 +115,10 @@ describe("macOS menu bar actions", () => {
   it("saves the chosen theme and density with the rest of the settings", () => {
     const run = deps([]);
 
-    runMenuAction("theme.dark", run);
+    runMenuAction("theme.gruvbox", run);
     runMenuAction("density.compact", run);
 
-    expect(run.saved).toEqual([{ ...defaultSettings, theme: "dark" }, { ...defaultSettings, density: "compact" }]);
+    expect(run.saved).toEqual([{ ...defaultSettings, theme: "gruvbox" }, { ...defaultSettings, density: "compact" }]);
   });
 
   it("ignores an id it does not know", () => {
@@ -149,10 +149,18 @@ describe("macOS menu bar state", () => {
   });
 
   it("marks the current theme and density", () => {
-    expect(menuChecked({ ...defaultSettings, theme: "dark", density: "compact" })).toEqual({
+    expect(menuChecked({ ...defaultSettings, theme: "gruvbox", density: "compact" })).toEqual({
       "theme.light": false,
-      "theme.dark": true,
+      "theme.dark": false,
       "theme.system": false,
+      "theme.classic": false,
+      "theme.ocean": false,
+      "theme.eighties": false,
+      "theme.gruvbox": true,
+      "theme.nord": false,
+      "theme.dracula": false,
+      "theme.monokai": false,
+      "theme.woodland": false,
       "density.default": false,
       "density.compact": true,
     });

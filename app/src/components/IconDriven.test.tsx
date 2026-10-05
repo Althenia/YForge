@@ -45,7 +45,7 @@ const setWidth = (width: number) => {
   window.dispatchEvent(new Event("resize"));
 };
 
-const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
+const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, laneColors: 10 };
 const info: AppInfo = { app_version: "0.1.0", git_version: "2.50.0" };
 const counts = { modified: 2, added: 0, deleted: 0, renamed: 0, untracked: 1, conflicted: 0 };
 
@@ -158,8 +158,8 @@ describe("icon-driven controls (S15)", () => {
     for (const button of iconOnly(settings.host)) expect(button.dataset.tip).toBeTruthy();
   });
 
-  it("shows the toolbar as icon and label at 1280 and above, and as named icon-only buttons below", async () => {
-    setWidth(1280);
+  it("shows the toolbar as icon and label at 1600 and above, and as named icon-only buttons below", async () => {
+    setWidth(1600);
     const { host } = await mountWorkspace();
     const labelled = ["Fetch", "Pull", "Push", "Branch", "Stash", "Undo"].map((label) => commandButton(host, label));
 
@@ -176,9 +176,10 @@ describe("icon-driven controls (S15)", () => {
 
     setWidth(1440);
     await flush();
-    expect(commandButton(host, "Pull")?.dataset.tip).toBeUndefined();
-    expect(textOf(commandButton(host, "Pull") as Element)).toContain("Pull");
-    expect(textOf(commandButton(host, "Pull") as Element)).not.toMatch(/fast-forward|rebase/);
+    expect(["Fetch", "Pull, 0 behind", "Push, 2 ahead", "Branch", "Stash", "Undo"].every((name) => host.querySelector(`.commandbar button[aria-label="${name}"]`) !== null)).toBe(true);
+    const pull = host.querySelector<HTMLButtonElement>('.commandbar button[aria-label="Pull, 0 behind"]');
+    expect(pull?.dataset.tip).toBe("Pull, 0 behind");
+    expect(textOf(pull as Element)).not.toMatch(/Pull|fast-forward|rebase/);
   });
 
   it("leads each sidebar section and inspector section header with an icon before the label", async () => {

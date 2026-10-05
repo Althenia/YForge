@@ -120,6 +120,12 @@ describe("app state", () => {
     expect([document.documentElement.dataset.theme, document.documentElement.dataset.density]).toEqual(["light", "compact"]);
   });
 
+  it("applies a saved named palette to the document", async () => {
+    await boot({ tabs: [], launch: "/", repositories: [], settings: { theme: "gruvbox" } });
+
+    expect(document.documentElement.dataset.theme).toBe("gruvbox");
+  });
+
   it("follows the system colour scheme for the System theme", async () => {
     await boot({ tabs: [], launch: "/", repositories: [] });
 

@@ -20,6 +20,7 @@ struct RowSeed {
     sha: Option<String>,
     parents: Vec<String>,
     summary: String,
+    body: String,
     author: Option<Author>,
     time: Option<i64>,
     kind: NodeKind,
@@ -47,12 +48,13 @@ fn parse_commits(output: &str) -> Result<Vec<RowSeed>, CoreError> {
     let mut seeds = Vec::new();
     for record in output.split('\0').filter(|record| !record.is_empty()) {
         let fields: Vec<&str> = record.splitn(6, '\u{1f}').collect();
-        let [sha, parents, author_name, author_email, time, summary] = fields[..] else {
+        let [sha, parents, author_name, author_email, time, message] = fields[..] else {
             return Err(CoreError::invalid_output(
                 LOG_COMMAND,
                 format!("expected 6 fields in {record:?}"),
             ));
         };
+        let (summary, body) = message.split_once('\n').unwrap_or((message, ""));
         let time = time.parse::<i64>().map_err(|_| {
             CoreError::invalid_output(LOG_COMMAND, format!("malformed time {time:?}"))
         })?;
@@ -70,6 +72,12 @@ fn parse_commits(output: &str) -> Result<Vec<RowSeed>, CoreError> {
             },
             parents,
             summary: summary.to_owned(),
+            body: body
+                .lines()
+                .find(|line| !line.trim().is_empty())
+                .unwrap_or("")
+                .trim()
+                .to_owned(),
             author: Some(author(author_name, author_email)),
             time: Some(time),
         });
@@ -133,7 +141,7 @@ fn scope_of(
 }
 
 fn read_commits(root: &Path, scope: Option<&Visible>) -> Result<Vec<RowSeed>, CoreError> {
-    const FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s";
+    const FORMAT: &str = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%B";
     let mut args = vec!["log", "--topo-order", "--no-show-signature"];
     match scope {
         None => args.extend(["--exclude=refs/stash", "--exclude=refs/yforge/*", "--all"]),
@@ -149,6 +157,7 @@ fn stash_seed(stash: &StashEntry) -> RowSeed {
         sha: Some(stash.sha.clone()),
         parents: stash.base_sha.iter().cloned().collect(),
         summary: stash.message.clone(),
+        body: String::new(),
         author: Some(author(&stash.author_name, &stash.author_email)),
         time: Some(stash.time),
         kind: NodeKind::Stash,
@@ -300,6 +309,7 @@ fn ordered_seeds(
                 sha: None,
                 parents: head_sha.into_iter().collect(),
                 summary: String::new(),
+                body: String::new(),
                 author: None,
                 time: None,
                 kind,
@@ -446,6 +456,7 @@ pub fn graph_page(
             sha: seed.sha.clone(),
             parents: seed.parents.clone(),
             summary: history.summary(row, &status),
+            body: seed.body.clone(),
             author: seed.author.clone(),
             time: seed.time,
             kind: seed.kind,
@@ -622,6 +633,7 @@ mod tests {
             sha: Some(sha.to_owned()),
             parents: Vec::new(),
             summary: String::new(),
+            body: String::new(),
             author: None,
             time: Some(time),
             kind: NodeKind::Commit,

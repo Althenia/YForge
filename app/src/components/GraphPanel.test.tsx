@@ -2,6 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
+import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "../state/repoActions";
 import type { Selection } from "../state/selection";
@@ -11,7 +12,7 @@ import { flush, mountWithApp, testUiPrefs } from "./testkit";
 const TOTAL = 450;
 let total = TOTAL;
 const VIEWPORT = 280;
-const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
+const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, laneColors: 10 };
 
 let dispose: (() => void) | undefined;
 
@@ -73,6 +74,7 @@ const baseRow = (index: number): GraphRow => ({
   sha: `sha${index}`,
   parents: index + 1 < TOTAL ? [`sha${index + 1}`] : [],
   summary: `commit ${index}`,
+  body: "",
   author: { name: "Yui", email: "a@example.test", initials: "Y" },
   time: 1_700_000_000,
   refs: [],
@@ -83,7 +85,7 @@ const baseRow = (index: number): GraphRow => ({
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: "sha0" }, upstream: null, remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
 
-type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean };
+type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean; heldPage?: { offset: number; result: Promise<GraphPage> } };
 
 async function mountGraph(config: MountOptions = {}) {
   const offsets: number[] = [];
@@ -97,7 +99,7 @@ async function mountGraph(config: MountOptions = {}) {
     offsets.push(offset);
     visibilities.push(visibility);
     const rows = Array.from({ length: Math.max(Math.min(limit, total - offset), 0) }, (_, position) => rowAt(offset + position));
-    return { rows, carried: [], total };
+    return config.heldPage?.offset === offset ? config.heldPage.result : { rows, carried: [], total };
   });
   const uiPrefs = testUiPrefs();
   const [selection, setSelection] = createSignal<Selection | undefined>();
@@ -134,6 +136,22 @@ async function mountGraph(config: MountOptions = {}) {
 }
 
 describe("graph panel", () => {
+  it("shows the first description line after the commit summary without changing the row height", async () => {
+    overrides = { 0: { summary: "Add export", body: "Explain the reason" } };
+    const { host } = await mountGraph();
+    const row = host.querySelector("#graph-row-0");
+    expect(row?.querySelector(".msg .sum")?.textContent).toBe("Add export");
+    expect(row?.querySelector(".msg .body")?.textContent).toBe("Explain the reason");
+    expect(row?.getAttribute("aria-label")).toContain("Add export");
+  });
+
+  it("gives each loaded row an opaque lane-tinted graph-column band behind its node", async () => {
+    const { host } = await mountGraph();
+    const band = host.querySelector("#graph-row-0 .lane-band");
+    expect(band).not.toBeNull();
+    expect(band?.getAttribute("aria-hidden")).toBe("true");
+    expect(host.querySelector("#graph-row-1 .lane-band")).not.toBeNull();
+  });
   it("renders only the rows in view, labelled with their position among all commits", async () => {
     const { options, positions, list, host } = await mountGraph();
 
@@ -156,6 +174,21 @@ describe("graph panel", () => {
     expect(offsets.filter((offset) => offset === 200)).toHaveLength(1);
     expect(Math.min(...positions())).toBeGreaterThan(250);
     expect(Math.max(...positions())).toBeGreaterThan(300);
+  });
+
+  it("states that a visible page is loading instead of leaving a blank graph gap", async () => {
+    let release: ((page: GraphPage) => void) | undefined;
+    const held = new Promise<GraphPage>((resolve) => (release = resolve));
+    const { host, scrollTo } = await mountGraph({ heldPage: { offset: 200, result: held } });
+    await scrollTo(198 * geometry.row);
+
+    expect(host.querySelectorAll(".grow.placeholder").length).toBeGreaterThan(0);
+    expect(host.querySelectorAll('.graph-loading[role="status"]')).toHaveLength(1);
+    expect(host.querySelector(".graph-loading")?.textContent).toBe("Loading commits…");
+    release?.({ rows: Array.from({ length: 200 }, (_, index) => rowAt(200 + index)), carried: [], total });
+    await flush(80);
+    expect(host.querySelector("#graph-row-200 .msg")?.textContent).toContain("commit 200");
+    expect(host.querySelector(".graph-loading")).toBeNull();
   });
 
   it("moves the selection with the arrow keys and J/K, and points aria-activedescendant at it", async () => {

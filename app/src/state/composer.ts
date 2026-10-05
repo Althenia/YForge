@@ -139,12 +139,14 @@ export function createCommitAction(deps: {
   session: RepoSession;
   composer: Composer;
   staged: () => number;
+  generating: () => boolean;
   onCommitted: (sha: string) => void;
   push: () => Promise<void>;
 }) {
   const { session, composer } = deps;
-  const button = () =>
-    commitButton({ staged: deps.staged(), summary: composer.summary(), amend: composer.amend(), busy: composer.busy() });
+  const button = () => deps.generating()
+    ? { label: "Generating…", disabledReason: "Generating a commit message…" }
+    : commitButton({ staged: deps.staged(), summary: composer.summary(), amend: composer.amend(), busy: composer.busy() });
 
   async function submit(options: { push: boolean } = { push: false }): Promise<void> {
     if (button().disabledReason !== undefined) return;

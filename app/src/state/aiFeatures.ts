@@ -24,7 +24,7 @@ export const FEATURE_TITLES: Record<AiFeature, string> = {
 };
 
 export const FEATURE_BLURBS: Record<AiFeature, string> = {
-  generate_commit: "Writes a commit message from your staged diff and the subjects of your last commits.",
+  generate_commit: "Writes a commit message from your staged diff, or the resulting amended commit, and the subjects of your last commits.",
   recompose: "Groups and rewords your unpushed commits into a cleaner series.",
   conflict_fix: "Proposes a resolution for each conflict from its current, incoming, and base text.",
   explain_changes: "Explains each changed file in your working tree from its diff against the last commit.",

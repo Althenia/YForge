@@ -17,12 +17,13 @@ export function CreateFileDialog(props: { submit: (name: string) => Promise<stri
     if (!ready()) return;
     setBusy(true);
     setProblem(undefined);
-    setProblem(await props.submit(name()));
-    setBusy(false);
+    try { setProblem(await props.submit(name())); }
+    catch (error) { setProblem(error instanceof Error ? error.message : String(error)); }
+    finally { setBusy(false); }
   }
 
   return (
-    <DialogFrame title="Create file" onEscape={props.onClose}>
+    <DialogFrame title="Create file" onEscape={() => { if (!busy()) props.onClose(); }}>
       <form
         class="entry-form"
         onSubmit={(event) => {
@@ -39,6 +40,7 @@ export function CreateFileDialog(props: { submit: (name: string) => Promise<stri
               value={name()}
               aria-label="Path"
               aria-invalid={problem() !== undefined}
+              disabled={busy()}
               placeholder="src/new-file.txt"
               onInput={(event) => {
                 setName(event.currentTarget.value);
@@ -55,12 +57,13 @@ export function CreateFileDialog(props: { submit: (name: string) => Promise<stri
             </p>
           )}
         </Show>
+        <Show when={busy()}><p class="field-note" role="status">Creating file…</p></Show>
         <div class="foot">
-          <button type="button" class="btn" onClick={props.onClose}>
+          <button type="button" class="btn" disabled={busy()} onClick={props.onClose}>
             Cancel
           </button>
-          <button type="submit" class="btn primary" aria-disabled={ready() ? undefined : "true"}>
-            Create
+          <button type="submit" class="btn primary" aria-busy={busy()} aria-disabled={ready() ? undefined : "true"}>
+            {busy() ? "Creating…" : "Create"}
           </button>
         </div>
       </form>

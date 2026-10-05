@@ -295,6 +295,26 @@ describe("generate a commit message", () => {
   const generateButton = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.getAttribute("aria-label")?.startsWith("Generate a commit message"));
   const draft = { summary: "Add greeting", description: "Say hello.", summary_trimmed: true, excluded: [".env"], truncated: [] };
 
+  it("animates and locks the summary, description, and commit action while generation waits, but keeps Cancel available", async () => {
+    let finish: ((value: typeof draft) => void) | undefined;
+    const { host } = mount(snapshot(), (cmd) => cmd === "ai_generate_commit_message" ? new Promise<typeof draft>((resolve) => (finish = resolve)) : null);
+    await flush();
+
+    generateButton(host)?.click();
+    await flush();
+    expect(summaryOf(host)?.disabled).toBe(true);
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')?.disabled).toBe(true);
+    expect(host.querySelector('.summary-field [role="status"]')?.textContent).toContain("Generating");
+    expect(host.querySelector('.summary-field .busy-spinner')).not.toBeNull();
+    expect(host.querySelector<HTMLButtonElement>('.composer-go .btn.primary')?.disabled).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Cancel generating"]')?.disabled).toBe(false);
+
+    finish?.(draft);
+    await flush(80);
+    expect(summaryOf(host)?.disabled).toBe(false);
+    expect(host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Description"]')?.disabled).toBe(false);
+  });
+
   it("drafts the summary and description from the staged changes, shows the notes, and commits nothing", async () => {
     const { host } = mount(snapshot(), (cmd) => (cmd === "ai_generate_commit_message" ? draft : null));
     await flush();
@@ -345,6 +365,25 @@ describe("generate a commit message", () => {
     button?.click();
     await flush();
     expect(commands()).toEqual([]);
+  });
+
+  it("generates an amend message from the resulting HEAD commit even with nothing staged", async () => {
+    const empty = snapshot({ counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, files: [] });
+    const { host } = mount(empty, (cmd) => {
+      if (cmd === "amend_info") return { sha: "b".repeat(40), summary: "Earlier work", description: "Why.", pushed: false };
+      if (cmd === "ai_generate_amend_message") return draft;
+      return null;
+    });
+    await flush();
+    buttonNamed(host, "Amend last commit")?.click();
+    await flush(60);
+
+    expect(generateButton(host)?.getAttribute("aria-disabled")).toBeNull();
+    generateButton(host)?.click();
+    await flush(80);
+    expect(summaryOf(host)?.value).toBe("Add greeting");
+    expect(commands()).toContain("ai_generate_amend_message");
+    expect(commands()).not.toContain("commit");
   });
 
   it("is an icon-only wand button inside the summary field whose tooltip and name say what it does", async () => {

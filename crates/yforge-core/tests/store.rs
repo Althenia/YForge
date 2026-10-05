@@ -25,6 +25,7 @@ fn settings_default_then_persist_across_reloads() {
         pull_mode: PullMode::Rebase,
         auto_fetch_minutes: 30,
         editor_command: "code".to_owned(),
+        language_servers: Default::default(),
         terminal_command: "open -a iTerm".to_owned(),
         telemetry_opt_in: true,
         gravatar_avatars: false,
@@ -40,6 +41,58 @@ fn settings_default_then_persist_across_reloads() {
             ..changed
         }
     );
+}
+
+#[test]
+fn named_theme_persists_without_changing_existing_dark_light_or_system_choices() {
+    let dir = tempfile::tempdir().unwrap();
+    let selected = AppSettings {
+        theme: serde_json::from_str("\"gruvbox\"").unwrap(),
+        ..AppSettings::default()
+    };
+    save_settings(dir.path(), &selected).unwrap();
+
+    assert_eq!(load_settings(dir.path()).unwrap().theme, selected.theme);
+    for value in ["dark", "light", "system"] {
+        assert!(serde_json::from_str::<Theme>(&format!("\"{value}\"")).is_ok());
+    }
+}
+
+#[test]
+fn configured_installed_language_servers_persist_per_file_extension() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut settings = AppSettings::default();
+    settings
+        .language_servers
+        .insert("rs".to_owned(), "rust-analyzer".to_owned());
+    settings
+        .language_servers
+        .insert("go".to_owned(), "gopls".to_owned());
+    save_settings(dir.path(), &settings).unwrap();
+
+    assert_eq!(
+        load_settings(dir.path()).unwrap().language_servers,
+        settings.language_servers
+    );
+}
+
+#[test]
+fn invalid_language_server_extensions_and_blank_commands_are_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    for (extension, command) in [
+        ("../rs", "rust-analyzer"),
+        ("rs", "   "),
+        ("", "rust-analyzer"),
+    ] {
+        let mut settings = AppSettings::default();
+        settings
+            .language_servers
+            .insert(extension.to_owned(), command.to_owned());
+        assert_eq!(
+            save_settings(dir.path(), &settings).unwrap_err().kind(),
+            ErrorKind::InvalidRequest
+        );
+    }
 }
 
 #[test]
@@ -214,6 +267,7 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
     assert_eq!(settings.theme, Theme::Dark);
     assert_eq!(settings.default_branch, "trunk");
     assert_eq!(settings.editor_command, "code");
+    assert!(settings.language_servers.is_empty());
     assert!(!settings.telemetry_opt_in);
     assert!(settings.gravatar_avatars);
     let recents = load_recents(dir.path()).unwrap();
@@ -242,7 +296,7 @@ fn legacy_json_files_are_imported_once_and_deleted_after_the_commit() {
     let stored: i64 = database(dir.path())
         .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(stored, 10);
+    assert_eq!(stored, 11);
 }
 
 #[test]

@@ -342,6 +342,16 @@ describe("command palette registry", () => {
     expect(run.app.openExternal).toHaveBeenCalledWith("editor");
   });
 
+  it("offers every named palette and System in the theme command", () => {
+    const command = find(buildCommands(context()), "settings.theme");
+    expect(command.args?.[0]?.options()).toEqual([
+      { value: "system", label: "System" }, { value: "dark", label: "YForge Dark" }, { value: "light", label: "YForge Light" },
+      { value: "classic", label: "Classic Dark" }, { value: "ocean", label: "Ocean" }, { value: "eighties", label: "Eighties" },
+      { value: "gruvbox", label: "Gruvbox" }, { value: "nord", label: "Nord" }, { value: "dracula", label: "Dracula" },
+      { value: "monokai", label: "Monokai" }, { value: "woodland", label: "Woodland" },
+    ]);
+  });
+
   it("lists navigation targets for branches, commits, settings, and repositories", () => {
     const run = context();
     const targets = navigationTargets(run, [{ sha: "abcdef1234567", summary: "Add greeting", merge: false, root: false }]);

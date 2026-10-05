@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { createSignal, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { statusLetter } from "../state/changes";
 import type { RepoActions } from "../state/repoActions";
@@ -6,10 +6,16 @@ import { fileRowHeight, VirtualRows } from "./VirtualRows";
 
 export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoActions }) {
   let scroller: HTMLElement | undefined;
+  const [staging, setStaging] = createSignal(false);
   const files = () => props.snapshot.files.filter((file) => file.area === "untracked" || file.area === "unstaged" || file.area === "staged");
   const createFirstCommit = async () => {
-    await props.actions.stageAll();
-    document.querySelector<HTMLInputElement>('input[aria-label="Summary"]')?.focus();
+    if (staging()) return;
+    setStaging(true);
+    try {
+      if (await props.actions.stageAll()) document.querySelector<HTMLInputElement>('input[aria-label="Summary"]')?.focus();
+    } finally {
+      setStaging(false);
+    }
   };
   return (
     <section class="panel empty-repo" aria-label="Empty repository" ref={scroller}>
@@ -28,9 +34,10 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
               </li>
             )}
           </VirtualRows>
-          <button type="button" class="btn primary" onClick={() => void createFirstCommit()}>
-            Create first commit
+          <button type="button" class="btn primary" disabled={staging()} aria-busy={staging()} onClick={() => void createFirstCommit()}>
+            {staging() ? "Staging…" : "Create first commit"}
           </button>
+          <Show when={staging()}><p class="setting-note" role="status"><span class="busy-spinner" aria-hidden="true" />Staging files…</p></Show>
         </Show>
       </div>
     </section>

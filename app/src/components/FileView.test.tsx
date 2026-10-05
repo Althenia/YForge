@@ -31,7 +31,9 @@ const target: FileViewTarget = { file: "src/app.ts", rev: "abcdef1234567", sourc
 function mount(result: () => FileAtRevision, shown: FileViewTarget = target) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    return cmd === "file_at_revision" ? result() : null;
+    if (cmd === "file_at_revision") return result();
+    if (cmd === "preview_start") return ["preview-token", `http://127.0.0.1:4321/preview-token/${shown.file}`];
+    return null;
   });
   const closed = vi.fn();
   const mounted = mountWithApp(() => <FileView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={shown} onClose={closed} />);
@@ -40,6 +42,53 @@ function mount(result: () => FileAtRevision, shown: FileViewTarget = target) {
 }
 
 describe("file view", () => {
+  it("previews a binary image from the selected revision and stops the server when closed", async () => {
+    const { host } = mount(() => ({ kind: "binary", size: 1024 }), { ...target, file: "assets/logo.png" });
+    await flush(80);
+
+    expect(host.querySelector<HTMLImageElement>('.file-preview img')?.src).toBe("http://127.0.0.1:4321/preview-token/assets/logo.png");
+    expect(calls.find((call) => call.cmd === "preview_start")?.args).toEqual({ path: "/r", file: "assets/logo.png", rev: target.rev });
+    dispose?.();
+    dispose = undefined;
+    await flush();
+    expect(calls.find((call) => call.cmd === "preview_stop")?.args).toEqual({ id: "preview-token" });
+  });
+
+  it("renders Markdown as sanitized content with local revision images and allows source view", async () => {
+    const { host } = mount(() => ({ kind: "text", text: "# Notes\n\n**Bold** <script>bad()</script> ![Logo](assets/logo.png)", size: 70, eol: "\n" }), { ...target, file: "README.md" });
+    await flush(80);
+
+    expect(host.querySelector('.file-preview h1')?.textContent).toBe("Notes");
+    expect(host.querySelector('.file-preview strong')?.textContent).toBe("Bold");
+    expect(host.querySelector('.file-preview script')).toBeNull();
+    expect(host.querySelector<HTMLImageElement>('.file-preview img')?.src).toBe("http://127.0.0.1:4321/preview-token/assets/logo.png");
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === "Source")?.click();
+    await flush();
+    expect(host.querySelector('.fline .code')?.textContent).toBe("# Notes");
+    expect(calls.some((call) => call.cmd === "preview_stop")).toBe(true);
+  });
+
+  it("refuses external and unsupported Markdown asset and link schemes", async () => {
+    const text = "![External](https://example.test/pixel.png) ![Local file](file:///etc/hosts) [Visit](https://example.test/) <img src='javascript:bad()'>";
+    const { host } = mount(() => ({ kind: "text", text, size: text.length, eol: "\n" }), { ...target, file: "README.md" });
+    await flush(80);
+
+    expect([...host.querySelectorAll('.file-preview img')].every((image) => !image.hasAttribute("src"))).toBe(true);
+    expect(host.querySelector('.file-preview a')?.hasAttribute("href")).toBe(false);
+  });
+
+  it("isolates HTML in a script-only sandbox while its revision-relative assets use the preview server", async () => {
+    const { host } = mount(() => ({ kind: "text", text: "<script src='app.js'></script>", size: 31, eol: "\n" }), { ...target, file: "pages/index.html" });
+    await flush(80);
+
+    const frame = host.querySelector<HTMLIFrameElement>('.file-preview iframe');
+    expect(frame?.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(frame?.src).toBe("http://127.0.0.1:4321/preview-token/pages/index.html");
+    expect(host.querySelector('.file-preview script')).toBeNull();
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent === "Source")?.click();
+    await flush();
+    expect(host.querySelector('.fline .code')?.textContent).toContain("script src");
+  });
   it("reads the file at the revision and shows numbered, highlighted lines with the source and its size", async () => {
     const { host } = mount(() => ({ kind: "text", text: "const a = 1;\nreturn a;\n", size: 24, eol: "\n" }));
     await flush(80);

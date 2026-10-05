@@ -21,6 +21,7 @@ const dark = block(":root");
 const themes: Record<string, Map<string, string>> = {
   dark,
   light: new Map([...dark, ...block('[data-theme="light"]')]),
+  ...Object.fromEntries(["classic", "ocean", "eighties", "gruvbox", "nord", "dracula", "monokai", "woodland"].map((name) => [name, new Map([...dark, ...block(`[data-theme="${name}"]`)])])),
 };
 
 function parseHex(hex: string): Rgba {

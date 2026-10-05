@@ -1,12 +1,14 @@
-import { createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 
-export function TextSetting(props: { label: string; value: string; placeholder?: string; onCommit: (value: string) => void; suffix?: string }) {
+export function TextSetting(props: { label: string; value: string; placeholder?: string; disabled?: boolean; onCommit: (value: string) => void; suffix?: string }) {
   const [draft, setDraft] = createSignal<string | undefined>();
   const shown = () => draft() ?? props.value;
+  createEffect(() => { if (draft() !== undefined && draft() === props.value) setDraft(undefined); });
   const commit = () => {
+    if (props.disabled) return;
     const value = draft();
-    setDraft(undefined);
-    if (value !== undefined && value !== props.value) props.onCommit(value);
+    if (value === props.value) setDraft(undefined);
+    else if (value !== undefined) props.onCommit(value);
   };
   return (
     <span class="input">
@@ -15,6 +17,7 @@ export function TextSetting(props: { label: string; value: string; placeholder?:
         aria-label={props.label}
         value={shown()}
         placeholder={props.placeholder}
+        disabled={props.disabled}
         onInput={(event) => setDraft(event.currentTarget.value)}
         onBlur={commit}
         onKeyDown={(event) => event.key === "Enter" && commit()}

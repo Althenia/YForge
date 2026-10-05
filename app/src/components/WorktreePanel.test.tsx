@@ -187,6 +187,21 @@ describe("create worktree dialog", () => {
 });
 
 describe("integrate worktree dialog", () => {
+  it("locks its target and cleanup choices with visible progress while integration waits", async () => {
+    let finish: ((result: { kind: "integrated"; target_sha: string; cleaned_up: boolean }) => void) | undefined;
+    const { calls } = await mountIntegrate((call) => call.cmd === "worktree_integrate" ? new Promise((resolve) => { finish = resolve; }) : null);
+    buttonNamed(document, "Integrate")?.click();
+    await flush();
+
+    expect(document.querySelector<HTMLButtonElement>('button[aria-label="Target branch"]')?.disabled).toBe(true);
+    expect(document.querySelector<HTMLInputElement>('input[type="checkbox"]')?.disabled).toBe(true);
+    expect(document.querySelector('[role="status"]')?.textContent).toContain("Integrating worktree");
+    expect(document.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    buttonNamed(document, "Integrating…")?.click();
+    expect(calls.filter((call) => call.cmd === "worktree_integrate")).toHaveLength(1);
+    finish?.({ kind: "integrated", target_sha: "abcdef1234567", cleaned_up: true });
+    await flush(60);
+  });
   async function mountIntegrate(handler?: (call: Call) => unknown) {
     const context = setup([main, feature, fix], handler);
     const mounted = mountWithApp(() => <IntegrateWorktreeDialog worktree={feature} all={[main, feature, fix]} actions={context.actions} />);

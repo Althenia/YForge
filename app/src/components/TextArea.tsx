@@ -14,11 +14,12 @@ export function TextArea(props: {
   maxRows?: number;
   placeholder?: string;
   invalid?: boolean;
+  disabled?: boolean;
   onInput: (value: string) => void;
   onBlur?: () => void;
 }) {
   const [rows, setRows] = createSignal(props.minRows ?? MIN_ROWS);
-  const lineHeight = 20;
+  const lineHeight = 22;
   const limit = () => props.limit;
   const over = () => {
     const cap = limit();
@@ -36,6 +37,7 @@ export function TextArea(props: {
       <textarea
         aria-label={props.label}
         aria-invalid={props.invalid === true}
+        disabled={props.disabled}
         placeholder={props.placeholder}
         value={props.value}
         rows={rows()}

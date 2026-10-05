@@ -110,6 +110,38 @@ const THEME: &[Entry] = &[
         id: "theme.system",
         title: "System",
     },
+    Entry::Check {
+        id: "theme.classic",
+        title: "Classic Dark",
+    },
+    Entry::Check {
+        id: "theme.ocean",
+        title: "Ocean",
+    },
+    Entry::Check {
+        id: "theme.eighties",
+        title: "Eighties",
+    },
+    Entry::Check {
+        id: "theme.gruvbox",
+        title: "Gruvbox",
+    },
+    Entry::Check {
+        id: "theme.nord",
+        title: "Nord",
+    },
+    Entry::Check {
+        id: "theme.dracula",
+        title: "Dracula",
+    },
+    Entry::Check {
+        id: "theme.monokai",
+        title: "Monokai",
+    },
+    Entry::Check {
+        id: "theme.woodland",
+        title: "Woodland",
+    },
 ];
 
 const DENSITY: &[Entry] = &[

@@ -67,8 +67,8 @@ pub use ai::{
     ProviderKind, ProviderStatus, ProviderSummary, ProviderUpdate, RecomposeProposal, StashDraft,
 };
 pub use ai_context::{
-    commit_changes_context, commit_context, cut_at_line, is_secret_file, render_hunk, status_word,
-    working_changes_context, ChangesContext, CommitContext,
+    amend_commit_context, commit_changes_context, commit_context, cut_at_line, is_secret_file,
+    render_hunk, status_word, working_changes_context, ChangesContext, CommitContext,
 };
 pub use askpass::{AuthHandler, AuthKind, AuthPrompt, AuthReply};
 pub use avatar::{gravatar_url, initial_of, md5_hex};
@@ -106,7 +106,7 @@ pub use file_ops::{
     changed_paths, create_file, delete_file, discard_all, file_editable, file_save, worktree_files,
     EditableFile,
 };
-pub use file_view::file_at_revision;
+pub use file_view::{file_at_revision, preview_file_bytes};
 pub use git::{ensure_supported, git_version, CancelToken, GitVersion};
 pub use git_flow::{
     flow_finish, flow_snapshot, flow_start, git_flow_config, git_flow_init, plan_flow_finish,

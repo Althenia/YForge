@@ -400,6 +400,27 @@ fn a_commit_draft_is_returned_recorded_without_content_and_changes_nothing() {
 }
 
 #[test]
+fn amend_draft_describes_head_without_staged_files_and_changes_nothing() {
+    let h = harness();
+    let repo = repository();
+    let head = repo.git(&["rev-parse", "HEAD"]);
+    let fake = Fake::replying(DRAFT);
+    add_endpoint(&h, &fake.url, None);
+
+    let draft = invoke(
+        &h.window,
+        "ai_generate_amend_message",
+        json!({"path": repo.path(), "id": "ai-amend"}),
+    )
+    .unwrap();
+
+    assert_eq!(draft["summary"], "Describe the change");
+    assert!(fake.bodies()[0].contains("+1"));
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert!(repo.git(&["status", "--porcelain"]).is_empty());
+}
+
+#[test]
 fn ai_failures_are_tagged_and_recorded_by_kind_only() {
     let h = harness();
     let repo = repository();

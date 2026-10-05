@@ -15,7 +15,7 @@ afterEach(() => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function open(initial: GitFlowConfig | null, refuse?: string) {
+async function open(initial: GitFlowConfig | null, refuse?: string, holdInit?: () => Promise<void>) {
   let stored = initial;
   const calls: Call[] = [];
   mockIPC((cmd, args) => {
@@ -24,6 +24,7 @@ async function open(initial: GitFlowConfig | null, refuse?: string) {
     if (cmd === "git_flow_config") return stored;
     if (cmd === "git_flow_init") {
       if (refuse !== undefined) throw { kind: "invalid_request", message: refuse, output: null };
+      if (holdInit !== undefined) return holdInit().then(() => { stored = call.args.config as GitFlowConfig; return null; });
       stored = call.args.config as GitFlowConfig;
       return null;
     }
@@ -40,6 +41,20 @@ const input = (host: ParentNode, label: string) => host.querySelector<HTMLInputE
 const inits = (calls: Call[]) => calls.filter((call) => call.cmd === "git_flow_init").map((call) => call.args);
 
 describe("Git Flow settings (S57)", () => {
+  it("locks Git Flow names and announces initialization while it runs", async () => {
+    let finish: (() => void) | undefined;
+    const { host, calls } = await open(null, undefined, () => new Promise<void>((resolve) => { finish = resolve; }));
+    buttonNamed(host, "Initialize Git Flow")?.click();
+    await flush();
+    expect(input(host, "Production branch")?.disabled).toBe(true);
+    expect(host.querySelector('button[aria-busy="true"]')).not.toBeNull();
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Initializing Git Flow");
+    buttonNamed(host, "Initializing…")?.click();
+    expect(inits(calls)).toHaveLength(1);
+    finish?.();
+    await flush(40);
+    expect(input(host, "Production branch")).toBeNull();
+  });
   it("offers the git-flow defaults when Git Flow is not initialized", async () => {
     const { host } = await open(null);
 

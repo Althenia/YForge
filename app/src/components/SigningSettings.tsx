@@ -25,6 +25,7 @@ export function SigningSettings() {
   const [scope, setScope] = createSignal<SigningScope>("global");
   const [customKey, setCustomKey] = createSignal(false);
   const [failure, setFailure] = createSignal<string | undefined>();
+  const [saving, setSaving] = createSignal(false);
   const repository = () => app.activePath();
   const activeScope = (): SigningScope => (scope() === "repository" && repository() !== undefined ? "repository" : "global");
   const path = () => (activeScope() === "repository" ? (repository() ?? null) : null);
@@ -33,17 +34,21 @@ export function SigningSettings() {
 
   const write = async (patch: Partial<SigningConfig>) => {
     const current = config.data;
-    if (current === undefined) return;
+    if (current === undefined || saving()) return;
+    setSaving(true);
     setFailure(undefined);
     try {
       await client.signingWrite(activeScope(), path(), { ...current, ...patch });
       await queryClient.invalidateQueries({ queryKey: signingKey });
     } catch (error) {
       setFailure(message(error));
+    } finally {
+      setSaving(false);
     }
   };
   const keyChoice = (current: SigningConfig) => (customKey() ? CUSTOM_KEY : signingKeyChoice(current.key, keys.data ?? [], current.format));
   const chooseKey = (value: string) => {
+    if (saving()) return;
     setCustomKey(value === CUSTOM_KEY);
     if (value !== CUSTOM_KEY) void write({ key: value });
   };
@@ -59,6 +64,8 @@ export function SigningSettings() {
             { value: "global", label: "All repositories (global Git config)" },
             { value: "repository", label: repository() === undefined ? "This repository" : `This repository: ${basename(repository() as string)}`, ...(repository() === undefined ? { disabledReason: NO_REPOSITORY } : {}) },
           ]}
+          disabled={saving()}
+          disabledReason="Saving signing settings"
           onChange={(value) => setScope(value as SigningScope)}
         />
       </SettingRow>
@@ -66,16 +73,18 @@ export function SigningSettings() {
         {(current) => (
           <>
             <SettingRow id="sign-commits" title="Sign commits" note="Every commit and merge commit YForge makes is signed (commit.gpgSign).">
-              <Switch label="Sign commits" checked={current().sign_commits} onChange={(next) => void write({ sign_commits: next })} />
+              <Switch label="Sign commits" checked={current().sign_commits} disabled={saving()} onChange={(next) => void write({ sign_commits: next })} />
             </SettingRow>
             <SettingRow id="sign-tags" title="Sign tags" note="Every tag YForge makes is signed (tag.gpgSign); a tag without a message gets its name as the message.">
-              <Switch label="Sign tags" checked={current().sign_tags} onChange={(next) => void write({ sign_tags: next })} />
+              <Switch label="Sign tags" checked={current().sign_tags} disabled={saving()} onChange={(next) => void write({ sign_tags: next })} />
             </SettingRow>
             <SettingRow id="signing-format" title="Signing format" note="OpenPGP, SSH, or X.509 (gpg.format).">
               <Select
                 label="Signing format"
                 value={current().format}
                 options={SIGNING_FORMATS}
+                disabled={saving()}
+                disabledReason="Saving signing settings"
                 onChange={(value) => {
                   setCustomKey(false);
                   void write({ format: value as SigningFormat });
@@ -83,17 +92,18 @@ export function SigningSettings() {
               />
             </SettingRow>
             <SettingRow id="signing-key" title="Signing key" note="A secret OpenPGP key or a public key in ~/.ssh, by key ID or file and identity (user.signingkey).">
-              <Select label="Signing key" value={keyChoice(current())} options={signingKeyOptions(keys.data ?? [], current().format)} onChange={chooseKey} />
+              <Select label="Signing key" value={keyChoice(current())} options={signingKeyOptions(keys.data ?? [], current().format)} disabled={saving()} disabledReason="Saving signing settings" onChange={chooseKey} />
               <Show when={keyChoice(current()) === CUSTOM_KEY}>
-                <TextSetting label="Custom signing key" value={current().key} placeholder="Key ID, fingerprint, or path" onCommit={(value) => void write({ key: value.trim() })} />
+                <TextSetting label="Custom signing key" value={current().key} placeholder="Key ID, fingerprint, or path" disabled={saving()} onCommit={(value) => void write({ key: value.trim() })} />
               </Show>
             </SettingRow>
             <SettingRow id="signing-program" title="Signing program" note="gpg.program. Leave empty for Git's default.">
-              <TextSetting label="Signing program" value={current().program} placeholder="gpg" onCommit={(value) => void write({ program: value.trim() })} />
+              <TextSetting label="Signing program" value={current().program} placeholder="gpg" disabled={saving()} onCommit={(value) => void write({ program: value.trim() })} />
             </SettingRow>
           </>
         )}
       </Show>
+      <Show when={saving()}><p class="field-note" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />Saving signing settings…</p></Show>
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
       <Show when={config.error}>{(error) => <p class="field-note error" role="alert">{message(error())}</p>}</Show>
     </>

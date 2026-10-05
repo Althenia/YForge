@@ -14,6 +14,7 @@ const row = (sha: string | null, kind: GraphRow["kind"] = "commit"): GraphRow =>
   sha,
   parents: [],
   summary: sha ?? "Changes",
+  body: "",
   author: null,
   time: null,
   refs: [],

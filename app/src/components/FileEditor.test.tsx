@@ -1,37 +1,142 @@
 import { render } from "solid-js/web";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { emit } from "@tauri-apps/api/event";
+import { EditorView } from "@codemirror/view";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FileEditor } from "./FileEditor";
-import { buttonNamed, flush, type as typeInto } from "./testkit";
+import { buttonNamed, flush } from "./testkit";
 
 let dispose: (() => void) | undefined;
+
+beforeEach(() => {
+  mockWindows("main");
+  Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => ({ length: 0, item: () => null }) });
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", { configurable: true, value: () => new DOMRect() });
+});
 
 afterEach(() => {
   dispose?.();
   dispose = undefined;
   document.body.innerHTML = "";
+  clearMocks();
+  delete (Range.prototype as unknown as Record<string, unknown>).getClientRects;
+  delete (Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
 });
 
 const target = { file: "src/a.txt", text: "one\r\ntwo\r\n", eol: "\r\n", size: 10 };
 
-function mount(overrides: { save?: (file: string, text: string, eol: string) => Promise<boolean>; onClose?: () => void } = {}) {
+function mount(overrides: { save?: (file: string, text: string, eol: string) => Promise<boolean>; onClose?: () => void; servers?: Record<string, string> } = {}) {
   const save = overrides.save ?? vi.fn(async () => true);
   const onClose = overrides.onClose ?? vi.fn();
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <FileEditor target={target} save={save} onClose={onClose} />, host);
+  dispose = render(() => <FileEditor target={target} repoPath="/r" servers={overrides.servers ?? {}} save={save} onClose={onClose} />, host);
   return { host, save, onClose };
 }
 
-const field = (host: ParentNode) => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="File content"]');
+const field = (host: ParentNode) => host.querySelector<HTMLElement>('.cm-content[aria-label="File content"]');
+const view = (host: ParentNode) => EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor") as HTMLElement) as EditorView;
+const textOf = (host: ParentNode) => view(host).state.doc.toString();
+const typeInto = (host: ParentNode, text: string) => view(host).dispatch({ changes: { from: 0, to: view(host).state.doc.length, insert: text } });
 
 describe("FileEditor", () => {
-  it("opens the file in the owned text area with its path, line ending, and nothing to save yet", () => {
+  it("locks the editor and close action during save, then restores editing after a failed save", async () => {
+    let rejectSave: ((reason: Error) => void) | undefined;
+    const save = vi.fn(() => new Promise<boolean>((_, reject) => { rejectSave = reject; }));
+    const { host, onClose } = mount({ save });
+    typeInto(host, "changed");
+    buttonNamed(host, "Save")?.click();
+    await flush();
+
+    expect(buttonNamed(host, "Saving…")).not.toBeNull();
+    expect(field(host)?.getAttribute("contenteditable")).toBe("false");
+    buttonNamed(host, "Close")?.click();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    rejectSave?.(new Error("Disk is full"));
+    await flush();
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("Disk is full");
+    expect(field(host)?.getAttribute("contenteditable")).toBe("true");
+    expect(buttonNamed(host, "Save")).not.toBeNull();
+  });
+  it("starts only a configured installed language server on request and stops it from the editor", async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === "lsp_start") return { id: "lsp-1", root_uri: "file:///r/", file_uri: "file:///r/src/a.txt", language_id: "text" };
+      return null;
+    });
+    const { host } = mount({ servers: { txt: "/bin/cat" } });
+    expect(calls).not.toContain("lsp_start");
+    buttonNamed(host, "Start language server")?.click();
+    await flush(80);
+
+    expect(calls).toContain("lsp_start");
+    expect(host.textContent).toContain("Connecting to language server");
+    buttonNamed(host, "Stop language server")?.click();
+    await flush(80);
+    expect(calls).toContain("lsp_stop");
+  });
+
+  it("stops an active language server when the editor is closed", async () => {
+    const calls: string[] = [];
+    mockIPC((cmd) => {
+      calls.push(cmd);
+      if (cmd === "lsp_start") return { id: "lsp-2", root_uri: "file:///r/", file_uri: "file:///r/src/a.txt", language_id: "text" };
+      return null;
+    });
+    const mounted = mount({ servers: { txt: "/bin/cat" } });
+    buttonNamed(mounted.host, "Start language server")?.click();
+    await flush(80);
+    dispose?.();
+    dispose = undefined;
+    await flush(80);
+
+    expect(calls).toContain("lsp_stop");
+  });
+
+  it("offers definition and references after an LSP initialize response", async () => {
+    mockIPC((cmd, args) => {
+      if (cmd === "lsp_start") return { id: "lsp-ready", root_uri: "file:///r/", file_uri: "file:///r/src/a.txt", language_id: "text" };
+      if (cmd === "lsp_send") {
+        const request = JSON.parse((args as { body: string }).body) as { method?: string; id?: number };
+        if (request.method === "initialize") queueMicrotask(() => void emit("lsp-message", { id: "lsp-ready", body: JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { capabilities: { textDocumentSync: 1, definitionProvider: true, referencesProvider: true, hoverProvider: true, completionProvider: {} } } }) }));
+      }
+      return null;
+    }, { shouldMockEvents: true });
+    const { host } = mount({ servers: { txt: "/bin/cat" } });
+    buttonNamed(host, "Start language server")?.click();
+    await vi.waitFor(() => expect(host.textContent).toContain("Language server ready"));
+    expect(buttonNamed(host, "Definition")).not.toBeNull();
+    expect(buttonNamed(host, "References")).not.toBeNull();
+  });
+  it("offers an owned code editor with a toggleable Vim mode without closing on Vim Escape", async () => {
+    const { host, onClose } = mount();
+    expect(host.querySelector(".cm-editor .cm-content[contenteditable]")).not.toBeNull();
+    const toggle = buttonNamed(host, "Vim");
+    expect(toggle?.getAttribute("aria-pressed")).toBe("false");
+    toggle?.click();
+    await flush();
+    expect(toggle?.getAttribute("aria-pressed")).toBe("true");
+    const content = host.querySelector<HTMLElement>(".cm-content");
+    content?.dispatchEvent(new KeyboardEvent("keydown", { key: "i", bubbles: true, cancelable: true }));
+    await flush();
+    expect(host.querySelector(".cm-vim-panel")?.textContent?.toUpperCase()).toContain("INSERT");
+    content?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flush();
+    expect(host.querySelector(".cm-vim-panel")?.textContent?.toUpperCase()).toContain("NORMAL");
+    content?.dispatchEvent(new KeyboardEvent("keydown", { key: "v", bubbles: true, cancelable: true }));
+    await flush();
+    expect(host.querySelector(".cm-vim-panel")?.textContent?.toUpperCase()).toContain("VISUAL");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+  it("opens the file in the owned code editor with its path, line ending, and nothing to save yet", () => {
     const { host } = mount();
 
     expect(host.querySelector('section[aria-label="Edit file"]')).not.toBeNull();
     expect(host.querySelector(".path")?.textContent).toBe("src/a.txt");
-    expect(field(host)?.value).toBe("one\ntwo\n");
-    expect(field(host)?.closest(".input.area")).not.toBeNull();
+    expect(textOf(host)).toBe("one\ntwo\n");
+    expect(field(host)?.getAttribute("contenteditable")).toBe("true");
     expect(host.textContent).toContain("CRLF");
     expect(buttonNamed(host, "Save")?.getAttribute("aria-disabled")).toBe("true");
     expect(buttonNamed(host, "Save")?.getAttribute("data-tip")).toBe("There are no unsaved changes");
@@ -41,7 +146,7 @@ describe("FileEditor", () => {
   it("saves the edited text with the file's line ending from the Save button and clears the unsaved state", async () => {
     const { host, save } = mount();
 
-    typeInto(field(host), "one\nTWO\nthree\n");
+    typeInto(host, "one\nTWO\nthree\n");
     await flush();
     expect(host.textContent).toContain("Unsaved changes");
     expect(buttonNamed(host, "Save")?.getAttribute("aria-disabled")).toBeNull();
@@ -60,7 +165,7 @@ describe("FileEditor", () => {
     press();
     await flush();
     expect(save).not.toHaveBeenCalled();
-    typeInto(field(host), "changed\n");
+    typeInto(host, "changed\n");
     await flush();
     press();
     await flush();
@@ -71,7 +176,7 @@ describe("FileEditor", () => {
   it("keeps the edits unsaved when saving fails", async () => {
     const { host } = mount({ save: vi.fn(async () => false) });
 
-    typeInto(field(host), "changed\n");
+    typeInto(host, "changed\n");
     await flush();
     buttonNamed(host, "Save")?.click();
     await flush();
@@ -91,7 +196,7 @@ describe("FileEditor", () => {
 
   it("asks before discarding unsaved edits, on Close and on Escape, and keeps editing on Cancel", async () => {
     const { host, onClose } = mount();
-    typeInto(field(host), "changed\n");
+    typeInto(host, "changed\n");
     await flush();
 
     buttonNamed(host, "Close")?.click();
@@ -102,7 +207,7 @@ describe("FileEditor", () => {
     buttonNamed(document.body, "Cancel")?.click();
     await flush();
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
-    expect(field(host)?.value).toBe("changed\n");
+    expect(textOf(host)).toBe("changed\n");
 
     field(host)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
     await flush();

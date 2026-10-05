@@ -2,8 +2,10 @@ mod auth;
 mod crash;
 mod hooks_flow;
 mod instance;
+mod lsp;
 pub mod menu;
 mod open;
+mod preview;
 mod tracking;
 pub mod update;
 
@@ -4266,13 +4268,49 @@ async fn ai_generate_commit_message<R: Runtime>(
     path: String,
     id: String,
 ) -> Result<CommitDraft, ErrorPayload> {
-    log::debug!("ai_generate_commit_message path={path} id={id}");
+    generate_commit_draft(app, ai, log, operations, path, id, false).await
+}
+
+#[tauri::command]
+async fn ai_generate_amend_message<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+) -> Result<CommitDraft, ErrorPayload> {
+    generate_commit_draft(app, ai, log, operations, path, id, true).await
+}
+
+async fn generate_commit_draft<R: Runtime>(
+    app: AppHandle<R>,
+    ai: State<'_, AiState>,
+    log: State<'_, ActivityLog>,
+    operations: State<'_, Operations>,
+    path: String,
+    id: String,
+    amend: bool,
+) -> Result<CommitDraft, ErrorPayload> {
+    let name = if amend {
+        "ai_generate_amend_message"
+    } else {
+        "ai_generate_commit_message"
+    };
+    log::debug!("{name} path={path} id={id}");
     let selection =
         ai.0.resolve(&app.state::<DataDir>().0, AiFeature::GenerateCommit)
             .await
             .map_err(ai_payload)?;
     let target = path.clone();
-    let context = blocking(move || yforge_core::commit_context(Path::new(&target))).await?;
+    let context = blocking(move || {
+        if amend {
+            yforge_core::amend_commit_context(Path::new(&target))
+        } else {
+            yforge_core::commit_context(Path::new(&target))
+        }
+    })
+    .await?;
     let call = AiCall {
         app: &app,
         log: log.inner(),
@@ -4288,7 +4326,7 @@ async fn ai_generate_commit_message<R: Runtime>(
             async move { ai.commit_message(selection, context, &token).await }
         })
         .await;
-    log_outcome("ai_generate_commit_message", &result, |draft| {
+    log_outcome(name, &result, |draft| {
         format!(
             "summary_chars={} trimmed={} excluded={} truncated={}",
             draft.summary.chars().count(),
@@ -5279,7 +5317,20 @@ pub fn register_with_passphrases<R: Runtime>(
         .manage(PlatformState(Arc::new(platform)))
         .manage(WatchState::default())
         .manage(Operations::default())
+        .manage(lsp::Sessions::default())
+        .manage(preview::PreviewServers::default())
         .manage(ActivityLog::default())
+        .plugin(
+            tauri::plugin::Builder::<R>::new("preview-guard")
+                .on_navigation(|webview, url| {
+                    let Some(servers) = webview.app_handle().try_state::<preview::PreviewServers>()
+                    else {
+                        return true;
+                    };
+                    servers.navigation_allowed(url)
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             app_info,
             launch_path,
@@ -5311,6 +5362,8 @@ pub fn register_with_passphrases<R: Runtime>(
             tracked_files,
             revert_hunk,
             file_at_revision,
+            preview::preview_start,
+            preview::preview_stop,
             worktree_files,
             file_editable,
             file_create,
@@ -5497,6 +5550,10 @@ pub fn register_with_passphrases<R: Runtime>(
             ai_feature_config_reset,
             ai_sign_in,
             ai_generate_commit_message,
+            ai_generate_amend_message,
+            lsp::lsp_start,
+            lsp::lsp_send,
+            lsp::lsp_stop,
             ai_explain_changes,
             ai_explain_commit,
             ai_compose_commits,

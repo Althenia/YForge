@@ -1,7 +1,10 @@
 mod common;
 
 use common::Fixture;
-use yforge_core::{commit_changes_context, commit_context, working_changes_context, ErrorKind};
+use yforge_core::{
+    amend_commit_context, commit_changes_context, commit_context, working_changes_context,
+    ErrorKind,
+};
 
 fn staged_fixture() -> Fixture {
     let repo = Fixture::init();
@@ -25,6 +28,54 @@ fn the_commit_context_carries_the_staged_diff_and_recent_subjects_newest_first()
     assert!(!context.diff.contains("unstaged.txt"));
     assert_eq!(context.recent_subjects, ["Second: add b", "First commit"]);
     assert!(context.excluded.is_empty() && context.truncated.is_empty());
+}
+
+#[test]
+fn amend_message_context_describes_the_resulting_commit_without_unstaged_changes() {
+    let repo = staged_fixture();
+    repo.write("b.txt", "two\nfrom index\n");
+    repo.git(&["add", "b.txt"]);
+    repo.write("b.txt", "two\nfrom index\nnot staged\n");
+
+    let context = amend_commit_context(&repo.path).unwrap();
+
+    assert!(context.diff.contains("=== b.txt (added) ==="));
+    assert!(context.diff.contains("+from index"));
+    assert!(!context.diff.contains("not staged"));
+}
+
+#[test]
+fn amend_message_context_uses_head_when_nothing_is_staged() {
+    let repo = staged_fixture();
+
+    let context = amend_commit_context(&repo.path).unwrap();
+
+    assert!(context.diff.contains("=== b.txt (added) ==="));
+    assert!(context.diff.contains("+two"));
+}
+
+#[test]
+fn amend_message_context_uses_the_empty_tree_for_a_root_commit() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "root\n", "Root");
+
+    let context = amend_commit_context(&repo.path).unwrap();
+
+    assert!(context.diff.contains("=== a.txt (added) ==="));
+    assert!(context.diff.contains("+root"));
+}
+
+#[test]
+fn amend_message_context_refuses_a_secret_only_result() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit(".env", "SECRET_VALUE\n", "Root");
+
+    let error = amend_commit_context(&repo.path).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+    assert!(!error.to_string().contains("SECRET_VALUE"));
 }
 
 #[test]

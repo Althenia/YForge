@@ -210,6 +210,17 @@ describe("file history views", () => {
     expect(activeOption(host)?.textContent).toContain("Export shout helper");
     expect(activeOption(host)?.getAttribute("aria-selected")).toBe("true");
   });
+
+  it("highlights blame lines attributed to the selected history commit and updates the highlight on selection", async () => {
+    const { host } = mount({ file: "src/util.js", sha: "b".repeat(40), view: "blame" });
+    await flush(80);
+    const highlighted = () => [...host.querySelectorAll(".blame .fline.blame-selected .code")].map((node) => node.textContent);
+    expect(highlighted()).toEqual(["export const retryLimit = 5;"]);
+
+    [...host.querySelectorAll<HTMLElement>('.hlist [role="option"]')].find((option) => option.textContent?.includes("Add shout helper"))?.click();
+    await flush(80);
+    expect(highlighted()).toEqual(["const a = 1;", ""]);
+  });
 });
 
 describe("file history blame refresh", () => {

@@ -1,4 +1,5 @@
 import type { AppSettings } from "../ipc/bindings/AppSettings";
+import { THEME_OPTIONS } from "./settingsModel";
 import type { PaletteCommand } from "./palette";
 
 type Kind = "command" | "special";
@@ -38,9 +39,7 @@ export const MENU_ACTIONS: Readonly<Record<string, Kind>> = {
   "help.docs": "special",
   "help.shortcuts": "special",
   "help.report_issue": "special",
-  "theme.light": "special",
-  "theme.dark": "special",
-  "theme.system": "special",
+  ...Object.fromEntries(THEME_OPTIONS.map((theme) => [`theme.${theme.value}`, "special" as const])),
   "density.default": "special",
   "density.compact": "special",
 };
@@ -104,9 +103,7 @@ export function menuEnabled(commands: readonly PaletteCommand[], editableFocused
 
 export function menuChecked(settings: AppSettings): Record<string, boolean> {
   return {
-    "theme.light": settings.theme === "light",
-    "theme.dark": settings.theme === "dark",
-    "theme.system": settings.theme === "system",
+    ...Object.fromEntries(THEME_OPTIONS.map((theme) => [`theme.${theme.value}`, settings.theme === theme.value])),
     "density.default": settings.density === "default",
     "density.compact": settings.density === "compact",
   };

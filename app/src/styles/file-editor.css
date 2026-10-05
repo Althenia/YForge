@@ -1,18 +1,45 @@
+.feditor { grid-template-rows: auto minmax(0, 1fr) auto; }
 .feditor-body {
   display: grid;
-  align-content: start;
+  min-height: 0;
 }
 
-.feditor-body .input.area {
-  display: flex;
-  min-height: 100%;
+.owned-code-editor {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
-.feditor-body .input.area textarea {
-  font-family: var(--typography-code-font-family);
-  white-space: pre;
-  overflow-wrap: normal;
-  overflow-x: auto;
-  overflow-y: hidden;
+.owned-code-editor .cm-editor {
+  height: 100%;
+  background: var(--colors-field);
+  color: var(--colors-text);
+  font: var(--font-code);
+}
+
+.owned-code-editor .cm-editor.cm-focused {
+  outline: var(--controls-focus-ring) solid var(--colors-focus);
+  outline-offset: calc(var(--controls-focus-offset) * -1);
+}
+
+.owned-code-editor .cm-scroller {
+  overflow: auto;
+  font: inherit;
+}
+
+.owned-code-editor .cm-gutters {
+  background: var(--colors-surface-1);
+  color: var(--colors-text-muted);
+  border-right: 1px solid var(--colors-rule);
+}
+
+.owned-code-editor .cm-cursor {
+  border-left-color: var(--colors-text);
+}
+
+.owned-code-editor .cm-content {
+  padding: var(--spacing-2) 0;
   tab-size: 4;
 }
+
+.feditor-lsp-status { display: flex; align-items: center; gap: var(--spacing-2); padding: var(--spacing-1) var(--spacing-3); color: var(--colors-text-muted); font: var(--font-ui-small); }

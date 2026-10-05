@@ -60,8 +60,8 @@
   | Row | `graph-row` (canvas, `graph-text`, `graph` role), height `controls.row-graph` with a `controls.graph-row-inner` band (3px above and below) |
   | Ref label | Ref label component in the Branch / Tag column |
   | Lane art | `controls.graph-line` edges in the color of the column that carries them; node shapes per the design system §Shapes |
-  | Lane strip | `controls.graph-lane-strip` of lane color on the inner band where the message column starts, at 60% opacity; there is no row streak |
-  | Message | 12px after the lane strip. Summary in `graph-text`, then the first body line inline in `graph-text-body` (`graph-row-body`); Changes and stash messages in `graph-text-body`, stash in italic |
+  | Lane band and strip | Opaque lane-color tint fades horizontally into canvas across the graph column (into selection fill when selected); `controls.graph-lane-strip` remains at the message column's start on the inner band, at 60% opacity |
+  | Message | 12px after the lane strip. Summary in `graph-text`, then the first nonblank body line inline in `graph-text-body` (`graph-row-body`); Changes and stash messages in `graph-text-body`, stash in italic |
   | Time pill | `graph-time-pill` (pill) at the message column's right edge, 8px above the first row of each relative-time bucket |
   | Optional columns | Author (name, or initials at 40px and narrower), Date / Time (relative age, absolute time in the tooltip), and SHA (7 characters, `ref` role) in `graph-text-body`, right-aligned before the settings square; widths from `layout.graph-author-column`, `-date-column`, and `-sha-column` |
   | Clean working-tree row | The core's Changes row when nothing changed: the dotted ring in HEAD's lane and the italic message "Working tree clean"; selecting it opens the Changes inspector |
@@ -72,7 +72,8 @@
   - Rows run newest first. A commit takes the leftmost column already reserved for it; otherwise it takes the leftmost free column.
   - Its first parent keeps the commit's column. Each further parent reuses a column already reserved for it; otherwise it takes the leftmost free column.
   - When several columns reserve one commit, the leftmost becomes its column and the others end on its row.
-  - Lane color is `lane-<column mod 10>`. Lanes start after `controls.graph-gutter` and repeat every `controls.graph-lane-pitch` (compact lanes use the `-compact` controls).
+  - Lane color is `lane-<column mod 10>`. Default lanes start 4px after the ref/graph divider (`controls.graph-gutter`) and repeat every `controls.graph-lane-pitch`; compact lanes retain the 10px `-compact` gutter and pitch.
+  - The graph column starts at `layout.graph-column` (56px), expands when active lanes need more room, and places the message immediately after that column.
 - **Edge routing:** Edges are orthogonal, with `controls.graph-arc-radius` corners. A branch column runs vertically and turns into its parent's node on the parent's row. A merge leaves its node horizontally on its own row, then runs down the parent's column. Changes and stash edges are dotted (2px dash, 2px gap).
 - **Variants:** commit, merge, stash, Changes (clean, changes, conflicts), checked-out HEAD, and dimmed (search non-match, branch-hover non-member). A Changes row with conflicts uses `graph-row-conflict` (attention-tint fill, attention-ink message) and a "!" glyph.
 - **Interaction states:**

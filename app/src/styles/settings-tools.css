@@ -80,3 +80,6 @@
 .select-option[aria-disabled="true"] {
   color: var(--colors-text-muted);
 }
+.lsp-settings { display: grid; gap: var(--spacing-2); min-width: 0; }
+.lsp-server-row { display: flex; align-items: center; gap: var(--spacing-2); min-width: 0; }
+.lsp-command { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--font-code); }

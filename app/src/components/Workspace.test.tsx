@@ -1,4 +1,5 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -22,6 +23,8 @@ beforeEach(() => {
   restoreLayout = stubLayout();
   mockWindows("main");
   Element.prototype.scrollIntoView = () => undefined;
+  Object.defineProperty(Range.prototype, "getClientRects", { configurable: true, value: () => ({ length: 0, item: () => null }) });
+  Object.defineProperty(Range.prototype, "getBoundingClientRect", { configurable: true, value: () => new DOMRect() });
 });
 
 afterEach(async () => {
@@ -33,9 +36,11 @@ afterEach(async () => {
   await flush();
   document.body.innerHTML = "";
   clearMocks();
+  delete (Range.prototype as unknown as Record<string, unknown>).getClientRects;
+  delete (Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
 });
 
-const geometry = { row: 28, pitch: 22, gutter: 28, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 160, laneColors: 10 };
+const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, laneColors: 10 };
 const info: AppInfo = { app_version: "0.1.0", git_version: "2.50.0" };
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
 
@@ -307,10 +312,9 @@ describe("file operations in the center", () => {
 
     expect(host.querySelector('.center section[aria-label="Edit file"]')).not.toBeNull();
     expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(true);
-    const field = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="File content"]');
-    expect(field?.value).toBe("one\ntwo\n");
-    field!.value = "one\nTWO\n";
-    field!.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    const editor = EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor") as HTMLElement) as EditorView;
+    expect(editor.state.doc.toString()).toBe("one\ntwo\n");
+    editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: "one\nTWO\n" } });
     await flush();
     const before = calls.filter((call) => call.cmd === "repo_open").length;
     buttonNamed(host, "Save")?.click();

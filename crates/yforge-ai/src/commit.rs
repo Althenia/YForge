@@ -18,7 +18,7 @@ pub fn context_text(context: &CommitContext) -> String {
             .join("\n")
     };
     format!(
-        "Recent commit subjects, newest first:\n{subjects}\n\nStaged changes (files marked as withheld, binary, truncated or omitted are incomplete):\n{}",
+        "Recent commit subjects, newest first:\n{subjects}\n\nCommit changes (files marked as withheld, binary, truncated or omitted are incomplete):\n{}",
         context.diff
     )
 }

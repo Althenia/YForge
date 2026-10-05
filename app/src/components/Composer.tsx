@@ -19,7 +19,7 @@ const COMPOSE_ACTION = "Compose the changes into commits";
 const STASH_ACTION = "Generate a stash message from the changes";
 const DESCRIPTION_ROWS = 3;
 
-function FieldAi(props: {
+export function FieldAi(props: {
   visible: boolean;
   running: boolean;
   action: string;
@@ -46,8 +46,9 @@ function FieldAi(props: {
           </button>
         }
       >
+        <span class="field-busy-text" role="status">Generating…</span>
         <button type="button" class="icon-btn dense ai-btn field-btn" aria-busy="true" disabled {...tip(props.busy)}>
-          <Icon name="wand" size={14} />
+          <span class="busy-spinner" aria-hidden="true" />
         </button>
         <button type="button" class="icon-btn dense field-btn" {...tip(props.cancel)} onClick={props.onCancel}>
           <Icon name="close" size={14} />
@@ -91,7 +92,7 @@ export function Composer(props: {
   const id = createUniqueId();
   const [profiles] = createResource(() => client.profiles().catch(() => undefined));
   const identity = () => commitIdentityLabel(profiles());
-  const generateReason = () => (props.staged === 0 ? "Stage files to generate a message" : props.state.busy() ? "Committing…" : undefined);
+  const generateReason = () => (!props.state.amend() && props.staged === 0 ? "Stage files to generate a message" : props.state.busy() ? "Committing…" : undefined);
   const stashDraftReason = () => (props.state.stashing() ? "Stashing…" : props.snapshot.files.length === 0 ? "No local changes to stash" : undefined);
   const remaining = () => summaryRemaining(props.state.summary());
   const button = () => props.action.button();
@@ -99,7 +100,7 @@ export function Composer(props: {
   const unborn = () => props.snapshot.head.kind === "unborn";
   const amendReason = () =>
     unborn() ? "There is no commit to amend yet" : props.snapshot.operation !== null ? "Finish the operation in progress first" : undefined;
-  const chipReason = () => (unborn() ? "There is no commit to amend yet" : props.state.busy() ? "Committing…" : undefined);
+  const chipReason = () => (unborn() ? "There is no commit to amend yet" : props.state.busy() ? "Committing…" : props.generate.running() ? "Generating a commit message…" : undefined);
   const failure = () => props.state.failure();
   const tab = (): ComposerTab => (props.snapshot.operation === null ? props.state.tab() : "commit");
   const stashState = () => stashButton({ files: props.snapshot.files, untracked: props.state.stashUntracked(), busy: props.state.stashing() });
@@ -198,7 +199,7 @@ export function Composer(props: {
         </div>
       }
     >
-      <div class="composer" role="group" aria-label="Commit" aria-busy={props.state.busy() || props.state.stashing()}>
+      <div class="composer" role="group" aria-label="Commit" aria-busy={props.state.busy() || props.state.stashing() || props.generate.running() || props.stashDraft.running()}>
         <Show when={props.snapshot.operation === null}>
           <div class="composer-tabs" role="tablist" aria-label="Composer">
             <For each={tabs}>
@@ -212,7 +213,8 @@ export function Composer(props: {
                   aria-selected={tab() === entry.key}
                   aria-controls={`${id}-${entry.key}-panel`}
                   tabindex={tab() === entry.key ? 0 : -1}
-                  onClick={() => props.state.setTab(entry.key)}
+                  aria-disabled={props.generate.running() || props.stashDraft.running() || props.state.busy() || props.state.stashing() ? "true" : undefined}
+                  onClick={() => !(props.generate.running() || props.stashDraft.running() || props.state.busy() || props.state.stashing()) && props.state.setTab(entry.key)}
                   onKeyDown={onTabKey}
                 >
                   <Icon name={entry.icon} size={14} />
@@ -231,6 +233,7 @@ export function Composer(props: {
                   type="text"
                   placeholder="Stash title (optional)"
                   aria-label="Stash title"
+                  disabled={props.stashDraft.running() || props.state.stashing()}
                   value={props.state.stashTitle()}
                   onInput={(event) => props.state.setStashTitle(event.currentTarget.value)}
                 />
@@ -292,11 +295,12 @@ export function Composer(props: {
         >
           <div class="composer-panel" role="tabpanel" id={`${id}-commit-panel`} aria-labelledby={props.snapshot.operation === null ? `${id}-commit-tab` : undefined}>
             <label class="input summary-field" classList={{ drafted: props.generate.drafted() }}>
-              <input
-                type="text"
-                ref={props.summaryRef}
-                placeholder="Summary"
-                aria-label="Summary"
+                <input
+                  type="text"
+                  ref={props.summaryRef}
+                  placeholder="Summary"
+                  aria-label="Summary"
+                  disabled={props.generate.running() || props.state.busy()}
                 value={props.state.summary()}
                 onInput={(event) => props.state.setSummary(event.currentTarget.value)}
               />
@@ -310,7 +314,7 @@ export function Composer(props: {
                     <FieldAi
                       visible={props.generateAvailable}
                       running={props.generate.running()}
-                      action={GENERATE_ACTION}
+                      action={props.state.amend() ? "Generate a commit message from the resulting commit" : GENERATE_ACTION}
                       reason={generateReason()}
                       busy="Generating a commit message…"
                       cancel="Cancel generating"
@@ -319,7 +323,7 @@ export function Composer(props: {
                     />
                   }
                 >
-                  <DraftTools note={DRAFT_NOTE} replaced={props.generate.replaced() !== undefined} onRestore={props.generate.restore} />
+                  <DraftTools note={props.state.amend() ? "Draft from the resulting commit. Review and edit it; nothing is committed until you commit." : DRAFT_NOTE} replaced={props.generate.replaced() !== undefined} onRestore={props.generate.restore} />
                 </Show>
               </span>
             </label>
@@ -334,6 +338,7 @@ export function Composer(props: {
               value={props.state.description()}
               minRows={DESCRIPTION_ROWS}
               maxRows={DESCRIPTION_ROWS}
+              disabled={props.generate.running() || props.state.busy()}
               onInput={props.state.setDescription}
             />
             <div class="composer-row">
@@ -379,7 +384,7 @@ export function Composer(props: {
                 {...tip("More commit actions")}
                 aria-haspopup="menu"
                 aria-expanded={open()}
-                disabled={props.state.busy()}
+                disabled={props.state.busy() || props.generate.running()}
                 onClick={() => setOpen(!open())}
               >
                 <Icon name="chevron" />

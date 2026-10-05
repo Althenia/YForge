@@ -53,7 +53,7 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown } = {}) {
+function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
   const selected: string[] = [];
   const opened: DiffTarget[] = [];
   const viewed: FileViewTarget[] = [];
@@ -63,6 +63,7 @@ function mount(sha: string, options: { pushed?: boolean; operation?: boolean; fi
     if (cmd === "app_ui_prefs_load") return { palette_recents: [], last_parent_folder: null, file_list_mode: "path" };
     if (cmd === "ai_feature_config_list") return (options.ai ?? []).map((feature) => ({ feature, config: { feature, provider_id: "p1", model_id: "m", prompt_template: "{context}" }, enabled: true, available: true, default_prompt_template: "{context}" }));
     if (cmd === "ai_explain_commit") return options.explain ?? { items: [], excluded: [], truncated: [] };
+    if (cmd === "ai_generate_amend_message") return options.amendDraft;
     if (cmd === "commit_tree_paths") return options.tree ?? [];
     if (cmd === "jira_connections_list") return options.jira === undefined ? [] : [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
     if (cmd === "jira_branch_name") return `${(args as { key: string }).key}-show-the-account-switcher`;
@@ -209,6 +210,32 @@ describe("commit verbs in the header", () => {
 });
 
 describe("edit the HEAD message", () => {
+  it("generates an editable amend draft from the resulting commit, locks fields while waiting, and restores prior text", async () => {
+    let finish: ((draft: unknown) => void) | undefined;
+    const draft = new Promise((resolve) => (finish = resolve));
+    const { host } = mount(HEAD, { ai: ["generate_commit"], amendDraft: draft });
+    await flush(60);
+    editButton(host)?.click();
+    await flush(60);
+    const generate = [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.getAttribute("aria-label")?.startsWith("Generate a commit message"));
+    expect(generate).not.toBeUndefined();
+    generate?.click();
+    await flush();
+    expect(field(host, "Summary")?.disabled).toBe(true);
+    expect(field(host, "Description")?.disabled).toBe(true);
+    expect(buttonNamed(host, "Save message")?.disabled).toBe(true);
+    expect(host.querySelector('.msgform [role="status"]')?.textContent).toContain("Generating");
+    expect(host.querySelector<HTMLButtonElement>('button[aria-label="Cancel generating"]')?.disabled).toBe(false);
+
+    finish?.({ summary: "Describe the result", description: "Why it matters.", summary_trimmed: false, excluded: [], truncated: [] });
+    await flush(80);
+    expect(field(host, "Summary")?.value).toBe("Describe the result");
+    expect(field(host, "Description")?.value).toBe("Why it matters.");
+    expect(calls.some((call) => call.cmd === "edit_head_message")).toBe(false);
+    host.querySelector<HTMLButtonElement>('button[aria-label="Restore my text"]')?.click();
+    expect(field(host, "Summary")?.value).toBe("Tune retries");
+    expect(field(host, "Description")?.value).toBe("Because.");
+  });
   it("is offered only for the HEAD commit", async () => {
     const head = mount(HEAD);
     await flush(60);

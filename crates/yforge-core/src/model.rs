@@ -248,6 +248,7 @@ pub struct GraphRow {
     pub sha: Option<String>,
     pub parents: Vec<String>,
     pub summary: String,
+    pub body: String,
     pub author: Option<Author>,
     pub time: Option<i64>,
     pub refs: Vec<GraphRef>,

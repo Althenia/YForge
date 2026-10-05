@@ -318,9 +318,10 @@ describe("typed IPC client", () => {
       pull_mode: "rebase",
       auto_fetch_minutes: 5,
       editor_command: "",
+      language_servers: {},
       terminal_command: "",
       telemetry_opt_in: false,
-        gravatar_avatars: true,
+      gravatar_avatars: true,
     } as const;
 
     await client.fetch("/r", "op-1", false, false);

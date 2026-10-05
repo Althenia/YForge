@@ -32,10 +32,10 @@ const snapshotOf = (count: number): RepoSnapshot =>
     files: Array.from({ length: count }, (_, index) => ({ path: `src/file-${index}.ts`, original_path: null, area: "untracked", status: "untracked" })),
   }) as unknown as RepoSnapshot;
 
-async function mount(count: number) {
+async function mount(count: number, stageAll: () => Promise<unknown> = async () => undefined) {
   const host = document.createElement("div");
   document.body.append(host);
-  const actions = { stageAll: async () => undefined } as unknown as RepoActions;
+  const actions = { stageAll } as unknown as RepoActions;
   dispose = render(() => <EmptyRepository snapshot={snapshotOf(count)} actions={actions} />, host);
   await flush(60);
   const scroller = host.querySelector<HTMLElement>(".empty-repo") as HTMLElement;
@@ -48,6 +48,25 @@ async function mount(count: number) {
 }
 
 describe("empty repository file list", () => {
+  it("announces staging and locks the first-commit action until it completes", async () => {
+    let finish: (() => void) | undefined;
+    let calls = 0;
+    const { host } = await mount(1, () => {
+      calls += 1;
+      return new Promise<void>((resolve) => { finish = resolve; });
+    });
+    const button = host.querySelector<HTMLButtonElement>(".empty-repo button");
+    button?.click();
+    await flush();
+    expect(button?.disabled).toBe(true);
+    expect(button?.getAttribute("aria-busy")).toBe("true");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Staging files");
+    button?.click();
+    expect(calls).toBe(1);
+    finish?.();
+    await flush();
+    expect(button?.disabled).toBe(false);
+  });
   it("lists a handful of untracked files with their status letters", async () => {
     const { host, paths } = await mount(3);
 

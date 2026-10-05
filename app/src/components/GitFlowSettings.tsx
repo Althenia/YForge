@@ -28,6 +28,7 @@ export function GitFlowSettings(props: { path: string }) {
   const [failure, setFailure] = createSignal<string | undefined>();
 
   const initialize = async () => {
+    if (busy()) return;
     setBusy(true);
     setFailure(undefined);
     try {
@@ -51,7 +52,7 @@ export function GitFlowSettings(props: { path: string }) {
               class="tool-form flow-form"
               onSubmit={(event) => {
                 event.preventDefault();
-                void initialize();
+                if (!busy()) void initialize();
               }}
             >
               <p class="setting-note" id="setting-git-flow" tabindex={-1}>
@@ -62,14 +63,14 @@ export function GitFlowSettings(props: { path: string }) {
                   <label class="field">
                     <span class="field-label">{field.label}</span>
                     <span class="input">
-                      <input type="text" aria-label={field.label} spellcheck={false} value={draft()[field.key]} onInput={(event) => setDraft({ ...draft(), [field.key]: event.currentTarget.value })} />
+                      <input type="text" aria-label={field.label} spellcheck={false} value={draft()[field.key]} disabled={busy()} onInput={(event) => setDraft({ ...draft(), [field.key]: event.currentTarget.value })} />
                     </span>
                   </label>
                 )}
               </For>
               <span class="tool-form-actions">
                 <button type="submit" class="btn primary" aria-busy={busy()} disabled={busy()}>
-                  Initialize Git Flow
+                  {busy() ? "Initializing…" : "Initialize Git Flow"}
                 </button>
               </span>
             </form>
@@ -94,6 +95,7 @@ export function GitFlowSettings(props: { path: string }) {
         </Show>
       </Show>
       <Show when={failure()}>{(text) => <p class="field-note error" role="alert">{text()}</p>}</Show>
+      <Show when={busy()}><p class="field-note" role="status"><span class="busy-spinner" aria-hidden="true" />Initializing Git Flow…</p></Show>
       <Show when={stored.error}>{(error) => <p class="field-note error" role="alert">{message(error())}</p>}</Show>
     </>
   );

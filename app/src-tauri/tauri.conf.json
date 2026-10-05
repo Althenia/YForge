@@ -21,8 +21,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com; connect-src ipc: http://ipc.localhost https://www.gravatar.com",
-      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com; connect-src ipc: http://ipc.localhost ws://localhost:1420 https://www.gravatar.com"
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com http://127.0.0.1:*; frame-src http://127.0.0.1:*; connect-src ipc: http://ipc.localhost https://www.gravatar.com",
+      "devCsp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.gravatar.com http://127.0.0.1:*; frame-src http://127.0.0.1:*; connect-src ipc: http://ipc.localhost ws://localhost:1420 https://www.gravatar.com"
     }
   },
   "bundle": {

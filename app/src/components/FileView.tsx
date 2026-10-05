@@ -1,7 +1,9 @@
 import { useQuery } from "../state/query";
+import DOMPurify from "dompurify";
+import { marked } from "marked";
 import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
 import { client } from "../ipc/client";
-import { fileLines, fileViewError, formatBytes, type FileViewTarget } from "../state/fileView";
+import { fileLines, fileViewError, formatBytes, previewKind, type FileViewTarget } from "../state/fileView";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import { displayText } from "../state/diffHighlight";
@@ -12,7 +14,7 @@ import { VirtualRows } from "./VirtualRows";
 
 const LINE_ESTIMATE = 20;
 
-export function FileLines(props: { file: string; lines: readonly string[]; report: (failure: unknown) => void; scroller: () => HTMLElement | undefined; gutter?: (index: number) => JSX.Element }) {
+export function FileLines(props: { file: string; lines: readonly string[]; report: (failure: unknown) => void; scroller: () => HTMLElement | undefined; gutter?: (index: number) => JSX.Element; highlight?: (index: number) => boolean }) {
   const lines = createMemo(() => props.lines.map(displayText));
   const [language, setLanguage] = createSignal<LanguageId | undefined>();
   createEffect(() => {
@@ -33,7 +35,7 @@ export function FileLines(props: { file: string; lines: readonly string[]; repor
   return (
     <VirtualRows as="div" class="dflat" items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE}>
       {(_, virtual) => (
-        <div class="fline" ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
+        <div class="fline" classList={{ "blame-selected": props.highlight?.(virtual.index) === true }} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
           {props.gutter?.(virtual.index)}
           <span class="ln" aria-hidden="true">
             {virtual.index + 1}
@@ -64,8 +66,55 @@ function createFileAt(session: RepoSession, target: () => { file: string; rev: s
 
 export function FileBody(props: { session: RepoSession; file: string; rev: string }) {
   const content = createFileAt(props.session, () => ({ file: props.file, rev: props.rev }));
+  const kind = () => previewKind(props.file);
+  const [mode, setMode] = createSignal<"preview" | "source">(kind() === undefined ? "source" : "preview");
+  const [preview, setPreview] = createSignal<{ id: string; url: string }>();
+  const [previewError, setPreviewError] = createSignal<string>();
+  createEffect(() => { setMode(kind() === undefined ? "source" : "preview"); });
+  createEffect(() => {
+    setPreview(undefined);
+    setPreviewError(undefined);
+    if (kind() === undefined || mode() !== "preview" || content.shown() === undefined) return;
+    let disposed = false;
+    let id: string | undefined;
+    void client.previewStart(props.session.path, props.file, props.rev).then(
+      ([started, url]) => {
+        if (disposed) { void client.previewStop(started).catch(props.session.report); return; }
+        id = started;
+        setPreview({ id: started, url });
+      },
+      (error) => { if (!disposed) setPreviewError(fileViewError(error)); },
+    );
+    onCleanup(() => {
+      disposed = true;
+      if (id !== undefined) void client.previewStop(id).catch(props.session.report);
+    });
+  });
+  const markdown = createMemo(() => {
+    const base = preview()?.url;
+    const html = marked.parse(content.text()?.text ?? "", { async: false });
+    DOMPurify.addHook("uponSanitizeAttribute", (node, attribute) => {
+      if (node.nodeName === "IMG" && attribute.attrName === "src") {
+        try {
+          const url = new URL(attribute.attrValue, base);
+          if (base === undefined || url.origin !== new URL(base).origin || !url.pathname.startsWith(new URL(base).pathname.split("/").slice(0, 2).join("/") + "/")) attribute.keepAttr = false;
+          else attribute.attrValue = url.href;
+        } catch { attribute.keepAttr = false; }
+      }
+      if (node.nodeName === "A" && attribute.attrName === "href" && !attribute.attrValue.startsWith("#")) attribute.keepAttr = false;
+    });
+    try { return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_ATTR: ["style", "srcset"] }); }
+    finally { DOMPurify.removeHook("uponSanitizeAttribute"); }
+  });
   let body: HTMLDivElement | undefined;
   return (
+    <>
+    <Show when={kind() !== undefined}>
+      <div class="dtool" role="toolbar" aria-label="File view mode">
+        <button type="button" class="btn sm" aria-pressed={mode() === "preview"} onClick={() => setMode("preview")}>Preview</button>
+        <Show when={kind() !== "image"}><button type="button" class="btn sm" aria-pressed={mode() === "source"} onClick={() => setMode("source")}>Source</button></Show>
+      </div>
+    </Show>
     <div class="dbody" ref={body}>
       <Show when={content.file.error}>
         {(error) => (
@@ -74,16 +123,26 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
           </div>
         )}
       </Show>
-      <Show when={content.shown()?.kind === "binary" && content.shown()}>
+      <Show when={mode() === "preview" && kind() !== undefined && content.shown() !== undefined}>
+        <Show when={previewError()}>{(error) => <div class="graph-error" role="alert">{error()}</div>}</Show>
+        <Show when={preview() === undefined && previewError() === undefined}><div class="empty" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />Preparing preview…</div></Show>
+        <Show when={preview()}>{(session) => <div class="file-preview" classList={{ "file-preview-markdown": kind() === "markdown" }}>
+          <Show when={kind() === "image"}><img src={session().url} alt={props.file} /></Show>
+          <Show when={kind() === "markdown"}><article innerHTML={markdown()} /></Show>
+          <Show when={kind() === "html"}><iframe title={`${props.file} preview`} src={session().url} sandbox="allow-scripts" referrerpolicy="no-referrer" /></Show>
+        </div>}</Show>
+      </Show>
+      <Show when={mode() === "source" && content.shown()?.kind === "binary" && content.shown()}>
         {(binary) => <div class="empty">Binary file, {formatBytes(binary().size)}. There is no text view.</div>}
       </Show>
-      <Show when={content.text() !== undefined && content.lines().length === 0}>
+      <Show when={mode() === "source" && content.text() !== undefined && content.lines().length === 0}>
         <div class="empty">This file is empty.</div>
       </Show>
-      <Show when={content.lines().length > 0}>
+      <Show when={mode() === "source" && content.lines().length > 0}>
         <FileLines file={props.file} lines={content.lines()} report={props.session.report} scroller={() => body} />
       </Show>
     </div>
+    </>
   );
 }
 

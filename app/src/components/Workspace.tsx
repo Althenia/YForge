@@ -423,7 +423,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               <SearchBar search={search} onClosed={focusGraph} />
             </Show>
             <Show when={actions.files.editing()} keyed>
-              {(target) => <FileEditor target={target} save={actions.files.save} onClose={closeEditor} />}
+              {(target) => <FileEditor target={target} repoPath={session.path} servers={app.settings().language_servers} save={actions.files.save} onClose={closeEditor} />}
             </Show>
             <Show when={historyOf("rebase")} keyed>
               {(view) => <RebaseEditor session={session} base={view.base} from={view.from} onClose={() => void closeHistory()} />}

@@ -14,6 +14,11 @@ function mount(props: { value?: string; limit?: number; minRows?: number; maxRow
 const editor = (host: ParentNode) => host.querySelector<HTMLTextAreaElement>("textarea");
 
 describe("owned text area", () => {
+  it("reserves enough height for the increased non-graph text line height", () => {
+    const { host, dispose } = mount({ value: "one\ntwo\nthree", minRows: 3 });
+    expect(host.querySelector<HTMLElement>(".input.area")?.style.height).toBe("78px");
+    dispose();
+  });
   it("wraps the field in the shared input frame so its label, field, and note align with a one-line input", () => {
     const { host, dispose } = mount({ value: "one\ntwo" });
     expect(host.querySelector(".input.area")).not.toBeNull();

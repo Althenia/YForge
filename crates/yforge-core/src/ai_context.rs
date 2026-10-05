@@ -216,6 +216,56 @@ pub fn commit_context(path: &Path) -> Result<CommitContext, CoreError> {
     })
 }
 
+pub fn amend_commit_context(path: &Path) -> Result<CommitContext, CoreError> {
+    let root = repo::open(path)?;
+    let head = head_sha(&root)?
+        .ok_or_else(|| CoreError::invalid_request("there is no commit to amend"))?;
+    let details = commit::commit_details(&root, &head)?;
+    let base = match details.parents.first() {
+        Some(parent) => parent.clone(),
+        None => commit::empty_tree(&root)?,
+    };
+    let raw = git::run(
+        &root,
+        &[
+            "diff",
+            "--cached",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "-M",
+            "--raw",
+            "-z",
+            &base,
+        ],
+    )?;
+    let entries: Vec<Entry> = commit::parse_raw(&raw)?
+        .into_iter()
+        .map(|(status, path, original)| Entry {
+            path,
+            original,
+            status,
+            untracked: false,
+        })
+        .collect();
+    if entries.is_empty() {
+        return Err(CoreError::invalid_request(
+            "the amended commit changes no files",
+        ));
+    }
+    refuse_secret_only(&entries, "amended")?;
+    let rendered = render_entries(&entries, |entry| {
+        let parsed = diff::read_index_diff(&root, &base, &entry.path, entry.original.as_deref())?;
+        Ok((parsed.binary, parsed.hunks))
+    })?;
+    Ok(CommitContext {
+        diff: rendered.diff,
+        recent_subjects: recent_subjects(&root),
+        excluded: rendered.excluded,
+        truncated: rendered.truncated,
+    })
+}
+
 fn area_rank(area: ChangeArea) -> u8 {
     match area {
         ChangeArea::Staged => 0,

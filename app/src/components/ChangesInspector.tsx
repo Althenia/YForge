@@ -89,10 +89,12 @@ export function ChangesInspector(props: {
   let summary: HTMLInputElement | undefined;
   let scroller: HTMLDivElement | undefined;
 
+  const generate = createGenerateAction({ session: props.session, composer: props.composer });
   const action = createCommitAction({
     session: props.session,
     composer: props.composer,
     staged: () => stagedFileCount(snapshot().files),
+    generating: generate.running,
     onCommitted: props.onCommitted,
     push: async () => {
       const remote = pushRemote(snapshot().remotes);
@@ -101,7 +103,6 @@ export function ChangesInspector(props: {
     },
   });
 
-  const generate = createGenerateAction({ session: props.session, composer: props.composer });
   const stashDraft = createStashMessageAction({ session: props.session, composer: props.composer });
   const features = useQuery(featuresOptions, () => props.session.queryClient);
   const sheet = useAiSheet();

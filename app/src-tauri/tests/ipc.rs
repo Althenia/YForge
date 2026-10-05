@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+use std::net::TcpStream;
 use std::path::Path;
 use std::process::Command;
 
@@ -70,6 +72,66 @@ fn invoke(window: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Result
 }
 
 #[test]
+fn preview_serves_only_revision_scoped_local_assets_and_stops_with_its_session() {
+    let repo = fixture_repository();
+    std::fs::write(
+        repo.path().join("page.html"),
+        "<link rel=stylesheet href=style.css><script src=app.js></script>",
+    )
+    .unwrap();
+    std::fs::write(repo.path().join("style.css"), "body { color: red }").unwrap();
+    std::fs::write(
+        repo.path().join("app.js"),
+        "document.body.dataset.ready = 'yes'",
+    )
+    .unwrap();
+    git(repo.path(), &["add", "page.html", "style.css", "app.js"]);
+    git(repo.path(), &["commit", "-q", "-m", "Add page"]);
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    let rev = String::from_utf8(head.stdout).unwrap().trim().to_owned();
+    std::fs::write(repo.path().join("style.css"), "body { color: blue }").unwrap();
+    let (_app, window) = app();
+    let started = invoke(
+        &window,
+        "preview_start",
+        json!({"path":repo.path(),"file":"page.html","rev":rev}),
+    )
+    .unwrap();
+    let id = started[0].as_str().unwrap();
+    let url = started[1].as_str().unwrap();
+    let parsed = tauri::Url::parse(url).unwrap();
+    assert_eq!(parsed.host_str(), Some("127.0.0.1"));
+
+    let get = |suffix: &str| {
+        let mut stream = TcpStream::connect(("127.0.0.1", parsed.port().unwrap())).unwrap();
+        stream
+            .write_all(format!("GET /{id}/{suffix} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).unwrap();
+        response
+    };
+    let html = get("page.html");
+    assert!(
+        html.contains("200 OK")
+            && html.contains("sandbox allow-scripts")
+            && html.contains("frame-src 'none'")
+    );
+    assert!(html.ends_with("<link rel=stylesheet href=style.css><script src=app.js></script>"));
+    assert!(get("style.css").ends_with("body { color: red }"));
+    assert!(get("app.js").ends_with("document.body.dataset.ready = 'yes'"));
+    assert!(get("%2e%2e/secret.css").contains("404 Not Found"));
+    assert!(get("page.exe").contains("404 Not Found"));
+    invoke(&window, "preview_stop", json!({"id":id})).unwrap();
+    assert!(TcpStream::connect(("127.0.0.1", parsed.port().unwrap())).is_err());
+}
+
+#[test]
 fn app_info_reports_the_app_and_git_versions() {
     let (_app, window) = app();
 
@@ -79,6 +141,45 @@ fn app_info_reports_the_app_and_git_versions() {
     assert!(info["git_version"]
         .as_str()
         .is_some_and(|version| !version.is_empty()));
+}
+
+#[test]
+fn configured_language_server_transports_lsp_frames_and_stops_with_the_editor() {
+    let (app, window) = app();
+    let repo = fixture_repository();
+    let mut settings = yforge_core::AppSettings::default();
+    settings
+        .language_servers
+        .insert("txt".into(), "/bin/cat".into());
+    yforge_core::save_settings(&app.state::<yforge_lib::DataDir>().0, &settings).unwrap();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    app.listen("lsp-message", move |event| {
+        let _ = sender.send(event.payload().to_owned());
+    });
+
+    let started = invoke(
+        &window,
+        "lsp_start",
+        json!({"path": repo.path(), "file": "a.txt"}),
+    )
+    .unwrap();
+    let id = started["id"].as_str().unwrap();
+    assert_eq!(started["language_id"], "txt");
+    let message = r#"{"jsonrpc":"2.0","method":"initialized","params":{}}"#;
+    invoke(&window, "lsp_send", json!({"id": id, "body": message})).unwrap();
+    let received: Value = serde_json::from_str(
+        &receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(received["id"], id);
+    assert_eq!(received["body"], message);
+    invoke(&window, "lsp_stop", json!({"id": id})).unwrap();
+    assert_eq!(
+        invoke(&window, "lsp_send", json!({"id": id, "body": message})).unwrap_err()["kind"],
+        "invalid_request"
+    );
 }
 
 #[test]
