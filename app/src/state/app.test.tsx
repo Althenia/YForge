@@ -114,6 +114,27 @@ describe("app state", () => {
     expect(empty.app.activeTab()).toEqual({ kind: "launcher" });
   });
 
+  it("reports an invalid launch folder without losing the saved tabs or blocking startup", async () => {
+    const { app } = await boot({ tabs: ["/a"], launch: "/not-git", repositories: ["/a"] });
+
+    expect(app.ready()).toBe(true);
+    expect(app.fatal()).toBeUndefined();
+    expect(app.activePath()).toBe("/a");
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
+    expect(app.notice()).toBe("/not-git is not a Git repository");
+  });
+
+  it("reports an unreadable launch repository with its cause and keeps the Launchpad available", async () => {
+    const { app } = await boot({
+      tabs: [], launch: "/locked", repositories: [],
+      handlers: { repo_open: () => { throw { kind: "git_failed", message: "Cannot read repository: permission denied", output: null }; } },
+    });
+
+    expect(app.ready()).toBe(true);
+    expect(app.activeTab()).toEqual({ kind: "launcher" });
+    expect(app.notice()).toBe("Cannot read repository: permission denied");
+  });
+
   it("applies the saved theme and density to the document", async () => {
     await boot({ tabs: [], launch: "/", repositories: [], settings: { theme: "light", density: "compact" } });
 
@@ -409,7 +430,7 @@ describe("app state", () => {
 
   it("reports a tab group save failure and clears it when the retry saves", async () => {
     let failing = true;
-    const { app, calls } = await boot({ tabs: ["/w/a"], launch: "/", repositories: ["/w/a"], failSessionSave: () => failing });
+    const { app, calls } = await boot({ tabs: ["/w/a"], launch: "/w/a", repositories: ["/w/a"], failSessionSave: () => failing });
 
     app.newTabGroup("/w/a", "Work", "blue");
     await flush();

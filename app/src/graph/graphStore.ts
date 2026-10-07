@@ -66,6 +66,7 @@ export function createGraphStore(
   let viewport: { first: number; end: number } | undefined;
   let epoch = 0;
   let rebuilding: Promise<void> | undefined;
+  let collectingPages = false;
   let rebuildAgain = false;
   let disposed = false;
   onCleanup(() => {
@@ -74,9 +75,19 @@ export function createGraphStore(
 
   async function loadPage(page: number): Promise<void> {
     const startedIn = epoch;
+    const cached = queryClient.getQueryData<GraphPage>(repoKeys.graph(path, page, visibilityKey(visibility())));
+    if (cached !== undefined) {
+      const current = layout();
+      addPage(current, page, cached);
+      setLayout(current);
+    }
     try {
       const result = await fetchPage(page);
       if (disposed || startedIn !== epoch) return;
+      if (result === cached) {
+        setError(undefined);
+        return;
+      }
       const current = layout();
       addPage(current, page, result);
       setLayout(current);
@@ -94,7 +105,7 @@ export function createGraphStore(
     for (let page = Math.floor(first / PAGE_SIZE); page <= lastPage; page++) {
       if (requested.has(page)) continue;
       requested.add(page);
-      if (rebuilding === undefined) void loadPage(page);
+      if (!collectingPages) void loadPage(page);
     }
   }
 
@@ -133,6 +144,7 @@ export function createGraphStore(
   }
 
   async function rebuild(): Promise<void> {
+    collectingPages = true;
     epoch += 1;
     await queryClient.invalidateQueries({ queryKey: repoKeys.graphPages(path), refetchType: "none" });
     const keep = pagesToKeep();
@@ -149,6 +161,7 @@ export function createGraphStore(
         pending.forEach((page, position) => addPage(next, page, results[position] as GraphPage));
       }
       if (disposed) return;
+      collectingPages = false;
       setLayout(next);
       setError(undefined);
     } catch (failure) {
@@ -167,6 +180,7 @@ export function createGraphStore(
         await rebuild();
       } while (rebuildAgain && !disposed);
     })().finally(() => {
+      collectingPages = false;
       rebuilding = undefined;
     });
     return rebuilding;

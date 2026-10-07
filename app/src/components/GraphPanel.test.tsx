@@ -12,7 +12,7 @@ import { flush, mountWithApp, testUiPrefs } from "./testkit";
 const TOTAL = 450;
 let total = TOTAL;
 const VIEWPORT = 280;
-const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, laneColors: 10 };
+const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, messageColumnMin: 50, hitMin: 24, laneColors: 10 };
 
 let dispose: (() => void) | undefined;
 
@@ -105,6 +105,7 @@ async function mountGraph(config: MountOptions = {}) {
   const [selection, setSelection] = createSignal<Selection | undefined>();
   const [focus, setFocus] = createSignal<{ nonce: number; index?: number; ref?: string } | undefined>();
   const [revision, setRevision] = createSignal(0);
+  const [covered, setCovered] = createSignal(false);
   const mounted = mountWithApp(() => (
     <GraphPanel
       path="/r"
@@ -112,7 +113,7 @@ async function mountGraph(config: MountOptions = {}) {
       geometry={geometry}
       selection={selection()}
       revision={revision()}
-      covered={false}
+      covered={covered()}
       actions={(config.actions ?? {}) as unknown as RepoActions}
       dimmed={() => false}
       searching={false}
@@ -132,10 +133,44 @@ async function mountGraph(config: MountOptions = {}) {
     list().scrollTop = top;
     await flush(60);
   };
-  return { host: mounted.host, offsets, visibilities, selection, setSelection, setFocus, list, options, positions, key, scrollTo, setRevision };
+  return { host: mounted.host, offsets, visibilities, selection, setSelection, setFocus, list, options, positions, key, scrollTo, setRevision, setCovered, uiPrefs };
 }
 
 describe("graph panel", () => {
+  it("restores the visible range after a covered scroller resets without a scroll event", async () => {
+    const { list, positions, scrollTo, setCovered } = await mountGraph();
+    await scrollTo(300 * geometry.row);
+    const before = list().scrollTop;
+    setCovered(true);
+    await flush();
+    let offset = 0;
+    Object.defineProperty(list(), "scrollTop", {
+      configurable: true,
+      get: () => offset,
+      set: (value: number) => { offset = value; },
+    });
+
+    setCovered(false);
+    await flush(60);
+
+    expect(list().scrollTop).toBe(before);
+    expect(positions()).toContain(301);
+  });
+
+  it("reveals a commit selected while covered when the graph returns", async () => {
+    const { setSelection, setCovered, scrollTo, positions } = await mountGraph();
+    setSelection({ kind: "commit", sha: "sha300" });
+    await scrollTo(300 * geometry.row);
+    setCovered(true);
+    await flush();
+    setSelection({ kind: "commit", sha: "sha350" });
+    await flush(60);
+
+    setCovered(false);
+    await flush(60);
+
+    expect(positions()).toContain(351);
+  });
   it("shows the first description line after the commit summary without changing the row height", async () => {
     overrides = { 0: { summary: "Add export", body: "Explain the reason" } };
     const { host } = await mountGraph();
@@ -241,6 +276,21 @@ const click = (element: Element, init: MouseEventInit = {}) => element.dispatchE
 const dirtySnapshot = { counts: { modified: 1, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } };
 
 describe("graph refresh", () => {
+  it("renders the remaining commits when a refresh shortens history while scrolled beyond its new end", async () => {
+    total = 2000;
+    const { host, scrollTo, setRevision, offsets } = await mountGraph();
+    await scrollTo(1500 * geometry.row);
+    expect(host.querySelector("#graph-row-1500 .msg")?.textContent).toContain("commit 1500");
+
+    total = TOTAL;
+    setRevision(1);
+    await flush(120);
+
+    expect(offsets).toContain(400);
+    expect(host.querySelector("#graph-row-449 .msg")?.textContent).toContain("commit 449");
+    expect(host.querySelectorAll(".grow.placeholder")).toHaveLength(0);
+  });
+
   it("keeps every visible row in place when the history grows, so nothing re-renders or flickers (S8)", async () => {
     const { host, setRevision } = await mountGraph();
     const before = rowElement(host, 2);
@@ -408,6 +458,66 @@ describe("graph columns", () => {
     handle.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     await flush();
     expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--ref-w")).toBe("200px");
+  });
+
+  it("resizes the Graph column from its message-edge separator and saves the width", async () => {
+    const { host, uiPrefs } = await mountGraph();
+    const handle = host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize Graph column"]');
+    expect(handle).not.toBeNull();
+    expect(handle?.getAttribute("aria-valuenow")).toBe("56");
+    expect(handle?.getAttribute("aria-valuemax")).toBe("526");
+
+    handle?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("64px");
+    expect(host.querySelector<HTMLElement>(".grow .msg")?.style.left).toBe("276px");
+    expect(host.querySelector<HTMLElement>(".ghead")?.style.gridTemplateColumns).toContain("minmax(50px, 1fr)");
+    expect(uiPrefs.prefs().columns).toContainEqual({ column: "graph", visible: true, width: 64 });
+
+    handle?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 0 }));
+    handle?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 100 }));
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("164px");
+    handle?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 100 }));
+    await flush();
+    expect(uiPrefs.prefs().columns).toContainEqual({ column: "graph", visible: true, width: 164 });
+
+    handle?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true }));
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("156px");
+
+    handle?.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("56px");
+  });
+
+  it("keeps the saved graph width when the panel narrows and restores it when space returns", async () => {
+    let resize: (() => void) | undefined;
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe = (element: Element) => {
+        if (element.classList.contains("graph")) resize = () => this.callback([], this as ResizeObserver);
+      };
+      unobserve = () => undefined;
+      disconnect = () => undefined;
+    });
+    let width = 800;
+    Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => width });
+    const { host, uiPrefs } = await mountGraph();
+    uiPrefs.update((current) => ({ ...current, columns: [{ column: "graph", visible: true, width: 500 }] }));
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("500px");
+
+    width = 600;
+    resize?.();
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("326px");
+    expect(uiPrefs.prefs().columns).toContainEqual({ column: "graph", visible: true, width: 500 });
+
+    width = 800;
+    resize?.();
+    await flush();
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("500px");
   });
 
   it("hides the optional columns on a narrow window without forgetting them", async () => {

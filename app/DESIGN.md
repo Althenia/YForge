@@ -1699,6 +1699,8 @@ A child radius never exceeds its parent's radius.
 
 ## Components
 
+Composer fields shrink within the inspector's assigned column; their one-line summary and fixed-height description never widen the panel (S50). Busy icon buttons keep the same square and replace the icon with a centered spinner in that square, not an added row below it (S8, S66). Returning repository tabs publish their own cached graph pages before awaiting refresh, keyed by repository and branch visibility (S8). Verify these states with `app/src/styles/changes.render.test.tsx`, `app/src/styles/surfaces.render.test.tsx`, and `app/src/graph/graphStore.test.ts`.
+
 | Component | Purpose | Spec | Consumers |
 |---|---|---|---|
 | App shell (tab bar, command bar, activity bar) | Window frame | This file · [../docs/design/COMPONENT_SPECS.md](../docs/design/COMPONENT_SPECS.md) | S01–S31 |

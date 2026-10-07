@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/solid-query";
 import { createTable } from "@tanstack/solid-table";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import {
   clampColumn,
@@ -314,7 +314,9 @@ export function GraphPanel(props: {
   createEffect(() => void graphAvatarRevision());
   const wide = createMinWidth(GRAPH_COLUMNS_MIN_WIDTH);
   const now = useNow();
+  let panel!: HTMLElement;
   let scroller: HTMLDivElement | undefined;
+  const [panelWidth, setPanelWidth] = createSignal(0);
   const [preview, setPreview] = createSignal<{ id: ResizableColumn; size: number } | undefined>();
   const [settingsAnchor, setSettingsAnchor] = createSignal<Anchor | undefined>();
   const [overflow, setOverflow] = createSignal<{ index: number; anchor: Anchor } | undefined>();
@@ -326,13 +328,31 @@ export function GraphPanel(props: {
     return drag === undefined ? columnWidths(props.uiPrefs.prefs()) : { ...columnWidths(props.uiPrefs.prefs()), [drag.id]: drag.size };
   };
 
+  onMount(() => {
+    const resize = () => setPanelWidth(panel.clientWidth);
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(panel);
+    onCleanup(() => observer.disconnect());
+  });
+
+  const availableGraphWidth = () => {
+    if (panelWidth() === 0) return 2000;
+    const saved = savedSizes();
+    const visible = columnVisibility(props.uiPrefs.prefs());
+    const optionalWidth = wide()
+      ? OPTIONAL_COLUMNS.reduce((total, id) => total + (visible[id] ? saved[id] ?? defaultColumnSize(id, props.geometry) : 0), 0)
+      : 0;
+    return panelWidth() - (saved.refs ?? props.geometry.refColumn) - optionalWidth - props.geometry.messageColumnMin - props.geometry.hitMin;
+  };
+
   const table = createTable({
     features: graphFeatures,
     columns: graphColumns,
     data: [],
     state: {
       get columnSizing() {
-        return graphColumnSizing(props.geometry, store.lanes(), savedSizes());
+        return graphColumnSizing(props.geometry, store.lanes(), savedSizes(), availableGraphWidth());
       },
       get columnVisibility() {
         return wide() ? columnVisibility(props.uiPrefs.prefs()) : { author: false, date: false, sha: false };
@@ -346,7 +366,7 @@ export function GraphPanel(props: {
   const graphWidth = () => sizeOf("graph");
   const messageLeft = () => sizeOf("refs") + graphWidth();
   const view = createMemo((): Geometry => ({ ...props.geometry, refColumn: sizeOf("refs") }));
-  const headerColumns = () => `${sizeOf("refs")}px ${graphWidth()}px minmax(0, 1fr) ${extras().map((id) => `${sizeOf(id)}px`).join(" ")} var(--controls-hit-min)`;
+  const headerColumns = () => `${sizeOf("refs")}px ${graphWidth()}px minmax(${props.geometry.messageColumnMin}px, 1fr) ${extras().map((id) => `${sizeOf(id)}px`).join(" ")} var(--controls-hit-min)`;
 
   const virtualizer = createVirtualizer({
     get count() {
@@ -356,6 +376,14 @@ export function GraphPanel(props: {
     estimateSize: () => props.geometry.row,
     overscan: OVERSCAN,
   });
+  let coveredOffset = 0;
+  let coveredSelection: number | undefined;
+  createEffect(on(() => props.covered, (covered) => {
+    if (covered) return;
+    if (coveredSelection === undefined) virtualizer.scrollToOffset(coveredOffset);
+    else virtualizer.scrollToIndex(coveredSelection, { align: "auto" });
+    coveredSelection = undefined;
+  }, { defer: true }));
   const items = () => virtualizer.getVirtualItems();
   const firstMissing = createMemo(() => items().find((item) => !store.rows().has(item.index))?.index);
   const range = createMemo(() => {
@@ -394,10 +422,10 @@ export function GraphPanel(props: {
     store.show(first, Math.max(end, first + 1));
   });
 
-  createEffect(() => {
-    const index = selected();
-    if (index !== undefined) virtualizer.scrollToIndex(index, { align: "auto" });
-  });
+  createEffect(on(selected, (index) => {
+    if (props.covered) coveredSelection = index;
+    else if (index !== undefined) virtualizer.scrollToIndex(index, { align: "auto" });
+  }));
 
   const select = (index: number) => {
     const row = store.rows().get(index);
@@ -564,9 +592,9 @@ export function GraphPanel(props: {
       label={label}
       side={side}
       size={sizeOf(id)}
-      min={columnLimits(id, props.geometry).min}
-      max={columnLimits(id, props.geometry).max}
-      clamp={(size) => clampColumn(id, size, props.geometry)}
+      min={columnLimits(id, props.geometry, store.lanes(), availableGraphWidth()).min}
+      max={columnLimits(id, props.geometry, store.lanes(), availableGraphWidth()).max}
+      clamp={(size) => clampColumn(id, size, props.geometry, store.lanes(), availableGraphWidth())}
       onPreview={(size) => setPreview(size === undefined ? undefined : { id, size })}
       onCommit={(size) => settle(id, size)}
       onReset={() => settle(id, defaultColumnSize(id, props.geometry))}
@@ -576,6 +604,7 @@ export function GraphPanel(props: {
   return (
     <section
       class="panel graph"
+      ref={panel}
       classList={{ covered: props.covered, searching: props.searching }}
       inert={props.covered}
       aria-label="Commit graph"
@@ -586,7 +615,7 @@ export function GraphPanel(props: {
           Branch / Tag
           {resizer("refs", "Branch / Tag", "end")}
         </span>
-        <span class="gh">Graph</span>
+        <span class="gh">Graph{resizer("graph", "Graph", "end")}</span>
         <span class="gh">Commit message</span>
         <For each={extras()}>
           {(id) => (
@@ -618,6 +647,7 @@ export function GraphPanel(props: {
         aria-label="Commits"
         aria-multiselectable="true"
         aria-activedescendant={selected() === undefined ? undefined : `graph-row-${selected()}`}
+        onScroll={(event) => { if (!props.covered) coveredOffset = event.currentTarget.scrollTop; }}
         onKeyDown={onKeyDown}
       >
         <div class="gspacer" style={{ height: `${virtualizer.getTotalSize()}px` }}>

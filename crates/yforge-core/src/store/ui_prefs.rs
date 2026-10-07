@@ -30,6 +30,7 @@ pub const DEFAULT_ZOOM_PERCENT: u32 = 100;
 #[serde(rename_all = "snake_case")]
 pub enum GraphColumn {
     Refs,
+    Graph,
     Author,
     Date,
     Sha,
@@ -107,8 +108,8 @@ fn validate(prefs: &RepoUiPrefs) -> Result<(), CoreError> {
         if !seen.insert(column.column) {
             return Err(invalid(format!("{:?} is listed twice", column.column)));
         }
-        if column.column == GraphColumn::Refs && !column.visible {
-            return Err(invalid("the branch and tag column cannot be hidden"));
+        if matches!(column.column, GraphColumn::Refs | GraphColumn::Graph) && !column.visible {
+            return Err(invalid("the branch/tag and graph columns cannot be hidden"));
         }
         if column
             .width

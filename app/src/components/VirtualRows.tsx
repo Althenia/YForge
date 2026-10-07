@@ -54,6 +54,7 @@ export function VirtualRows<T>(props: {
       return props.gap ?? 0;
     },
     overscan: OVERSCAN,
+    useAnimationFrameWithResizeObserver: true,
     get scrollMargin() {
       return margin();
     },

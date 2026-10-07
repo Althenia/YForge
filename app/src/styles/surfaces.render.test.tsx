@@ -40,6 +40,19 @@ describe("solid surfaces told apart by tone (S14)", () => {
     expect(css).toMatch(/button\[aria-busy="true"\]:not\(:has\(\.busy-spinner\)\)::after\s*\{[^}]*animation: busy-turn/);
     expect(css).toMatch(/prefers-reduced-motion: reduce[^}]*\}\s*button\[aria-busy="true"\]:not\(:has\(\.busy-spinner\)\)::after\s*\{\s*animation: none;/);
   });
+
+  it("replaces a busy icon with its spinner in the same grid cell without moving the button", () => {
+    const button = document.createElement("button");
+    button.className = "icon-btn";
+    button.setAttribute("aria-busy", "true");
+    button.innerHTML = '<svg class="icon" aria-hidden="true"></svg>';
+    document.body.append(button);
+    const icon = button.querySelector("svg") as Element;
+    expect(getComputedStyle(icon).visibility).toBe("hidden");
+    expect(getComputedStyle(icon).gridArea).toBe("1 / 1");
+    const css = read("app.css");
+    expect(css).toMatch(/\.icon-btn\[aria-busy="true"\]::after\s*\{[^}]*grid-area: 1 \/ 1;/);
+  });
   it("permits only the approved opaque lane-color graph fade, never other gradients or translucent materials", () => {
     for (const name of sheets) {
       const css = read(name);

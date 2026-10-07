@@ -38,7 +38,7 @@ async function mount(count: number, stageAll: () => Promise<unknown> = async () 
   const actions = { stageAll } as unknown as RepoActions;
   dispose = render(() => <EmptyRepository snapshot={snapshotOf(count)} actions={actions} />, host);
   await flush(60);
-  const scroller = host.querySelector<HTMLElement>(".empty-repo") as HTMLElement;
+  const scroller = host.querySelector<HTMLElement>(".empty-repo-list") as HTMLElement;
   const paths = () => [...host.querySelectorAll(".empty-files .frow .path")].map((path) => path.textContent);
   const scrollTo = async (top: number) => {
     scroller.scrollTop = top;
@@ -72,6 +72,8 @@ describe("empty repository file list", () => {
 
     expect(paths()).toEqual(["src/file-0.ts", "src/file-1.ts", "src/file-2.ts"]);
     expect([...host.querySelectorAll(".empty-files .badge")].map((badge) => badge.textContent)).toEqual(["U", "U", "U"]);
+    expect(host.querySelector("h3")?.textContent).toBe("Files · 3");
+    expect(host.querySelector<HTMLElement>(".empty-repo-list")?.tabIndex).toBe(0);
   });
 
   it("renders only the rows in view for 5,000 files, in a list as tall as all of them", async () => {

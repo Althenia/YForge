@@ -6,22 +6,98 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
+  verify:
+    runs-on: macos-15
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Require the tag to match the app version
+      - name: Check release version metadata
         run: |
-          version=$(python3 -c "import json; print(json.load(open('app/package.json'))['version'])")
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME does not match the app version v$version. Bump app/package.json, or tag v$version."
-            exit 1
-          fi
+          python3 - <<'PY'
+          import json, os, pathlib, tomllib
+          root = pathlib.Path('.')
+          version = json.loads((root / 'app/package.json').read_text())['version']
+          workspace = tomllib.loads((root / 'Cargo.toml').read_text())['workspace']['package']['version']
+          assert workspace == version, 'Rust and app versions do not match'
+          config = json.loads((root / 'app/src-tauri/tauri.conf.json').read_text())
+          assert config['version'] == '../package.json', 'Tauri version must come from app/package.json'
+          for package in tomllib.loads((root / 'Cargo.lock').read_text())['package']:
+              if package['name'] in {'yforge', 'yforge-core', 'yforge-ai', 'yforge-platform'}:
+                  assert package['version'] == version, 'Locked workspace version does not match'
+          if os.environ.get('GITHUB_EVENT_NAME') == 'push':
+              assert os.environ['GITHUB_REF_NAME'] == f'v{version}', 'Release tag does not match the app version'
+          print(f'Verified release version {version}')
+          PY
+
+      - name: Require the release tag to belong to main
+        if: github.event_name == 'push'
+        run: git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
+        with:
+          version: 12.4.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
+        with:
+          toolchain: 1.98.1
+          components: rustfmt, clippy
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify frontend and release contracts
+        working-directory: app
+        run: |
+          pnpm typecheck
+          pnpm vitest run src/release.test.ts src/releaseAssets.test.ts src/routes.test.tsx src/components/GraphPanel.test.tsx src/components/Workspace.test.tsx src/components/CommitInspector.test.tsx src/components/EmptyRepository.test.tsx src/components/VirtualRows.test.tsx src/components/Select.test.tsx src/components/ContextMenu.test.tsx src/components/ChangesInspector.test.tsx src/components/CommandBar.test.tsx src/components/FileEditor.test.tsx src/components/FileView.test.tsx src/components/FileHistory.test.tsx src/components/DiffView.test.tsx src/components/SettingsView.test.tsx src/components/TextSetting.test.tsx src/state/app.test.tsx src/state/repoSession.test.ts src/state/workspace.test.ts src/state/repoUiPrefs.test.ts src/graph/graphStore.test.ts src/graph/columns.test.ts src/graph/laneArt.test.ts src/styles/tokens.test.ts src/styles/contrast.test.ts src/styles/surfaces.render.test.tsx src/styles/changes.render.test.tsx src/styles/cursors.test.ts src/styles/cursors.render.test.tsx
+          pnpm build
+
+      - name: Verify combined large-data UI flows
+        working-directory: app
+        run: |
+          test -x '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          node ../scripts/verify-repository-render.mjs
+          node ../scripts/verify-workspace-transitions.mjs
+
+      - name: Verify Rust and generated bindings
+        run: |
+          cargo fmt --all -- --check
+          cargo check --locked --workspace --all-targets
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked -p yforge-core --test commit --test ui_prefs --test bindings
+          cargo test --locked -p yforge --lib preview::tests
+          cargo test --locked -p yforge --lib lsp::tests
+          cargo test --locked -p yforge --test ipc app_info_reports_the_app_and_git_versions
+
+  prepare:
+    needs: verify
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Write the release notes from CHANGELOG.md
         run: |
@@ -37,45 +113,52 @@ jobs:
           fi
           printf '\nDownload the `.dmg` matching your Mac: `aarch64` for Apple silicon, `x64` for Intel. Open it and drag YForge to Applications.\n' >> release-notes.md
 
-      - name: Create the release once, so the two builds cannot race
+      - name: Create the draft release once
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
             --title "YForge $GITHUB_REF_NAME" \
             --notes-file release-notes.md \
+            --draft \
             --verify-tag
 
   build:
-    needs: release
-    if: always() && (needs.release.result == 'success' || needs.release.result == 'skipped')
+    needs: [verify, prepare]
+    if: always() && needs.verify.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped')
+    timeout-minutes: 60
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: macos-latest
+          - platform: macos-15
             target: aarch64-apple-darwin
-          - platform: macos-latest
+          - platform: macos-15
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413
         with:
           version: 12.4.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.target }}
 
-      - uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
         with:
           workspaces: ". -> target"
 
@@ -83,7 +166,7 @@ jobs:
         working-directory: app
         run: pnpm install --frozen-lockfile
 
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -93,9 +176,32 @@ jobs:
           tauriScript: pnpm tauri
           args: --target ${{ matrix.target }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
           includeUpdaterJson: true
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseDraft: false
+          tagName: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseDraft: true
           prerelease: false
           retryAttempts: 2
           uploadWorkflowArtifacts: true
           workflowArtifactNamePattern: "[name]-[version]-[arch]-[bundle]"
+
+  publish:
+    needs: [prepare, build]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.prepare.result == 'success' && needs.build.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify transferred release assets
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate --jq '.[] | select(.tag_name == env.GITHUB_REF_NAME)' > "$RUNNER_TEMP/release.json"
+          gh release download "$GITHUB_REF_NAME" --dir "$RUNNER_TEMP/release-assets"
+          python3 scripts/verify-release-assets.py "${GITHUB_REF_NAME#v}" "$RUNNER_TEMP/release.json" "$RUNNER_TEMP/release-assets"
+
+      - name: Publish the verified release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false

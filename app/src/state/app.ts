@@ -111,6 +111,9 @@ const aliasMap = (stored: readonly RepoAlias[]): Aliases => Object.fromEntries(s
 
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
+const openFailureMessage = (path: string, failure: unknown): string =>
+  failure instanceof IpcError && failure.kind === "not_a_repository" ? `${path} is not a Git repository` : asMessage(failure);
+
 export function createAppState(router: AppRouter) {
   const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
   const [tabList, setTabList] = createStoreValue<Tab[]>([{ kind: "launcher" }]);
@@ -305,7 +308,7 @@ export function createAppState(router: AppRouter) {
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
     } catch (failure) {
-      setNotice(failure instanceof IpcError && failure.kind === "not_a_repository" ? `${path} is not a Git repository` : asMessage(failure));
+      setNotice(openFailureMessage(path, failure));
       return false;
     }
   }
@@ -318,7 +321,10 @@ export function createAppState(router: AppRouter) {
       setActivity(entries);
       if (session.tabs.length > 0) setRestoring({ tabs: session.tabs.length, groups: session.groups });
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
-      const opened = await Promise.all([launch, ...session.tabs].map((path) => client.repoOpen(path).then((snapshot) => snapshot, () => undefined)));
+      const opened = await Promise.all([launch, ...session.tabs].map((path, index) => client.repoOpen(path).then((snapshot) => snapshot, (failure) => {
+        if (index === 0) setNotice(openFailureMessage(path, failure));
+        return undefined;
+      })));
       opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
       const restored = groupTabs(restoreTabs(session, opened[0]?.root), mainRoots());
       setTabList(restored.tabs);

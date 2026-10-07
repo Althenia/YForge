@@ -7,6 +7,7 @@ import { flush } from "./components/testkit";
 import type { RepoSnapshot } from "./ipc/bindings/RepoSnapshot";
 import { createAppRouter, viewOf } from "./routes";
 import { AppContext, createAppState } from "./state/app";
+import { repoKeys } from "./state/queryKeys";
 import { defaultSettings } from "./state/settingsModel";
 
 class ResizeObserverStub {
@@ -24,6 +25,8 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = () => undefined;
 const tokens = { "--controls-row-graph": 28, "--controls-graph-lane-pitch": 22, "--controls-graph-gutter": 4, "--controls-graph-node": 22, "--controls-graph-merge-node": 12, "--controls-graph-line": 2, "--controls-graph-arc-radius": 11, "--layout-graph-ref-column": 200, "--layout-graph-ref-column-min": 32, "--layout-graph-ref-column-max": 300, "--layout-graph-author-column": 130, "--layout-graph-date-column": 130, "--layout-graph-sha-column": 100, "--layout-graph-column": 56 };
   for (const [name, value] of Object.entries(tokens)) document.documentElement.style.setProperty(name, `${value}px`);
+  document.documentElement.style.setProperty("--layout-graph-message-column-min", "50px");
+  document.documentElement.style.setProperty("--controls-hit-min", "24px");
 });
 
 afterEach(async () => {
@@ -55,7 +58,7 @@ const snapshotAt = (root: string): RepoSnapshot => ({
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mountApp(session: { tabs: string[]; active: number }) {
+async function mountApp(session: { tabs: string[]; active: number }, repoOpen?: (path: string) => RepoSnapshot | Promise<RepoSnapshot>) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -72,7 +75,7 @@ async function mountApp(session: { tabs: string[]; active: number }) {
         case "repo_open": {
           const path = (args as { path: string }).path;
           if (!session.tabs.includes(path)) throw { kind: "not_a_repository", message: "no", output: null };
-          return snapshotAt(path);
+          return repoOpen?.(path) ?? snapshotAt(path);
         }
         case "app_info":
           return { app_version: "0.1.0", git_version: "2.50.0" };
@@ -191,6 +194,35 @@ describe("routes", () => {
     expect(calls.filter((call) => call.cmd === "repo_open" && call.args.path === "/a").length).toBe(opensBefore + 1);
   });
 
+  it("keeps the cached target repository visible while its tab refresh is pending", async () => {
+    let finishRefresh!: (snapshot: RepoSnapshot) => void;
+    let bOpens = 0;
+    const refresh = new Promise<RepoSnapshot>((resolve) => {
+      finishRefresh = resolve;
+    });
+    const { app, host, calls } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, (path) => {
+      if (path === "/b" && ++bOpens > 1) return refresh;
+      const snapshot = snapshotAt(path);
+      return { ...snapshot, head: { ...snapshot.head, name: path === "/a" ? "source-a" : "main" } };
+    });
+    const cached = { ...snapshotAt("/b"), head: { kind: "branch" as const, name: "cached-b", sha: "b".repeat(40) } };
+    app.queryClient.setQueryData(repoKeys.snapshot("/b"), cached);
+    await app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot("/b"), refetchType: "none" });
+
+    app.activate(1);
+    await flush(60);
+
+    expect(calls.some((call) => call.cmd === "repo_open" && call.args.path === "/b")).toBe(true);
+    expect(app.activePath()).toBe("/b");
+    expect(host.textContent).toContain("cached-b");
+    expect(host.textContent).not.toContain("source-a");
+    expect(host.textContent).not.toContain("Opening repository");
+
+    finishRefresh(snapshotAt("/b"));
+    await flush(60);
+    expect(host.textContent).toContain("main");
+  });
+
   it("keeps the focused control focused while the repository refreshes", async () => {
     const { app, host } = await mountApp({ tabs: ["/a"], active: 0 });
     const field = host.querySelector<HTMLInputElement>('input[aria-label="Filter sidebar"]');
@@ -205,6 +237,110 @@ describe("routes", () => {
 
     expect(detached.filter((node) => node instanceof HTMLElement && node.classList.contains("app"))).toEqual([]);
     expect(document.activeElement).toBe(field);
+  });
+
+  it("replaces a cached workspace with the not-a-repository state when its refresh is refused and recovers on return", async () => {
+    let missing = false;
+    const { app, host, workspaces } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, (path) => {
+      if (path === "/a" && missing) throw { kind: "not_a_repository", message: "Repository was moved", output: null };
+      return snapshotAt(path);
+    });
+    missing = true;
+    await app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot("/a") });
+    await flush();
+
+    expect(host.textContent).toContain("This folder is not a Git repository");
+    expect(host.textContent).toContain("Nothing was changed");
+    expect(workspaces()).toBe(0);
+    expect(app.paletteContext().snapshot).toBeUndefined();
+
+    app.activate(1);
+    await flush(60);
+    expect(workspaces()).toBe(1);
+    missing = false;
+    app.activate(0);
+    await flush(60);
+    expect(workspaces()).toBe(1);
+    expect(host.textContent).not.toContain("This folder is not a Git repository");
+    expect(app.paletteContext().snapshot?.root).toBe("/a");
+  });
+
+  it("keeps a cached workspace and reports the cause when an ordinary refresh fails", async () => {
+    let failing = false;
+    const { app, host, workspaces } = await mountApp({ tabs: ["/a"], active: 0 }, (path) => {
+      if (failing) throw { kind: "git_failed", message: "git status could not read the index", output: null };
+      return snapshotAt(path);
+    });
+    failing = true;
+    await app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot("/a") });
+    await flush();
+
+    expect(host.textContent).toContain("git status could not read the index");
+    expect(workspaces()).toBe(1);
+    expect(app.paletteContext().snapshot?.root).toBe("/a");
+  });
+
+  it("settles rapid tab, settings, and Launchpad transitions on the last repository without a blank outlet", async () => {
+    const { app, host, workspaces } = await mountApp({ tabs: ["/a", "/b"], active: 0 });
+    for (let index = 0; index < 3; index += 1) {
+      app.activate(1);
+      app.openSettings("general");
+      app.openLaunchpad();
+      app.activate(0);
+    }
+    await flush(80);
+
+    expect(app.activePath()).toBe("/a");
+    expect(workspaces()).toBe(1);
+    expect(host.querySelector(".tabbar")).not.toBeNull();
+    expect(app.paletteContext().snapshot?.root).toBe("/a");
+  });
+
+  it("keeps an invalid launch or open notice visible on repository, settings, and Launchpad routes", async () => {
+    const { app, host, router } = await mountApp({ tabs: ["/a"], active: 0 });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/nowhere is not a Git repository");
+
+    expect(await app.openRepository("/missing")).toBe(false);
+    expect(app.activePath()).toBe("/a");
+    expect(router.state.location.pathname).toBe("/repo");
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+
+    app.openSettings("general");
+    await flush(60);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+    app.openLaunchpad();
+    await flush(60);
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+
+    app.setNotice(undefined);
+    expect(await app.openRepository("/a")).toBe(true);
+    await flush(60);
+    expect(host.querySelector(".commandbar")).not.toBeNull();
+    expect(app.activePath()).toBe("/a");
+    expect(app.notice()).toBeUndefined();
+  });
+
+  it("switches between a repository with no commits and committed history without mistaking either for an invalid folder", async () => {
+    const { app, host, workspaces } = await mountApp({ tabs: ["/a", "/empty"], active: 0 }, (path) => {
+      const snapshot = snapshotAt(path);
+      return path === "/empty" ? { ...snapshot, head: { kind: "unborn", branch: "main" }, branches: [] } : snapshot;
+    });
+
+    app.activate(1);
+    await flush(60);
+    expect(workspaces()).toBe(1);
+    expect(host.textContent).toContain("This repository has no commits yet");
+    expect(host.textContent).not.toContain("This folder is not a Git repository");
+    expect(app.paletteContext().snapshot?.head.kind).toBe("unborn");
+
+    app.activate(0);
+    await flush(60);
+    expect(workspaces()).toBe(1);
+    expect(host.textContent).not.toContain("This repository has no commits yet");
+    app.activate(1);
+    await flush(60);
+    expect(workspaces()).toBe(1);
+    expect(host.textContent).toContain("This repository has no commits yet");
   });
 
   it("opens settings over the active tab through the router and closes back to that tab", async () => {

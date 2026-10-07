@@ -211,6 +211,62 @@ fn commit_details_of_a_root_commit_has_no_parents_and_lists_added_files() {
 }
 
 #[test]
+fn large_commit_details_ignore_worktree_paths_named_after_the_commit() {
+    let repo = Fixture::init();
+    repo.identity();
+    let mut paths: Vec<String> = (0..1_000)
+        .map(|number| format!("files/{number:04}.txt"))
+        .chain(["tab\tname.txt".to_owned(), "line\nname.txt".to_owned()])
+        .collect();
+    paths.sort();
+    for path in &paths {
+        repo.write(path, "synthetic line\n");
+    }
+    repo.git(&["add", "."]);
+    repo.git(&["commit", "-q", "-m", "Large synthetic root"]);
+    let sha = repo.git(&["rev-parse", "HEAD"]);
+    let short = &sha[..8];
+    repo.write(&sha, "untracked full id\n");
+    repo.write(short, "untracked short id\n");
+
+    for revision in [sha.as_str(), short] {
+        let details = commit_details(&repo.path, revision).unwrap();
+
+        assert_eq!(details.sha, sha);
+        assert_eq!(details.summary, "Large synthetic root");
+        assert!(details.parents.is_empty());
+        assert_eq!(details.files.len(), paths.len());
+        for (file, path) in details.files.iter().zip(&paths) {
+            assert_eq!(&file.path, path);
+            assert_eq!(file.status, FileStatus::Added);
+            assert_eq!((file.additions, file.deletions), (Some(1), Some(0)));
+        }
+        let diff = commit_file_diff(&repo.path, revision, &paths[999], false).unwrap();
+        assert_eq!(diff.hunks[0].lines[0].text, "synthetic line");
+    }
+    assert_eq!(repo.read(&sha), "untracked full id\n");
+    assert_eq!(repo.read(short), "untracked short id\n");
+}
+
+#[test]
+fn root_commit_details_ignore_a_worktree_path_named_after_the_empty_tree() {
+    let repo = ready_repository();
+    let sha = repo.git(&["rev-parse", "HEAD"]);
+    let empty_tree = repo.git(&["hash-object", "-t", "tree", "/dev/null"]);
+    repo.write(&empty_tree, "untracked tree id\n");
+
+    let details = commit_details(&repo.path, &sha).unwrap();
+
+    assert_eq!(details.files.len(), 1);
+    assert_eq!(details.files[0].path, "a.txt");
+    assert_eq!(details.files[0].status, FileStatus::Added);
+    assert_eq!(details.files[0].additions, Some(1));
+    let diff = commit_file_diff(&repo.path, &sha, "a.txt", false).unwrap();
+    assert_eq!(diff.hunks[0].lines[0].text, "1");
+    assert_eq!(repo.read(&empty_tree), "untracked tree id\n");
+}
+
+#[test]
 fn merge_commit_details_and_diff_are_taken_against_the_first_parent() {
     let repo = ready_repository();
     repo.git(&["checkout", "-q", "-b", "feature"]);

@@ -13,6 +13,8 @@ export type Geometry = {
   dateColumn: number;
   shaColumn: number;
   graphColumn: number;
+  messageColumnMin: number;
+  hitMin: number;
   laneColors: number;
 };
 
@@ -38,6 +40,8 @@ export function readGeometry(style: CSSStyleDeclaration): Geometry {
     dateColumn: px(style, "--layout-graph-date-column"),
     shaColumn: px(style, "--layout-graph-sha-column"),
     graphColumn: px(style, "--layout-graph-column"),
+    messageColumnMin: px(style, "--layout-graph-message-column-min"),
+    hitMin: px(style, "--controls-hit-min"),
     laneColors: 10,
   };
 }

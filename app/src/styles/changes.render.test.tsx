@@ -82,4 +82,18 @@ describe("Changes panel styles (S49, S50)", () => {
     expect(style.whiteSpace).toBe("nowrap");
     expect(style.textOverflow).toBe("ellipsis");
   });
+
+  it("allows composer fields to shrink inside a narrow inspector while busy controls stay available", () => {
+    const host = mount(() => (
+      <div class="composer">
+        <div class="composer-panel">
+          <label class="input summary-field"><input aria-label="Summary" /><span class="field-tools"><span class="count">72</span><span class="field-busy-text">Generating…</span><button class="icon-btn" aria-label="Cancel generating" /></span></label>
+          <span class="input area"><textarea aria-label="Description" /></span>
+        </div>
+      </div>
+    ) as Element);
+    expect(getComputedStyle(host.querySelector(".composer") as Element).gridTemplateColumns).toBe("minmax(0, 1fr)");
+    for (const field of host.querySelectorAll(".input")) expect(getComputedStyle(field).minWidth).toBe("0px");
+    expect(getComputedStyle(host.querySelector(".field-tools") as Element).flexShrink).toBe("0");
+  });
 });

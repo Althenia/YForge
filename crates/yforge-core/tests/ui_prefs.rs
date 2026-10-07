@@ -70,6 +70,18 @@ fn preferences_round_trip_per_repository_and_saving_replaces_the_previous_value(
 }
 
 #[test]
+fn graph_column_width_round_trips_in_repository_preferences() {
+    let dir = tempfile::tempdir().unwrap();
+    let prefs: RepoUiPrefs =
+        serde_json::from_str(r#"{"columns":[{"column":"graph","visible":true,"width":164}]}"#)
+            .unwrap();
+
+    repo_ui_prefs_save(dir.path(), REPO, &prefs).unwrap();
+
+    assert_eq!(repo_ui_prefs_load(dir.path(), REPO).unwrap(), prefs);
+}
+
+#[test]
 fn invalid_preferences_are_refused_and_leave_the_stored_value_untouched() {
     let dir = tempfile::tempdir().unwrap();
     repo_ui_prefs_save(dir.path(), REPO, &sample()).unwrap();
@@ -87,6 +99,10 @@ fn invalid_preferences_are_refused_and_leave_the_stored_value_untouched() {
         },
         RepoUiPrefs {
             columns: vec![column(GraphColumn::Refs, false, None)],
+            ..RepoUiPrefs::default()
+        },
+        RepoUiPrefs {
+            columns: vec![column(GraphColumn::Graph, false, None)],
             ..RepoUiPrefs::default()
         },
         RepoUiPrefs {

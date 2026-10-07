@@ -10,8 +10,8 @@ reqwest = "0.13.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 thiserror = "2.0.21"
-yforge-ai = { version = "0.2.0", path = "../yforge-ai" }
-yforge-core = { version = "0.2.0", path = "../yforge-core" }
+yforge-ai = { version = "0.3.0", path = "../yforge-ai" }
+yforge-core = { version = "0.3.0", path = "../yforge-core" }
 
 [dev-dependencies]
 tempfile = "3.27.0"

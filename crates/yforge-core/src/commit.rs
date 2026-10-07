@@ -93,7 +93,14 @@ fn parse_commit(output: &str) -> Result<RawCommit, CoreError> {
 fn read_commit(root: &Path, revision: &str) -> Result<RawCommit, CoreError> {
     let output = git::run(
         root,
-        &["log", "-1", "--no-show-signature", LOG_FORMAT, revision],
+        &[
+            "log",
+            "-1",
+            "--no-show-signature",
+            LOG_FORMAT,
+            revision,
+            "--",
+        ],
     )?;
     parse_commit(&output)
 }
@@ -195,7 +202,7 @@ pub(crate) fn commit_files(
         "-M",
         "-z",
     ];
-    let range = [base, sha];
+    let range = [base, sha, "--"];
     let raw_args: Vec<&str> = flags
         .iter()
         .copied()

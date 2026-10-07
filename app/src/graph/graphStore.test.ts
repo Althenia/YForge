@@ -6,6 +6,8 @@ import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import { createQueryClient } from "../state/queryClient";
+import { repoKeys } from "../state/queryKeys";
+import { visibilityKey } from "../state/repoUiPrefs";
 import { createGraphStore, PAGE_SIZE } from "./graphStore";
 
 afterEach(() => clearMocks());
@@ -35,6 +37,21 @@ function install(pages: () => GraphPage) {
 }
 
 describe("graph store", () => {
+  it("publishes the returning tab's cached graph synchronously without showing another repository or visibility", () => {
+    const queryClient = createQueryClient();
+    const chosen: GraphVisibility = { kind: "current_and_upstream" };
+    queryClient.setQueryData(repoKeys.graph("/r", 0, visibilityKey(chosen)), page(row("cached-target")));
+    queryClient.setQueryData(repoKeys.graph("/other", 0, visibilityKey(chosen)), page(row("other-repository")));
+    queryClient.setQueryData(repoKeys.graph("/r", 0, visibilityKey({ kind: "all" })), page(row("other-visibility")));
+    createRoot((dispose) => {
+      const store = createGraphStore("/r", queryClient, () => chosen);
+      store.ensure(0, 1);
+      expect(store.total()).toBe(1);
+      expect([...store.rows().values()].map((entry) => entry.sha)).toEqual(["cached-target"]);
+      dispose();
+    });
+  });
+
   it("loads a requested page once and keeps its rows by index", async () => {
     const calls = install(() => page(row("a"), row("b")));
     await createRoot(async (dispose) => {
@@ -98,6 +115,31 @@ describe("graph store", () => {
       await store.load(0, 3);
 
       expect([...store.rows().values()].map((entry) => entry.sha)).toEqual(["a", "b", "c"]);
+      dispose();
+    });
+  });
+
+  it("loads a viewport requested by readers when the refreshed layout is published", async () => {
+    let total = 2000;
+    const offsets: number[] = [];
+    mockIPC((_cmd, args) => {
+      const { offset, limit } = args as { offset: number; limit: number };
+      offsets.push(offset);
+      return { rows: Array.from({ length: Math.max(Math.min(limit, total - offset), 0) }, (_, index) => row(`sha${offset + index}`)), carried: [], total };
+    });
+    await createRoot(async (dispose) => {
+      const store = createGraphStore("/r", createQueryClient());
+      createEffect(() => {
+        if (store.total() === 450) store.show(440, 450);
+      });
+      store.show(1500, 1540);
+      await store.load(1500, 1540);
+      total = 450;
+
+      await store.refresh();
+
+      await vi.waitFor(() => expect(store.rows().get(449)?.sha).toBe("sha449"));
+      expect(offsets.filter((offset) => offset === 400)).toHaveLength(1);
       dispose();
     });
   });

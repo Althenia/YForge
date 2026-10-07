@@ -20,6 +20,8 @@ const geometry: Geometry = {
   dateColumn: 130,
   shaColumn: 100,
   graphColumn: 56,
+  messageColumnMin: 50,
+  hitMin: 24,
   laneColors: 10,
 };
 

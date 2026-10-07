@@ -226,7 +226,7 @@ describe("cursors resolve to their tokens on real components (jsdom cascades var
 
 describe("cursors on the graph", () => {
   const VIEWPORT = 280;
-  const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, laneColors: 10 };
+  const geometry = { row: 28, pitch: 22, gutter: 4, node: 22, mergeNode: 12, line: 2, arc: 11, refColumn: 200, refColumnMin: 32, refColumnMax: 300, authorColumn: 130, dateColumn: 130, shaColumn: 100, graphColumn: 56, messageColumnMin: 50, hitMin: 24, laneColors: 10 };
 
   beforeEach(() => {
     vi.stubGlobal(

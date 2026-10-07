@@ -19,7 +19,7 @@ export function columnWidths(prefs: RepoUiPrefs): Partial<Record<ResizableColumn
 
 export function withColumn(prefs: RepoUiPrefs, id: GraphColumn, change: { visible?: boolean; width?: number }): RepoUiPrefs {
   const current = prefs.columns.find((entry) => entry.column === id);
-  const visible = id === "refs" ? true : (change.visible ?? current?.visible ?? false);
+  const visible = id === "refs" || id === "graph" ? true : (change.visible ?? current?.visible ?? false);
   const width = change.width ?? current?.width;
   const next = { column: id, visible, ...(width == null ? {} : { width }) };
   return { ...prefs, columns: current === undefined ? [...prefs.columns, next] : prefs.columns.map((entry) => (entry === current ? next : entry)) };

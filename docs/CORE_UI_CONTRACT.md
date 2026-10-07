@@ -430,7 +430,7 @@ These run against the checked-out branch and fail with `invalid_request` while a
 
 ### Interface preferences
 
-- `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or more than 500 refs. A stored blob that does not match is `storage_failed`.
+- `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "graph" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` or `graph` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or more than 500 refs. A stored blob that does not match is `storage_failed`.
 
 ### Application interface preferences
 

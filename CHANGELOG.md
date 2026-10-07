@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.3.0] - 2026-10-07
+
+### Added
++ Eight additional themes: Classic Dark, Ocean, Eighties, Gruvbox, Nord, Dracula, Monokai, and Woodland, selected from the Theme dropdown in Settings.
++ Vim mode in the file editor and support for explicitly starting configured, installed language servers, with definition and reference navigation.
++ Image, rendered Markdown, and sandboxed HTML previews from the selected revision, with Source view for Markdown and HTML.
++ AI message drafts for Amend and Edit message on HEAD, with cancellation and Restore my text.
+
+### Changed
++ Push and Publish are split buttons with a Push to… target picker; commit inspector actions use compact icon controls with named tooltips.
++ Repository tabs no longer display the YForge mark; linked worktree tabs retain their worktree glyph.
++ Graph rows show lane-tinted bands and the first nonblank commit-body line beside the summary. The graph column defaults to 56px, grows for active lanes, and can be resized with its width saved per repository.
++ Blame highlights lines belonging to the selected commit.
++ UI text is larger, and long repository and branch names truncate without hiding toolbar actions.
++ Settings, repository dialogs, and the composer show busy feedback and guard against overlapping submissions. Composer fields and busy icon controls stay within their panels.
++ The macOS app icon uses a smaller mark inside the existing rounded plate and transparent margin.
+
+### Fixed
++ Returning to a repository tab displays its cached graph while refresh runs; refreshing a shortened history no longer leaves visible pages blank.
++ Returning from Diff to Graph restores visible rows after scrolling.
++ Commit details and changed-file lists no longer fail when a worktree filename matches the requested commit ID or an empty-tree ID.
++ Invalid or unreadable launch folders now show a notice without blocking startup or losing saved tabs. A folder that stops being a Git repository shows the invalid-folder state instead of stale Git actions.
++ Repositories without commits keep the first-commit action visible while their file list scrolls, support keyboard navigation, and no longer label staged files as untracked.
++ Settings text fields retain typed values while a save is pending or refused.
+
+---
+
 ## [0.2.0] - 2026-10-03
 
 ### Added

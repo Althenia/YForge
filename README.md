@@ -106,6 +106,15 @@ python3 ~/.agents/skills/daedalus/scripts/design_md.py lint app/DESIGN.md --stri
 
 `pnpm test` also checks that `app/DESIGN.md` and `app/src/styles/tokens.css` agree (`tokens.test.ts`), that the generated bindings are current, and that the text and graphic color pairs meet WCAG contrast in both themes (`contrast.test.ts`).
 
+Focused large-data UI flow checks, from `app/`:
+
+```bash
+node ../scripts/verify-repository-render.mjs
+node ../scripts/verify-workspace-transitions.mjs
+```
+
+These use the declared Playwright Core development dependency and an installed Google Chrome at `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`; they do not download a browser. They run synthetic Git data through the real UI with mocked IPC, start loopback servers on ports 1421 and 1422, and close their browsers and servers when finished.
+
 <a id="release-build"></a>
 ## Release Build
 ```bash
@@ -113,10 +122,14 @@ cd app
 pnpm tauri build
 ```
 
-The build bundles the `app` and `dmg` targets for the host architecture. On an Apple-silicon Mac it produced:
+The build bundles the `app` and `dmg` targets for the host architecture. For Apple silicon, the expected outputs are:
 
 - `target/release/bundle/macos/YForge.app`
-- `target/release/bundle/dmg/YForge_0.2.0_aarch64.dmg`
+- `target/release/bundle/dmg/YForge_0.3.0_aarch64.dmg`
+
+Pushing a matching `v*` tag on `main` runs the focused frontend, Rust, binding, version, and large-data flow checks before creating a draft GitHub release. Both Mac architectures upload to that draft. Publication waits for both builds and a check of the downloaded assets' sizes and SHA-256 digests, plus the updater's version, asset URLs, and signature records. Manual workflow runs build artifacts without publishing a release.
+
+The workflow pins action code to Checkout v7.0.1, pnpm setup v6.1.0, Node setup v7.0.0, Rust Cache v2.9.2, and Tauri Action action-v1.0.0, plus the Rust toolchain action's inspected stable commit. Verification and packaging use Rust 1.98.1.
 
 The bundle is unsigned and not notarized: no signing identity is configured, so the binary carries only the linker's ad-hoc signature. A build made on your own Mac launches directly. macOS ties Keychain access to the signature, so each ad-hoc build asks again for the stored AI keys, platform tokens, and SSH passphrases. To keep "Always Allow" across builds, sign local builds with a stable code-signing identity from your login keychain:
 

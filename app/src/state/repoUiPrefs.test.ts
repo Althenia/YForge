@@ -27,6 +27,12 @@ describe("repository interface preferences", () => {
     expect(withColumn(sized, "author", { visible: false }).columns[0]).toEqual({ column: "author", visible: false, width: 150 });
   });
 
+  it("keeps a resized graph column visible in repository preferences", () => {
+    const sized = withColumn(defaultUiPrefs, "graph", { visible: false, width: 164 });
+    expect(sized.columns).toEqual([{ column: "graph", visible: true, width: 164 }]);
+    expect(columnWidths(sized)).toEqual({ graph: 164 });
+  });
+
   it("resets the columns without touching folders or branch visibility", () => {
     const prefs: RepoUiPrefs = { columns: [{ column: "sha", visible: true, width: 90 }], collapsed_folders: ["local:x"], branch_visibility: { kind: "current_and_upstream" } };
 
