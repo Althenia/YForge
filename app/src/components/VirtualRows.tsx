@@ -1,4 +1,4 @@
-import { createVirtualizer, defaultRangeExtractor } from "@tanstack/solid-virtual";
+import { createVirtualizer, defaultRangeExtractor, observeElementOffset } from "@tanstack/solid-virtual";
 import { createEffect, createMemo, createSignal, For, on, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
 
@@ -55,6 +55,23 @@ export function VirtualRows<T>(props: {
     },
     overscan: OVERSCAN,
     useAnimationFrameWithResizeObserver: true,
+    observeElementOffset: (instance, notify) => {
+      const stop = observeElementOffset(instance, notify);
+      const element = instance.scrollElement;
+      if (element === null) return stop;
+      let active = true;
+      const reconcile = () => queueMicrotask(() => {
+        if (!active) return;
+        updateMargin();
+        if (instance.scrollOffset !== element.scrollTop) notify(element.scrollTop, instance.isScrolling);
+      });
+      element.ownerDocument.addEventListener("focusin", reconcile);
+      return () => {
+        active = false;
+        element.ownerDocument.removeEventListener("focusin", reconcile);
+        stop?.();
+      };
+    },
     get scrollMargin() {
       return margin();
     },

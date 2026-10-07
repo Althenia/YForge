@@ -125,7 +125,7 @@ pnpm tauri build
 The build bundles the `app` and `dmg` targets for the host architecture. For Apple silicon, the expected outputs are:
 
 - `target/release/bundle/macos/YForge.app`
-- `target/release/bundle/dmg/YForge_0.3.0_aarch64.dmg`
+- `target/release/bundle/dmg/YForge_0.3.1_aarch64.dmg`
 
 Pushing a matching `v*` tag on `main` runs the focused frontend, Rust, binding, version, and large-data flow checks before creating a draft GitHub release. Both Mac architectures upload to that draft. Publication waits for both builds and a check of the downloaded assets' sizes and SHA-256 digests, plus the updater's version, asset URLs, and signature records. Manual workflow runs build artifacts without publishing a release.
 

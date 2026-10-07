@@ -28,9 +28,9 @@ uuid = { version = "1.20.0", features = ["v4"] }
 tauri-plugin-dialog = "2.8.0"
 tauri-plugin-single-instance = "2.5.1"
 tauri-plugin-updater = "2.13.1"
-yforge-ai = { version = "0.3.0", path = "../../crates/yforge-ai" }
-yforge-core = { version = "0.3.0", path = "../../crates/yforge-core" }
-yforge-platform = { version = "0.3.0", path = "../../crates/yforge-platform" }
+yforge-ai = { version = "0.3.1", path = "../../crates/yforge-ai" }
+yforge-core = { version = "0.3.1", path = "../../crates/yforge-core" }
+yforge-platform = { version = "0.3.1", path = "../../crates/yforge-platform" }
 
 [dev-dependencies]
 tauri = { version = "2.11.6", features = ["test"] }

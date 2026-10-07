@@ -100,6 +100,28 @@ describe("virtual rows", () => {
     expect(rendered()).not.toContain("row 0");
   });
 
+  it("reconciles the visible rows when focus returns after a native offset reset without a scroll event", async () => {
+    const { host, rendered, scrollTo } = await mountRows();
+    await scrollTo(1500 * ROW);
+    expect(rendered()).toContain("row 1500");
+    const scroller = host.querySelector<HTMLElement>(".scroller");
+    expect(scroller).not.toBeNull();
+    let offset = 0;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => offset,
+      set: (value: number) => { offset = value; },
+    });
+    const target = document.createElement("button");
+    document.body.append(target);
+    target.focus();
+    await flush(60);
+
+    expect(scroller?.scrollTop).toBe(0);
+    expect(rendered()).toContain("row 0");
+    expect(rendered()).not.toContain("row 1500");
+  });
+
   it("keeps the kept row mounted while it is scrolled far out of view", async () => {
     const { rendered, scrollTo, setKeep } = await mountRows();
     setKeep(3);

@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.3.0] - 2026-10-07
+## [0.3.1] - 2026-10-07
+
+The v0.3.0 tag did not produce a published release. This release includes its changes and the additional virtual-list fix below.
 
 ### Added
 + Eight additional themes: Classic Dark, Ocean, Eighties, Gruvbox, Nord, Dracula, Monokai, and Woodland, selected from the Theme dropdown in Settings.
@@ -18,6 +20,7 @@
 + The macOS app icon uses a smaller mark inside the existing rounded plate and transparent margin.
 
 ### Fixed
++ Virtual file lists reconcile their rendered window when focus changes after an implicit native scroll-offset reset, preventing an off-screen range from leaving the Changes list blank.
 + Returning to a repository tab displays its cached graph while refresh runs; refreshing a shortened history no longer leaves visible pages blank.
 + Returning from Diff to Graph restores visible rows after scrolling.
 + Commit details and changed-file lists no longer fail when a worktree filename matches the requested commit ID or an empty-tree ID.

@@ -217,6 +217,20 @@ try {
     await clickVisibleFile();
     await closeDiff();
     await inspector(`${stage}: Changes return`);
+    await page.locator('.inspector .ilist').evaluate((element) => {
+      const suppress = (event) => event.stopImmediatePropagation();
+      element.addEventListener('scroll', suppress, { capture: true });
+      element.scrollTop = 0;
+      window.releaseOffsetProbe = () => element.removeEventListener('scroll', suppress, { capture: true });
+    });
+    await page.locator('.inspector .ihead button').first().focus();
+    await page.waitForFunction(() => {
+      const list = document.querySelector('.inspector .ilist');
+      const bounds = list.getBoundingClientRect();
+      return [...list.querySelectorAll('.frow')].some((row) => row.getBoundingClientRect().top >= bounds.top && row.getBoundingClientRect().bottom <= bounds.bottom);
+    });
+    await page.evaluate(() => window.releaseOffsetProbe());
+    await inspector(`${stage}: implicit Changes offset reset`);
     await graph(`${stage}: Changes and graph`);
     await page.locator('.tab-main[title="/synthetic/beta"]').dispatchEvent('click');
     await page.locator('.tab-main[title="/synthetic/alpha"]').dispatchEvent('click');
