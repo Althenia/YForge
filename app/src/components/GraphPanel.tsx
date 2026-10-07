@@ -328,6 +328,33 @@ export function GraphPanel(props: {
     return drag === undefined ? columnWidths(props.uiPrefs.prefs()) : { ...columnWidths(props.uiPrefs.prefs()), [drag.id]: drag.size };
   };
 
+  const virtualizer = createVirtualizer({
+    get count() {
+      return store.total();
+    },
+    getScrollElement: () => scroller ?? null,
+    estimateSize: () => props.geometry.row,
+    overscan: OVERSCAN,
+  });
+  const items = () => virtualizer.getVirtualItems();
+  const range = createMemo(() => {
+    const visible = items();
+    const last = visible.at(-1);
+    return { first: visible[0]?.index ?? 0, end: last === undefined ? 0 : last.index + 1 };
+  });
+  const edges = createMemo(() => visibleEdges(store.edges().values(), range().first, range().end));
+  const activeLanes = createMemo(() => {
+    let lanes = 1;
+    for (const item of items()) lanes = Math.max(lanes, (store.rows().get(item.index)?.column ?? 0) + 1);
+    const { first, end } = range();
+    for (const placed of edges()) {
+      lanes = Math.max(lanes, placed.edge.lane + 1);
+      if (placed.row >= first) lanes = Math.max(lanes, placed.column + 1);
+      if (placed.edge.parent_row !== null && placed.edge.parent_row < end) lanes = Math.max(lanes, (placed.edge.parent_column ?? 0) + 1);
+    }
+    return lanes;
+  });
+
   onMount(() => {
     const resize = () => setPanelWidth(panel.clientWidth);
     resize();
@@ -352,7 +379,7 @@ export function GraphPanel(props: {
     data: [],
     state: {
       get columnSizing() {
-        return graphColumnSizing(props.geometry, store.lanes(), savedSizes(), availableGraphWidth());
+        return graphColumnSizing(props.geometry, activeLanes(), savedSizes(), availableGraphWidth());
       },
       get columnVisibility() {
         return wide() ? columnVisibility(props.uiPrefs.prefs()) : { author: false, date: false, sha: false };
@@ -368,14 +395,6 @@ export function GraphPanel(props: {
   const view = createMemo((): Geometry => ({ ...props.geometry, refColumn: sizeOf("refs") }));
   const headerColumns = () => `${sizeOf("refs")}px ${graphWidth()}px minmax(${props.geometry.messageColumnMin}px, 1fr) ${extras().map((id) => `${sizeOf(id)}px`).join(" ")} var(--controls-hit-min)`;
 
-  const virtualizer = createVirtualizer({
-    get count() {
-      return store.total();
-    },
-    getScrollElement: () => scroller ?? null,
-    estimateSize: () => props.geometry.row,
-    overscan: OVERSCAN,
-  });
   let coveredOffset = 0;
   let coveredSelection: number | undefined;
   createEffect(on(() => props.covered, (covered) => {
@@ -384,14 +403,7 @@ export function GraphPanel(props: {
     else virtualizer.scrollToIndex(coveredSelection, { align: "auto" });
     coveredSelection = undefined;
   }, { defer: true }));
-  const items = () => virtualizer.getVirtualItems();
   const firstMissing = createMemo(() => items().find((item) => !store.rows().has(item.index))?.index);
-  const range = createMemo(() => {
-    const visible = items();
-    const last = visible.at(-1);
-    return { first: visible[0]?.index ?? 0, end: last === undefined ? 0 : last.index + 1 };
-  });
-  const edges = createMemo(() => visibleEdges(store.edges().values(), range().first, range().end));
   const chips = createIssueChips(() => items().flatMap((item) => store.rows().get(item.index) ?? []).map(rowText));
 
   const selected = createMemo(() => indexOfSelection(store.rows(), props.selection));
@@ -592,9 +604,9 @@ export function GraphPanel(props: {
       label={label}
       side={side}
       size={sizeOf(id)}
-      min={columnLimits(id, props.geometry, store.lanes(), availableGraphWidth()).min}
-      max={columnLimits(id, props.geometry, store.lanes(), availableGraphWidth()).max}
-      clamp={(size) => clampColumn(id, size, props.geometry, store.lanes(), availableGraphWidth())}
+      min={columnLimits(id, props.geometry, activeLanes(), availableGraphWidth()).min}
+      max={columnLimits(id, props.geometry, activeLanes(), availableGraphWidth()).max}
+      clamp={(size) => clampColumn(id, size, props.geometry, activeLanes(), availableGraphWidth())}
       onPreview={(size) => setPreview(size === undefined ? undefined : { id, size })}
       onCommit={(size) => settle(id, size)}
       onReset={() => settle(id, defaultColumnSize(id, props.geometry))}
@@ -608,6 +620,7 @@ export function GraphPanel(props: {
       classList={{ covered: props.covered, searching: props.searching }}
       inert={props.covered}
       aria-label="Commit graph"
+      aria-busy={store.loading()}
       style={{ "--graph-w": `${graphWidth()}px`, "--ref-w": `${sizeOf("refs")}px`, "--extra-w": `${extraWidth()}px` }}
     >
       <div class="ghead" style={{ "grid-template-columns": headerColumns() }}>
@@ -650,6 +663,9 @@ export function GraphPanel(props: {
         onScroll={(event) => { if (!props.covered) coveredOffset = event.currentTarget.scrollTop; }}
         onKeyDown={onKeyDown}
       >
+        <Show when={store.loading() && store.total() === 0}>
+          <span class="graph-loading" role="status"><span class="busy-spinner" aria-hidden="true" />Loading history…</span>
+        </Show>
         <div class="gspacer" style={{ height: `${virtualizer.getTotalSize()}px` }}>
           <For each={items()}>
             {(item) => (

@@ -3,7 +3,9 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/solid-router";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { render } from "solid-js/web";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { flush } from "./components/testkit";
+import { flush, stubLayout } from "./components/testkit";
+import type { GraphPage } from "./ipc/bindings/GraphPage";
+import type { ProfileList } from "./ipc/bindings/ProfileList";
 import type { RepoSnapshot } from "./ipc/bindings/RepoSnapshot";
 import { createAppRouter, viewOf } from "./routes";
 import { AppContext, createAppState } from "./state/app";
@@ -17,6 +19,7 @@ class ResizeObserverStub {
 }
 
 let dispose: (() => void) | undefined;
+let restoreLayout: (() => void) | undefined;
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
@@ -32,6 +35,8 @@ const tokens = { "--controls-row-graph": 28, "--controls-graph-lane-pitch": 22, 
 afterEach(async () => {
   dispose?.();
   dispose = undefined;
+  restoreLayout?.();
+  restoreLayout = undefined;
   vi.unstubAllGlobals();
   await flush();
   document.body.innerHTML = "";
@@ -58,11 +63,39 @@ const snapshotAt = (root: string): RepoSnapshot => ({
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mountApp(session: { tabs: string[]; active: number }, repoOpen?: (path: string) => RepoSnapshot | Promise<RepoSnapshot>) {
+const graphAt = (path: string, offset = 0, limit = 200, dirty = false): GraphPage => ({
+  total: 600,
+  carried: [],
+  rows: Array.from({ length: Math.max(0, Math.min(limit, 600 - offset)) }, (_, index) => {
+    const position = offset + index;
+    const changes = dirty && position === 0;
+    return {
+      sha: changes ? null : `${path === "/a" ? "a" : "b"}${position.toString(16).padStart(39, "0")}`,
+      parents: [],
+      summary: `${path} ${changes ? "changes" : `commit ${position}`}`,
+      body: "",
+      author: null,
+      time: null,
+      refs: position === (dirty ? 1 : 0) ? [{ kind: "local_branch", name: "main", is_head: true }] : [],
+      kind: changes ? "changes" : "commit",
+      column: 0,
+      edges: [],
+    };
+  }),
+});
+
+async function mountApp(
+  session: { tabs: string[]; active: number },
+  repoOpen?: (path: string) => RepoSnapshot | Promise<RepoSnapshot>,
+  repoGraph?: (path: string, offset: number, limit: number) => GraphPage | Promise<GraphPage>,
+  handlers: Record<string, (args: Record<string, unknown>) => unknown> = {},
+) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
       calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+      const handler = handlers[cmd];
+      if (handler !== undefined) return handler((args ?? {}) as Record<string, unknown>);
       switch (cmd) {
         case "settings_load":
           return defaultSettings;
@@ -79,8 +112,10 @@ async function mountApp(session: { tabs: string[]; active: number }, repoOpen?: 
         }
         case "app_info":
           return { app_version: "0.1.0", git_version: "2.50.0" };
-        case "repo_graph":
-          return { rows: [], carried: [], total: 0 };
+        case "repo_graph": {
+          const { path, offset, limit } = args as { path: string; offset: number; limit: number };
+          return repoGraph?.(path, offset, limit) ?? { rows: [], carried: [], total: 0 };
+        }
         case "activity_list":
         case "recents_list":
         case "remotes_list":
@@ -117,6 +152,98 @@ async function mountApp(session: { tabs: string[]; active: number }, repoOpen?: 
 }
 
 describe("routes", () => {
+  it("renders the warm target graph without an uncached profile read suspending a dirty repository tab", async () => {
+    restoreLayout = stubLayout();
+    const profiles: ProfileList = { active: "default", profiles: [{ id: "default", name: "Default", author_name: "Synthetic", author_email: "author@example.test" }] };
+    let holdProfiles = false;
+    let finishProfiles!: (value: ProfileList) => void;
+    const pendingProfiles = new Promise<ProfileList>((resolve) => { finishProfiles = resolve; });
+    const { app, host, calls } = await mountApp(
+      { tabs: ["/a", "/b"], active: 0 },
+      (path) => ({ ...snapshotAt(path), counts: { ...snapshotAt(path).counts, modified: 1 }, files: [{ path: "src/work.ts", area: "unstaged", status: "modified", original_path: null }] }),
+      (path, offset, limit) => graphAt(path, offset, limit, true),
+      { profiles_list: () => holdProfiles ? pendingProfiles : profiles },
+    );
+    try {
+      app.activate(1);
+      await vi.waitFor(() => expect(host.querySelector(".grow .sum")?.textContent).toBe("/b changes"));
+      app.activate(0);
+      await vi.waitFor(() => expect(host.querySelector(".grow .sum")?.textContent).toBe("/a changes"));
+      expect(app.profileList()?.active).toBe("default");
+      const profileReads = calls.filter((call) => call.cmd === "profiles_list").length;
+      const graphReads = calls.filter((call) => call.cmd === "repo_graph" && call.args.path === "/b" && call.args.offset === 0).length;
+      holdProfiles = true;
+
+      app.activate(1);
+      await flush(40);
+
+      expect(app.activePath()).toBe("/b");
+      expect(host.querySelector('.grow[role="option"] .sum')?.textContent).toBe("/b changes");
+      expect(host.textContent).not.toContain("/a changes");
+      expect(calls.filter((call) => call.cmd === "profiles_list")).toHaveLength(profileReads);
+      expect(calls.filter((call) => call.cmd === "repo_graph" && call.args.path === "/b" && call.args.offset === 0)).toHaveLength(graphReads + 1);
+    } finally {
+      finishProfiles(profiles);
+      await flush();
+    }
+  });
+
+  it("fetches the target viewport requested during a failed cached-tab graph refresh", async () => {
+    restoreLayout = stubLayout();
+    let holdGraphRefresh = false;
+    let failRefresh!: (failure: unknown) => void;
+    const graphRefresh = new Promise<GraphPage>((_resolve, reject) => { failRefresh = reject; });
+    const { app, host, calls } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, undefined, (path, offset, limit) => {
+      if (holdGraphRefresh && path === "/a" && offset === 0) return graphRefresh;
+      return graphAt(path, offset, limit);
+    });
+    try {
+      expect(host.querySelector(".grow .sum")?.textContent).toBe("/a commit 0");
+      app.activate(1);
+      await vi.waitFor(() => expect(host.querySelector(".grow .sum")?.textContent).toBe("/b commit 0"));
+      const aReads = calls.filter((call) => call.cmd === "repo_graph" && call.args.path === "/a" && call.args.offset === 0).length;
+      holdGraphRefresh = true;
+
+      app.activate(0);
+      await vi.waitFor(() => expect(calls.filter((call) => call.cmd === "repo_graph" && call.args.path === "/a" && call.args.offset === 0)).toHaveLength(aReads + 1));
+      expect(host.querySelector(".grow .sum")?.textContent).toBe("/a commit 0");
+      const scroller = host.querySelector<HTMLElement>(".gscroll") as HTMLElement;
+      scroller.scrollTop = 400 * 28;
+      scroller.dispatchEvent(new Event("scroll"));
+      await flush();
+      holdGraphRefresh = false;
+      failRefresh({ kind: "git_failed", message: "Synthetic refresh refusal", output: null });
+
+      await vi.waitFor(() => expect(host.querySelector("#graph-row-400 .sum")?.textContent).toBe("/a commit 400"));
+      expect(app.activePath()).toBe("/a");
+      expect(calls.filter((call) => call.cmd === "repo_graph" && call.args.path === "/a" && call.args.offset === 400)).toHaveLength(1);
+      expect(host.textContent).not.toContain("/b commit");
+    } finally {
+      failRefresh({ kind: "git_failed", message: "Synthetic refresh refusal", output: null });
+      await flush();
+    }
+  });
+
+  it("updates the mounted composer from the shared profile source after a profile refresh", async () => {
+    restoreLayout = stubLayout();
+    let profiles: ProfileList = { active: "default", profiles: [{ id: "default", name: "Default", author_name: "Synthetic", author_email: "author@example.test" }] };
+    const { app, host, calls } = await mountApp(
+      { tabs: ["/a"], active: 0 },
+      (path) => ({ ...snapshotAt(path), counts: { ...snapshotAt(path).counts, modified: 1 }, files: [{ path: "src/work.ts", area: "unstaged", status: "modified", original_path: null }] }),
+      (path, offset, limit) => graphAt(path, offset, limit, true),
+      { profiles_list: () => profiles },
+    );
+    expect(host.querySelector(".composer-identity")?.textContent).toBe("Committing as Synthetic author@example.test");
+    const reads = calls.filter((call) => call.cmd === "profiles_list").length;
+    profiles = { active: "default", profiles: [{ ...profiles.profiles[0]!, author_name: "Updated author" }] };
+
+    await app.loadProfiles();
+    await flush();
+
+    expect(host.querySelector(".composer-identity")?.textContent).toBe("Committing as Updated author author@example.test");
+    expect(calls.filter((call) => call.cmd === "profiles_list")).toHaveLength(reads + 1);
+  });
+
   it("shows the Launchpad for a new tab and a repository on the repo route, addressed by tab id (S41)", async () => {
     const { router, host, workspaces } = await mountApp({ tabs: ["/a"], active: 0 });
 

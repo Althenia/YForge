@@ -106,6 +106,189 @@ describe("graph store", () => {
     });
   });
 
+  it("resumes an uncached viewport queued while a refresh fails without replacing stale rows", async () => {
+    let held = false;
+    let rejectRefresh!: (failure: unknown) => void;
+    const refresh = new Promise<GraphPage>((_resolve, reject) => { rejectRefresh = reject; });
+    const offsets: number[] = [];
+    mockIPC((_cmd, args) => {
+      const { offset, limit } = args as { offset: number; limit: number };
+      offsets.push(offset);
+      if (held && offset === 0) return refresh;
+      return { total: 600, carried: [], rows: Array.from({ length: Math.min(limit, 600 - offset) }, (_, index) => row(`target-${offset + index}`)) };
+    });
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 20);
+        await store.load(0, 20);
+        held = true;
+        const refreshing = store.refresh();
+        await vi.waitFor(() => expect(offsets.filter((offset) => offset === 0)).toHaveLength(2));
+        store.show(400, 430);
+
+        held = false;
+        rejectRefresh({ kind: "git_failed", message: "Refresh refused", output: null });
+        await refreshing;
+
+        await vi.waitFor(() => expect(store.rows().get(400)?.sha).toBe("target-400"));
+        expect(store.rows().get(0)?.sha).toBe("target-0");
+        expect(offsets).toEqual([0, 0, 200, 400]);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("reports loading for cold pages and refreshes and settles after a refresh failure", async () => {
+    let finishPage!: (value: GraphPage) => void;
+    let rejectRefresh!: (failure: unknown) => void;
+    const first = new Promise<GraphPage>((resolve) => { finishPage = resolve; });
+    const refreshed = new Promise<GraphPage>((_resolve, reject) => { rejectRefresh = reject; });
+    let reads = 0;
+    mockIPC(() => ++reads === 1 ? first : refreshed);
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 1);
+        expect(store.loading()).toBe(true);
+        expect(store.rows().size).toBe(0);
+        finishPage(page(row("cached")));
+        await store.load(0, 1);
+        expect(store.loading()).toBe(false);
+
+        const refreshing = store.refresh();
+        expect(store.loading()).toBe(true);
+        expect(store.rows().get(0)?.sha).toBe("cached");
+        await vi.waitFor(() => expect(reads).toBe(2));
+        rejectRefresh({ kind: "git_failed", message: "Refresh refused", output: null });
+        await refreshing;
+
+        expect(store.loading()).toBe(false);
+        expect(store.rows().get(0)?.sha).toBe("cached");
+        expect(store.error()?.message).toBe("Refresh refused");
+      } finally {
+        finishPage(page(row("cached")));
+        if (reads > 1) rejectRefresh({ kind: "git_failed", message: "Refresh refused", output: null });
+        dispose();
+      }
+    });
+  });
+
+  it("does not replay a failed refresh page before another viewport request", async () => {
+    let failNeighbor = false;
+    const offsets: number[] = [];
+    mockIPC((_cmd, args) => {
+      const { offset, limit } = args as { offset: number; limit: number };
+      offsets.push(offset);
+      if (failNeighbor && offset === 200) throw { kind: "git_failed", message: "Neighbor refused", output: null };
+      return { total: 600, carried: [], rows: Array.from({ length: Math.min(limit, 600 - offset) }, (_, index) => row(`target-${offset + index}`)) };
+    });
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 20);
+        await store.load(0, 20);
+        failNeighbor = true;
+
+        await store.refresh();
+        await vi.waitFor(() => expect(store.loading()).toBe(false));
+
+        expect(offsets.filter((offset) => offset === 200)).toHaveLength(1);
+        expect(store.rows().get(0)?.sha).toBe("target-0");
+        expect(store.error()?.message).toBe("Neighbor refused");
+        failNeighbor = false;
+        store.show(200, 230);
+        await store.load(200, 230);
+        expect(store.rows().get(200)?.sha).toBe("target-200");
+        expect(offsets.filter((offset) => offset === 200)).toHaveLength(2);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it.each(["page", "refresh"] as const)("settles a canceled %s read without losing cached rows or reporting a Git failure", async (kind) => {
+    const queryClient = createQueryClient();
+    let hold = false;
+    let finishRead!: (value: GraphPage) => void;
+    const pendingRead = new Promise<GraphPage>((resolve) => { finishRead = resolve; });
+    const offsets: number[] = [];
+    const response = (offset: number): GraphPage => ({ total: 600, carried: [], rows: Array.from({ length: 200 }, (_, index) => row(`target-${offset + index}`)) });
+    mockIPC((_cmd, args) => {
+      const { offset } = args as { offset: number };
+      offsets.push(offset);
+      return hold && offset === (kind === "page" ? 400 : 0) ? pendingRead : response(offset);
+    });
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", queryClient);
+        store.show(0, 20);
+        await store.load(0, 20);
+        hold = true;
+        const refreshing = kind === "refresh" ? store.refresh() : undefined;
+        if (kind === "page") store.show(400, 430);
+        await vi.waitFor(() => expect(offsets.filter((offset) => offset === (kind === "page" ? 400 : 0))).toHaveLength(kind === "page" ? 1 : 2));
+
+        await queryClient.cancelQueries({ queryKey: repoKeys.graphPages("/r") });
+        await refreshing;
+
+        expect(store.loading()).toBe(false);
+        expect(store.rows().get(0)?.sha).toBe("target-0");
+        expect(store.error()).toBeUndefined();
+      } finally {
+        finishRead(response(kind === "page" ? 400 : 0));
+        dispose();
+        queryClient.clear();
+      }
+    });
+  });
+
+  it("loads fresh scoped rows after inactive graph cache entries are garbage-collected", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const queryClient = createQueryClient();
+    let finishRead!: (value: GraphPage) => void;
+    const pendingRead = new Promise<GraphPage>((resolve) => { finishRead = resolve; });
+    const calls: unknown[] = [];
+    mockIPC((cmd, args) => { calls.push({ cmd, args }); return pendingRead; });
+    const key = repoKeys.graph("/r", 0, visibilityKey({ kind: "all" }));
+    try {
+      queryClient.setQueryData(key, page(row("cached-target")));
+      await createRoot(async (dispose) => {
+        const store = createGraphStore("/r", queryClient);
+        try {
+          await store.load(0, 1);
+          expect(store.rows().get(0)?.sha).toBe("cached-target");
+          expect(calls).toEqual([]);
+        } finally {
+          dispose();
+        }
+      });
+      await vi.advanceTimersByTimeAsync(5 * 60_000 + 1);
+      expect(queryClient.getQueryData(key)).toBeUndefined();
+
+      await createRoot(async (dispose) => {
+        const store = createGraphStore("/r", queryClient);
+        try {
+          store.show(0, 1);
+          expect(store.loading()).toBe(true);
+          expect(store.rows().size).toBe(0);
+          finishRead(page(row("fresh-target")));
+          await store.load(0, 1);
+          expect(store.rows().get(0)?.sha).toBe("fresh-target");
+          expect(store.loading()).toBe(false);
+          expect(calls).toEqual([{ cmd: "repo_graph", args: { path: "/r", offset: 0, limit: 200 } }]);
+        } finally {
+          dispose();
+        }
+      });
+    } finally {
+      finishRead(page(row("fresh-target")));
+      queryClient.clear();
+      vi.useRealTimers();
+    }
+  });
+
   it("resolves load only once every row of the range is in the layout", async () => {
     install(() => page(row("a"), row("b"), row("c")));
     await createRoot(async (dispose) => {

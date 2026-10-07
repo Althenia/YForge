@@ -1523,14 +1523,25 @@ describe("committing as the active profile (S60)", () => {
   });
 
   it("states who the next commit is made as when the active profile has an author", async () => {
-    const { host } = mount(snapshot(), (cmd) => (cmd === "profiles_list" ? profiles("Ada Lovelace", "ada@example.com") : null));
+    let current = profiles("Ada Lovelace", "ada@example.com");
+    const { app, host } = mount(snapshot(), (cmd) => (cmd === "profiles_list" ? current : null));
+    await app.loadProfiles();
     await flush();
 
     expect(host.querySelector(".composer-identity")?.textContent).toBe("Committing as Ada Lovelace ada@example.com");
+    current = profiles("Updated author", "author@example.test");
+    await app.loadProfiles();
+    await flush();
+    expect(host.querySelector(".composer-identity")?.textContent).toBe("Committing as Updated author author@example.test");
+    current = profiles("", "");
+    await app.loadProfiles();
+    await flush();
+    expect(host.querySelector(".composer-identity")).toBeNull();
   });
 
   it("states nothing when the active profile has no author", async () => {
-    const { host } = mount(snapshot(), (cmd) => (cmd === "profiles_list" ? profiles("", "") : null));
+    const { app, host } = mount(snapshot(), (cmd) => (cmd === "profiles_list" ? profiles("", "") : null));
+    await app.loadProfiles();
     await flush();
 
     expect(host.querySelector(".composer-identity")).toBeNull();

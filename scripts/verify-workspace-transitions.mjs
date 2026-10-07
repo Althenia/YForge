@@ -61,7 +61,7 @@ mockIPC((cmd,args={})=>{
     case 'repo_open':if(!paths.includes(args.path))throw {kind:'not_a_repository',message:'Synthetic path not found',output:null};return delayed(snapshot(args.path));
     case 'app_info':return {app_version:'0.2.0',git_version:'2.50.0'};
     case 'repo_settings_load':return {pull_mode:null,ssh_key_path:null,submodule_update_on_fetch:false};
-    case 'profiles_list':return {active:'default',profiles:[{id:'default',name:'Default',author_name:person.name,author_email:person.email}]};
+    case 'profiles_list':return delayed({active:'default',profiles:[{id:'default',name:'Default',author_name:person.name,author_email:person.email}]},400);
     case 'external_tools_status':return {editor:null,diff:null,merge:null};
     case 'lfs_status':return {installed:false,version:null,initialized:false,patterns:[]};
     case 'repo_graph':return delayed({total:6723,carried:[],rows:Array.from({length:Math.max(0,Math.min(args.limit,6723-args.offset))},(_,i)=>graphRow(args.offset+i))});
@@ -82,6 +82,7 @@ mockIPC((cmd,args={})=>{
 const probes={frames:0,blankFrames:0,maxBlankRun:0,maxMainHeight:0,maxGraphViewport:0,maxFileViewport:0,maxCommitMargin:0,busyFrames:0,graphTransitions:[],anomalies:[]};
 let blankRun=0;
 let graphState='';
+let navigationReady=false;
 const probe=()=>{
   probes.frames++;
   const main=document.querySelector('.main');
@@ -96,7 +97,8 @@ const probe=()=>{
     if(probes.graphTransitions.length<24)probes.graphTransitions.push({state,display:panel?getComputedStyle(panel).display:null,visibility:panel?getComputedStyle(panel).visibility:null,inert:panel?.inert,scrollTop:graph?.scrollTop,height:graph?.clientHeight,firstRow:graph?.querySelector('.grow')?.id});
   }
   if(busy)probes.busyFrames++;
-  if(!document.querySelector('.app,.empty-view')){probes.blankFrames++;blankRun++;probes.maxBlankRun=Math.max(probes.maxBlankRun,blankRun);}else blankRun=0;
+  if(document.querySelector('.commandbar'))navigationReady=true;
+  if(navigationReady&&!document.querySelector('.app,.empty-view')){probes.blankFrames++;blankRun++;probes.maxBlankRun=Math.max(probes.maxBlankRun,blankRun);}else blankRun=0;
   if(main)probes.maxMainHeight=Math.max(probes.maxMainHeight,main.clientHeight);
   if(graph)probes.maxGraphViewport=Math.max(probes.maxGraphViewport,graph.clientHeight);
   if(files)probes.maxFileViewport=Math.max(probes.maxFileViewport,files.clientHeight);
@@ -244,6 +246,8 @@ try {
   }
   const fixture = await page.evaluate(() => window.fixture);
   assert.deepEqual(fixture.crashes, [], "app crash reports must stay empty");
+  assert.equal(fixture.probes.blankFrames, 0, "repository tab transitions must never detach the workspace to a blank frame");
+  assert.equal(fixture.calls.profiles_list, 1, "repository tab transitions must reuse the application profile list instead of refetching it per composer");
   assert.deepEqual(fixture.probes.anomalies, [], "loading and transitions must not create giant viewports");
   const { graphTransitions, anomalies, ...probeCounters } = fixture.probes;
   console.log(JSON.stringify({ result: "PASS", cycles, cases, shape: fixture.shape, calls: fixture.calls, probes: { ...probeCounters, graphTransitions: graphTransitions.length, anomalies: anomalies.length }, geometryChecks: measurements.length, unknownCalls: fixture.unknown.length, crashes: fixture.crashes.length, errors: errors.length }, null, 2));

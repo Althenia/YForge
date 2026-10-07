@@ -1,8 +1,8 @@
-import { createEffect, createResource, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
-import { client } from "../ipc/client";
+import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { GenerateAction } from "../state/aiGenerate";
 import type { StashMessageAction } from "../state/aiStash";
+import { useApp } from "../state/app";
 import { amendWarning, commitIdentityLabel, stashButton, stashMessage, summaryRemaining, type Composer as ComposerState, type ComposerTab, type createCommitAction } from "../state/composer";
 import { AiFailureNote } from "./AiFailureNote";
 import { AiTrigger } from "./AiTrigger";
@@ -90,8 +90,8 @@ export function Composer(props: {
   stash: (message: string, untracked: boolean) => Promise<boolean>;
 }) {
   const id = createUniqueId();
-  const [profiles] = createResource(() => client.profiles().catch(() => undefined));
-  const identity = () => commitIdentityLabel(profiles());
+  const app = useApp();
+  const identity = () => commitIdentityLabel(app.profileList());
   const generateReason = () => (!props.state.amend() && props.staged === 0 ? "Stage files to generate a message" : props.state.busy() ? "Committing…" : undefined);
   const stashDraftReason = () => (props.state.stashing() ? "Stashing…" : props.snapshot.files.length === 0 ? "No local changes to stash" : undefined);
   const remaining = () => summaryRemaining(props.state.summary());

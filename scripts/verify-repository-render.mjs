@@ -29,13 +29,14 @@ import {createRepoActions} from '/src/state/repoActions.ts';
 const person={name:'Synthetic',email:'synthetic@example.test',time:1700000000};
 const snapshot={root:'/r',head:{kind:'branch',name:'main',sha:'aaa'},operation:null,remotes:[],remote_branches:[],branches:['main'],files:[],counts:{conflicted:0}};
 const [sha,setSha]=createSignal('large');window.selectCommit=setSha;
-mockIPC((cmd,args)=>cmd==='commit_details'?{sha:args.sha,summary:args.sha,body:'',author:person,committer:person,parents:['aaa'],refs:[],files:Array.from({length:args.sha==='large'?5000:24},(_,i)=>({path:'src/file-'+i+'.txt',status:'modified',original_path:null,additions:400,deletions:20}))}:cmd==='repo_graph'?{total:6575,carried:[],rows:Array.from({length:Math.min(args.limit,6575-args.offset)},(_,i)=>({sha:'sha'+(args.offset+i),parents:[],summary:'Commit '+(args.offset+i),body:'',author:null,time:null,refs:[],kind:'commit',column:0,edges:[]}))}:cmd==='app_ui_prefs_load'?{palette_recents:[],last_parent_folder:null,file_list_mode:'path'}:cmd==='ai_feature_config_list'||cmd==='jira_connections_list'?[]:null);
+mockIPC((cmd,args)=>cmd==='commit_details'?{sha:args.sha,summary:args.sha,body:'',author:person,committer:person,parents:['aaa'],refs:[],files:Array.from({length:args.sha==='large'?5000:24},(_,i)=>({path:'src/file-'+i+'.txt',status:'modified',original_path:null,additions:400,deletions:20}))}:cmd==='repo_graph'?{total:6575,carried:[],rows:Array.from({length:Math.min(args.limit,6575-args.offset)},(_,i)=>({sha:'sha'+(args.offset+i),parents:[],summary:'Commit '+(args.offset+i),body:'',author:null,time:null,refs:[],kind:'commit',column:args.offset+i===100?24:0,edges:[]}))}:cmd==='app_ui_prefs_load'?{palette_recents:[],last_parent_folder:null,file_list_mode:'path'}:cmd==='ai_feature_config_list'||cmd==='jira_connections_list'?[]:null);
 const session=testSession('/r',snapshot);
 const actions=createRepoActions(session,{selectedSha:()=>undefined,onSelectionGone:()=>{},pullMode:()=> 'fast_forward_or_merge',offline:()=>false,inspectStash:()=>{},openWorktree:async()=>true,undoEntry:()=>undefined});
 const mounted=mountWithApp(()=>createComponent(CommitInspector,{session,actions,get sha(){return sha()},onSelectCommit:()=>{},onOpenDiff:()=>{},onViewFile:()=>{}}));mounted.host.id='fixture';
 const empty=mountWithApp(()=>createComponent(EmptyRepository,{snapshot:{...snapshot,head:{kind:'unborn',branch:'main'},files:Array.from({length:5000},(_,i)=>({path:'new-'+i+'.txt',area:i===0?'staged':'untracked',status:i===0?'added':'untracked',original_path:null}))},actions:{stageAll:async()=>true}}));empty.host.id='empty-fixture';
 const [visible,setVisible]=createSignal(true);window.showGraph=setVisible;
-const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},children:()=>createComponent(GraphPanel,{path:'/r',snapshot,geometry:readGeometry(getComputedStyle(document.documentElement)),revision:0,covered:false,actions,dimmed:()=>false,searching:false,uiPrefs:testUiPrefs(),onSelect:()=>{},onRevealHead:()=>{}})}));graph.host.id='graph-fixture';window.ready=true;
+const graphPrefs=testUiPrefs();window.graphPrefs=graphPrefs;
+const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},children:()=>createComponent(GraphPanel,{path:'/r',snapshot,geometry:readGeometry(getComputedStyle(document.documentElement)),revision:0,covered:false,actions,dimmed:()=>false,searching:false,uiPrefs:graphPrefs,onSelect:()=>{},onRevealHead:()=>{}})}));graph.host.id='graph-fixture';window.ready=true;
 `;
   await page.route("**/__repository-render", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><head><style>body{display:flex;gap:8px}#fixture{display:grid;height:800px;width:372px}#empty-fixture,#graph-fixture{display:grid;height:800px;width:640px}</style></head><body><script type="module" src="/@id/virtual:repository-render"></script></body></html>' }));
   await page.goto("http://127.0.0.1:1421/__repository-render");
@@ -105,6 +106,22 @@ const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},
   await page.keyboard.press("Home");
   await page.waitForFunction(() => document.querySelector('#empty-fixture .empty-files').firstElementChild?.textContent.includes("new-0.txt"));
   assert.deepEqual(errors, []);
+  const graphSize = () => page.locator("#graph-fixture .graph").evaluate((panel) => Number.parseFloat(panel.style.getPropertyValue("--graph-w")));
+  const divider = page.locator('[role="separator"][aria-label="Resize Graph column"]');
+  assert.equal(await graphSize(), 56, "off-screen wide commits must not force the visible graph width");
+  const dividerBounds = await divider.boundingBox();
+  assert(dividerBounds, "graph separator must have a visible pointer target");
+  const dividerX = dividerBounds.x + dividerBounds.width / 2;
+  const dividerY = dividerBounds.y + dividerBounds.height / 2;
+  await page.mouse.move(dividerX, dividerY);
+  await page.mouse.down();
+  await page.mouse.move(dividerX + 100, dividerY, { steps: 4 });
+  await page.mouse.up();
+  assert.equal(await graphSize(), 156, "pointer resizing must follow the chosen width");
+  assert.equal(await page.evaluate(() => window.graphPrefs.prefs().columns.find((column) => column.column === "graph")?.width), 156, "pointer resizing must save the graph width");
+  await divider.focus();
+  await page.keyboard.press("ArrowRight");
+  assert.equal(await graphSize(), 164, "keyboard resizing must move the graph divider by 8px");
   for (let cycle = 0; cycle < 10; cycle += 1) {
     await page.waitForSelector('#graph-fixture .grow[role="option"]');
     const graph = await page.locator("#graph-fixture .gscroll").evaluate((list) => {
@@ -118,8 +135,9 @@ const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},
     await page.evaluate(() => window.showGraph(true));
   }
   await page.waitForSelector('#graph-fixture .grow[role="option"]');
+  assert.equal(await graphSize(), 164, "graph remount must retain the chosen width");
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ commitFiles: 5000, initialRows: initial.rows.length, scrolledRows: scrolled.rows.length, shorterCommitFiles: 24, blankBand: false, emptyRepositoryFiles: 5000, firstCommitActionContained: true, layoutCases: 6, graphCommits: 6575, cachedGraphRemounts: 10, errors }));
+  console.log(JSON.stringify({ commitFiles: 5000, initialRows: initial.rows.length, scrolledRows: scrolled.rows.length, shorterCommitFiles: 24, blankBand: false, emptyRepositoryFiles: 5000, firstCommitActionContained: true, layoutCases: 6, graphCommits: 6575, resizedGraphWidth: 164, cachedGraphRemounts: 10, errors }));
 } catch (failure) {
   console.error(await page?.evaluate(() => {
     const list = document.querySelector('.empty-repo-list');

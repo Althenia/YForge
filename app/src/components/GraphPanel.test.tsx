@@ -137,6 +137,33 @@ async function mountGraph(config: MountOptions = {}) {
 }
 
 describe("graph panel", () => {
+  it("keeps an explicit loading state inside the graph while an uncached first page is pending", async () => {
+    let finish!: (page: GraphPage) => void;
+    const result = new Promise<GraphPage>((resolve) => { finish = resolve; });
+    const { host } = await mountGraph({ heldPage: { offset: 0, result } });
+    expect(host.querySelector(".ghead")?.textContent).toContain("Graph");
+    expect(host.querySelector('[role="status"]')?.textContent).toContain("Loading history");
+    expect(host.querySelector(".graph")?.getAttribute("aria-busy")).toBe("true");
+
+    finish({ rows: [rowAt(0)], carried: [], total: 1 });
+    await flush(60);
+    expect(host.querySelector("#graph-row-0 .msg")?.textContent).toContain("commit 0");
+    expect(host.querySelector(".graph")?.getAttribute("aria-busy")).toBe("false");
+    expect(host.textContent).not.toContain("Loading history");
+  });
+
+  it.each(["empty", "refused"])("settles the initial loading state after an %s history result", async (outcome) => {
+    let finish!: (page: GraphPage) => void;
+    let refuse!: (reason: unknown) => void;
+    const result = new Promise<GraphPage>((resolve, reject) => { finish = resolve; refuse = reject; });
+    const { host } = await mountGraph({ heldPage: { offset: 0, result } });
+    if (outcome === "empty") finish({ rows: [], carried: [], total: 0 });
+    else refuse({ kind: "git_failed", message: "Cannot read history", output: null });
+    await flush(60);
+    expect(host.querySelector(".graph")?.getAttribute("aria-busy")).toBe("false");
+    expect(host.textContent).not.toContain("Loading history");
+    if (outcome === "refused") expect(host.querySelector('[role="alert"]')?.textContent).toBe("Cannot read history");
+  });
   it("restores the visible range after a covered scroller resets without a scroll event", async () => {
     const { list, positions, scrollTo, setCovered } = await mountGraph();
     await scrollTo(300 * geometry.row);
@@ -381,6 +408,36 @@ describe("branch and tag column overflow", () => {
 });
 
 describe("graph columns", () => {
+  it("lets the visible single-lane graph resize without a wide off-screen commit forcing its minimum", async () => {
+    overrides = { 100: { column: 24, edges: [{ lane: 24, parent_row: 101, parent_column: 0 }] } };
+    const { host, uiPrefs, scrollTo } = await mountGraph();
+    const handle = host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize Graph column"]');
+    expect(handle?.getAttribute("aria-valuemin")).toBe("56");
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("56px");
+    handle?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, clientX: 0 }));
+    handle?.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 1, clientX: 120 }));
+    handle?.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, clientX: 120 }));
+    await flush();
+    expect(uiPrefs.prefs().columns).toContainEqual({ column: "graph", visible: true, width: 176 });
+
+    await scrollTo(100 * geometry.row);
+    expect(Number(handle?.getAttribute("aria-valuemin"))).toBeGreaterThanOrEqual(4 + 25 * 22);
+    await scrollTo(0);
+    expect(handle?.getAttribute("aria-valuemin")).toBe("56");
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("176px");
+    expect(uiPrefs.prefs().columns).toContainEqual({ column: "graph", visible: true, width: 176 });
+  });
+
+  it("reserves space for a carried edge crossing the viewport even when both endpoint nodes are outside it", async () => {
+    overrides = { 10: { edges: [{ lane: 9, parent_row: 150, parent_column: 0 }] } };
+    const { host, scrollTo } = await mountGraph();
+    await scrollTo(80 * geometry.row);
+    expect(host.querySelector("#graph-row-10")).toBeNull();
+    expect(host.querySelector("#graph-row-150")).toBeNull();
+    const handle = host.querySelector<HTMLElement>('[role="separator"][aria-label="Resize Graph column"]');
+    expect(handle?.getAttribute("aria-valuemin")).toBe("224");
+    expect(host.querySelector<HTMLElement>(".graph")?.style.getPropertyValue("--graph-w")).toBe("224px");
+  });
   const openSettings = async (host: HTMLElement) => {
     click(host.querySelector('button[aria-haspopup="dialog"][data-tip="Graph columns and branches"]') as Element);
     await flush();

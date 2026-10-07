@@ -1,4 +1,4 @@
-import type { QueryClient } from "@tanstack/solid-query";
+import { isCancelledError, type QueryClient } from "@tanstack/solid-query";
 import { createSignal, onCleanup } from "solid-js";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
@@ -17,16 +17,14 @@ type Layout = {
   total: number;
   rows: Map<number, GraphRow>;
   edges: Map<string, PlacedEdge>;
-  lanes: number;
   pages: Set<number>;
 };
 
-const emptyLayout = (): Layout => ({ total: 0, rows: new Map(), edges: new Map(), lanes: 1, pages: new Set() });
+const emptyLayout = (): Layout => ({ total: 0, rows: new Map(), edges: new Map(), pages: new Set() });
 
 function addPage(layout: Layout, page: number, result: GraphPage): void {
   const add = (placed: PlacedEdge) => {
     layout.edges.set(edgeKey(placed), placed);
-    layout.lanes = Math.max(layout.lanes, placed.column + 1, placed.edge.lane + 1);
   };
   result.carried.forEach(add);
   result.rows.forEach((row, offset) => {
@@ -51,13 +49,19 @@ export function createGraphStore(
   visibility: () => GraphVisibility = () => allBranches,
   selection: () => Selection | undefined = () => undefined,
 ) {
-  const fetchPage = (page: number): Promise<GraphPage> => {
+  const [pending, setPending] = createSignal(0);
+  const fetchPage = async (page: number): Promise<GraphPage> => {
     const chosen = visibility();
-    return queryClient.fetchQuery({
-      queryKey: repoKeys.graph(path, page, visibilityKey(chosen)),
-      queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE, chosen.kind === "all" ? undefined : chosen),
-      staleTime: Infinity,
-    });
+    setPending((count) => count + 1);
+    try {
+      return await queryClient.fetchQuery({
+        queryKey: repoKeys.graph(path, page, visibilityKey(chosen)),
+        queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE, chosen.kind === "all" ? undefined : chosen),
+        staleTime: Infinity,
+      });
+    } finally {
+      setPending((count) => count - 1);
+    }
   };
 
   const [layout, setLayout] = createSignal(emptyLayout(), { equals: false });
@@ -95,7 +99,7 @@ export function createGraphStore(
     } catch (failure) {
       if (disposed || startedIn !== epoch) return;
       requested.delete(page);
-      setError(asIpcError(failure));
+      if (!isCancelledError(failure)) setError(asIpcError(failure));
     }
   }
 
@@ -153,10 +157,12 @@ export function createGraphStore(
     }
     keep.forEach((page) => requested.add(page));
     const next = emptyLayout();
+    const attempted = new Set<number>();
     try {
       for (;;) {
         const pending = [...requested].filter((page) => !next.pages.has(page)).sort((left, right) => left - right);
         if (pending.length === 0) break;
+        pending.forEach((page) => attempted.add(page));
         const results = await Promise.all(pending.map((page) => fetchPage(page)));
         pending.forEach((page, position) => addPage(next, page, results[position] as GraphPage));
       }
@@ -165,7 +171,12 @@ export function createGraphStore(
       setLayout(next);
       setError(undefined);
     } catch (failure) {
-      if (!disposed) setError(asIpcError(failure));
+      if (!disposed) {
+        for (const page of attempted) {
+          if (!layout().pages.has(page)) requested.delete(page);
+        }
+        if (!isCancelledError(failure)) setError(asIpcError(failure));
+      }
     }
   }
 
@@ -174,6 +185,7 @@ export function createGraphStore(
       rebuildAgain = true;
       return rebuilding;
     }
+    setPending((count) => count + 1);
     rebuilding = (async () => {
       do {
         rebuildAgain = false;
@@ -182,6 +194,12 @@ export function createGraphStore(
     })().finally(() => {
       collectingPages = false;
       rebuilding = undefined;
+      if (!disposed) {
+        for (const page of requested) {
+          if (!layout().pages.has(page)) void loadPage(page);
+        }
+      }
+      setPending((count) => count - 1);
     });
     return rebuilding;
   }
@@ -190,8 +208,8 @@ export function createGraphStore(
     total: () => layout().total,
     rows: () => layout().rows,
     edges: () => layout().edges,
-    lanes: () => layout().lanes,
     error,
+    loading: () => pending() > 0,
     ensure,
     show,
     load,
