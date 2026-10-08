@@ -1,6 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot, createSignal, type ComponentProps } from "solid-js";
-import { render } from "solid-js/web";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -64,10 +63,9 @@ afterEach(async () => {
 });
 
 function mount(view: () => import("solid-js").JSX.Element): HTMLElement {
-  const host = document.createElement("div");
-  document.body.append(host);
-  dispose = render(view, host);
-  return host;
+  const mounted = mountWithApp(() => view());
+  dispose = mounted.dispose;
+  return mounted.host;
 }
 
 describe("cursors resolve to their tokens on real components (jsdom cascades var() but does not substitute it, so the declared token is asserted and resolved through the injected tokens.css)", () => {
