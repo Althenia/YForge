@@ -50,7 +50,7 @@ async function mount(undone: number[] = []) {
       if (cmd === "settings_load") return defaultSettings;
       if (cmd === "repo_aliases_list") return [];
       if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
-      if (cmd === "launch_path") return "/nowhere";
+      if (cmd === "launch_path") return null;
       if (cmd === "repo_open") throw { kind: "not_a_repository", message: "no", output: null };
       if (cmd === "activity_list" || cmd === "recents_list") return [];
       return null;
@@ -164,6 +164,24 @@ describe("toasts", () => {
     toast?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
     await tick(5100);
 
+    expect(host.querySelector(".toast")).toBeNull();
+  });
+
+  it("raises a done toast whose one action, Show, runs it and dismisses the toast (S48)", async () => {
+    const { host, app } = await mount();
+    const shown: string[] = [];
+    app.announce("Created pull request #12", () => shown.push("show"));
+    await tick();
+    const toast = host.querySelector<HTMLElement>(".toast") as HTMLElement;
+
+    expect(toast.getAttribute("role")).toBe("status");
+    expect(toast.querySelector(".toast-title")?.textContent).toBe("Created pull request #12");
+    const buttons = [...toast.querySelectorAll<HTMLButtonElement>("button")];
+    expect(buttons.map((button) => button.textContent?.trim() || button.getAttribute("aria-label"))).toEqual(["Show", "Dismiss"]);
+    buttons[0]?.click();
+    await tick();
+
+    expect(shown).toEqual(["show"]);
     expect(host.querySelector(".toast")).toBeNull();
   });
 

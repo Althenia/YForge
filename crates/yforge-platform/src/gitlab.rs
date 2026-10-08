@@ -118,6 +118,7 @@ impl MergeRequest {
             _ => None,
         };
         let pull = PullRequest {
+            draft: self.draft,
             number: self.iid,
             title: self.title,
             body: self.description.unwrap_or_default(),
@@ -283,10 +284,15 @@ impl Adapter for GitLab {
     }
 
     async fn create(&self, http: &Http, repo: &RepoRef, input: &CreatePull) -> Result<PullRequest> {
+        let title = if input.draft && !input.title.starts_with("Draft:") {
+            format!("Draft: {}", input.title)
+        } else {
+            input.title.clone()
+        };
         let body = json!({
             "source_branch": input.source_ref,
             "target_branch": input.target_ref,
-            "title": input.title,
+            "title": title,
             "description": input.body,
         });
         let value = http

@@ -14,13 +14,22 @@ export const PAGE_SIZE = 200;
 const PAGE_MARGIN = 1;
 
 type Layout = {
+  generation: number;
   total: number;
   rows: Map<number, GraphRow>;
   edges: Map<string, PlacedEdge>;
   pages: Set<number>;
 };
 
-const emptyLayout = (): Layout => ({ total: 0, rows: new Map(), edges: new Map(), pages: new Set() });
+const emptyLayout = (generation = 0): Layout => ({ generation, total: 0, rows: new Map(), edges: new Map(), pages: new Set() });
+
+export function cachedGraphRow(queryClient: QueryClient, path: string, sha: string): GraphRow | undefined {
+  for (const [, page] of queryClient.getQueriesData<GraphPage>({ queryKey: repoKeys.graphPages(path) })) {
+    const row = page?.rows.find((candidate) => candidate.sha === sha);
+    if (row !== undefined) return row;
+  }
+  return undefined;
+}
 
 function addPage(layout: Layout, page: number, result: GraphPage): void {
   const add = (placed: PlacedEdge) => {
@@ -50,18 +59,13 @@ export function createGraphStore(
   selection: () => Selection | undefined = () => undefined,
 ) {
   const [pending, setPending] = createSignal(0);
-  const fetchPage = async (page: number): Promise<GraphPage> => {
+  const fetchPage = (page: number): Promise<GraphPage> => {
     const chosen = visibility();
-    setPending((count) => count + 1);
-    try {
-      return await queryClient.fetchQuery({
-        queryKey: repoKeys.graph(path, page, visibilityKey(chosen)),
-        queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE, chosen.kind === "all" ? undefined : chosen),
-        staleTime: Infinity,
-      });
-    } finally {
-      setPending((count) => count - 1);
-    }
+    return queryClient.fetchQuery({
+      queryKey: repoKeys.graph(path, page, visibilityKey(chosen)),
+      queryFn: () => client.repoGraph(path, page * PAGE_SIZE, PAGE_SIZE, chosen.kind === "all" ? undefined : chosen),
+      staleTime: Infinity,
+    });
   };
 
   const [layout, setLayout] = createSignal(emptyLayout(), { equals: false });
@@ -78,6 +82,15 @@ export function createGraphStore(
   });
 
   async function loadPage(page: number): Promise<void> {
+    setPending((count) => count + 1);
+    try {
+      await applyPage(page);
+    } finally {
+      setPending((count) => count - 1);
+    }
+  }
+
+  async function applyPage(page: number): Promise<void> {
     const startedIn = epoch;
     const cached = queryClient.getQueryData<GraphPage>(repoKeys.graph(path, page, visibilityKey(visibility())));
     if (cached !== undefined) {
@@ -156,7 +169,7 @@ export function createGraphStore(
       if (!keep.has(page)) requested.delete(page);
     }
     keep.forEach((page) => requested.add(page));
-    const next = emptyLayout();
+    const next = emptyLayout(epoch);
     const attempted = new Set<number>();
     try {
       for (;;) {
@@ -205,6 +218,7 @@ export function createGraphStore(
   }
 
   return {
+    generation: () => layout().generation,
     total: () => layout().total,
     rows: () => layout().rows,
     edges: () => layout().edges,

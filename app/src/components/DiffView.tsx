@@ -1,17 +1,20 @@
-import { For, Show, type JSX } from "solid-js";
+import { For, Index, Show, type JSX } from "solid-js";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import { createDiffController, type DiffController } from "../state/diffController";
-import { createExternalTools, diffToolSource } from "../state/externalTools";
+import { COMPARISON_TOOL_REASON, createExternalTools, diffToolSource } from "../state/externalTools";
 import { diffModes, diffNotice, hunkHeader, hunkLabel, targetMode, targetSource, type DiffMode, type DiffTarget } from "../state/diffModel";
 import type { DiffPrefs } from "../state/diffPrefs";
 import { requestFileHistory } from "../state/fileHistoryRequest";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { widestLine, type DiffRow } from "../state/diffRows";
 import { selectionLabel } from "../state/lineSelection";
+import { createPendingIndicator } from "../state/pending";
 import type { RepoSession } from "../state/repoSession";
+import { createViewSwap } from "../state/viewSwap";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { GapRow, HunkHead, NoteRow, SplitRow, UnifiedLine } from "./DiffLines";
 import { Icon } from "./Icon";
+import { PendingLine } from "./PendingLine";
 import { Switch } from "./Switch";
 import { tip } from "./Tooltip";
 import { ToolButton } from "./ToolButton";
@@ -82,9 +85,30 @@ export function createDiffStep(diff: DiffController, mode: () => DiffMode, conta
   };
 }
 
+const SKELETON_LINES = ["38%", "62%", "54%", "71%", "45%", "66%", "30%", "58%"];
+
+function DiffSkeleton() {
+  return (
+    <div class="diff-skeleton" aria-hidden="true">
+      <Index each={SKELETON_LINES}>
+        {(width) => (
+          <div class="dline">
+            <span class="gut">
+              <span class="skeleton skeleton-number" />
+            </span>
+            <span class="skeleton" style={{ width: width() }} />
+          </div>
+        )}
+      </Index>
+    </div>
+  );
+}
+
 export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode: DiffMode; hunkActions?: HunkActionsSlot }) {
   const diff = props.diff;
   let body: HTMLDivElement | undefined;
+  const waiting = createPendingIndicator(() => diff.shown() === undefined && diff.failure() === undefined);
+  createViewSwap(() => body, () => diff.shownKey() ?? (waiting() ? "skeleton" : undefined));
 
   const onHunkKey = (event: KeyboardEvent, index: number) => {
     if (event.metaKey || event.ctrlKey || event.altKey || event.target !== event.currentTarget) return;
@@ -107,7 +131,14 @@ export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode
   return (
     <div class="dbody" ref={body} style={{ "--code-ch": String(widestLine(diff.shown()?.hunks ?? [])) }}>
       <Show when={diff.failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
-      <Show when={diff.shown()}>
+      <Show
+        when={diff.shown()}
+        fallback={
+          <Show when={waiting()}>
+            <DiffSkeleton />
+          </Show>
+        }
+      >
         {(current) => (
           <Show when={diffNotice(current(), props.target)} fallback={
             <Show
@@ -179,6 +210,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
 
   return (
     <section class="panel dpanel" aria-label="Diff" aria-busy={diff.diff.isFetching} ref={panel}>
+      <PendingLine pending={diff.diff.isFetching} label="Loading diff" />
       <div class="dhead">
         <nav class="crumbs" aria-label="Breadcrumb">
           <button type="button" class="link" onClick={props.onClose}>
@@ -277,8 +309,8 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
           <ToolButton
             action="Open in external diff tool"
             icon="diff"
-            reason={tools.diffReason()}
-            onRun={() => void tools.openDiff(props.target.file, diffToolSource(props.target))}
+            reason={props.target.source === "range" ? COMPARISON_TOOL_REASON : tools.diffReason()}
+            onRun={() => props.target.source !== "range" && void tools.openDiff(props.target.file, diffToolSource(props.target))}
           />
         </span>
       </div>

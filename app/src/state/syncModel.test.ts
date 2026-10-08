@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { authFailure, authFix, AUTH_HINT, DEFAULT_PULL_MODE, DIVERGED_PUSH_REASON, divergedPushDetail, fetchMenu, freshness, FRESH_SECONDS, isDiverged, OFFLINE_REASON, pullMenu, pullModes, runningText, syncMenu } from "./syncModel";
 import type { MenuEntry } from "./refMenu";
+import { fetchResult, nextStepOf, pullResult, refsKey } from "./syncModel";
 
 const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
   ({
@@ -165,7 +166,7 @@ describe("authentication failure copy", () => {
 });
 
 describe("running sync text", () => {
-  const running = (phase: string | undefined, percent: number | null) => ({ kind: "running" as const, id: "op", label: "Fetching", phase, percent });
+  const running = (phase: string | undefined, percent: number | null) => ({ kind: "running" as const, id: "op", label: "Fetching", phase, percent, cancellable: true });
 
   it("shows the label alone before any progress and does not repeat it when the phase starts with it", () => {
     expect(runningText(running(undefined, null))).toBe("Fetching");
@@ -189,5 +190,51 @@ describe("sync menu icons", () => {
       ["pull:rebase", "pull"],
       ["push", "push"],
     ]);
+  });
+});
+
+describe("operation results (S73)", () => {
+  const tracking = (ahead: number, behind: number, overrides: Partial<RepoSnapshot> = {}) => snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead, behind } }, ...overrides });
+
+  it("names the commits a fetch brought to the upstream and offers Pull", () => {
+    expect(fetchResult(tracking(0, 2), tracking(0, 3), false)).toEqual({ outcome: "1 new commit on origin/main", next: "pull" });
+    expect(fetchResult(tracking(1, 0), tracking(1, 4), false)).toEqual({ outcome: "4 new commits on origin/main", next: "pull" });
+  });
+
+  it("says a fetch brought nothing new, and still offers Pull while the branch is behind", () => {
+    expect(fetchResult(tracking(0, 2), tracking(0, 2), false)).toEqual({ outcome: "No new commits on origin/main", next: "pull" });
+    expect(fetchResult(tracking(2, 0), tracking(2, 0), false)).toEqual({ outcome: "No new commits on origin/main", next: undefined });
+  });
+
+  it("counts every behind commit as new when the branch or its upstream changed during the fetch", () => {
+    expect(fetchResult(tracking(0, 2, { head: { kind: "branch", name: "other", sha: "b" } }), tracking(0, 2), false)).toEqual({ outcome: "2 new commits on origin/main", next: "pull" });
+  });
+
+  it("reports fetching all remotes when the checked-out branch has no upstream", () => {
+    expect(fetchResult(snapshot({ upstream: null }), snapshot({ upstream: null }), false)).toEqual({ outcome: "Fetched all remotes", next: undefined });
+    expect(fetchResult(snapshot({ upstream: null }), snapshot({ upstream: null }), true)).toEqual({ outcome: "Fetched and pruned all remotes", next: undefined });
+    expect(fetchResult(tracking(0, 0), snapshot({ head: { kind: "detached", sha: "c" } }), false)).toEqual({ outcome: "Fetched all remotes", next: undefined });
+  });
+
+  it("states a pull outcome and offers Push while local commits remain, and leaves conflicts to the operation banner", () => {
+    expect(pullResult("updated", tracking(1, 0))).toEqual({ outcome: "Updated main from origin/main", next: "push" });
+    expect(pullResult("up_to_date", tracking(0, 0))).toEqual({ outcome: "main is up to date with origin/main", next: undefined });
+    expect(pullResult("conflicts", tracking(1, 1))).toBeUndefined();
+  });
+
+  it("offers Pull before Push, and nothing without a tracked branch", () => {
+    expect(nextStepOf(tracking(1, 2))).toBe("pull");
+    expect(nextStepOf(tracking(3, 0))).toBe("push");
+    expect(nextStepOf(tracking(0, 0))).toBeUndefined();
+    expect(nextStepOf(snapshot({ upstream: null }))).toBeUndefined();
+    expect(nextStepOf(tracking(1, 1, { head: { kind: "detached", sha: "c" } }))).toBeUndefined();
+  });
+
+  it("keys the repository state on HEAD, the upstream counts and the operation, not on working changes", () => {
+    const base = tracking(0, 1);
+    expect(refsKey(base)).toBe(refsKey({ ...base, counts: { modified: 9, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as RepoSnapshot));
+    expect(refsKey(base)).not.toBe(refsKey(tracking(0, 0)));
+    expect(refsKey(base)).not.toBe(refsKey(tracking(0, 1, { head: { kind: "branch", name: "main", sha: "z" } })));
+    expect(refsKey(base)).not.toBe(refsKey(tracking(0, 1, { operation: "merge" })));
   });
 });

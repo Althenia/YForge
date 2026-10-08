@@ -1,3 +1,4 @@
+import type { AiFeature } from "../ipc/bindings/AiFeature";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
@@ -6,9 +7,10 @@ import type { PrDetail } from "../ipc/bindings/PrDetail";
 import type { PullRequest } from "../ipc/bindings/PullRequest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { defaultSettings } from "../state/settingsModel";
+import { Toasts } from "./Toasts";
 import { TooltipHost } from "./Tooltip";
 import { Workspace } from "./Workspace";
-import { buttonNamed, choose, flush, mountWithApp, stubLayout, type } from "./testkit";
+import { aiFeatureList, buttonNamed, choose, flush, mountWithApp, stubLayout, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
@@ -63,6 +65,7 @@ const connection: PlatformConnection = { id: "c1", kind: "github", host: "github
 const matched = { connection, remote: "origin", repo: { owner: "team", repo: "app" } };
 
 const pull = (number: number, overrides: Partial<PullRequest> = {}): PullRequest => ({
+  draft: false,
   number,
   title: `Pull ${number}`,
   body: "",
@@ -85,6 +88,7 @@ type Backend = {
   paging?: { total: number | null; capped: boolean };
   detail?: (number: number) => PrDetail;
   respond?: (call: Call) => unknown;
+  shape?: RepoSnapshot;
 };
 
 async function mountWorkspace(backend: Backend = {}) {
@@ -99,7 +103,7 @@ async function mountWorkspace(backend: Backend = {}) {
       if (cmd === "repo_aliases_list") return [];
       if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
       if (cmd === "launch_path") return "/nowhere";
-      if (cmd === "repo_open") return snapshot;
+      if (cmd === "repo_open") return backend.shape ?? snapshot;
       if (cmd === "repo_graph") return { rows: [], carried: [], total: 0 };
       if (cmd === "recents_list") return [];
       if (cmd === "activity_list") return [];
@@ -118,8 +122,9 @@ async function mountWorkspace(backend: Backend = {}) {
   );
   const mounted = mountWithApp(() => (
     <>
-      <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />
+      <Workspace view={{ status: "ready", path: "/r", snapshot: backend.shape ?? snapshot, info }} geometry={geometry} />
       <TooltipHost />
+      <Toasts onUndo={() => undefined} />
     </>
   ));
   dispose = mounted.dispose;
@@ -314,81 +319,278 @@ describe("pull request detail", () => {
   });
 });
 
-describe("create pull request", () => {
-  const openDialog = async (backend: Backend = {}) => {
-    const mounted = await mountWorkspace({ pulls: () => [pull(7)], ...backend });
+describe("compose pull request (S77)", () => {
+  const comparison = { merge_base: "b".repeat(40), source: "feature/retry", target: "origin/main", commits: [{ sha: "c".repeat(40), summary: "Add retry helper", author: "yui", timestamp: 1_700_000_000 }], files: 3, additions: 58, deletions: 5 };
+  const template = "## Summary\n\n## Testing\n";
+  const composeBackend = (respond?: (call: Call) => unknown) => (call: Call) => {
+    const custom = respond?.(call);
+    if (custom !== undefined) return custom;
+    if (call.cmd === "branch_comparison") return comparison;
+    if (call.cmd === "merge_prediction") return { merge_base: comparison.merge_base, conflicted_files: [] };
+    if (call.cmd === "pull_request_template") return template;
+    return undefined;
+  };
+  const compose = () => document.querySelector<HTMLElement>('section[aria-label="Create pull request"]');
+  const openCompose = async (backend: Backend = {}) => {
+    const mounted = await mountWorkspace({ pulls: () => [pull(7)], ...backend, respond: composeBackend(backend.respond) });
     section(mounted.host)?.querySelector<HTMLElement>('[aria-label="New pull request"]')?.click();
-    await flush(60);
+    await flush(80);
     return mounted;
   };
-  const control = (label: string) => dialog()?.querySelector<HTMLInputElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`) as HTMLInputElement | null;
-  const chosen = (label: string) => dialog()?.querySelector(`button[aria-label="${label}"] .select-value`)?.textContent;
+  const control = (label: string) => compose()?.querySelector<HTMLInputElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`) as HTMLInputElement | null;
+  const chosen = (label: string) => compose()?.querySelector(`button[aria-label="${label}"] .select-value`)?.textContent;
+  const create = () => buttonNamed(compose() as HTMLElement, "Create pull request") as HTMLButtonElement;
+  const reason = () => compose()?.querySelector(".compose-reason")?.textContent;
   const optionsOf = async (label: string) => {
-    dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    compose()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
     await flush();
     const options = [...document.querySelectorAll<HTMLElement>('[role="option"]')].map((option) => option.textContent?.replace(/\s+/g, " ").trim());
-    dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
+    compose()?.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)?.click();
     await flush();
     return options;
   };
 
-  it("defaults the source to the current branch, the target to the remote's main, and the title to the HEAD subject", async () => {
-    await openDialog();
+  it("opens over the graph with the platform line, defaults, the comparison and its commits, the conflict line, the template, and Draft off", async () => {
+    const { host, calls } = await openCompose();
 
-    expect(dialog()?.textContent).toContain("team/app");
+    expect(compose()?.textContent).toContain("team/app");
     expect(chosen("Source branch")).toBe("feature/retry");
     expect(chosen("Target branch")).toBe("main");
-    expect(control("Title")?.value).toBe("Add retry helper");
     expect(await optionsOf("Target branch")).toEqual(["develop", "feature/retry", "main"]);
+    expect(control("Title")?.value).toBe("Add retry helper");
+    expect(compose()?.querySelector(".compare-summary")?.textContent).toBe("1 commit · 3 files · +58 −5");
+    expect(compose()?.querySelector(".compare-commits")?.textContent).toContain("Add retry helper");
+    expect(compose()?.querySelector(".compose-conflict")?.textContent).toBe("No conflicts with origin/main");
+    expect(control("Description")?.value).toBe(template);
+    expect(compose()?.querySelector('button[role="switch"][aria-label="Draft"]')?.getAttribute("aria-checked")).toBe("false");
+    expect(calls.find((call) => call.cmd === "branch_comparison")?.args).toEqual({ path: "/r", source: "feature/retry", target: "origin/main" });
+    expect(calls.find((call) => call.cmd === "merge_prediction")?.args).toMatchObject({ path: "/r", ours: "origin/main", theirs: "feature/retry" });
+    expect(host.querySelector(".graph")?.classList.contains("covered")).toBe(true);
+    expect(create().getAttribute("aria-disabled")).toBeNull();
   });
 
-  it("requires a title and a different target before it calls the platform", async () => {
-    const { calls } = await openDialog();
-    type(control("Title"), " ");
-    await choose(dialog() as HTMLElement, "Target branch", "feature/retry");
-    buttonNamed(dialog() as HTMLElement, "Create pull request")?.click();
-    await flush();
+  it("states a predicted conflict between the source and the target", async () => {
+    await openCompose({ respond: (call) => (call.cmd === "merge_prediction" ? { merge_base: comparison.merge_base, conflicted_files: ["a.txt"] } : undefined) });
 
-    expect(dialog()?.textContent).toContain("Enter a title");
-    expect(dialog()?.textContent).toContain("Choose a different target branch");
+    expect(compose()?.querySelector(".compose-conflict")?.textContent).toContain("Conflicts with origin/main · 1 file");
+  });
+
+  it("disables Create with a visible reason while the comparison is read or the title is empty, and requires a different target", async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const { calls } = await openCompose({ respond: (call) => (call.cmd === "branch_comparison" ? new Promise((resolve) => (release = resolve)) : undefined) });
+
+    expect(create().getAttribute("aria-disabled")).toBe("true");
+    expect(reason()).toBe("Reading the comparison…");
+    create().click();
+    await flush();
+    expect(calls.some((call) => call.cmd === "platform_pr_create")).toBe(false);
+
+    release(comparison);
+    await flush(40);
+    expect(create().getAttribute("aria-disabled")).toBeNull();
+    type(control("Title"), " ");
+    await flush();
+    expect(reason()).toBe("Enter a title");
+    type(control("Title"), "Add retry helper");
+    await choose(compose() as HTMLElement, "Target branch", "feature/retry");
+    await flush(40);
+    expect(reason()).toBe("Choose a different target branch");
+    create().click();
+    await flush();
     expect(calls.some((call) => call.cmd === "platform_pr_create")).toBe(false);
   });
 
-  it("creates the pull request, closes the dialog, refreshes the list, and shows a toast with the web URL", async () => {
+  it("pushes an unpushed source first, showing both steps, creates a draft, returns to the graph with its badge, and toasts with Show", async () => {
+    const shape: RepoSnapshot = { ...snapshot, head: { kind: "branch", name: "feature/new", sha: "a".repeat(40) }, upstream: null, branches: ["feature/new", "feature/retry", "main"] };
+    let releasePush: (value: unknown) => void = () => undefined;
+    let releaseCreate: (value: unknown) => void = () => undefined;
     let created = false;
-    const { host, calls } = await openDialog({
-      pulls: () => (created ? [pull(7), pull(9, { title: "Add retry helper" })] : [pull(7)]),
+    const { host, calls } = await openCompose({
+      shape,
+      pulls: () => (created ? [pull(7), pull(12, { source_ref: "feature/new", draft: true })] : [pull(7)]),
       respond: (call) => {
-        if (call.cmd !== "platform_pr_create") return undefined;
-        created = true;
-        return pull(9, { title: "Add retry helper" });
+        if (call.cmd === "publish") return new Promise((resolve) => (releasePush = resolve));
+        if (call.cmd === "platform_pr_create") return new Promise((resolve) => (releaseCreate = resolve));
+        if (call.cmd === "branch_comparison") return { ...comparison, source: "feature/new" };
+        return undefined;
       },
     });
-    type(control("Description"), "Retries with backoff.");
-    buttonNamed(dialog() as HTMLElement, "Create pull request")?.click();
-    await flush(80);
 
-    expect(calls.find((call) => call.cmd === "platform_pr_create")?.args).toEqual({
-      path: "/r",
-      input: { source_ref: "feature/retry", target_ref: "main", title: "Add retry helper", body: "Retries with backoff." },
-    });
-    expect(dialog()).toBeNull();
-    expect(host.querySelector(".toast")?.textContent).toContain("Created pull request #9: https://github.com/team/app/pull/9");
-    expect(row(host, 9)).not.toBeNull();
+    expect(compose()?.textContent).toContain("feature/new is not on origin yet");
+    compose()?.querySelector<HTMLButtonElement>('button[role="switch"][aria-label="Draft"]')?.click();
+    create().click();
+    await flush();
+    expect(compose()?.querySelector(".compose-step")?.textContent).toBe("Pushing feature/new to origin…");
+    expect(calls.find((call) => call.cmd === "publish")?.args).toMatchObject({ path: "/r", remote: "origin", branch: "feature/new" });
+    expect(calls.some((call) => call.cmd === "platform_pr_create")).toBe(false);
+
+    releasePush(null);
+    await flush(40);
+    expect(compose()?.querySelector(".compose-step")?.textContent).toBe("Creating pull request…");
+    expect(calls.find((call) => call.cmd === "platform_pr_create")?.args).toEqual({ path: "/r", input: { source_ref: "feature/new", target_ref: "main", title: "Add retry helper", body: template, draft: true } });
+
+    created = true;
+    releaseCreate(pull(12, { source_ref: "feature/new", draft: true }));
+    await flush(80);
+    expect(compose()).toBeNull();
+    expect(host.querySelector('[data-nav="branch:feature/new"] .pr-badge')?.textContent).toBe("#12Draft");
+    const toast = host.querySelector<HTMLElement>(".toast");
+    expect(toast?.querySelector(".toast-title")?.textContent).toBe("Created pull request #12");
+    buttonNamed(toast as HTMLElement, "Show")?.click();
+    await flush(60);
+    expect(inspector(host)?.textContent).toContain("https://github.com/team/app/pull/12");
   });
 
-  it("keeps the dialog open and shows the platform's message when creation is refused", async () => {
-    const { calls } = await openDialog({
+  it("keeps the view open and shows the platform's message when creation is refused", async () => {
+    const { calls } = await openCompose({
       respond: (call) => {
         if (call.cmd === "platform_pr_create") throw { kind: "api_error", message: "github.com answered with HTTP 422: A pull request already exists", output: null };
         return undefined;
       },
     });
-    buttonNamed(dialog() as HTMLElement, "Create pull request")?.click();
+    create().click();
     await flush(60);
 
     expect(calls.some((call) => call.cmd === "platform_pr_create")).toBe(true);
-    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toContain("HTTP 422: A pull request already exists");
+    expect(compose()?.querySelector('[role="alert"]')?.textContent).toContain("HTTP 422: A pull request already exists");
+  });
+
+  it("closes on Cancel and returns to the graph without calling the platform", async () => {
+    const { host, calls } = await openCompose();
+    buttonNamed(compose() as HTMLElement, "Cancel")?.click();
+    await flush();
+
+    expect(compose()).toBeNull();
+    expect(host.querySelector(".graph")?.classList.contains("covered")).toBe(false);
+    expect(calls.some((call) => call.cmd === "platform_pr_create")).toBe(false);
+  });
+
+  it("opens from the conflict popover with the branch and the conflicting target", async () => {
+    const { host } = await mountWorkspace({
+      pulls: () => [pull(7, { source_ref: "feature/retry", target_ref: "develop" })],
+      respond: composeBackend((call) => (call.cmd === "merge_prediction" ? { merge_base: comparison.merge_base, conflicted_files: ["a.txt"] } : undefined)),
+    });
+    await vi.waitFor(() => expect(host.querySelector(".chips .conflict-chip")).not.toBeNull());
+    host.querySelector<HTMLButtonElement>(".chips .conflict-chip")?.click();
+    await flush();
+    buttonNamed(document.querySelector('[aria-label="Predicted conflict"]') as HTMLElement, "Compose pull request anyway")?.click();
+    await flush(80);
+
+    expect(chosen("Source branch")).toBe("feature/retry");
+    expect(chosen("Target branch")).toBe("develop");
+  });
+});
+
+describe("AI pull request drafts (S78)", () => {
+  const comparison = { merge_base: "b".repeat(40), source: "feature/retry", target: "origin/main", commits: [{ sha: "c".repeat(40), summary: "Add retry helper", author: "yui", timestamp: 1_700_000_000 }], files: 3, additions: 58, deletions: 5 };
+  const template = "## Summary\n\n## Testing\n";
+  const sent = { commit_messages: 2, files: 3, additions: 58, deletions: 5, provider_name: "Work account", excluded: [], truncated: ["Cargo.lock"] };
+  const aiBackend = (respond?: (call: Call) => unknown, features: AiFeature[] = ["compose_pull_request"]) => (call: Call) => {
+    const custom = respond?.(call);
+    if (custom !== undefined) return custom;
+    if (call.cmd === "branch_comparison") return comparison;
+    if (call.cmd === "merge_prediction") return { merge_base: comparison.merge_base, conflicted_files: [] };
+    if (call.cmd === "pull_request_template") return template;
+    if (call.cmd === "ai_feature_config_list") return aiFeatureList(features);
+    if (call.cmd === "ai_pull_request_context") return sent;
+    return undefined;
+  };
+  const compose = () => document.querySelector<HTMLElement>('section[aria-label="Create pull request"]') as HTMLElement;
+  const openCompose = async (respond?: (call: Call) => unknown, features?: AiFeature[]) => {
+    const mounted = await mountWorkspace({ pulls: () => [pull(7)], respond: aiBackend(respond, features) });
+    section(mounted.host)?.querySelector<HTMLElement>('[aria-label="New pull request"]')?.click();
+    await flush(80);
+    return mounted;
+  };
+  const generate = () => compose().querySelector<HTMLButtonElement>(".compose-ai .ai-btn");
+  const ai = () => compose().querySelector<HTMLElement>(".compose-ai") as HTMLElement;
+  const field = (label: string) => compose().querySelector<HTMLInputElement>(`input[aria-label="${label}"], textarea[aria-label="${label}"]`) as HTMLInputElement;
+  const create = () => buttonNamed(compose(), "Create pull request") as HTMLButtonElement;
+
+  it("states what Generate sends and to whom, never runs on its own, and fills an editable draft with Restore my text", async () => {
+    let release: (value: unknown) => void = () => undefined;
+    const { calls } = await openCompose((call) => (call.cmd === "ai_compose_pull_request" ? new Promise((resolve) => (release = resolve)) : undefined));
+
+    await vi.waitFor(() => expect(ai().textContent).toContain("Generate sends 2 commit messages and the diff of 3 files (+58 −5) to Work account"));
+    expect(ai().textContent).toContain("Cut to fit the size limit: Cargo.lock");
+    expect(calls.find((call) => call.cmd === "ai_pull_request_context")?.args).toEqual({ path: "/r", source: "feature/retry", target: "origin/main" });
+    expect(calls.some((call) => call.cmd === "ai_compose_pull_request")).toBe(false);
+    expect(generate()?.getAttribute("aria-label")).toBe("Generate a title and description from 1 commit and the diff of feature/retry");
+    expect(generate()?.getAttribute("aria-disabled")).toBeNull();
+
+    generate()?.click();
+    await flush();
+    expect(calls.find((call) => call.cmd === "ai_compose_pull_request")?.args).toMatchObject({ path: "/r", source: "feature/retry", target: "origin/main", template });
+    expect(field("Title").disabled).toBe(true);
+    expect(field("Description").disabled).toBe(true);
+    expect(compose().querySelector(".compose-fields")?.getAttribute("aria-busy")).toBe("true");
+    expect(compose().querySelector(".compose-fields")?.textContent).toContain("Generation in progress; fields unlock when it completes.");
+    expect(buttonNamed(ai(), "Cancel generation")).toBeDefined();
+    expect(create().getAttribute("aria-disabled")).toBe("true");
+
+    release({ title: "Retry login with backoff", description: "## Summary\nRetries with backoff.\n\n## Testing\nUnit tests.\n", title_trimmed: false, sent });
+    await flush(40);
+    expect(field("Title").value).toBe("Retry login with backoff");
+    expect(field("Description").value).toBe("## Summary\nRetries with backoff.\n\n## Testing\nUnit tests.\n");
+    expect(field("Title").disabled).toBe(false);
+    type(field("Title"), "Retry login with backoff, edited");
+    expect(field("Title").value).toBe("Retry login with backoff, edited");
+
+    buttonNamed(compose(), "Restore my text")?.click();
+    await flush();
+    expect(field("Title").value).toBe("Add retry helper");
+    expect(field("Description").value).toBe(template);
+    expect(calls.some((call) => call.cmd === "publish" || call.cmd === "platform_pr_create")).toBe(false);
+  });
+
+  it("cancels a running draft and keeps the text", async () => {
+    const { calls } = await openCompose((call) => {
+      if (call.cmd === "ai_compose_pull_request") return new Promise((_resolve, reject) => setTimeout(() => reject({ kind: "cancelled", message: "Cancelled", output: null }), 30));
+      return undefined;
+    });
+    await vi.waitFor(() => expect(generate()?.getAttribute("aria-disabled")).toBeNull());
+    generate()?.click();
+    await flush();
+    buttonNamed(ai(), "Cancel generation")?.click();
+    await flush(60);
+
+    expect(calls.some((call) => call.cmd === "operation_cancel")).toBe(true);
+    expect(field("Title").value).toBe("Add retry helper");
+    expect(field("Title").disabled).toBe(false);
+    expect(compose().querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("states a failure and that nothing changed, and offers Generate again and Open AI settings", async () => {
+    let failing = true;
+    const { app } = await openCompose((call) => {
+      if (call.cmd !== "ai_compose_pull_request") return undefined;
+      if (failing) throw { kind: "ai_provider_unavailable", message: "connection refused", output: null };
+      return { title: "Retry login", description: "## Summary\n", title_trimmed: false, sent };
+    });
+    const opened = vi.spyOn(app, "openSettings");
+    await vi.waitFor(() => expect(generate()?.getAttribute("aria-disabled")).toBeNull());
+    generate()?.click();
+    await flush(40);
+
+    const alert = compose().querySelector<HTMLElement>('[role="alert"]') as HTMLElement;
+    expect(alert.textContent).toContain("The provider could not be reached. Nothing was changed.");
+    expect(field("Title").value).toBe("Add retry helper");
+    buttonNamed(alert, "Open AI settings")?.click();
+    expect(opened).toHaveBeenCalledWith("ai");
+
+    failing = false;
+    expect(generate()?.getAttribute("aria-disabled")).toBeNull();
+    generate()?.click();
+    await flush(40);
+    expect(field("Title").value).toBe("Retry login");
+    expect(compose().querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("offers no Generate while the feature is not set up in Settings → AI", async () => {
+    const { calls } = await openCompose(undefined, []);
+
+    expect(generate()).toBeNull();
+    expect(calls.some((call) => call.cmd === "ai_pull_request_context")).toBe(false);
   });
 });
 
@@ -459,5 +661,70 @@ describe("merge pull request", () => {
     await flush();
 
     expect(dialog()?.textContent).toContain("GitHub reports conflicts or a blocked merge");
+  });
+});
+
+describe("pull request badges (S75)", () => {
+  const refsRow = { sha: "a".repeat(40), parents: [], summary: "Add retry helper", body: "", author: null, time: 1_700_000_000, refs: [{ kind: "local_branch", name: "feature/retry", is_head: true }, { kind: "remote_branch", name: "origin/feature/retry", is_head: false }, { kind: "local_branch", name: "main", is_head: false }], kind: "commit", column: 0, edges: [] };
+  const withRows = (respond?: (call: Call) => unknown) => (call: Call) => (call.cmd === "repo_graph" ? { rows: [refsRow], carried: [], total: 1 } : respond?.(call));
+  const badge = (host: ParentNode, selector: string) => host.querySelector<HTMLButtonElement>(`${selector} .pr-badge`);
+
+  it("badges a branch that heads an open pull request in the sidebar and on its graph label, naming it with its checks, and opens the inspector", async () => {
+    const { host, calls } = await mountWorkspace({
+      pulls: () => [pull(7, { title: "Add retry helper", source_ref: "feature/retry" })],
+      respond: withRows((call) => (call.cmd === "platform_pr_checks" ? { passing: 2, failing: 0, pending: 1, capped: false } : undefined)),
+    });
+    const name = "Pull request #7: Add retry helper · Open · feature/retry → main · checks: 2 passing, 1 pending";
+
+    const local = badge(host, '[data-nav="branch:feature/retry"]');
+    expect(local?.tagName).toBe("BUTTON");
+    expect(local?.textContent).toBe("#7");
+    expect(local?.querySelector("svg")).not.toBeNull();
+    await vi.waitFor(() => expect(local?.getAttribute("aria-label")).toBe(name));
+    expect(local?.getAttribute("data-tip")).toBe(name);
+    expect(badge(host, '[data-nav="remote:origin/feature/retry"]')?.textContent).toBe("#7");
+    expect(badge(host, "#graph-row-0 .refcell")?.textContent).toBe("#7");
+    expect(calls.filter((call) => call.cmd === "platform_pr_checks").every((call) => call.args.number === 7)).toBe(true);
+
+    local?.click();
+    await flush(40);
+    expect(inspector(host)?.textContent).toContain("#7");
+  });
+
+  it("adds the word Draft for a draft, and shows no badge for a merged or closed pull request", async () => {
+    const { host } = await mountWorkspace({
+      pulls: () => [pull(7, { source_ref: "feature/retry", state: "merged" }), pull(8, { source_ref: "main", draft: true }), pull(9, { source_ref: "develop", state: "closed" })],
+      respond: withRows(),
+    });
+
+    expect(badge(host, '[data-nav="branch:main"]')?.textContent).toBe("#8Draft");
+    expect(badge(host, '[data-nav="branch:feature/retry"]')).toBeNull();
+    expect(badge(host, '[data-nav="remote:origin/develop"]')).toBeNull();
+  });
+
+  it("shows no badge and calls nothing on the network without a platform connection", async () => {
+    const { host, calls } = await mountWorkspace({ match: null, respond: withRows() });
+
+    expect(host.querySelector(".pr-badge")).toBeNull();
+    expect(calls.some((call) => call.cmd.startsWith("platform_pr"))).toBe(false);
+  });
+});
+
+describe("conflict prediction for pull requests (S76)", () => {
+  it("checks an open pull request's head against its target, marks both branches, and runs again after a fetch", async () => {
+    const { host, calls } = await mountWorkspace({
+      pulls: () => [pull(7, { source_ref: "feature/retry", target_ref: "main" })],
+      respond: (call) => (call.cmd === "merge_prediction" ? { merge_base: "b".repeat(40), conflicted_files: ["a.txt", "b.txt"] } : undefined),
+    });
+    const predictions = () => calls.filter((call) => call.cmd === "merge_prediction");
+
+    await vi.waitFor(() => expect(host.querySelector('[data-nav="remote:origin/feature/retry"] .conflict-mark')).not.toBeNull());
+    expect(predictions()[0]?.args).toMatchObject({ path: "/r", ours: "origin/main", theirs: "origin/feature/retry" });
+    expect(host.querySelector('[data-nav="branch:feature/retry"]')?.getAttribute("aria-label")).toContain("conflict with origin/main");
+    expect(host.querySelector(".chips .conflict-chip")?.textContent).toContain("Conflicts with origin/main · 2 files");
+
+    const before = predictions().length;
+    [...host.querySelectorAll<HTMLButtonElement>(".chips button")].find((entry) => /Fetch now/.test(entry.getAttribute("aria-label") ?? ""))?.click();
+    await vi.waitFor(() => expect(predictions().length).toBeGreaterThan(before));
   });
 });

@@ -1,7 +1,8 @@
 import { keepPreviousData } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createEffect, createSignal, For, on, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
+import { cachedGraphRow } from "../graph/graphStore";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
 import type { IconName } from "../iconNames";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
@@ -18,6 +19,8 @@ import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
 import { createIssueChips } from "../state/jiraIssues";
+import { createPendingIndicator } from "../state/pending";
+import { createViewSwap } from "../state/viewSwap";
 import { createFolderState, useFileListMode } from "../state/fileList";
 import { requestFileHistory } from "../state/fileHistoryRequest";
 import { listRows, withUnchanged, type ListRow } from "../state/fileTree";
@@ -27,6 +30,7 @@ import { IssueChips } from "./IssueChip";
 import { FileListTools, FileRow, FolderRow, listAttrs, UnchangedRow } from "./FileRow";
 import { Icon } from "./Icon";
 import { MessageForm } from "./MessageForm";
+import { PendingLine } from "./PendingLine";
 import { tip } from "./Tooltip";
 import { ToolButton } from "./ToolButton";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
@@ -112,6 +116,44 @@ const OPERATION_REASON = "Finish the operation in progress first";
 
 type CommitEntry = { path: string; item: CommitFile | undefined };
 
+type CommitHeader = { sha: string; summary: string; parents: readonly string[] };
+
+const META_WIDTHS = ["55%", "70%", "62%", "48%", "35%"];
+const FILE_WIDTHS = ["64%", "46%", "72%", "52%"];
+
+function CommitSkeleton() {
+  return (
+    <div class="ilist commit-body" aria-hidden="true">
+      <div class="cmeta">
+        <Index each={META_WIDTHS}>
+          {(width) => (
+            <div class="mrow">
+              <span class="k">
+                <span class="skeleton skeleton-key" />
+              </span>
+              <span class="v">
+                <span class="skeleton" style={{ width: width() }} />
+              </span>
+            </div>
+          )}
+        </Index>
+      </div>
+      <div class="lhead">
+        <span class="skeleton skeleton-key" />
+      </div>
+      <ul class="flist">
+        <Index each={FILE_WIDTHS}>
+          {(width) => (
+            <li class="frow">
+              <span class="skeleton" style={{ width: width() }} />
+            </li>
+          )}
+        </Index>
+      </ul>
+    </div>
+  );
+}
+
 export function CommitInspector(props: {
   session: RepoSession;
   actions: RepoActions;
@@ -138,7 +180,7 @@ export function CommitInspector(props: {
   createEffect(on(() => props.sha, () => setEditing(false), { defer: true }));
   const isHead = () => {
     const head = props.session.snapshot().head;
-    return head.kind !== "unborn" && head.sha === shown()?.sha;
+    return head.kind !== "unborn" && head.sha === header()?.sha;
   };
   const currentLabel = () => {
     const head = props.session.snapshot().head;
@@ -148,6 +190,41 @@ export function CommitInspector(props: {
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
+  const row = createMemo(() => cachedGraphRow(props.session.queryClient, path, props.sha));
+  const header = (): CommitHeader | undefined => {
+    const current = shown();
+    if (current !== undefined && current.sha === props.sha) return current;
+    const found = row();
+    return found === undefined ? current : { sha: props.sha, summary: found.summary, parents: found.parents };
+  };
+  const waiting = createPendingIndicator(() => shown() === undefined && failure() === undefined);
+  let panel: HTMLElement | undefined;
+  createViewSwap(() => panel, () => shown()?.sha ?? (waiting() ? "skeleton" : undefined));
+  const headBlock = (head: () => CommitHeader) => (
+    <div class="ihead">
+      <h2>{head().summary || "(no message)"}</h2>
+      <p>{head().parents.length > 1 ? "Merge commit" : "Commit"} · {head().parents.length} {head().parents.length === 1 ? "parent" : "parents"}</p>
+      <Show when={explainable() || (isHead() && !editing())}>
+        <span class="ihead-action ihead-tools">
+          <Show when={explainable()}>
+            <AiTrigger action="Explain this commit" reason={sheet?.running() ? AI_RUNNING_REASON : undefined} onRun={() => void sheet?.explainCommit(head().sha)} />
+          </Show>
+          <Show when={isHead() && !editing()}>
+            <button
+              type="button"
+              class="icon-btn dense"
+              {...tip(editReason() ?? "Edit message", undefined, "Edit message")}
+              aria-disabled={editReason() === undefined ? undefined : "true"}
+              onClick={() => editReason() === undefined && setEditing(true)}
+            >
+              <Icon name="edit" />
+            </button>
+          </Show>
+        </span>
+      </Show>
+      <CommitVerbs actions={props.actions} sha={head().sha} merge={head().parents.length > 1} current={currentLabel()} />
+    </div>
+  );
   const commitTarget = (file: CommitFile): DiffTarget => ({ source: "commit", sha: shown()?.sha ?? props.sha, file: file.path });
   const folders = createFolderState();
   const fileListMode = useFileListMode().mode;
@@ -168,47 +245,52 @@ export function CommitInspector(props: {
     return active !== undefined && fileRows(shown()?.files ?? []).some((row) => rowId(row) === active) ? active === key : index === 0;
   };
   return (
-    <aside class="panel inspector" aria-label="Commit" aria-busy={details.isFetching}>
+    <aside class="panel inspector" aria-label="Commit" aria-busy={details.isFetching} ref={panel}>
+      <PendingLine pending={details.isFetching} label="Loading commit details" />
       <Show
         when={shown()}
         fallback={
-          <div class="ihead">
-            <h2>{failure() === undefined ? "Loading commit…" : "Commit unavailable"}</h2>
-            <p class="ref">{props.sha.slice(0, 7)}</p>
-            <Show when={failure()}>{(message) => <p role="alert">{message()}</p>}</Show>
-          </div>
+          <Show
+            when={failure()}
+            fallback={
+              <>
+                <Show
+                  when={row()}
+                  fallback={
+                    <div class="ihead">
+                      <Show when={waiting()}>
+                        <span class="skeleton skeleton-title" aria-hidden="true" />
+                      </Show>
+                      <p class="ref">{props.sha.slice(0, 7)}</p>
+                    </div>
+                  }
+                >
+                  {(found) => headBlock(() => ({ sha: props.sha, summary: found().summary, parents: found().parents }))}
+                </Show>
+                <Show when={waiting()}>
+                  <CommitSkeleton />
+                </Show>
+              </>
+            }
+          >
+            {(message) => (
+              <div class="ihead">
+                <h2>Commit unavailable</h2>
+                <p class="ref">{props.sha.slice(0, 7)}</p>
+                <p role="alert">{message()}</p>
+              </div>
+            )}
+          </Show>
         }
       >
         {(commit) => (
           <>
-            <div class="ihead">
-              <h2>{commit().summary || "(no message)"}</h2>
-              <p>{commit().parents.length > 1 ? "Merge commit" : "Commit"} · {commit().parents.length} {commit().parents.length === 1 ? "parent" : "parents"}</p>
-              <Show when={explainable() || (isHead() && !editing())}>
-                <span class="ihead-action ihead-tools">
-                  <Show when={explainable()}>
-                    <AiTrigger action="Explain this commit" reason={sheet?.running() ? AI_RUNNING_REASON : undefined} onRun={() => void sheet?.explainCommit(commit().sha)} />
-                  </Show>
-                  <Show when={isHead() && !editing()}>
-                    <button
-                      type="button"
-                      class="icon-btn dense"
-                      {...tip(editReason() ?? "Edit message", undefined, "Edit message")}
-                      aria-disabled={editReason() === undefined ? undefined : "true"}
-                      onClick={() => editReason() === undefined && setEditing(true)}
-                    >
-                      <Icon name="edit" />
-                    </button>
-                  </Show>
-                </span>
-              </Show>
-              <CommitVerbs actions={props.actions} sha={commit().sha} merge={commit().parents.length > 1} current={currentLabel()} />
-            </div>
+            {headBlock(() => header() ?? commit())}
             <div class="ilist commit-body" ref={scroller}>
               <Show when={editing()}>
                 <MessageForm session={props.session} generateAvailable={featureAvailable(features.data, "generate_commit")} onClose={() => setEditing(false)} onSaved={props.onSelectCommit} />
               </Show>
-              <Show when={commit().body && !editing()}>{(body) => <p class="cbody">{body()}</p>}</Show>
+              <Show when={!editing() && commit().body}>{(body) => <p class="cbody">{body()}</p>}</Show>
               <div class="cmeta">
                 <Show when={chips.keysFor(`${commit().summary}\n${commit().body}`).length > 0}>
                   <div class="mrow">

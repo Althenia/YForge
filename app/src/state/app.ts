@@ -21,7 +21,7 @@ import { setSyntaxHighlighting } from "./syntax";
 import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
 import { appKeys, diagnosticsKeys, repoKeys } from "./queryKeys";
-import { redoState, refreshToasts, undoState, upsertEntry, withRedoChange, type RedoScopes, type Toast } from "./activityModel";
+import { redoState, refreshToasts, toastRepo, undoState, upsertEntry, withRedoChange, type RedoScopes, type Toast } from "./activityModel";
 import { dropOperationPrompts, dropPrompt, enqueuePrompt, type PendingPrompt } from "./authModel";
 import { buildCommands, hotkeyOf, shortcutCommands, type CommitChoice, type LogTab, type PaletteApp, type PaletteContext, type PanelRequest, type PickerOption } from "./palette";
 import type { RepoActions } from "./repoActions";
@@ -134,6 +134,7 @@ export function createAppState(router: AppRouter) {
   const [profileList, setProfileList] = createSignal<ProfileList | undefined>();
   const [prompts, setPrompts] = createSignal<PendingPrompt[]>([]);
   const [toasts, setToasts] = createSignal<Toast[]>([]);
+  let announced = 0;
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
   const [tabGroupSaveFailure, setTabGroupSaveFailure] = createSignal<string | undefined>();
@@ -321,12 +322,13 @@ export function createAppState(router: AppRouter) {
       setActivity(entries);
       if (session.tabs.length > 0) setRestoring({ tabs: session.tabs.length, groups: session.groups });
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
-      const opened = await Promise.all([launch, ...session.tabs].map((path, index) => client.repoOpen(path).then((snapshot) => snapshot, (failure) => {
-        if (index === 0) setNotice(openFailureMessage(path, failure));
+      const launchPaths = launch === null ? [] : [launch];
+      const opened = await Promise.all([...launchPaths, ...session.tabs].map((path, index) => client.repoOpen(path).then((snapshot) => snapshot, (failure) => {
+        if (index < launchPaths.length) setNotice(openFailureMessage(path, failure));
         return undefined;
       })));
       opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
-      const restored = groupTabs(restoreTabs(session, opened[0]?.root), mainRoots());
+      const restored = groupTabs(restoreTabs(session, launch === null ? undefined : opened[0]?.root), mainRoots());
       setTabList(restored.tabs);
       setGroupList(restored.groups);
       showTab(restored.tabs[restored.active]);
@@ -671,7 +673,7 @@ export function createAppState(router: AppRouter) {
     onCleanup(() => listeners.forEach((listener) => void listener.then((stop) => stop())));
     createEffect(() => {
       const path = activePath();
-      setToasts((current) => current.filter((toast) => toast.entry.repo === path));
+      setToasts((current) => current.filter((toast) => toastRepo(toast) === path));
     });
   }
 
@@ -724,6 +726,10 @@ export function createAppState(router: AppRouter) {
     prompts,
     toasts,
     dismissToast: (id: number) => setToasts((current) => current.filter((toast) => toast.id !== id)),
+    announce: (message: string, show: () => void) => {
+      const repo = activePath();
+      if (repo !== undefined) setToasts((current) => [...current, { kind: "done", id: -(announced += 1), repo, message, show }]);
+    },
     entryDialog,
     setEntryDialog,
     notice,

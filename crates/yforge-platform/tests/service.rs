@@ -41,6 +41,38 @@ fn kind_of(error: PlatformError) -> ErrorKind {
     CoreError::from(error).kind()
 }
 
+#[tokio::test]
+async fn pull_checks_are_cached_and_without_a_connection_make_no_request() {
+    let h = harness();
+    let fake =
+        HttpFake::start(|_| Reply::ok(r#"{"state":"opened","head_pipeline":{"status":"failed"}}"#));
+    let repo = Repo::new();
+    repo.remote("origin", &format!("http://{}/owner/widget.git", fake.host));
+    let matched = h.service.match_repo(h.data.path(), &repo.path).unwrap();
+    assert_eq!(
+        h.service.pr_checks(matched.as_ref(), 7).await.unwrap(),
+        None
+    );
+    assert!(fake.requests().is_empty());
+    let connection = platform_connection_add(
+        h.data.path(),
+        PlatformKind::GitLab,
+        &fake.host,
+        "Work",
+        false,
+    )
+    .unwrap();
+    h.secrets
+        .set(&format!("platform.{}", connection.id), "tok-secret")
+        .unwrap();
+    let matched = h.service.match_repo(h.data.path(), &repo.path).unwrap();
+    let first = h.service.pr_checks(matched.as_ref(), 7).await.unwrap();
+    let second = h.service.pr_checks(matched.as_ref(), 7).await.unwrap();
+    assert_eq!(first, second);
+    assert_eq!(first.unwrap().failing, 1);
+    assert_eq!(fake.requests().len(), 1);
+}
+
 #[test]
 fn the_first_remote_that_matches_a_connection_wins() {
     let h = harness();

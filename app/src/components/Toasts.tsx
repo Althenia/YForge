@@ -1,3 +1,4 @@
+import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { useApp } from "../state/app";
 import type { Toast } from "../state/activityModel";
@@ -7,6 +8,8 @@ import { tip } from "./Tooltip";
 
 const LIFETIME_MS = 5000;
 const VISIBLE = 3;
+
+const undoScope = (entry: ActivityEntry): string | undefined => (entry.undo.kind === "available" ? entry.undo.scope : undefined);
 
 function ToastView(props: { toast: Toast; windowActive: () => boolean; onUndo: (id: number) => void }) {
   const app = useApp();
@@ -41,23 +44,45 @@ function ToastView(props: { toast: Toast; windowActive: () => boolean; onUndo: (
       </span>
       <span class="toast-title">{props.toast.message}</span>
       <Show
-        when={props.toast.undoable}
+        when={props.toast.kind === "done" ? props.toast : undefined}
         fallback={
+          <Show when={props.toast.kind === "activity" ? props.toast : undefined}>
+            {(activity) => (
+              <Show
+                when={activity().undoable}
+                fallback={
+                  <button
+                    type="button"
+                    class="btn sm"
+                    onClick={() => {
+                      app.dismissToast(activity().id);
+                      app.openDrawer();
+                    }}
+                  >
+                    Details
+                  </button>
+                }
+              >
+                <button type="button" class="btn sm" title={undoScope(activity().entry)} onClick={() => props.onUndo(activity().id)}>
+                  Undo
+                </button>
+              </Show>
+            )}
+          </Show>
+        }
+      >
+        {(done) => (
           <button
             type="button"
             class="btn sm"
             onClick={() => {
-              app.dismissToast(props.toast.id);
-              app.openDrawer();
+              app.dismissToast(done().id);
+              done().show();
             }}
           >
-            Details
+            Show
           </button>
-        }
-      >
-        <button type="button" class="btn sm" title={props.toast.entry.undo.kind === "available" ? props.toast.entry.undo.scope : undefined} onClick={() => props.onUndo(props.toast.id)}>
-          Undo
-        </button>
+        )}
       </Show>
       <span class="toast-close">
         <svg class="toast-ring" viewBox="0 0 24 24" aria-hidden="true">

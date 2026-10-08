@@ -13,6 +13,7 @@ mod json;
 mod limits;
 mod prompt;
 mod providers;
+mod pull_request;
 mod recompose;
 mod secret;
 mod service;

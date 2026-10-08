@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, For, type JSX } from "solid-js";
 import { refTarget, type LabelGroup } from "../graph/refLabels";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import { Popover } from "./Popover";
@@ -11,6 +11,7 @@ export function RefOverflow(props: {
   actions: RepoActions;
   onHighlight: (sha: string | undefined) => void;
   onClose: () => void;
+  decorate?: (group: LabelGroup) => JSX.Element;
 }) {
   const [active, setActive] = createSignal(0);
   const optionId = (index: number) => `ref-overflow-${props.sha.slice(0, 7)}-${index}`;
@@ -30,8 +31,10 @@ export function RefOverflow(props: {
       const target = targetOf(active());
       if (target === undefined || props.groups[active()]?.head === true || props.groups[active()]?.tag === true) return;
       event.preventDefault();
+      const anchor = props.anchor;
+      const activate = props.actions.activateRef;
       props.onClose();
-      props.actions.checkoutRef(target);
+      activate(target, anchor);
     } else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
       const target = targetOf(active());
       const option = document.getElementById(optionId(active()));
@@ -47,7 +50,9 @@ export function RefOverflow(props: {
         <For each={props.groups}>
           {(group, index) => (
             <div id={optionId(index())} class="ref-overflow-option" classList={{ active: active() === index() }} role="option" aria-selected={active() === index()} onPointerEnter={() => setActive(index())}>
-              <RefLabel group={group} sha={props.sha} actions={props.actions} onHighlight={props.onHighlight} onDone={props.onClose} />
+              <RefLabel group={group} sha={props.sha} actions={props.actions} onHighlight={props.onHighlight} onDone={props.onClose}>
+                {props.decorate?.(group)}
+              </RefLabel>
             </div>
           )}
         </For>

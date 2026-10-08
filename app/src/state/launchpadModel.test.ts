@@ -30,7 +30,7 @@ const pull = (number: number, overrides: Partial<LaunchpadPull> = {}, title = "R
   role: "authored",
   draft: false,
   local_path: null,
-  pull: { number, title, body: "", state: "open", source_ref: "fix/retry", target_ref: "main", author: "nok", created_at: "", updated_at: "", mergeable: null, web_url: "https://x/pr" },
+  pull: { draft: false, number, title, body: "", state: "open", source_ref: "fix/retry", target_ref: "main", author: "nok", created_at: "", updated_at: "", mergeable: null, web_url: "https://x/pr" },
   ...overrides,
 });
 

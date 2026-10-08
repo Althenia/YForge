@@ -275,6 +275,9 @@ describe("cursors on the graph", () => {
         revision={0}
         covered={false}
         actions={{} as RepoActions}
+        incoming={new Set()}
+        pulls={undefined}
+        conflictOf={() => undefined}
         dimmed={() => false}
         searching={false}
         focus={undefined}

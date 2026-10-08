@@ -10,6 +10,24 @@ afterEach(() => {
 });
 
 describe("typed IPC client", () => {
+  it("invokes pull request comparison, prediction, templates, checks, disclosure, and generation", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => { calls.push({ cmd, args }); return null; });
+    await client.branchComparison("/r", "feature", "main");
+    await client.mergePrediction("/r", "prediction-1", "main", "feature");
+    await client.pullRequestTemplate("/r");
+    await client.platformPrChecks("/r", 7);
+    await client.aiPullRequestContext("/r", "feature", "main");
+    await client.aiComposePullRequest("/r", "ai-1", "feature", "main", "## Summary");
+    expect(calls).toEqual([
+      { cmd: "branch_comparison", args: { path: "/r", source: "feature", target: "main" } },
+      { cmd: "merge_prediction", args: { path: "/r", id: "prediction-1", ours: "main", theirs: "feature" } },
+      { cmd: "pull_request_template", args: { path: "/r" } },
+      { cmd: "platform_pr_checks", args: { path: "/r", number: 7 } },
+      { cmd: "ai_pull_request_context", args: { path: "/r", source: "feature", target: "main" } },
+      { cmd: "ai_compose_pull_request", args: { path: "/r", id: "ai-1", source: "feature", target: "main", template: "## Summary" } },
+    ]);
+  });
   it("invokes each command by name with its arguments and returns the typed result", async () => {
     const calls: Array<{ cmd: string; args: unknown }> = [];
     const page: GraphPage = { rows: [], carried: [], total: 0 };
@@ -103,6 +121,7 @@ describe("typed IPC client", () => {
     await client.amendInfo("/r");
     await client.commitDetails("/r", "abc1234");
     await client.commitFileDiff("/r", "abc1234", "a.txt");
+    await client.revisionFileDiff("/r", "base1", "origin/main", "a.txt");
     await client.repoWatch("/r");
 
     expect(calls).toEqual([
@@ -126,6 +145,7 @@ describe("typed IPC client", () => {
       { cmd: "amend_info", args: { path: "/r" } },
       { cmd: "commit_details", args: { path: "/r", sha: "abc1234" } },
       { cmd: "commit_file_diff", args: { path: "/r", sha: "abc1234", file: "a.txt" } },
+      { cmd: "revision_file_diff", args: { path: "/r", base: "base1", head: "origin/main", file: "a.txt" } },
       { cmd: "repo_watch", args: { path: "/r" } },
     ]);
   });
@@ -197,6 +217,7 @@ describe("typed IPC client", () => {
     });
 
     await client.integrationPreview("/r", null, "topic");
+    await client.incomingCommits("/r");
     await client.merge("/r", "topic", "merge_commit");
     await client.rebase("/r", "origin/main");
     await client.fastForward("/r", "main", "topic");
@@ -215,6 +236,7 @@ describe("typed IPC client", () => {
 
     expect(calls).toEqual([
       { cmd: "integration_preview", args: { path: "/r", base: null, other: "topic" } },
+      { cmd: "incoming_commits", args: { path: "/r" } },
       { cmd: "merge", args: { path: "/r", source: "topic", mode: "merge_commit" } },
       { cmd: "rebase", args: { path: "/r", onto: "origin/main" } },
       { cmd: "fast_forward", args: { path: "/r", branch: "main", target: "topic" } },
@@ -695,7 +717,7 @@ describe("platform integration commands", () => {
       if (cmd === "platform_repo_match") return { connection, remote: "origin", repo: { owner: "team", repo: "app" } };
       return null;
     });
-    const input = { source_ref: "feature/x", target_ref: "main", title: "Add x", body: "" };
+    const input = { source_ref: "feature/x", target_ref: "main", title: "Add x", body: "", draft: false };
 
     expect(await client.platformConnectionsList()).toEqual([connection]);
     expect(await client.platformConnectionAdd("gitlab", "git.example.com:8443", "Work", "glpat-1", true)).toEqual(connection);

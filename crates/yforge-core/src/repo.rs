@@ -34,6 +34,10 @@ pub(crate) fn open(path: &Path) -> Result<PathBuf, CoreError> {
     resolve_root(path)
 }
 
+pub fn repository_root(path: &Path) -> Result<PathBuf, CoreError> {
+    open(path)
+}
+
 pub(crate) fn check_paths<S: AsRef<str>>(files: &[S]) -> Result<(), CoreError> {
     if files.is_empty() {
         return Err(CoreError::invalid_request("no files were given"));

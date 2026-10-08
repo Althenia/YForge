@@ -49,7 +49,7 @@ function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot
   const actions = {
     openRefMenu: (...args: unknown[]) => calls.push(["ref-menu", ...args]),
     openStashMenu: (...args: unknown[]) => calls.push(["stash-menu", ...args]),
-    checkoutRef: (...args: unknown[]) => calls.push(["checkout", ...args]),
+    activateRef: (...args: unknown[]) => calls.push(["activate", ...args]),
     deleteBranches: (...args: unknown[]) => calls.push(["delete-branches", ...args]),
     deleteTags: (...args: unknown[]) => calls.push(["delete-tags", ...args]),
     dropStashes: (...args: unknown[]) => calls.push(["drop-stashes", ...args]),
@@ -126,7 +126,22 @@ describe("sidebar branch tree", () => {
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
     row.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
 
-    expect(calls.map((call) => call[0])).toEqual(["ref-menu", "checkout"]);
+    expect(calls.map((call) => call[0])).toEqual(["ref-menu", "activate"]);
+  });
+
+  it("activates origin/main by double-click and Enter without mutating it on a single click", () => {
+    const { host, calls } = mount();
+    const branch = host.querySelector<HTMLElement>('[aria-label="Remote branch origin/main"]');
+    expect(branch).not.toBeNull();
+    branch?.click();
+    expect(calls).toEqual([]);
+    branch?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    branch?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(calls.map((call) => call[0])).toEqual(["activate", "activate"]);
+    for (const call of calls) {
+      expect(call[1]).toEqual({ kind: "remote_branch", name: "origin/main", startPoint: "refs/remotes/origin/main" });
+      expect(call[2]).toEqual(expect.objectContaining({ left: expect.any(Number), top: expect.any(Number) }));
+    }
   });
 });
 

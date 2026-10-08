@@ -61,6 +61,7 @@ pub enum PrState {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct PullRequest {
+    pub draft: bool,
     pub number: i64,
     pub title: String,
     pub body: String,
@@ -97,8 +98,18 @@ pub struct PullList {
     pub capped: bool,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PullChecks {
+    pub passing: u32,
+    pub failing: u32,
+    pub pending: u32,
+    pub capped: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct CreatePull {
+    #[serde(default)]
+    pub draft: bool,
     pub source_ref: String,
     pub target_ref: String,
     pub title: String,

@@ -359,7 +359,7 @@ fn reopening_keeps_the_schema_version_data_and_wal_journal() {
     let journal: String = connection
         .query_row("PRAGMA journal_mode", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
     assert_eq!(journal, "wal");
 }
 
@@ -592,7 +592,7 @@ fn a_version_seven_database_keeps_its_tabs_and_gains_groups() {
     let version: i64 = database(dir.path())
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
     save_session(
         dir.path(),
         &session_with(
@@ -645,7 +645,7 @@ fn a_version_eight_database_keeps_its_data_and_gains_jira_connections() {
     let version: i64 = database(dir.path())
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
 }
 
 #[test]
@@ -697,7 +697,7 @@ fn a_version_nine_database_keeps_its_data_and_gains_git_hosts() {
     let version: i64 = database(dir.path())
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 15);
+    assert_eq!(version, 16);
 }
 
 #[test]
@@ -716,7 +716,7 @@ fn start_storage_migrates_an_existing_unversioned_file_without_leaving_the_safet
     let version: i64 = connection
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!((kept.as_str(), version), ("kept", 15));
+    assert_eq!((kept.as_str(), version), ("kept", 16));
     assert!(!dir.path().join("yforge.db.pre-migration").exists());
 }
 

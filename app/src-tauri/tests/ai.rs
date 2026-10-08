@@ -808,7 +808,8 @@ fn feature_configs_are_listed_set_validated_and_reset_over_ipc() {
             "explain_changes",
             "explain_commit",
             "compose_commits",
-            "stash_message"
+            "stash_message",
+            "compose_pull_request"
         ]
     );
     assert!(listed

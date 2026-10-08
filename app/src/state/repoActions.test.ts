@@ -1,5 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
@@ -119,6 +119,23 @@ describe("checkout", () => {
     ]);
   });
 
+  it("keeps ordinary checkout paths when activating a ref other than the checked-out branch's remote counterpart", async () => {
+    const { actions, calls } = setup(() => ({ auto_stash: "none" }));
+    const anchor = { left: 10, top: 20 };
+    actions.activateRef({ kind: "local_branch", name: "feature", remoteName: undefined, startPoint: "abc1234" }, anchor);
+    actions.activateRef({ kind: "remote_branch", name: "origin/feature", startPoint: "abc1234" }, anchor);
+    actions.activateRef({ kind: "remote_branch", name: "origin/remote-only", startPoint: "abc1234" }, anchor);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.target)).toEqual([
+      { kind: "local_branch", name: "feature" },
+      { kind: "local_branch", name: "feature" },
+      { kind: "remote_branch", name: "origin/remote-only" },
+    ]);
+    expect(actions.menu()).toBeUndefined();
+    expect(calls.some((call) => call.cmd === "reset")).toBe(false);
+  });
+
   it("reports a failed switch and its git output", async () => {
     const { actions, session } = setup(() => {
       throw rejection("git_failed", "git switch failed", "fatal: bad\nmore");
@@ -226,7 +243,7 @@ describe("branch creation, rename, and deletion", () => {
 });
 
 describe("sync", () => {
-  it("fetches with a fresh operation id, tracks progress for that id only, and ends idle", async () => {
+  it("fetches with a fresh operation id, tracks progress for that id only, and ends on its result chip", async () => {
     let release: () => void = () => {};
     const { actions, calls } = setup((call) => (call.cmd === "fetch" ? new Promise((resolve) => (release = () => resolve(null))) : null));
 
@@ -240,7 +257,7 @@ describe("sync", () => {
     release();
     await done;
 
-    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "No new commits on origin/main", next: undefined });
     expect(calls.find((call) => call.cmd === "fetch")?.args).toEqual({ path: "/r", id, prune: false });
   });
 
@@ -314,7 +331,7 @@ describe("sync", () => {
     expect(session.notice()).toBeUndefined();
     await actions.retrySync();
     expect(attempts).toBe(2);
-    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "No new commits on origin/main" });
   });
 
   it("pulls with the chosen mode and reports a conflicting pull", async () => {
@@ -328,12 +345,13 @@ describe("sync", () => {
     expect(session.notice()).toMatch(/stopped on conflicts/);
   });
 
-  it("says so when a pull finds nothing new", async () => {
+  it("says so in the result chip when a pull finds nothing new", async () => {
     const { actions, session } = setup((call) => (call.cmd === "pull" ? "up_to_date" : null));
 
     await actions.pull("fast_forward_or_merge");
 
-    expect(session.notice()).toBe("Already up to date.");
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "main is up to date with origin/main", next: undefined });
+    expect(session.notice()).toBeUndefined();
   });
 
   it("pushes a tracked branch and lets a rejected push with local commits offer the force-with-lease dialog", async () => {
@@ -712,14 +730,14 @@ describe("phase 3b actions", () => {
     expect(calls.filter((call) => call.cmd === "pull").map((call) => call.args.mode)).toEqual(["rebase", "fast_forward_or_merge"]);
   });
 
-  it("publishes to the chosen remote as a tracked operation and ends idle", async () => {
+  it("publishes to the chosen remote as a tracked operation and states it", async () => {
     const { actions, calls } = setup(() => null);
 
     await actions.publish("backup");
 
     const publish = calls.find((call) => call.cmd === "publish");
     expect(publish?.args).toMatchObject({ path: "/r", remote: "backup" });
-    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Published main to backup", next: undefined });
   });
 
   it("auto-fetches without prompting and reports success", async () => {
@@ -1004,7 +1022,8 @@ describe("pull with a dirty working tree", () => {
 
     await actions.pull("fast_forward_or_merge");
 
-    expect(session.notice()).toBe("Already up to date.");
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "main is up to date with origin/main" });
+    expect(session.notice()).toBeUndefined();
     expect(actions.notices()).toEqual([]);
   });
 });
@@ -1152,7 +1171,7 @@ describe("upstream and Push to…", () => {
 
     expect(calls.find((call) => call.cmd === "push_to")?.args).toMatchObject({ path: "/r", target: { remote: "origin", name: "topic", set_upstream: true } });
     expect(actions.popover()).toBeUndefined();
-    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Pushed main to origin/topic", next: undefined });
   });
 
   it("explains a rejected Push to… instead of offering a force", async () => {
@@ -1749,5 +1768,182 @@ describe("file operations", () => {
     await actions.maintain();
 
     expect(session.notice()).toBe("git maintenance run exited with status 1: fatal: unable to lock");
+  });
+});
+
+const tracking = (ahead: number, behind: number, overrides: Partial<RepoSnapshot> = {}) => snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead, behind } }, ...overrides });
+
+function operations(handler: (call: Call, become: (next: RepoSnapshot) => void) => unknown, first: RepoSnapshot) {
+  let current = first;
+  const become = (next: RepoSnapshot) => {
+    current = next;
+  };
+  const calls: Call[] = [];
+  mockIPC((cmd, args) => {
+    const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+    calls.push(call);
+    if (cmd === "repo_open") return current;
+    return handler(call, become);
+  });
+  const session = testSession("/r", first);
+  const actions = createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+  return { calls, session, actions, become };
+}
+
+describe("operation pill and result chip (S73)", () => {
+  it("turns a fetch that brought commits into a result chip that names them, and pulls from it", async () => {
+    const { actions, calls } = operations((call, become) => {
+      if (call.cmd === "fetch") become(tracking(0, 3));
+      return call.cmd === "pull" ? "updated" : null;
+    }, tracking(0, 2));
+
+    const fetching = actions.fetchAll();
+    expect(actions.sync()).toMatchObject({ kind: "running", label: "Fetching", cancellable: true });
+    await fetching;
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "1 new commit on origin/main", next: "pull" });
+
+    await actions.runNextStep();
+    expect(calls.find((call) => call.cmd === "pull")?.args).toMatchObject({ path: "/r", mode: "fast_forward_or_merge" });
+  });
+
+  it("keeps the chip until it is dismissed", async () => {
+    const { actions } = operations(() => null, tracking(0, 1));
+    await actions.fetchAll();
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "No new commits on origin/main", next: "pull" });
+    actions.dismissSync();
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("clears the chip when the repository state changes, and keeps it while only files change", async () => {
+    const { actions, session, become } = operations(() => null, tracking(0, 1));
+    await actions.fetchAll();
+
+    become(tracking(0, 1, { counts: { ...counts, modified: 3 } }));
+    await session.refresh();
+    expect(actions.sync()).toMatchObject({ kind: "done" });
+
+    become(tracking(1, 1));
+    await session.refresh();
+    expect(actions.sync()).toEqual({ kind: "idle" });
+    become(tracking(0, 1));
+    await session.refresh();
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("shows a background fetch's chip only when it brought commits", async () => {
+    const quiet = operations(() => null, tracking(0, 0));
+    await quiet.actions.autoFetch();
+    expect(quiet.actions.sync()).toEqual({ kind: "idle" });
+
+    const news = operations((call, become) => (call.cmd === "fetch" ? become(tracking(0, 2)) : null), tracking(0, 0));
+    await news.actions.autoFetch();
+    expect(news.actions.sync()).toMatchObject({ kind: "done", outcome: "2 new commits on origin/main", next: "pull" });
+  });
+
+  it("states a pull in the chip instead of a notice and offers Push while local commits remain", async () => {
+    const { actions, session } = operations((call, become) => {
+      if (call.cmd !== "pull") return null;
+      become(tracking(1, 0));
+      return "updated";
+    }, tracking(1, 2));
+    await actions.pull("fast_forward_or_merge");
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Updated main from origin/main", next: "push" });
+    expect(session.notice()).toBeUndefined();
+  });
+
+  it("states a push in the chip", async () => {
+    const { actions } = operations((call, become) => (call.cmd === "push" ? become(tracking(0, 0)) : null), tracking(2, 0));
+    await actions.push();
+    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Pushed main to origin/main", next: undefined });
+  });
+
+  it("shows a checkout in the pill without Cancel, then states it and offers Pull when the branch is behind", async () => {
+    let release: () => void = () => undefined;
+    const { actions, become } = operations((call) => (call.cmd === "checkout" ? new Promise((resolve) => (release = () => resolve({ auto_stash: "none" }))) : null), tracking(0, 0));
+
+    actions.checkout({ kind: "local_branch", name: "feature" });
+    await settle();
+    expect(actions.sync()).toMatchObject({ kind: "running", label: "Checking out feature", cancellable: false });
+
+    become(snapshot({ head: { kind: "branch", name: "feature", sha: "b" }, upstream: { name: "origin/feature", ahead_behind: { ahead: 0, behind: 1 } } }));
+    release();
+    await vi.waitFor(() => expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Checked out feature", next: "pull" }));
+  });
+
+  it("returns to idle when a checkout fails", async () => {
+    const { actions, session } = operations((call) => (call.cmd === "checkout" ? Promise.reject(rejection("git_failed", "checkout refused")) : null), tracking(0, 0));
+    actions.checkout({ kind: "local_branch", name: "feature" });
+    await vi.waitFor(() => expect(session.notice()).toMatch(/checkout refused/));
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("shows a reset in the pill, then states it", async () => {
+    const { actions } = operations((call) => (call.cmd === "integration_preview" ? previewOf(0, 2) : null), tracking(0, 0));
+    actions.openCommitMenu("bbbbbbbbbbbbbbbb", false, { left: 1, top: 2 });
+    actions.menu()?.run("reset");
+    actions.menu()?.run("mixed");
+    await settle();
+
+    void actions.dialog()?.run();
+    expect(actions.sync()).toMatchObject({ kind: "running", label: "Resetting main to bbbbbbb", cancellable: false });
+    await vi.waitFor(() => expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Reset main to bbbbbbb", next: undefined }));
+  });
+});
+
+describe("incoming markers (S74)", () => {
+  it("marks every incoming commit after a fetch until its row is seen or it is pulled", async () => {
+    let incoming = ["c1", "c2"];
+    const { actions } = operations((call, become) => {
+      if (call.cmd === "fetch") become(tracking(0, 2));
+      if (call.cmd === "incoming_commits") return incoming;
+      if (call.cmd !== "pull") return null;
+      become(tracking(0, 0));
+      incoming = [];
+      return "updated";
+    }, tracking(0, 0));
+
+    expect([...actions.incoming()]).toEqual([]);
+    await actions.fetchAll();
+    expect([...actions.incoming()]).toEqual(["c1", "c2"]);
+
+    actions.seeIncoming("c1");
+    expect([...actions.incoming()]).toEqual(["c2"]);
+
+    await actions.pull("fast_forward_or_merge");
+    await vi.waitFor(() => expect([...actions.incoming()]).toEqual([]));
+  });
+
+  it("does not mark a commit again on a later fetch once its row was seen", async () => {
+    const { actions } = operations((call, become) => {
+      if (call.cmd === "fetch") become(tracking(0, 2));
+      return call.cmd === "incoming_commits" ? ["c1", "c2"] : null;
+    }, tracking(0, 0));
+    await actions.fetchAll();
+    actions.seeIncoming("c2");
+    await actions.fetchAll();
+    expect([...actions.incoming()]).toEqual(["c1"]);
+  });
+
+  it("marks commits after a background fetch too", async () => {
+    const { actions } = operations((call, become) => {
+      if (call.cmd === "fetch") become(tracking(0, 1));
+      return call.cmd === "incoming_commits" ? ["c9"] : null;
+    }, tracking(0, 0));
+    await actions.autoFetch();
+    expect([...actions.incoming()]).toEqual(["c9"]);
+  });
+
+  it("keeps only the markers that are still incoming after the checked-out branch changes", async () => {
+    let incoming = ["c1", "c2"];
+    const { actions, session, become } = operations((call, change) => {
+      if (call.cmd === "fetch") change(tracking(0, 2));
+      return call.cmd === "incoming_commits" ? incoming : null;
+    }, tracking(0, 0));
+    await actions.fetchAll();
+
+    incoming = ["c2", "c3"];
+    become(tracking(0, 2, { head: { kind: "branch", name: "feature", sha: "f" } }));
+    await session.refresh();
+    await vi.waitFor(() => expect([...actions.incoming()]).toEqual(["c2"]));
   });
 });

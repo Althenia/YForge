@@ -718,7 +718,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       title: "Create pull request…",
       group: "Pull requests",
       ...(noPlatform === undefined ? {} : { disabledReason: noPlatform }),
-      run: () => void platform?.openCreate(),
+      run: () => void platform?.openCompose(),
     }),
     command({
       id: "pulls.merge",

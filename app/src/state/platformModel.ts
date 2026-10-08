@@ -1,8 +1,10 @@
+import type { LabelGroup } from "../graph/refLabels";
 import type { IconName } from "../iconNames";
 import { client, IpcError } from "../ipc/client";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import type { PrFile } from "../ipc/bindings/PrFile";
 import type { PrState } from "../ipc/bindings/PrState";
+import type { PullChecks } from "../ipc/bindings/PullChecks";
 import type { PullRequest } from "../ipc/bindings/PullRequest";
 import type { ConfirmCopy } from "./confirmCopy";
 
@@ -116,3 +118,40 @@ export function pullProblems(draft: PullDraft): PullProblems {
   if (draft.title.trim() === "") problems.title = "Enter a title";
   return problems;
 }
+
+export type PullLookup = { remote: string; byBranch: ReadonlyMap<string, PullRequest> };
+
+export function pullLookup(remote: string, pulls: readonly PullRequest[]): PullLookup {
+  const byBranch = new Map<string, PullRequest>();
+  for (const pull of pulls) if (pull.state === "open" && !byBranch.has(pull.source_ref)) byBranch.set(pull.source_ref, pull);
+  return { remote, byBranch };
+}
+
+export const pullOfLocal = (lookup: PullLookup | undefined, branch: string): PullRequest | undefined => lookup?.byBranch.get(branch);
+
+export function pullOfRemote(lookup: PullLookup | undefined, remoteBranch: string): PullRequest | undefined {
+  const prefix = lookup === undefined ? undefined : `${lookup.remote}/`;
+  return prefix !== undefined && remoteBranch.startsWith(prefix) ? lookup?.byBranch.get(remoteBranch.slice(prefix.length)) : undefined;
+}
+
+export type ChecksState = PullChecks | null | "loading" | "unavailable";
+
+function checksText(checks: ChecksState): string {
+  if (checks === "loading" || checks === "unavailable") return `checks ${checks}`;
+  if (checks === null) return "no checks";
+  const counts = (["passing", "failing", "pending"] as const).filter((word) => checks[word] > 0).map((word) => `${checks[word]} ${word}`);
+  if (counts.length === 0) return "no checks";
+  return `checks: ${counts.join(", ")}${checks.capped ? ", more not counted" : ""}`;
+}
+
+export function pullBadgeName(pull: PullRequest, checks: ChecksState): string {
+  return `Pull request #${pull.number}: ${pull.title} · ${pull.draft ? "Draft" : "Open"} · ${pull.source_ref} → ${pull.target_ref} · ${checksText(checks)}`;
+}
+
+export function pullOfGroup(lookup: PullLookup | undefined, group: LabelGroup): PullRequest | undefined {
+  if (group.tag) return undefined;
+  if (group.local) return pullOfLocal(lookup, group.name);
+  return group.remoteRef === undefined ? undefined : pullOfRemote(lookup, group.remoteRef);
+}
+
+export const COMPOSE_NEEDS_PLATFORM = "Connect this repository's platform in Settings → Platforms to compose a pull request";

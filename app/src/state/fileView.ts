@@ -16,6 +16,7 @@ const MEBIBYTE = 1024 * 1024;
 export function fileViewTargetOf(target: DiffTarget): FileViewTarget {
   if (target.source === "commit") return { file: target.file, rev: target.sha, source: target.sha.slice(0, 7) };
   if (target.source === "stash") return { file: target.file, rev: target.sha, source: `stash@{${target.index}}` };
+  if (target.source === "range") return { file: target.file, rev: target.head, source: target.head };
   return target.area === "staged" ? { file: target.file, rev: ":index", source: "Staged" } : { file: target.file, rev: ":worktree", source: "Working tree" };
 }
 

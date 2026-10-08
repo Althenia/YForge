@@ -29,7 +29,7 @@ afterEach(async () => {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-function install(options: { tabs: string[]; groups?: Array<{ name: string; color: "mint"; collapsed: boolean; tabs: string[] }>; launch: string; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string>; failSessionSave?: () => boolean; failSettingsSave?: boolean; holdRepoOpen?: Promise<void>; aliases?: Array<{ path: string; alias: string }>; handlers?: Record<string, (args: Record<string, unknown>) => unknown> }) {
+function install(options: { tabs: string[]; groups?: Array<{ name: string; color: "mint"; collapsed: boolean; tabs: string[] }>; launch: string | null; repositories: string[]; settings?: Partial<typeof defaultSettings>; mains?: Record<string, string>; failSessionSave?: () => boolean; failSettingsSave?: boolean; holdRepoOpen?: Promise<void>; aliases?: Array<{ path: string; alias: string }>; handlers?: Record<string, (args: Record<string, unknown>) => unknown> }) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -122,6 +122,16 @@ describe("app state", () => {
     expect(app.activePath()).toBe("/a");
     expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
     expect(app.notice()).toBe("/not-git is not a Git repository");
+  });
+
+  it("restores the saved tabs without a notice when the launch folder was skipped because it is not a repository", async () => {
+    const { app, calls } = await boot({ tabs: ["/a"], launch: null, repositories: ["/a"] });
+
+    expect(app.ready()).toBe(true);
+    expect(app.notice()).toBeUndefined();
+    expect(app.activePath()).toBe("/a");
+    expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toEqual(["/a"]);
   });
 
   it("reports an unreadable launch repository with its cause and keeps the Launchpad available", async () => {

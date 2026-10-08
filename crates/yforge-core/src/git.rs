@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -15,6 +16,67 @@ use crate::passphrase::PassphraseStore;
 const REQUIRED_MAJOR: u32 = 2;
 const REQUIRED_MINOR: u32 = 39;
 
+struct LocalRead {
+    cancel: Option<CancelToken>,
+}
+
+thread_local! {
+    static LOCAL_READ: RefCell<Option<LocalRead>> = const { RefCell::new(None) };
+}
+
+pub(crate) fn local_read<T>(cancel: Option<&CancelToken>, read: impl FnOnce() -> T) -> T {
+    struct Restore(Option<LocalRead>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            LOCAL_READ.replace(self.0.take());
+        }
+    }
+    let cancel = cancel.cloned().or_else(|| {
+        LOCAL_READ.with_borrow(|read| read.as_ref().and_then(|read| read.cancel.clone()))
+    });
+    let restore = Restore(LOCAL_READ.replace(Some(LocalRead { cancel })));
+    let result = read();
+    drop(restore);
+    result
+}
+
+#[cfg(all(test, unix))]
+mod cancellation_tests {
+    use super::*;
+    use std::fs::File;
+
+    #[test]
+    fn cancellation_kills_and_reaps_an_in_flight_prediction_process() {
+        let temp = tempfile::tempdir().unwrap();
+        let ready = temp.path().join("ready");
+        assert!(Command::new("mkfifo")
+            .arg(&ready)
+            .status()
+            .unwrap()
+            .success());
+        let token = CancelToken::new();
+        let running = token.clone();
+        let path = ready.clone();
+        let task = thread::spawn(move || {
+            let mut command = Command::new("sh");
+            command
+                .args(["-c", "printf ready > \"$1\"; exec sleep 30", "prediction"])
+                .arg(path);
+            capture_cancellable(command, "prediction process", &running)
+        });
+        let mut signal = String::new();
+        File::open(&ready)
+            .unwrap()
+            .read_to_string(&mut signal)
+            .unwrap();
+        assert_eq!(signal, "ready");
+        let started = Instant::now();
+        token.cancel();
+        assert!(matches!(task.join().unwrap(), Err(CoreError::Cancelled)));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitVersion {
     pub major: u32,
@@ -24,6 +86,9 @@ pub struct GitVersion {
 
 fn base_command() -> Command {
     let mut command = Command::new("git");
+    if LOCAL_READ.with_borrow(Option::is_some) {
+        command.env("GIT_NO_LAZY_FETCH", "1");
+    }
     command
         .arg("--no-pager")
         .env("LC_ALL", "C")
@@ -71,6 +136,16 @@ fn capture(
     input: Option<&str>,
     description: &str,
 ) -> Result<Completed, CoreError> {
+    if input.is_none() {
+        if let Some(cancel) =
+            LOCAL_READ.with_borrow(|read| read.as_ref().and_then(|read| read.cancel.clone()))
+        {
+            if cancel.is_cancelled() {
+                return Err(CoreError::Cancelled);
+            }
+            return capture_cancellable(command, description, &cancel);
+        }
+    }
     let started = Instant::now();
     let output = match input {
         None => command.output(),
@@ -156,6 +231,85 @@ pub(crate) fn run_env(
     env: &[(&str, &str)],
 ) -> Result<String, CoreError> {
     checked(run_with_env(dir, args, env)?, describe(args))
+}
+
+pub(crate) fn run_cancellable_env(
+    dir: &Path,
+    args: &[&str],
+    env: &[(&str, &str)],
+    cancel: &CancelToken,
+) -> Result<Completed, CoreError> {
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    let mut command = in_directory(dir, args);
+    command.envs(env.iter().copied());
+    capture_cancellable(command, &describe(args), cancel)
+}
+
+fn capture_cancellable(
+    mut command: Command,
+    description: &str,
+    cancel: &CancelToken,
+) -> Result<Completed, CoreError> {
+    let started = Instant::now();
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .map_err(|error| spawn_failure(&error, description))?;
+    let mut stdout = child.stdout.take();
+    let mut stderr = child.stderr.take();
+    let out = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(source) = &mut stdout {
+            source.read_to_end(&mut bytes)?;
+        }
+        Ok::<_, std::io::Error>(bytes)
+    });
+    let err = thread::spawn(move || {
+        let mut bytes = Vec::new();
+        if let Some(source) = &mut stderr {
+            source.read_to_end(&mut bytes)?;
+        }
+        Ok::<_, std::io::Error>(bytes)
+    });
+    let status = loop {
+        if cancel.is_cancelled() {
+            let _ = child.kill();
+            break child.wait();
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => thread::sleep(CANCEL_POLL),
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break Err(error);
+            }
+        }
+    };
+    let read = |reader: thread::JoinHandle<Result<Vec<u8>, std::io::Error>>| {
+        reader
+            .join()
+            .map_err(|_| CoreError::invalid_output(description, "output reader panicked"))?
+            .map_err(|error| spawn_failure(&error, description))
+    };
+    let stdout = read(out);
+    let stderr = read(err);
+    let stdout = stdout?;
+    let stderr = stderr?;
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    let completed = Completed {
+        status: status
+            .map_err(|error| spawn_failure(&error, description))?
+            .code(),
+        stdout: String::from_utf8_lossy(&stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&stderr).into_owned(),
+    };
+    note(description, &completed, started);
+    Ok(completed)
 }
 
 pub(crate) fn run(dir: &Path, args: &[&str]) -> Result<String, CoreError> {

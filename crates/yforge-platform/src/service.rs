@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use yforge_ai::SecretStore;
 use yforge_core::{
@@ -14,6 +17,8 @@ use crate::error::{PlatformError, Result};
 use crate::url::parse_remote;
 
 const NAME_LIMIT: usize = 80;
+type ChecksKey = (String, String, String, i64);
+type ChecksEntry = (Instant, Option<yforge_core::PullChecks>);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewConnection {
@@ -26,6 +31,7 @@ pub struct NewConnection {
 
 pub struct PlatformService {
     pub(crate) secrets: Arc<dyn SecretStore>,
+    checks: Mutex<HashMap<ChecksKey, ChecksEntry>>,
 }
 
 /// The problem the form must show with a field, or `None` when the value is acceptable.
@@ -112,7 +118,10 @@ fn match_repository(dir: &Path, path: &Path) -> Result<Option<MatchedRepo>> {
 
 impl PlatformService {
     pub fn new(secrets: Arc<dyn SecretStore>) -> Self {
-        Self { secrets }
+        Self {
+            secrets,
+            checks: Mutex::default(),
+        }
     }
 
     pub fn list(&self, dir: &Path) -> Result<Vec<PlatformConnection>> {
@@ -219,6 +228,46 @@ impl PlatformService {
         self.client(&matched.connection)?
             .detail(&matched.repo, number)
             .await
+    }
+
+    pub async fn pr_checks(
+        &self,
+        matched: Option<&MatchedRepo>,
+        number: i64,
+    ) -> Result<Option<yforge_core::PullChecks>> {
+        let Some(matched) = matched else {
+            return Ok(None);
+        };
+        let key = (
+            matched.connection.id.clone(),
+            matched.repo.owner.clone(),
+            matched.repo.repo.clone(),
+            number,
+        );
+        {
+            let cache = self
+                .checks
+                .lock()
+                .map_err(|_| PlatformError::invalid("checks cache is unavailable"))?;
+            if let Some((when, summary)) = cache.get(&key) {
+                if when.elapsed() < Duration::from_secs(30) {
+                    return Ok(summary.clone());
+                }
+            }
+        }
+        let summary = self
+            .client(&matched.connection)?
+            .checks(&matched.repo, number)
+            .await?;
+        let mut cache = self
+            .checks
+            .lock()
+            .map_err(|_| PlatformError::invalid("checks cache is unavailable"))?;
+        if cache.len() >= 256 {
+            cache.clear();
+        }
+        cache.insert(key, (Instant::now(), summary.clone()));
+        Ok(summary)
     }
 
     pub async fn pr_create(

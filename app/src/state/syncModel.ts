@@ -1,15 +1,67 @@
 import { relativeAge } from "../format";
 import type { PullMode } from "../ipc/bindings/PullMode";
+import type { PullOutcome } from "../ipc/bindings/PullOutcome";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { MenuEntry } from "./refMenu";
 import { SHORTCUTS } from "./shortcuts";
 
 export const FRESH_SECONDS = 15 * 60;
 
+export type NextStep = "pull" | "push";
+
+export type OperationResult = { outcome: string; next: NextStep | undefined };
+
 export type SyncState =
   | { kind: "idle" }
-  | { kind: "running"; id: string; label: string; phase: string | undefined; percent: number | null }
+  | { kind: "running"; id: string; label: string; phase: string | undefined; percent: number | null; cancellable: boolean }
+  | ({ kind: "done"; baseline: string } & OperationResult)
   | { kind: "failed"; message: string; hint: string; fix: AuthFix };
+
+export function refsKey(snapshot: RepoSnapshot): string {
+  const head = snapshot.head;
+  const counts = snapshot.upstream?.ahead_behind;
+  return [head.kind, head.kind === "branch" ? head.name : "", head.kind === "unborn" ? head.branch : head.sha, snapshot.upstream?.name ?? "", counts?.ahead ?? "", counts?.behind ?? "", snapshot.operation ?? ""].join("|");
+}
+
+const tracked = (snapshot: RepoSnapshot) => {
+  const counts = snapshot.upstream?.ahead_behind;
+  return snapshot.head.kind === "branch" && snapshot.upstream != null && counts != null ? { branch: snapshot.head.name, upstream: snapshot.upstream.name, ...counts } : undefined;
+};
+
+const commits = (count: number, adjective = "") => `${count.toLocaleString("en-US")} ${adjective}commit${count === 1 ? "" : "s"}`;
+
+export function nextStepOf(snapshot: RepoSnapshot): NextStep | undefined {
+  const state = tracked(snapshot);
+  if (state === undefined) return undefined;
+  return state.behind > 0 ? "pull" : state.ahead > 0 ? "push" : undefined;
+}
+
+export function fetchedCommits(before: RepoSnapshot, after: RepoSnapshot): number {
+  const state = tracked(after);
+  if (state === undefined) return 0;
+  const earlier = tracked(before);
+  const known = earlier !== undefined && earlier.branch === state.branch && earlier.upstream === state.upstream ? earlier.behind : 0;
+  return Math.max(0, state.behind - known);
+}
+
+export function fetchResult(before: RepoSnapshot, after: RepoSnapshot, prune: boolean): OperationResult {
+  const state = tracked(after);
+  if (state === undefined) return { outcome: prune ? "Fetched and pruned all remotes" : "Fetched all remotes", next: undefined };
+  const fresh = fetchedCommits(before, after);
+  return { outcome: fresh === 0 ? `No new commits on ${state.upstream}` : `${commits(fresh, "new ")} on ${state.upstream}`, next: state.behind > 0 ? "pull" : undefined };
+}
+
+export function pushResult(verb: "Pushed" | "Force pushed" | "Published", after: RepoSnapshot, destination?: string): OperationResult {
+  const branch = after.head.kind === "branch" ? after.head.name : "HEAD";
+  return { outcome: `${verb} ${branch} to ${destination ?? after.upstream?.name ?? "its remote"}`, next: undefined };
+}
+
+export function pullResult(outcome: PullOutcome, after: RepoSnapshot): OperationResult | undefined {
+  const state = tracked(after);
+  if (outcome === "conflicts" || state === undefined) return undefined;
+  const next = state.ahead > 0 ? "push" : undefined;
+  return outcome === "updated" ? { outcome: `Updated ${state.branch} from ${state.upstream}`, next } : { outcome: `${state.branch} is up to date with ${state.upstream}`, next };
+}
 
 export type Freshness = { tone: "fresh" | "stale" | "never"; text: string };
 

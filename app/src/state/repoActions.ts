@@ -9,6 +9,7 @@ import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { MergeMode } from "../ipc/bindings/MergeMode";
 import type { OperationOutcome } from "../ipc/bindings/OperationOutcome";
 import type { OperationProgress } from "../ipc/bindings/OperationProgress";
+import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { ResetMode } from "../ipc/bindings/ResetMode";
 import type { RevisionRange } from "../ipc/bindings/RevisionRange";
 import type { PullMode } from "../ipc/bindings/PullMode";
@@ -62,7 +63,7 @@ import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
 import { createFileOps } from "./fileOps";
 import type { FileViewTarget } from "./fileView";
-import { authFailure, authFix, divergedPushDetail, fetchMenu, isDiverged, pullMenu, type AuthFix, type SyncState } from "./syncModel";
+import { authFailure, authFix, divergedPushDetail, fetchedCommits, fetchMenu, fetchResult, isDiverged, nextStepOf, pullMenu, pullResult, pushResult, refsKey, type AuthFix, type OperationResult, type SyncState } from "./syncModel";
 
 const PREVIEW_CONCURRENCY = 4;
 
@@ -174,7 +175,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [menu, setMenu] = createSignal<MenuState | undefined>();
   const [popover, setPopover] = createSignal<PopoverState | undefined>();
   const [dialog, setDialog] = createSignal<DialogState | undefined>();
-  const [sync, setSync] = createSignal<SyncState>({ kind: "idle" });
+  const [syncState, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
   const [noticeList, setNotices] = createSignal<StripNotice[]>([]);
   const [replaced, setReplaced] = createSignal<{ key: string; count: number; commits: Array<{ sha: string; summary: string }> } | undefined>();
@@ -226,6 +227,58 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   let retry: (() => Promise<void>) | undefined;
 
   const snapshot = session.snapshot;
+  const sync = (): SyncState => {
+    const state = syncState();
+    if (state.kind !== "done" || refsKey(snapshot()) === state.baseline) return state;
+    queueMicrotask(() => {
+      if (syncState() === state) setSync({ kind: "idle" });
+    });
+    return { kind: "idle" };
+  };
+  const [incomingShas, setIncomingShas] = createSignal<ReadonlySet<string>>(new Set());
+  const seenIncoming = new Set<string>();
+  let incomingKey = "";
+  async function markIncoming(): Promise<void> {
+    try {
+      const listed = await client.incomingCommits(path);
+      incomingKey = refsKey(snapshot());
+      setIncomingShas(new Set(listed.filter((sha) => !seenIncoming.has(sha))));
+    } catch (failure) {
+      fail(failure);
+    }
+  }
+  async function pruneIncoming(key: string): Promise<void> {
+    try {
+      const still = new Set(await client.incomingCommits(path));
+      if (incomingKey !== key) return;
+      setIncomingShas((current) => new Set([...current].filter((sha) => still.has(sha))));
+    } catch (failure) {
+      fail(failure);
+    }
+  }
+  const incoming = (): ReadonlySet<string> => {
+    const current = incomingShas();
+    const key = refsKey(snapshot());
+    if (current.size > 0 && key !== incomingKey) {
+      incomingKey = key;
+      queueMicrotask(() => void pruneIncoming(key));
+    }
+    return current;
+  };
+  const seeIncoming = (sha: string) => {
+    seenIncoming.add(sha);
+    setIncomingShas((current) => {
+      if (!current.has(sha)) return current;
+      const next = new Set(current);
+      next.delete(sha);
+      return next;
+    });
+  };
+  const finish = (id: string, result: OperationResult | undefined) => {
+    const state = syncState();
+    if (state.kind !== "running" || state.id !== id) return;
+    setSync(result === undefined ? { kind: "idle" } : { kind: "done", ...result, baseline: refsKey(snapshot()) });
+  };
   const currentBranch = () => {
     const head = snapshot().head;
     return head.kind === "branch" ? head.name : undefined;
@@ -253,19 +306,21 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     name: SyncName,
     start: (id: string) => Promise<T>,
     onError?: (error: IpcError) => boolean,
+    settle?: (value: T, before: RepoSnapshot) => OperationResult | undefined,
   ): Promise<SyncResult<T>> {
     const running = sync();
     if (running.kind === "running") return { error: new IpcError({ kind: "invalid_request", message: "Another sync is running" }) };
     const id = nextId();
+    const before = snapshot();
     dismissNotice(PULL_STASH_NOTICE);
     announceOperation(id, name.toLowerCase());
-    setSync({ kind: "running", id, label: progressive[name], phase: undefined, percent: null });
+    setSync({ kind: "running", id, label: progressive[name], phase: undefined, percent: null, cancellable: true });
     retry = undefined;
     try {
       const value = await start(id);
-      setSync({ kind: "idle" });
       if (name === "Fetch") setAutoFetchPause(undefined);
       await session.refresh();
+      finish(id, settle?.(value, before));
       return { value };
     } catch (failure) {
       const error = asIpcError(failure);
@@ -274,16 +329,39 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       else if (error.kind === "auth_failed") {
         const copy = authFailure(error.message);
         setSync({ kind: "failed", message: copy.text, hint: copy.hint, fix: await authFixFor(copy.remote) });
-        retry = async () => void (await runSync(name, start, onError));
+        retry = async () => void (await runSync(name, start, onError, settle));
       } else if (onError?.(error) !== true) fail(error);
       await session.refresh();
       return { error };
     }
   }
 
+  async function runLocal<T>(label: string, work: () => Promise<T>, settle: (value: T) => OperationResult | undefined): Promise<T> {
+    if (busy()) return work();
+    const id = nextId();
+    setSync({ kind: "running", id, label, phase: undefined, percent: null, cancellable: false });
+    try {
+      const value = await work();
+      finish(id, settle(value));
+      return value;
+    } catch (failure) {
+      finish(id, undefined);
+      throw failure;
+    }
+  }
+
+  async function runNextStep(): Promise<void> {
+    const state = sync();
+    if (state.kind !== "done" || state.next === undefined) return;
+    if (state.next === "pull") await pullDefault();
+    else await push();
+  }
+
   async function fetchAll(prune = false): Promise<void> {
-    const result = await runSync("Fetch", (id) => client.fetch(path, id, prune));
-    if (!("value" in result) || deps.submoduleUpdateOnFetch?.() !== true) return;
+    const result = await runSync("Fetch", (id) => client.fetch(path, id, prune), undefined, (_value, before) => fetchResult(before, snapshot(), prune));
+    if (!("value" in result)) return;
+    await markIncoming();
+    if (deps.submoduleUpdateOnFetch?.() !== true) return;
     try {
       await client.submoduleUpdate(path, null);
       await session.refresh();
@@ -294,7 +372,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   function reportPull(outcome: PullOutcome): void {
     if (outcome === "conflicts") session.inform("Pull stopped on conflicts. Resolve them, then continue, or abort.");
-    else if (outcome === "up_to_date") session.inform("Already up to date.");
   }
 
   function showPullStash(stash: PullStash): void {
@@ -321,26 +398,30 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   async function pull(mode: PullMode): Promise<void> {
     if (changeTotal(snapshot().counts) > 0) {
-      const stashing = await runSync("Pull", (id) => client.pullWithAutostash(path, id, mode));
+      const stashing = await runSync("Pull", (id) => client.pullWithAutostash(path, id, mode), undefined, (report) => pullResult(report.outcome, snapshot()));
       if (!("value" in stashing)) return;
       reportPull(stashing.value.outcome);
       showPullStash(stashing.value.stash);
       return;
     }
-    const result = await runSync("Pull", (id) => client.pull(path, id, mode));
+    const result = await runSync("Pull", (id) => client.pull(path, id, mode), undefined, (outcome) => pullResult(outcome, snapshot()));
     if ("value" in result) reportPull(result.value);
   }
 
   const pullDefault = () => pull(deps.pullMode());
 
-  async function publish(remote: string): Promise<void> {
-    await runSync("Publish", (id) => client.publish(path, id, remote));
+  async function publish(remote: string, branch?: string): Promise<boolean> {
+    const result = await runSync("Publish", (id) => client.publish(path, id, remote, branch), undefined, () =>
+      branch === undefined ? pushResult("Published", snapshot(), remote) : { outcome: `Published ${branch} to ${remote}`, next: undefined },
+    );
+    return "value" in result;
   }
 
   async function autoFetch(): Promise<void> {
     if (autoFetchPause() !== undefined || deps.offline() || sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return;
-    const result = await runSync("Fetch", (id) => client.fetch(path, id, false, false), () => true);
-    if ("error" in result && result.error.kind !== "cancelled") setAutoFetchPause(describe(result.error));
+    const result = await runSync("Fetch", (id) => client.fetch(path, id, false, false), () => true, (_value, before) => (fetchedCommits(before, snapshot()) > 0 ? fetchResult(before, snapshot(), false) : undefined));
+    if ("value" in result) await markIncoming();
+    else if (result.error.kind !== "cancelled") setAutoFetchPause(describe(result.error));
   }
 
   async function undo(id: number): Promise<void> {
@@ -388,7 +469,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if ((snapshot().upstream?.ahead_behind?.ahead ?? 0) > 0) void openForcePush();
       else session.inform("The remote has commits you do not have. Pull first, then push.");
       return true;
-    });
+    }, () => pushResult("Pushed", snapshot()));
   }
 
   async function confirmForcePush(plan: ForcePushPlan): Promise<void> {
@@ -396,7 +477,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if (error.kind !== "push_rejected") return false;
       session.inform("The remote changed after these commits were listed, so nothing was replaced. Fetch and review again.");
       return true;
-    });
+    }, () => pushResult("Force pushed", snapshot()));
   }
 
   function cancelSync(): void {
@@ -434,9 +515,17 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function switchTo(target: CheckoutTarget, label: string, stash: boolean): Promise<void> {
     dismissNotice(PULL_STASH_NOTICE);
     dismissNotice(BRANCH_WORKTREE_NOTICE);
+    const left = currentBranch();
     try {
-      const left = currentBranch();
-      const outcome = await client.checkout(path, target, stash, stash);
+      const outcome = await runLocal(
+        `Checking out ${label}`,
+        async () => {
+          const result = await client.checkout(path, target, stash, stash);
+          await session.refresh();
+          return result;
+        },
+        () => ({ outcome: `Checked out ${label}`, next: nextStepOf(snapshot()) }),
+      );
       const message = autoStashMessage(outcome.auto_stash, label, left);
       if (message !== undefined) session.inform(message);
     } catch (failure) {
@@ -444,8 +533,8 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if (error.kind === "local_changes" && !stash) confirm(stashAndSwitchCopy(label, currentBranch()), () => switchTo(target, label, true));
       else if (error.kind === "branch_in_worktree") offerOpenWorktree(error);
       else fail(error);
+      await session.refresh();
     }
-    await session.refresh();
   }
 
   function checkout(target: CheckoutTarget): void {
@@ -466,6 +555,14 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if (snapshot().branches.includes(short)) checkout({ kind: "local_branch", name: short });
       else checkout({ kind: "remote_branch", name: target.name });
     }
+  }
+
+  function activateRef(target: RefTarget, anchor: Anchor): void {
+    if (target.kind === "remote_branch" && shortRefName(target, snapshot().remotes) === currentBranch()) {
+      openResetModes(target.startPoint, target.name, anchor);
+      return;
+    }
+    checkoutRef(target);
   }
 
   async function deleteBranch(name: string): Promise<void> {
@@ -567,7 +664,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       if (error.kind !== "push_rejected") return false;
       session.inform(`${target.remote}/${target.name} has commits this branch does not. Pull first, or push to another name.`);
       return true;
-    });
+    }, () => pushResult("Pushed", snapshot(), `${target.remote}/${target.name}`));
   }
 
   function openBranchPicker(anchor: Anchor): void {
@@ -683,8 +780,9 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function startReset(target: string, label: string, mode: ResetMode): Promise<void> {
     const preview = await previewOf(null, target);
     if (preview === undefined) return;
-    const copy = resetCopy(mode, currentLabel(), label, preview.outgoing, snapshot().files);
-    confirm(copy, () => void session.mutate(() => client.reset(path, target, mode)));
+    const branch = currentLabel();
+    const copy = resetCopy(mode, branch, label, preview.outgoing, snapshot().files);
+    confirm(copy, () => void runLocal(`Resetting ${branch} to ${label}`, () => session.mutate(() => client.reset(path, target, mode)), (reset) => (reset ? { outcome: `Reset ${branch} to ${label}`, next: undefined } : undefined)));
   }
 
   function openResetModes(target: string, label: string, anchor: Anchor): void {
@@ -698,7 +796,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function pushTag(name: string): Promise<void> {
     const remote = pushRemote(snapshot().remotes);
     if (remote === undefined) return;
-    await runSync("Push tag", (id) => client.pushTag(path, id, remote, name));
+    await runSync("Push tag", (id) => client.pushTag(path, id, remote, name), undefined, () => ({ outcome: `Pushed tag ${name} to ${remote}`, next: undefined }));
   }
 
   async function submitCreateTag(request: TagRequest): Promise<string | undefined> {
@@ -984,12 +1082,17 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     closeDialog: () => setDialog(undefined),
     sync,
     dismissSync: () => setSync({ kind: "idle" }),
+    runNextStep,
+    runLocal,
+    incoming,
+    seeIncoming,
     notices,
     dismissNotice,
     retrySync: () => retry?.(),
     operationBusy,
     checkout,
     checkoutRef,
+    activateRef,
     openRefMenu,
     openCreateBranch,
     submitCreateBranch,

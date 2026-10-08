@@ -144,6 +144,7 @@ impl From<Pull> for PullRequest {
         };
         Self {
             number: pull.id,
+            draft: pull.draft,
             title: pull.title,
             body: pull.description.unwrap_or_default(),
             state,
@@ -329,9 +330,31 @@ impl Adapter for BitbucketDataCenter {
     }
 
     async fn create(&self, http: &Http, repo: &RepoRef, input: &CreatePull) -> Result<PullRequest> {
+        if input.draft {
+            let properties = http
+                .call(
+                    Method::GET,
+                    "/application-properties",
+                    None,
+                    "Bitbucket version is unavailable",
+                )
+                .await?;
+            let version = properties
+                .get("version")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let mut parts = version
+                .split('.')
+                .filter_map(|part| part.parse::<u32>().ok());
+            if !matches!((parts.next(), parts.next()), (Some(major), Some(minor)) if major > 8 || (major == 8 && minor >= 18))
+            {
+                return Err(PlatformError::Core(yforge_core::CoreError::Unsupported { detail: "Draft pull requests require Bitbucket Data Center 8.18 or newer. No pull request was created.".to_owned() }));
+            }
+        }
         let body = json!({
             "title": input.title,
             "description": input.body,
+            "draft": input.draft,
             "fromRef": branch(repo, &input.source_ref),
             "toRef": branch(repo, &input.target_ref),
         });

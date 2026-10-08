@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/solid-query";
 import { createTable } from "@tanstack/solid-table";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import {
   clampColumn,
@@ -17,11 +17,15 @@ import {
 } from "../graph/columns";
 import { createGraphStore, PAGE_SIZE } from "../graph/graphStore";
 import { useNow } from "../state/clock";
+import { createPendingIndicator } from "../state/pending";
+import { pullOfGroup, type PullLookup } from "../state/platformModel";
+import type { Conflict } from "../state/conflicts";
+import { createViewSwap } from "../state/viewSwap";
 import { createIssueChips, type IssueChips as IssueChipState } from "../state/jiraIssues";
 import { IssueChips } from "./IssueChip";
 import type { Geometry } from "../graph/geometry";
 import { edgePath, laneClass, nodeX, rowY, visibleEdges } from "../graph/laneArt";
-import { groupRefs, rowLabels } from "../graph/refLabels";
+import { groupRefs, rowLabels, type LabelGroup } from "../graph/refLabels";
 import { reachFrom } from "../graph/reachability";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -33,6 +37,8 @@ import { createMinWidth, GRAPH_COLUMNS_MIN_WIDTH } from "../state/viewport";
 import { ColumnResizer } from "./ColumnResizer";
 import { GraphSettings } from "./GraphSettings";
 import { Icon } from "./Icon";
+import { PendingLine } from "./PendingLine";
+import { PullBadge } from "./PullBadge";
 import { RefLabel } from "./RefLabel";
 import { RefOverflow } from "./RefOverflow";
 import { tip } from "./Tooltip";
@@ -84,6 +90,7 @@ function RowView(props: {
   actions: RepoActions;
   now: number;
   selected: boolean;
+  incoming: boolean;
   conflicted: boolean;
   dimmed: boolean;
   onSelect: (index: number, event: MouseEvent) => void;
@@ -91,6 +98,8 @@ function RowView(props: {
   onOverflow: (index: number, anchor: Anchor) => void;
   onHighlight: (sha: string | undefined) => void;
   chips: IssueChipState;
+  decorate: (group: LabelGroup) => JSX.Element;
+  noteOf: (group: LabelGroup) => string | undefined;
 }) {
   const labels = createMemo(() => rowLabels(groupRefs(props.row.refs, props.remotes)));
   const hidden = () => labels().more;
@@ -102,6 +111,8 @@ function RowView(props: {
     const names = row.refs.map((ref) => ref.name);
     if (names.length > 0) parts.push(`refs: ${names.join(", ")}`);
     if (hidden().length > 0) parts.push(`${hidden().length} more ${hidden().length === 1 ? "ref" : "refs"}, press Enter to list`);
+    if (props.incoming) parts.push("incoming");
+    if ([labels().shown, ...hidden()].some((group) => group !== undefined && props.noteOf(group) !== undefined)) parts.push("conflict");
     parts.push(kindWord[row.kind]);
     if (row.refs.some((ref) => ref.is_head)) parts.push("checked out");
     return parts.join(", ");
@@ -126,7 +137,9 @@ function RowView(props: {
       <Show when={labels().shown}>
         {(shown) => (
         <div class="refcell">
-          <RefLabel group={shown()} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} />
+          <RefLabel group={shown()} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} note={props.noteOf(shown())}>
+            {props.decorate(shown())}
+          </RefLabel>
           <Show when={hidden().length > 0}>
             <button
               type="button"
@@ -142,7 +155,13 @@ function RowView(props: {
               +{hidden().length}
             </button>
             <div class="refstack">
-              <For each={[shown(), ...hidden()]}>{(group) => <RefLabel group={group} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} />}</For>
+              <For each={[shown(), ...hidden()]}>
+                {(group) => (
+                  <RefLabel group={group} sha={props.row.sha} actions={props.actions} onHighlight={props.onHighlight} note={props.noteOf(group)}>
+                    {props.decorate(group)}
+                  </RefLabel>
+                )}
+              </For>
             </div>
           </Show>
         </div>
@@ -156,6 +175,12 @@ function RowView(props: {
         <Show when={props.row.body !== ""}>
           <span class="body" title={props.row.body}>{props.row.body}</span>
         </Show>
+        <Show when={props.incoming}>
+          <span class="incoming-marker">
+            <Icon name="pull" size={14} />
+            incoming
+          </span>
+        </Show>
       </div>
       <Show when={props.extras.length > 0}>
         <div class="gextra">
@@ -166,12 +191,18 @@ function RowView(props: {
   );
 }
 
-function PlaceholderRow(props: { index: number; geometry: Geometry; loading: boolean }) {
-  return <div class="grow placeholder" style={{ top: `${props.index * props.geometry.row}px` }} aria-hidden={props.loading ? undefined : "true"}>
-    <Show when={props.loading}>
-      <span class="graph-loading" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />Loading commits…</span>
-    </Show>
-  </div>;
+const SKELETON_WIDTHS = ["46%", "62%", "38%", "55%", "70%", "42%", "58%", "50%"];
+
+const FIRST_PAGE_SKELETON_ROWS = Array.from({ length: 24 }, (_, index) => index);
+
+function PlaceholderRow(props: { index: number; geometry: Geometry; skeleton: boolean }) {
+  return (
+    <div class="grow placeholder" style={{ top: `${props.index * props.geometry.row}px` }} aria-hidden="true">
+      <Show when={props.skeleton}>
+        <span class="skeleton graph-skeleton-bar" style={{ width: SKELETON_WIDTHS[props.index % SKELETON_WIDTHS.length] }} />
+      </Show>
+    </div>
+  );
 }
 
 function LaneArt(props: {
@@ -299,6 +330,9 @@ export function GraphPanel(props: {
   revision: number;
   covered: boolean;
   actions: RepoActions;
+  incoming: ReadonlySet<string>;
+  pulls: PullLookup | undefined;
+  conflictOf: (ref: string) => Conflict | undefined;
   dimmed: (index: number) => boolean;
   searching: boolean;
   focus: FocusTarget | undefined;
@@ -403,7 +437,23 @@ export function GraphPanel(props: {
     else virtualizer.scrollToIndex(coveredSelection, { align: "auto" });
     coveredSelection = undefined;
   }, { defer: true }));
-  const firstMissing = createMemo(() => items().find((item) => !store.rows().has(item.index))?.index);
+  const waiting = createPendingIndicator(store.loading);
+  const conflictOfGroup = (group: LabelGroup) => (group.tag ? undefined : group.local ? props.conflictOf(group.name) : group.remoteRef === undefined ? undefined : props.conflictOf(group.remoteRef));
+  const noteOf = (group: LabelGroup) => {
+    const conflict = conflictOfGroup(group);
+    return conflict === undefined ? undefined : `conflict with ${conflict.target}`;
+  };
+  const decorate = (group: LabelGroup) => (
+    <>
+      <Show when={pullOfGroup(props.pulls, group)}>{(pull) => <PullBadge path={props.path} pull={pull()} onOpen={(number) => props.onSelect({ kind: "pull", number })} />}</Show>
+      <Show when={conflictOfGroup(group)}>
+        <span class="st st-conflicted conflict-mark" aria-hidden="true">
+          !
+        </span>
+      </Show>
+    </>
+  );
+  createViewSwap(() => scroller, () => (store.total() > 0 ? `rows:${store.generation()}` : waiting() ? "skeleton" : undefined));
   const chips = createIssueChips(() => items().flatMap((item) => store.rows().get(item.index) ?? []).map(rowText));
 
   const selected = createMemo(() => indexOfSelection(store.rows(), props.selection));
@@ -623,6 +673,7 @@ export function GraphPanel(props: {
       aria-busy={store.loading()}
       style={{ "--graph-w": `${graphWidth()}px`, "--ref-w": `${sizeOf("refs")}px`, "--extra-w": `${extraWidth()}px` }}
     >
+      <PendingLine pending={store.loading()} label="Loading commits" />
       <div class="ghead" style={{ "grid-template-columns": headerColumns() }}>
         <span class="gh">
           Branch / Tag
@@ -663,13 +714,15 @@ export function GraphPanel(props: {
         onScroll={(event) => { if (!props.covered) coveredOffset = event.currentTarget.scrollTop; }}
         onKeyDown={onKeyDown}
       >
-        <Show when={store.loading() && store.total() === 0}>
-          <span class="graph-loading" role="status"><span class="busy-spinner" aria-hidden="true" />Loading history…</span>
+        <Show when={waiting() && store.total() === 0}>
+          <div class="gspacer graph-skeleton" style={{ height: `${FIRST_PAGE_SKELETON_ROWS.length * props.geometry.row}px` }} aria-hidden="true">
+            <Index each={FIRST_PAGE_SKELETON_ROWS}>{(index) => <PlaceholderRow index={index()} geometry={props.geometry} skeleton />}</Index>
+          </div>
         </Show>
         <div class="gspacer" style={{ height: `${virtualizer.getTotalSize()}px` }}>
           <For each={items()}>
             {(item) => (
-              <Show when={store.rows().get(item.index)} fallback={<PlaceholderRow index={item.index} geometry={props.geometry} loading={firstMissing() === item.index} />}>
+              <Show when={store.rows().get(item.index)} fallback={<PlaceholderRow index={item.index} geometry={props.geometry} skeleton={waiting()} />}>
                 {(row) => (
                   <RowView
                     index={item.index}
@@ -683,6 +736,7 @@ export function GraphPanel(props: {
                     actions={props.actions}
                     now={now()}
                     selected={selected() === item.index || (row().sha !== null && row().kind !== "stash" && chosen().has(row().sha as string))}
+                    incoming={row().sha !== null && props.incoming.has(row().sha as string)}
                     conflicted={props.snapshot.counts.conflicted > 0}
                     dimmed={props.dimmed(item.index) || faded(item.index)}
                     onSelect={choose}
@@ -690,6 +744,8 @@ export function GraphPanel(props: {
                     onOverflow={(index, anchor) => setOverflow({ index, anchor })}
                     onHighlight={setHover}
                     chips={chips}
+                    decorate={decorate}
+                    noteOf={noteOf}
                   />
                 )}
               </Show>
@@ -726,7 +782,7 @@ export function GraphPanel(props: {
         {(anchor) => <GraphSettings anchor={anchor()} prefs={props.uiPrefs} onClose={() => setSettingsAnchor(undefined)} />}
       </Show>
       <Show when={overflowRow()}>
-        {(open) => <RefOverflow anchor={open().anchor} sha={open().sha} groups={open().groups} actions={props.actions} onHighlight={setHover} onClose={closeOverflow} />}
+        {(open) => <RefOverflow anchor={open().anchor} sha={open().sha} groups={open().groups} actions={props.actions} onHighlight={setHover} onClose={closeOverflow} decorate={decorate} />}
       </Show>
     </section>
   );

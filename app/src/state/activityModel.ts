@@ -36,11 +36,15 @@ export function withRedoChange(scopes: RedoScopes, change: RedoChange): RedoScop
   return change.scope === null ? rest : { ...rest, [change.repo]: change.scope };
 }
 
-export type Toast = { id: number; entry: ActivityEntry; message: string; undoable: boolean };
+export type Toast =
+  | { kind: "activity"; id: number; entry: ActivityEntry; message: string; undoable: boolean }
+  | { kind: "done"; id: number; repo: string; message: string; show: () => void };
+
+export const toastRepo = (toast: Toast): string => (toast.kind === "activity" ? toast.entry.repo : toast.repo);
 
 export function toastFor(entry: ActivityEntry, current: string | undefined): Toast | undefined {
   if (!entry.toast || !entry.ok || entry.repo !== current) return undefined;
-  return { id: entry.id, entry, message: entry.summary, undoable: entry.undo.kind === "available" };
+  return { kind: "activity", id: entry.id, entry, message: entry.summary, undoable: entry.undo.kind === "available" };
 }
 
 export function refreshToasts(toasts: readonly Toast[], entry: ActivityEntry, current: string | undefined): Toast[] {

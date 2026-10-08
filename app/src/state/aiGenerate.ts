@@ -6,10 +6,15 @@ import { SUMMARY_GUIDE, type Composer } from "./composer";
 import { fileList } from "./fileList";
 import type { RepoSession } from "./repoSession";
 
-export function draftNotes(draft: Pick<CommitDraft, "excluded" | "truncated" | "summary_trimmed">): string[] {
+export function fileNotes(sent: { excluded: string[]; truncated: string[] }): string[] {
   const notes: string[] = [];
-  if (draft.excluded.length > 0) notes.push(`Withheld from the provider because they look like secrets: ${fileList(draft.excluded)}`);
-  if (draft.truncated.length > 0) notes.push(`Cut to fit the size limit: ${fileList(draft.truncated)}`);
+  if (sent.excluded.length > 0) notes.push(`Withheld from the provider because they look like secrets: ${fileList(sent.excluded)}`);
+  if (sent.truncated.length > 0) notes.push(`Cut to fit the size limit: ${fileList(sent.truncated)}`);
+  return notes;
+}
+
+export function draftNotes(draft: Pick<CommitDraft, "excluded" | "truncated" | "summary_trimmed">): string[] {
+  const notes = fileNotes(draft);
   if (draft.summary_trimmed) notes.push(`The summary was shortened to fit the ${SUMMARY_GUIDE} character guide.`);
   return notes;
 }

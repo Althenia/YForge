@@ -4,6 +4,10 @@ import type { PullRequest } from "../ipc/bindings/PullRequest";
 import { IpcError } from "../ipc/client";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import {
+  pullBadgeName,
+  pullLookup,
+  pullOfLocal,
+  pullOfRemote,
   cardOfPlatform,
   CONNECTION_FIELDS,
   connectionFieldProblem,
@@ -19,6 +23,7 @@ import {
 } from "./platformModel";
 
 const pull = (overrides: Partial<PullRequest> = {}): PullRequest => ({
+  draft: false,
   number: 12,
   title: "Add retry helper",
   body: "",
@@ -155,5 +160,28 @@ describe("create pull request draft", () => {
     expect(pullProblems({ ...draft, target: "" })).toEqual({ target: "Choose the branch to merge into" });
     expect(pullProblems({ ...draft, target: "feature/x" })).toEqual({ target: "Choose a different target branch" });
     expect(pullProblems({ ...draft, title: "  " })).toEqual({ title: "Enter a title" });
+  });
+});
+
+describe("pull request badges (S75)", () => {
+  const open = (overrides: Partial<PullRequest> = {}): PullRequest => ({ draft: false, number: 42, title: "Retry login", body: "", state: "open", source_ref: "feature", target_ref: "main", author: "ada", created_at: "", updated_at: "", mergeable: null, web_url: "https://example.test/pull/42", ...overrides });
+  const lookup = pullLookup("origin", [open(), open({ number: 9, source_ref: "wip", draft: true }), open({ number: 7, source_ref: "old", state: "merged" }), open({ number: 8, source_ref: "gone", state: "closed" })]);
+
+  it("finds the open or draft pull request a local or remote branch heads, and never a merged or closed one", () => {
+    expect(pullOfLocal(lookup, "feature")?.number).toBe(42);
+    expect(pullOfLocal(lookup, "wip")?.number).toBe(9);
+    expect(pullOfLocal(lookup, "old")).toBeUndefined();
+    expect(pullOfLocal(lookup, "gone")).toBeUndefined();
+    expect(pullOfRemote(lookup, "origin/feature")?.number).toBe(42);
+    expect(pullOfRemote(lookup, "upstream/feature")).toBeUndefined();
+    expect(pullOfLocal(undefined, "feature")).toBeUndefined();
+  });
+
+  it("names the number, title, state, source → target, and checks", () => {
+    expect(pullBadgeName(open(), { passing: 3, failing: 1, pending: 0, capped: false })).toBe("Pull request #42: Retry login · Open · feature → main · checks: 3 passing, 1 failing");
+    expect(pullBadgeName(open({ draft: true }), null)).toBe("Pull request #42: Retry login · Draft · feature → main · no checks");
+    expect(pullBadgeName(open(), "loading")).toBe("Pull request #42: Retry login · Open · feature → main · checks loading");
+    expect(pullBadgeName(open(), "unavailable")).toBe("Pull request #42: Retry login · Open · feature → main · checks unavailable");
+    expect(pullBadgeName(open(), { passing: 100, failing: 0, pending: 0, capped: true })).toBe("Pull request #42: Retry login · Open · feature → main · checks: 100 passing, more not counted");
   });
 });

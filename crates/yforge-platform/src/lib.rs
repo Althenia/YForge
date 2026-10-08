@@ -1,6 +1,7 @@
 mod adapter;
 mod bitbucket_cloud;
 mod bitbucket_data_center;
+mod checks;
 mod client;
 mod error;
 #[cfg(test)]

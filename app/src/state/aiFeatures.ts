@@ -11,6 +11,7 @@ export const FEATURE_ORDER: readonly AiFeature[] = [
   "explain_commit",
   "compose_commits",
   "stash_message",
+  "compose_pull_request",
 ];
 
 export const FEATURE_TITLES: Record<AiFeature, string> = {
@@ -21,6 +22,7 @@ export const FEATURE_TITLES: Record<AiFeature, string> = {
   explain_commit: "Explain commit",
   compose_commits: "Compose commits",
   stash_message: "Generate stash message",
+  compose_pull_request: "Pull request descriptions",
 };
 
 export const FEATURE_BLURBS: Record<AiFeature, string> = {
@@ -31,6 +33,7 @@ export const FEATURE_BLURBS: Record<AiFeature, string> = {
   explain_commit: "Explains each file of the selected commit from its message and its diff against its parent.",
   compose_commits: "Groups your working changes into a series of commits with messages you can edit.",
   stash_message: "Writes a stash message from your uncommitted changes.",
+  compose_pull_request: "Writes an editable pull request title and description from compared commit messages, diffstat, and bounded diff hunks, filling your repository template.",
 };
 
 export const CONTEXT_TOKEN = "{context}";

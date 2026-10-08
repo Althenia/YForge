@@ -1,5 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { createEffect, createRoot } from "solid-js";
+import { createComputed, createEffect, createRoot, on } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { indexOfSelection, type Selection } from "../state/selection";
 import type { GraphPage } from "../ipc/bindings/GraphPage";
@@ -134,6 +134,46 @@ describe("graph store", () => {
         await vi.waitFor(() => expect(store.rows().get(400)?.sha).toBe("target-400"));
         expect(store.rows().get(0)?.sha).toBe("target-0");
         expect(offsets).toEqual([0, 0, 200, 400]);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("ends loading only once a fetched page is in the layout, so a skeleton never drops before its rows (S72)", async () => {
+    let finishPage!: (value: GraphPage) => void;
+    const first = new Promise<GraphPage>((resolve) => { finishPage = resolve; });
+    mockIPC(() => first);
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        const rowsWhenSettled: number[] = [];
+        createComputed(on(store.loading, (loading, previous) => { if (previous === true && !loading) rowsWhenSettled.push(store.rows().size); }));
+        store.show(0, 1);
+        finishPage(page(row("first")));
+        await vi.waitFor(() => expect(rowsWhenSettled).toHaveLength(1));
+        expect(rowsWhenSettled).toEqual([1]);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("advances its generation when a refresh lands, and not when a page loads (S72)", async () => {
+    mockIPC((_cmd, args) => ({ rows: [row(`sha-${(args as { offset: number }).offset}`)], carried: [], total: PAGE_SIZE * 2 }));
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 1);
+        await vi.waitFor(() => expect(store.rows().size).toBe(1));
+        const loaded = store.generation();
+        await store.refresh();
+        const refreshed = store.generation();
+        expect(refreshed).not.toBe(loaded);
+
+        store.show(PAGE_SIZE, PAGE_SIZE + 1);
+        await vi.waitFor(() => expect(store.rows().has(PAGE_SIZE)).toBe(true));
+        expect(store.generation()).toBe(refreshed);
       } finally {
         dispose();
       }

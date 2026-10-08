@@ -1,6 +1,8 @@
 mod activity;
 mod ai;
+pub use ai::{PullRequestDisclosure, PullRequestDraft};
 mod ai_context;
+pub use ai_context::{pull_request_context, PullRequestContext};
 mod askpass;
 mod avatar;
 mod batch;
@@ -36,6 +38,8 @@ mod operation;
 mod passphrase;
 mod patch;
 mod platform;
+pub use platform::PullChecks;
+mod pull_request;
 mod recovery;
 mod refs;
 mod repo;
@@ -81,7 +85,9 @@ pub use branch::{
 };
 pub use cli::install_cli;
 pub use clone::{clone_repository, init_repository, CloneOptions};
-pub use commit::{amend_info, commit, commit_details, commit_file_diff, edit_head_message};
+pub use commit::{
+    amend_info, commit, commit_details, commit_file_diff, edit_head_message, revision_file_diff,
+};
 pub use compose::compose_apply;
 pub use config::{
     add_remote, edit_remote, list_remotes, read_identity, remove_remote, write_identity,
@@ -157,8 +163,12 @@ pub use platform::{
     CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState, PullList,
     PullRequest, RepoRef,
 };
+pub use pull_request::{
+    branch_comparison, pull_request_template, BranchComparison, ComparedCommit, MergePrediction,
+    MergePredictor,
+};
 pub use recovery::{lost_commits, reflog_list, reflog_refs};
-pub use repo::repo_snapshot;
+pub use repo::{repo_snapshot, repository_root};
 pub use signing::{
     list_signing_keys, signing_keys, signing_read, signing_write, SigningConfig, SigningFormat,
     SigningKey, SigningScope,
@@ -202,8 +212,8 @@ pub use submodule::{
     update_submodules,
 };
 pub use sync::{
-    delete_remote_branch, fetch, publish, pull, pull_autostash, push, push_force, push_plan,
-    push_to, remote_branch_sha, Progress,
+    delete_remote_branch, fetch, incoming_commits, publish, pull, pull_autostash, push, push_force,
+    push_plan, push_to, remote_branch_sha, Progress,
 };
 pub use tag::{create_tag, delete_remote_tag, delete_tag, push_tag};
 pub use tracked_files::tracked_files;

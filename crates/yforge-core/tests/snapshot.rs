@@ -2,7 +2,8 @@ mod common;
 
 use common::Fixture;
 use yforge_core::{
-    repo_snapshot, AheadBehind, ChangeArea, ChangeCounts, ErrorKind, FileStatus, Head, Operation,
+    repo_snapshot, repository_root, AheadBehind, ChangeArea, ChangeCounts, ErrorKind, FileStatus,
+    Head, Operation,
 };
 
 #[test]
@@ -333,6 +334,22 @@ fn stashes_are_listed_newest_first() {
     assert!(stashes[0].message.contains("newer"));
     assert!(stashes[1].message.contains("older"));
     assert!(stashes[0].base_sha.is_some());
+}
+
+#[test]
+fn repository_root_resolves_a_nested_folder_and_refuses_a_folder_outside_a_repository() {
+    let repo = Fixture::init();
+    let nested = repo.path.join("nested/deeper");
+    std::fs::create_dir_all(&nested).unwrap();
+    let root = repository_root(&nested).unwrap();
+    assert_eq!(
+        root.canonicalize().unwrap(),
+        repo.path.canonicalize().unwrap()
+    );
+
+    let outside = tempfile::tempdir().unwrap();
+    let refused = repository_root(outside.path()).unwrap_err();
+    assert_eq!(refused.kind(), ErrorKind::NotARepository);
 }
 
 #[test]

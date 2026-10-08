@@ -19,6 +19,7 @@ import { createDiffStep, DiffBody } from "./DiffView";
 import { FileBody, FileLines } from "./FileView";
 import { Icon } from "./Icon";
 import { Switch } from "./Switch";
+import { PendingLine } from "./PendingLine";
 import { tip } from "./Tooltip";
 
 const optionId = (sha: string) => `file-history-${sha}`;
@@ -68,6 +69,7 @@ function HistoryDiff(props: { session: RepoSession; state: FileHistoryState; rev
 
   return (
     <div class="hpane" ref={pane} aria-busy={diff.diff.isFetching}>
+      <PendingLine pending={diff.diff.isFetching} label="Loading diff" />
       <div class="dtool" role="toolbar" aria-label="History options">
         <ViewSwitch state={props.state} />
         <span class="seg" role="group" aria-label="Diff mode">

@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
@@ -80,7 +83,7 @@ function mount(target: DiffTarget, result: FileDiff | (() => FileDiff) = diff, p
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
     if (cmd === "external_tools_status") return toolsStatus;
-    return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" ? (typeof result === "function" ? result() : result) : null;
+    return cmd === "diff_file" || cmd === "commit_file_diff" || cmd === "stash_file_diff" || cmd === "revision_file_diff" ? (typeof result === "function" ? result() : result) : null;
   });
   const mounted = mountWithApp(() => (
     <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={target} prefs={prefs} onClose={() => undefined} onViewFile={(view) => viewed.push(view)} />
@@ -562,5 +565,159 @@ describe("file history entry", () => {
       expect(takeFileHistoryRequest()).toEqual(expected);
       stop();
     }
+  });
+});
+
+describe("diff continuity (S72)", () => {
+  const commitTarget = (file: string): DiffTarget => ({ source: "commit", sha: "a".repeat(40), file });
+  const fileDiff = (path: string, text: string): FileDiff => ({ ...diff, path, hunks: [{ ...first, lines: [line("added", text, null, 1)] }] });
+
+  function mountSwitching(start: string) {
+    const answers = new Map<string, { promise: Promise<FileDiff>; finish: (value: FileDiff) => void }>();
+    const answer = (file: string) => {
+      const known = answers.get(file);
+      if (known !== undefined) return known;
+      let settle: (value: FileDiff) => void = () => undefined;
+      const promise = new Promise<FileDiff>((done) => {
+        settle = done;
+      });
+      const entry = { promise, finish: (value: FileDiff) => settle(value) };
+      answers.set(file, entry);
+      return entry;
+    };
+    mockIPC((cmd, args) => {
+      if (cmd === "external_tools_status") return toolsStatus;
+      return cmd === "commit_file_diff" ? answer((args as { file: string }).file).promise : null;
+    });
+    const [file, setFile] = createSignal(start);
+    const mounted = mountWithApp(() => (
+      <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={commitTarget(file())} prefs={createDiffPrefs()} onClose={() => undefined} onViewFile={() => undefined} />
+    ));
+    dispose = mounted.dispose;
+    const text = () => mounted.host.querySelector(".dbody")?.textContent ?? "";
+    return { ...mounted, setFile, text, finish: (target: string, value: FileDiff) => answer(target).finish(value) };
+  }
+
+  async function settledOn(view: ReturnType<typeof mountSwitching>) {
+    view.finish("a.ts", fileDiff("a.ts", "alpha line"));
+    await flush();
+    expect(view.text()).toContain("alpha line");
+  }
+
+  it("keeps the previous file's lines, undimmed, until the next file's diff arrives", async () => {
+    const view = mountSwitching("a.ts");
+    await settledOn(view);
+
+    view.setFile("b.ts");
+    await flush();
+    expect(view.host.querySelector(".crumbs [aria-current='page']")?.textContent).toBe("b.ts");
+    expect(view.text()).toContain("alpha line");
+
+    view.finish("b.ts", fileDiff("b.ts", "beta line"));
+    await flush();
+    expect(view.text()).toContain("beta line");
+    expect(view.text()).not.toContain("alpha line");
+  });
+
+  it("ends on the last file chosen and never renders a superseded diff", async () => {
+    const view = mountSwitching("a.ts");
+    await settledOn(view);
+
+    view.setFile("b.ts");
+    await flush();
+    view.setFile("c.ts");
+    await flush();
+    view.finish("b.ts", fileDiff("b.ts", "beta line"));
+    await flush();
+    expect(view.text()).toContain("alpha line");
+    expect(view.text()).not.toContain("beta line");
+
+    view.finish("c.ts", fileDiff("c.ts", "gamma line"));
+    await flush();
+    expect(view.text()).toContain("gamma line");
+  });
+
+  it("shows the pending line only once a read has taken 150ms", async () => {
+    const view = mountSwitching("a.ts");
+    await settledOn(view);
+    const indicator = () => view.host.querySelector(".dpanel [data-indicator]");
+
+    view.setFile("b.ts");
+    await flush(90);
+    expect(indicator()).toBeNull();
+    await flush(120);
+    expect(indicator()?.getAttribute("role")).toBe("status");
+  });
+
+  it("holds off a first load for 150ms, then shows static skeleton lines", async () => {
+    const view = mountSwitching("a.ts");
+    await flush();
+    expect(view.host.querySelector(".dbody .skeleton")).toBeNull();
+
+    await flush(200);
+    const skeleton = view.host.querySelector(".dbody .diff-skeleton[aria-hidden='true']");
+    expect(skeleton?.querySelectorAll(".skeleton").length).toBeGreaterThan(0);
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/app.css"), "utf8");
+    expect(css).toContain(".dpanel {\n  position: relative;");
+  });
+
+  it("replaces the first-load skeleton through view-swap", async () => {
+    const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+    document.documentElement.style.setProperty("--motion-quick", "120ms");
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    try {
+      const view = mountSwitching("a.ts");
+      await flush(200);
+      view.finish("a.ts", fileDiff("a.ts", "alpha line"));
+      await flush();
+      const held = view.host.querySelector<HTMLElement>(".dbody[data-swap-held]");
+      expect(held?.querySelector(".diff-skeleton")).not.toBeNull();
+      expect(view.text()).toContain("alpha line");
+      expect(animate.mock.contexts).toContain(held);
+    } finally {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    }
+  });
+
+  it("brings the next file in through view-swap", async () => {
+    const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+    document.documentElement.style.setProperty("--motion-quick", "120ms");
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    try {
+      const view = mountSwitching("a.ts");
+      await settledOn(view);
+      view.setFile("b.ts");
+      await flush();
+      view.finish("b.ts", fileDiff("b.ts", "beta line"));
+      await flush();
+      const held = view.host.querySelector<HTMLElement>("[data-swap-held]");
+      expect(held?.classList.contains("dbody")).toBe(true);
+      expect(held?.textContent).toContain("alpha line");
+      expect(view.text()).toContain("beta line");
+      expect(animate).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    }
+  });
+});
+
+describe("comparison diffs (S76)", () => {
+  const range: DiffTarget = { source: "range", base: "4d9e2f7".padEnd(40, "0"), head: "origin/main", label: "origin/main since 4d9e2f7", file: "src/app.ts" };
+
+  it("reads one file between two revisions, names the range, and offers no line or hunk actions", async () => {
+    const { host } = mount(range);
+    await flush();
+
+    expect(called("revision_file_diff")[0]?.args).toEqual({ path: "/r", base: range.base, head: "origin/main", file: "src/app.ts" });
+    expect(host.querySelector(".crumbs")?.textContent).toContain("origin/main since 4d9e2f7");
+    expect(host.querySelector(".dhead .chip")?.textContent).toBe("Comparison");
+    expect(host.textContent).toContain("const retries = 5;");
+    expect(host.querySelector('button[aria-label="Stage lines"], button[aria-label="Stage hunk"]')).toBeNull();
+    const external = named(host, "Open in external diff tool");
+    expect(external?.getAttribute("aria-disabled")).toBe("true");
   });
 });

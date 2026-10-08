@@ -75,6 +75,7 @@ impl From<Pull> for PullRequest {
         };
         Self {
             number: pull.number,
+            draft: pull.draft,
             title: pull.title,
             body: pull.body.unwrap_or_default(),
             state,
@@ -248,6 +249,7 @@ impl Adapter for GitHub {
             "head": input.source_ref,
             "base": input.target_ref,
             "body": input.body,
+            "draft": input.draft,
         });
         let value = http
             .call(

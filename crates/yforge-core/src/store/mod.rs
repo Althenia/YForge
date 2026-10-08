@@ -100,6 +100,7 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("ai_features_more.sql")),
         M::up(include_str!("hook_approvals.sql")),
         M::up(include_str!("profiles.sql")),
+        M::up(include_str!("ai_pull_request.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];

@@ -28,7 +28,7 @@ import type { JiraIssue } from "../ipc/bindings/JiraIssue";
 import type { JiraSidebar } from "../state/jiraIssues";
 import { issueRowLabel, loadingIssuesText, pullText, statusTone } from "../state/jiraModel";
 import { IssueChips } from "./IssueChip";
-import { prStateView } from "../state/platformModel";
+import { prStateView, pullOfLocal, pullOfRemote } from "../state/platformModel";
 import type { MenuState } from "../state/repoActions";
 import { AuthorBadge } from "./AuthorBadge";
 import { SubmoduleSection } from "./Submodules";
@@ -36,6 +36,8 @@ import { GitFlowSection } from "./GitFlowSection";
 import { HooksSection } from "./HooksSection";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { PullBadge } from "./PullBadge";
+import type { Conflict } from "../state/conflicts";
 import { tip } from "./Tooltip";
 import { listRowHeight, VirtualRows, type VirtualRow } from "./VirtualRows";
 
@@ -64,6 +66,8 @@ function TreeLines(props: { depth: number }) {
   );
 }
 
+const withConflict = (text: string, conflict: Conflict | undefined) => (conflict === undefined ? text : `${text}, conflict with ${conflict.target}`);
+
 export function Sidebar(props: {
   snapshot: RepoSnapshot;
   actions: RepoActions;
@@ -73,6 +77,7 @@ export function Sidebar(props: {
   onSelectStash: (sha: string) => void;
   onOpenPanel: (panel: PanelRequest) => void;
   platform?: PlatformActions;
+  conflictOf?: (ref: string) => Conflict | undefined;
   jira?: JiraSidebar;
   onSelectPull?: (number: number) => void;
   commitMessage?: () => string;
@@ -325,7 +330,7 @@ export function Sidebar(props: {
     label: string;
     onOpen: (anchor: Anchor) => void;
     onMenu: (anchor: Anchor) => void;
-    onActivate?: () => void;
+    onActivate?: (anchor: Anchor) => void;
     onClick?: () => void;
     children?: JSX.Element;
   }) {
@@ -361,7 +366,7 @@ export function Sidebar(props: {
           if (row.group !== undefined && selectFromContext(row.group, row.id, event)) return;
           row.onMenu({ left: event.clientX, top: event.clientY });
         }}
-        onDblClick={() => row.onActivate?.()}
+        onDblClick={(event) => row.onActivate?.(anchorOf(event.currentTarget))}
         onKeyDown={(event) => {
           if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
             event.preventDefault();
@@ -369,7 +374,7 @@ export function Sidebar(props: {
           } else if (event.key === "Enter" && event.target === event.currentTarget) {
             event.preventDefault();
             if (row.onActivate === undefined) menu(anchorOf(event.currentTarget));
-            else row.onActivate();
+            else row.onActivate(anchorOf(event.currentTarget));
           }
         }}
       >
@@ -494,8 +499,8 @@ export function Sidebar(props: {
   }
 
   const branchTarget = (name: string): RefTarget => localTarget(snapshot(), name);
-  const checkoutOf = (target: RefTarget) => () => {
-    if (target.kind !== "local_branch" || target.name !== currentBranch()) props.actions.checkoutRef(target);
+  const activateOf = (target: RefTarget) => (anchor: Anchor) => {
+    if (target.kind !== "local_branch" || target.name !== currentBranch()) props.actions.activateRef(target, anchor);
   };
 
   const localRow = (row: TreeRow, virtual: VirtualRow) =>
@@ -519,8 +524,8 @@ export function Sidebar(props: {
         list={BRANCHES_LIST}
         virtual={virtual}
         id={`branch:${row.path}`}
-        title={row.path}
-        label={`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`}
+        title={withConflict(row.path, props.conflictOf?.(row.path))}
+        label={withConflict(`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`, props.conflictOf?.(row.path))}
         current={row.path === currentBranch()}
         depth={row.depth + 1}
         base={6}
@@ -528,9 +533,15 @@ export function Sidebar(props: {
         tree
         onOpen={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
-        onActivate={checkoutOf(branchTarget(row.path))}
+        onActivate={activateOf(branchTarget(row.path))}
       >
         <span class="name">{row.label}</span>
+        <Show when={pullOfLocal(props.platform?.pullLookup(), row.path)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
+        <Show when={props.conflictOf?.(row.path)}>
+          <span class="st st-conflicted conflict-mark" aria-hidden="true">
+            !
+          </span>
+        </Show>
         <Show when={props.jira}>{(jira) => <IssueChips keys={jira().chips.keysFor(row.path)} lookup={jira().chips.lookup} />}</Show>
         <Show when={branchMeta(row.path)}>
           {(meta) => (
@@ -563,14 +574,20 @@ export function Sidebar(props: {
     ) : (
       <NavRow
         id={`remote:${remote}/${row.path}`}
-        title={`${remote}/${row.path}`}
-        label={`Remote branch ${remote}/${row.path}`}
+        title={withConflict(`${remote}/${row.path}`, props.conflictOf?.(`${remote}/${row.path}`))}
+        label={withConflict(`Remote branch ${remote}/${row.path}`, props.conflictOf?.(`${remote}/${row.path}`))}
         {...chrome}
         onOpen={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
-        onActivate={checkoutOf(remoteTarget(`${remote}/${row.path}`))}
+        onActivate={activateOf(remoteTarget(`${remote}/${row.path}`))}
       >
         <span class="name">{row.label}</span>
+        <Show when={pullOfRemote(props.platform?.pullLookup(), `${remote}/${row.path}`)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
+        <Show when={props.conflictOf?.(`${remote}/${row.path}`)}>
+          <span class="st st-conflicted conflict-mark" aria-hidden="true">
+            !
+          </span>
+        </Show>
       </NavRow>
     );
   };
@@ -677,7 +694,7 @@ export function Sidebar(props: {
                   tree
                   onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
                   onMenu={(anchor) => props.actions.openRefMenu(target(), anchor)}
-                  onActivate={checkoutOf(target())}
+                  onActivate={activateOf(target())}
                 >
                   <span class="name">{name}</span>
                 </NavRow>
@@ -731,7 +748,7 @@ export function Sidebar(props: {
               title="Pull requests"
               total={platform.pullsTotal()}
               shown={visiblePulls().length}
-              add={{ label: "New pull request", run: () => void platform.openCreate() }}
+              add={{ label: "New pull request", run: () => void platform.openCompose() }}
             >
               <For each={visiblePulls()}>
                 {(pull) => {

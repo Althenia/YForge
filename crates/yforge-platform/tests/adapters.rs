@@ -14,6 +14,7 @@ fn repo() -> RepoRef {
 
 fn input() -> CreatePull {
     CreatePull {
+        draft: false,
         source_ref: "feature".to_owned(),
         target_ref: "main".to_owned(),
         title: "Add thing".to_owned(),
@@ -49,6 +50,158 @@ fn github_pull(state: &str, merged_at: Value, mergeable: Value) -> Value {
         "updated_at": "2026-09-02T10:00:00Z", "mergeable": mergeable,
         "html_url": "https://github.example/owner/widget/pull/7"
     })
+}
+
+#[tokio::test]
+async fn github_and_gitlab_surface_drafts_and_send_draft_creation() {
+    for kind in [PlatformKind::GitHub, PlatformKind::GitLab] {
+        let fake = HttpFake::start(move |_| {
+            let mut pull = match kind {
+                PlatformKind::GitHub => github_pull("open", Value::Null, Value::Null),
+                _ => gitlab_request("opened", "unchecked"),
+            };
+            pull["draft"] = json!(true);
+            Reply::ok(&pull.to_string())
+        });
+        let mut draft = input();
+        draft.draft = true;
+        let pull = client(&fake, kind).create(&repo(), &draft).await.unwrap();
+        assert!(pull.draft);
+        let body = json_of(&fake.requests()[0]);
+        if kind == PlatformKind::GitHub {
+            assert_eq!(body["draft"], true);
+        } else {
+            assert_eq!(body["title"], "Draft: Add thing");
+        }
+    }
+}
+
+#[tokio::test]
+async fn old_bitbucket_data_center_refuses_drafts_before_posting() {
+    let fake = HttpFake::start(|_| Reply::ok(r#"{"version":"8.17.0"}"#));
+    let mut draft = input();
+    draft.draft = true;
+    let failure = client(&fake, PlatformKind::Bitbucket)
+        .create(&repo(), &draft)
+        .await
+        .unwrap_err();
+    assert_eq!(kind_of(failure), ErrorKind::Unsupported);
+    assert_eq!(fake.requests().len(), 1);
+    assert_eq!(fake.requests()[0].method, "GET");
+}
+
+#[tokio::test]
+async fn github_checks_combine_check_runs_and_commit_statuses_without_listing_files() {
+    let fake = HttpFake::start(|request| {
+        let response = if request.path.contains("/check-runs") {
+            json!({"total_count":3,"check_runs":[{"status":"completed","conclusion":"success"},{"status":"completed","conclusion":"failure"},{"status":"in_progress","conclusion":null}]})
+        } else if request.path.contains("/status?") {
+            json!({"total_count":1,"statuses":[{"state":"success"}]})
+        } else {
+            let mut pull = github_pull("open", Value::Null, Value::Null);
+            pull["head"]["sha"] = json!("abcdef1234");
+            pull
+        };
+        Reply::ok(&response.to_string())
+    });
+    let summary = client(&fake, PlatformKind::GitHub)
+        .checks(&repo(), 7)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (
+            summary.passing,
+            summary.failing,
+            summary.pending,
+            summary.capped
+        ),
+        (2, 1, 1, false)
+    );
+    assert_eq!(fake.requests().len(), 3);
+    assert!(fake
+        .requests()
+        .iter()
+        .all(|request| !request.path.contains("/files")));
+}
+
+#[tokio::test]
+async fn data_center_drafts_use_supported_versions_and_checks_use_head_build_stats() {
+    let fake = HttpFake::start(|request| {
+        let response = if request.path.ends_with("application-properties") {
+            json!({"version":"8.18.0"})
+        } else if request.path.contains("/build-status/") {
+            json!({"successful":2,"failed":1,"inProgress":3})
+        } else {
+            let mut pull = data_center_pull("OPEN");
+            pull["draft"] = json!(true);
+            pull["fromRef"]["latestCommit"] = json!("abcdef1234");
+            pull
+        };
+        Reply::ok(&response.to_string())
+    });
+    let api = client(&fake, PlatformKind::Bitbucket);
+    let mut draft = input();
+    draft.draft = true;
+    assert!(api.create(&repo(), &draft).await.unwrap().draft);
+    assert_eq!(json_of(&fake.requests()[1])["draft"], true);
+    let checks = api.checks(&repo(), 5).await.unwrap().unwrap();
+    assert_eq!((checks.passing, checks.failing, checks.pending), (2, 1, 3));
+    assert_eq!(
+        fake.requests()[3].path,
+        "/rest/build-status/1.0/commits/stats/abcdef1234"
+    );
+}
+
+#[tokio::test]
+async fn github_empty_checks_are_none_and_large_rollups_are_explicitly_capped() {
+    for total in [0, 101] {
+        let fake = HttpFake::start(move |request| {
+            let response = if request.path.contains("/check-runs") {
+                json!({"total_count":total,"check_runs":[]})
+            } else if request.path.contains("/status?") {
+                json!({"total_count":0,"statuses":[]})
+            } else {
+                let mut pull = github_pull("open", Value::Null, Value::Null);
+                pull["head"]["sha"] = json!("abcdef1234");
+                pull
+            };
+            Reply::ok(&response.to_string())
+        });
+        let result = client(&fake, PlatformKind::GitHub)
+            .checks(&repo(), 7)
+            .await
+            .unwrap();
+        if total == 0 {
+            assert_eq!(result, None);
+        } else {
+            assert!(result.unwrap().capped);
+        }
+        assert_eq!(fake.requests().len(), 3);
+    }
+}
+
+#[tokio::test]
+async fn exactly_one_hundred_reported_github_checks_are_complete() {
+    let fake = HttpFake::start(|request| {
+        let response = if request.path.contains("/check-runs") {
+            json!({"total_count":100,"check_runs":vec![json!({"status":"completed","conclusion":"success"});100]})
+        } else if request.path.contains("/status?") {
+            json!({"total_count":0,"statuses":[]})
+        } else {
+            let mut pull = github_pull("open", Value::Null, Value::Null);
+            pull["head"]["sha"] = json!("abcdef1234");
+            pull
+        };
+        Reply::ok(&response.to_string())
+    });
+    let checks = client(&fake, PlatformKind::GitHub)
+        .checks(&repo(), 7)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(checks.passing, 100);
+    assert!(!checks.capped);
 }
 
 fn gitlab_request(state: &str, merge_status: &str) -> Value {
@@ -206,7 +359,7 @@ async fn github_create_posts_head_base_title_and_body() {
     assert_call(request, "POST", "/api/v3/repos/owner/widget/pulls");
     assert_eq!(
         json_of(request),
-        json!({"title": "Add thing", "head": "feature", "base": "main", "body": "Because."})
+        json!({"title": "Add thing", "head": "feature", "base": "main", "body": "Because.", "draft": false})
     );
     assert_eq!(created.number, 7);
 }
@@ -555,7 +708,7 @@ async fn data_center_create_posts_full_refs_with_the_repository() {
     let repository = json!({"slug": "widget", "project": {"key": "owner"}});
     assert_eq!(
         json_of(&requests[0]),
-        json!({"title": "Add thing", "description": "Because.",
+        json!({"title": "Add thing", "description": "Because.", "draft": false,
                "fromRef": {"id": "refs/heads/feature", "repository": repository},
                "toRef": {"id": "refs/heads/main", "repository": repository}})
     );

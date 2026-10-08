@@ -266,9 +266,9 @@ fn publish_pushes_the_first_commit_to_the_chosen_remote_with_an_upstream() {
         &["remote", "add", "chosen", remote.to_str().unwrap()],
     );
 
-    let before = publish(&path, "chosen", &CancelToken::new(), &mut |_| {}).unwrap_err();
+    let before = publish(&path, "chosen", None, &CancelToken::new(), &mut |_| {}).unwrap_err();
     repo.commit_in(&path, "a.txt", "one\n", "First");
-    publish(&path, "chosen", &CancelToken::new(), &mut |_| {}).unwrap();
+    publish(&path, "chosen", None, &CancelToken::new(), &mut |_| {}).unwrap();
 
     assert_eq!(before.kind(), ErrorKind::InvalidRequest);
     let snapshot = repo_snapshot(&path).unwrap();

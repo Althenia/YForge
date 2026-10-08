@@ -84,7 +84,7 @@ export function testUiPrefs(initial: RepoUiPrefs = defaultUiPrefs): RepoUiPrefsS
 const AI_FEATURES: readonly AiFeature[] = ["generate_commit", "recompose", "conflict_fix"];
 
 export const aiFeatureList = (available: readonly AiFeature[] = AI_FEATURES): AiFeatureSummary[] =>
-  AI_FEATURES.map((feature) => ({
+  [...AI_FEATURES, ...available.filter((feature) => !AI_FEATURES.includes(feature))].map((feature) => ({
     feature,
     config: available.includes(feature) ? { feature, provider_id: "p1", model_id: "m", prompt_template: "{context}" } : null,
     enabled: available.includes(feature),

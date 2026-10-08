@@ -10,6 +10,7 @@ pub enum ErrorKind {
     AlreadyARepository,
     GitMissing,
     GitTooOld,
+    Unsupported,
     GitFailed,
     InvalidGitOutput,
     InvalidRequest,
@@ -70,6 +71,9 @@ pub enum CoreError {
         path: String,
     },
     GitMissing,
+    Unsupported {
+        detail: String,
+    },
     GitTooOld {
         found: String,
         required: String,
@@ -197,6 +201,7 @@ impl CoreError {
             Self::NotARepository { .. } => ErrorKind::NotARepository,
             Self::AlreadyARepository { .. } => ErrorKind::AlreadyARepository,
             Self::GitMissing => ErrorKind::GitMissing,
+            Self::Unsupported { .. } => ErrorKind::Unsupported,
             Self::GitTooOld { .. } => ErrorKind::GitTooOld,
             Self::GitFailed { .. } => ErrorKind::GitFailed,
             Self::InvalidGitOutput { .. } => ErrorKind::InvalidGitOutput,
@@ -254,6 +259,7 @@ impl fmt::Display for CoreError {
             }
             Self::AlreadyARepository { path } => write!(f, "{path} is already a Git repository"),
             Self::GitMissing => write!(f, "The git executable was not found on PATH"),
+            Self::Unsupported { detail } => write!(f, "{detail}"),
             Self::GitTooOld { found, required } => {
                 write!(
                     f,

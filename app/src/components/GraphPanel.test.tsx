@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -85,7 +87,7 @@ const baseRow = (index: number): GraphRow => ({
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: "sha0" }, upstream: null, remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
 
-type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean; heldPage?: { offset: number; result: Promise<GraphPage> } };
+type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean; heldPage?: { offset: number; result: Promise<GraphPage> }; incoming?: ReadonlySet<string> };
 
 async function mountGraph(config: MountOptions = {}) {
   const offsets: number[] = [];
@@ -115,6 +117,9 @@ async function mountGraph(config: MountOptions = {}) {
       revision={revision()}
       covered={covered()}
       actions={(config.actions ?? {}) as unknown as RepoActions}
+      incoming={config.incoming ?? new Set()}
+      pulls={undefined}
+      conflictOf={() => undefined}
       dimmed={() => false}
       searching={false}
       focus={focus()}
@@ -137,19 +142,25 @@ async function mountGraph(config: MountOptions = {}) {
 }
 
 describe("graph panel", () => {
-  it("keeps an explicit loading state inside the graph while an uncached first page is pending", async () => {
+  it("holds an uncached first page for 150ms, then shows static skeleton rows and the pending line (S72)", async () => {
     let finish!: (page: GraphPage) => void;
     const result = new Promise<GraphPage>((resolve) => { finish = resolve; });
     const { host } = await mountGraph({ heldPage: { offset: 0, result } });
     expect(host.querySelector(".ghead")?.textContent).toContain("Graph");
-    expect(host.querySelector('[role="status"]')?.textContent).toContain("Loading history");
     expect(host.querySelector(".graph")?.getAttribute("aria-busy")).toBe("true");
+    expect(host.querySelector(".gscroll .skeleton")).toBeNull();
+    expect(host.querySelector(".graph [data-indicator]")).toBeNull();
+    expect(host.querySelector(".busy-spinner")).toBeNull();
+
+    await flush(150);
+    expect(host.querySelectorAll(".gscroll .graph-skeleton .grow.placeholder .skeleton").length).toBeGreaterThan(0);
+    expect(host.querySelector(".graph [data-indicator]")?.getAttribute("role")).toBe("status");
 
     finish({ rows: [rowAt(0)], carried: [], total: 1 });
     await flush(60);
     expect(host.querySelector("#graph-row-0 .msg")?.textContent).toContain("commit 0");
     expect(host.querySelector(".graph")?.getAttribute("aria-busy")).toBe("false");
-    expect(host.textContent).not.toContain("Loading history");
+    expect(host.querySelector(".gscroll .skeleton")).toBeNull();
   });
 
   it.each(["empty", "refused"])("settles the initial loading state after an %s history result", async (outcome) => {
@@ -238,19 +249,96 @@ describe("graph panel", () => {
     expect(Math.max(...positions())).toBeGreaterThan(300);
   });
 
-  it("states that a visible page is loading instead of leaving a blank graph gap", async () => {
+  it("marks incoming rows with the pull glyph and the word incoming, and names it in the row (S74)", async () => {
+    const { host } = await mountGraph({ incoming: new Set(["sha1"]) });
+    const marker = host.querySelector("#graph-row-1 .incoming-marker");
+    expect(marker?.textContent).toBe("incoming");
+    expect(marker?.querySelector("svg")).not.toBeNull();
+    expect(marker?.parentElement?.lastElementChild).toBe(marker);
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/app.css"), "utf8");
+    const rule = (selector: string) => css.slice(css.indexOf(`${selector} {`), css.indexOf("}", css.indexOf(`${selector} {`)));
+    expect(rule(".incoming-marker")).toContain("font: var(--font-ui-small);");
+    expect(rule(".incoming-marker")).toContain("color: var(--colors-text-muted);");
+    expect(rule(".incoming-marker .icon")).toContain("width: 12px;");
+    expect(host.querySelector("#graph-row-1")?.getAttribute("aria-label")).toContain("incoming");
+    expect(host.querySelector("#graph-row-2 .incoming-marker")).toBeNull();
+    expect(host.querySelector("#graph-row-2")?.getAttribute("aria-label")).not.toContain("incoming");
+  });
+
+  describe("view-swap (S72, graph-refresh)", () => {
+    let animate: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+      HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+      document.documentElement.style.setProperty("--motion-quick", "120ms");
+      vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    });
+    afterEach(() => {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    });
+    const held = (host: HTMLElement) => host.querySelector<HTMLElement>(".gscroll[data-swap-held]");
+
+    it("replaces the first-page skeleton through view-swap", async () => {
+      let finish!: (page: GraphPage) => void;
+      const result = new Promise<GraphPage>((resolve) => { finish = resolve; });
+      const { host } = await mountGraph({ heldPage: { offset: 0, result } });
+      await flush(150);
+      expect(host.querySelector(".gscroll .graph-skeleton")).not.toBeNull();
+
+      finish({ rows: [rowAt(0)], carried: [], total: 1 });
+      await flush(60);
+      expect(held(host)?.querySelector(".graph-skeleton")).not.toBeNull();
+      expect(host.querySelector("#graph-row-0 .msg")?.textContent).toContain("commit 0");
+      expect(animate.mock.contexts).toContain(held(host));
+    });
+
+    it("cross-fades refreshed rows: the previous rows fade out above the new ones", async () => {
+      const { host, setRevision } = await mountGraph();
+      expect(host.querySelector("#graph-row-0 .msg")?.textContent).toContain("commit 0");
+      mockIPC((cmd, args) => {
+        if (cmd !== "repo_graph") return null;
+        const { offset, limit } = args as { offset: number; limit: number };
+        const rows = Array.from({ length: Math.max(Math.min(limit, total - offset), 0) }, (_, position) => ({ ...rowAt(offset + position), summary: `refreshed ${offset + position}` }));
+        return { rows, carried: [], total };
+      });
+      setRevision(1);
+      await flush(80);
+      expect(host.querySelector("#graph-row-0 .msg")?.textContent).toContain("refreshed 0");
+      expect(held(host)?.textContent).toContain("commit 0");
+      expect(held(host)?.textContent).not.toContain("refreshed 0");
+      expect(animate.mock.contexts).toContain(held(host));
+    });
+
+    it("loads further pages in place while scrolling, without a swap", async () => {
+      const { host, scrollTo } = await mountGraph();
+      await scrollTo(400 * geometry.row);
+      await flush(60);
+      expect(host.querySelector("#graph-row-400 .msg")?.textContent).toContain("commit 400");
+      expect(held(host)).toBeNull();
+      expect(animate).not.toHaveBeenCalled();
+    });
+  });
+
+  it("fills a visible unloaded page with static skeleton rows after 150ms instead of a blank gap (S72)", async () => {
     let release: ((page: GraphPage) => void) | undefined;
     const held = new Promise<GraphPage>((resolve) => (release = resolve));
     const { host, scrollTo } = await mountGraph({ heldPage: { offset: 200, result: held } });
     await scrollTo(198 * geometry.row);
 
     expect(host.querySelectorAll(".grow.placeholder").length).toBeGreaterThan(0);
-    expect(host.querySelectorAll('.graph-loading[role="status"]')).toHaveLength(1);
-    expect(host.querySelector(".graph-loading")?.textContent).toBe("Loading commits…");
+    expect(host.querySelector(".grow.placeholder .skeleton")).toBeNull();
+    expect(host.querySelector(".busy-spinner")).toBeNull();
+    await flush(150);
+    const placeholders = [...host.querySelectorAll(".grow.placeholder")];
+    expect(placeholders.length).toBeGreaterThan(0);
+    expect(placeholders.every((row) => row.querySelector(".skeleton") !== null && row.getAttribute("aria-hidden") === "true")).toBe(true);
+    expect(host.querySelector(".graph [data-indicator]")?.getAttribute("role")).toBe("status");
+
     release?.({ rows: Array.from({ length: 200 }, (_, index) => rowAt(200 + index)), carried: [], total });
     await flush(80);
     expect(host.querySelector("#graph-row-200 .msg")?.textContent).toContain("commit 200");
-    expect(host.querySelector(".graph-loading")).toBeNull();
+    expect(host.querySelector(".grow.placeholder .skeleton")).toBeNull();
   });
 
   it("moves the selection with the arrow keys and J/K, and points aria-activedescendant at it", async () => {
@@ -372,7 +460,7 @@ describe("branch and tag column overflow", () => {
   it("opens from the keyboard with Enter on the selected row, moves with the arrows, and checks the chosen branch out", async () => {
     overrides = crowded;
     const checked: unknown[] = [];
-    const { host, key, setSelection } = await mountGraph({ actions: { checkoutRef: (target: unknown) => checked.push(target) } });
+    const { host, key, setSelection } = await mountGraph({ actions: { activateRef: (target: unknown) => checked.push(target) } });
     setSelection({ kind: "commit", sha: "sha1" });
     await flush();
 

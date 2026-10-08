@@ -9,7 +9,8 @@ export type WorkingArea = ChangeArea;
 export type DiffTarget =
   | { source: "working"; area: WorkingArea; file: string }
   | { source: "commit"; sha: string; file: string }
-  | { source: "stash"; index: number; sha: string; file: string };
+  | { source: "stash"; index: number; sha: string; file: string }
+  | { source: "range"; base: string; head: string; label: string; file: string };
 
 export const isConflictTarget = (target: DiffTarget): boolean => target.source === "working" && target.area === "conflicted";
 
@@ -30,15 +31,22 @@ export const sameTarget = (left: DiffTarget | undefined, right: DiffTarget | und
   if (left.source === "working" && right.source === "working") return left.file === right.file && left.area === right.area;
   if (left.source === "commit" && right.source === "commit") return left.file === right.file && left.sha === right.sha;
   if (left.source === "stash" && right.source === "stash") return left.file === right.file && left.sha === right.sha && left.index === right.index;
+  if (left.source === "range" && right.source === "range") return left.file === right.file && left.base === right.base && left.head === right.head;
   return false;
 };
 
 const areaWord: Record<WorkingArea, string> = { unstaged: "Unstaged", staged: "Staged", untracked: "Untracked", conflicted: "Conflicted" };
 
-export const targetSource = (target: DiffTarget): string =>
-  target.source === "working" ? "Changes" : target.source === "stash" ? `stash@{${target.index}}` : target.sha.slice(0, 7);
+const sourceWords = { stash: "Stash", commit: "Commit", range: "Comparison" } as const;
 
-export const targetMode = (target: DiffTarget): string => (target.source === "working" ? areaWord[target.area] : target.source === "stash" ? "Stash" : "Commit");
+export function targetSource(target: DiffTarget): string {
+  if (target.source === "working") return "Changes";
+  if (target.source === "stash") return `stash@{${target.index}}`;
+  if (target.source === "range") return target.label;
+  return target.sha.slice(0, 7);
+}
+
+export const targetMode = (target: DiffTarget): string => (target.source === "working" ? areaWord[target.area] : sourceWords[target.source]);
 
 export function hunkActions(target: DiffTarget): HunkAction[] {
   if (target.source !== "working") return [];

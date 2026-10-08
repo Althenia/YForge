@@ -111,6 +111,11 @@ import type { RecomposePreview } from "./bindings/RecomposePreview";
 import type { RecomposeProposal } from "./bindings/RecomposeProposal";
 import type { RecomposeResult } from "./bindings/RecomposeResult";
 import type { CreatePull } from "./bindings/CreatePull";
+import type { BranchComparison } from "./bindings/BranchComparison";
+import type { MergePrediction } from "./bindings/MergePrediction";
+import type { PullChecks } from "./bindings/PullChecks";
+import type { PullRequestDisclosure } from "./bindings/PullRequestDisclosure";
+import type { PullRequestDraft } from "./bindings/PullRequestDraft";
 import type { MatchedRepo } from "./bindings/MatchedRepo";
 import type { PlatformConnection } from "./bindings/PlatformConnection";
 import type { PlatformKind } from "./bindings/PlatformKind";
@@ -191,7 +196,7 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
 
 export const client = {
   appInfo: () => call<AppInfo>("app_info"),
-  launchPath: () => call<string>("launch_path"),
+  launchPath: () => call<string | null>("launch_path"),
   repoOpen: (path: string) => call<RepoSnapshot>("repo_open", { path }),
   repoGraph: (path: string, offset: number, limit: number, visibility?: GraphVisibility) =>
     call<GraphPage>("repo_graph", visibility === undefined ? { path, offset, limit } : { path, offset, limit, visibility }),
@@ -218,6 +223,8 @@ export const client = {
   commitDetails: (path: string, sha: string) => call<CommitDetails>("commit_details", { path, sha }),
   commitFileDiff: (path: string, sha: string, file: string, ignoreWhitespace = false) =>
     call<FileDiff>("commit_file_diff", ignoreWhitespace ? { path, sha, file, ignoreWhitespace } : { path, sha, file }),
+  revisionFileDiff: (path: string, base: string, head: string, file: string, ignoreWhitespace = false) =>
+    call<FileDiff>("revision_file_diff", ignoreWhitespace ? { path, base, head, file, ignoreWhitespace } : { path, base, head, file }),
   fileHistory: (path: string, file: string) => call<FileRevision[]>("file_history", { path, file }),
   fileBlame: (path: string, file: string, revision: string | null) => call<BlameRun[]>("file_blame", { path, file, revision }),
   revertHunk: (path: string, sha: string, file: string, hunk: number) => call<null>("revert_hunk", { path, sha, file, hunk }),
@@ -293,7 +300,7 @@ export const client = {
   snapshotDelete: (path: string, reference: string) => call<null>("snapshot_delete", { path, reference }),
   pushPlan: (path: string) => call<ForcePushPlan>("push_plan", { path }),
   pushForce: (path: string, id: string, lease: ForceLease) => call<null>("push_force", { path, id, lease }),
-  publish: (path: string, id: string, remote: string) => call<null>("publish", { path, id, remote }),
+  publish: (path: string, id: string, remote: string, branch?: string) => call<null>("publish", branch === undefined ? { path, id, remote } : { path, id, remote, branch }),
   authRespond: (id: string, reply: AuthReply) => call<boolean>("auth_respond", { id, reply }),
   operationCancel: (id: string) => call<boolean>("operation_cancel", { id }),
   operationContinue: (path: string, message: string | null) => call<OperationOutcome>("operation_continue", { path, message }),
@@ -302,6 +309,7 @@ export const client = {
   markResolved: (path: string, files: string[]) => call<null>("mark_resolved", { path, files }),
   integrationPreview: (path: string, base: string | null, other: string) =>
     call<IntegrationPreview>("integration_preview", { path, base, other }),
+  incomingCommits: (path: string) => call<string[]>("incoming_commits", { path }),
   merge: (path: string, source: string, mode: MergeMode) => call<OperationOutcome>("merge", { path, source, mode }),
   rebase: (path: string, onto: string) => call<OperationOutcome>("rebase", { path, onto }),
   fastForward: (path: string, branch: string, target: string) => call<null>("fast_forward", { path, branch, target }),
@@ -348,6 +356,11 @@ export const client = {
   aiComposeCommits: (path: string, id: string) => call<ComposeProposal>("ai_compose_commits", { path, id }),
   composeApply: (path: string, groups: readonly ComposeGroup[]) => call<string[]>("compose_apply", { path, groups }),
   aiStashMessage: (path: string, id: string) => call<StashDraft>("ai_stash_message", { path, id }),
+  aiPullRequestContext: (path: string, source: string, target: string) => call<PullRequestDisclosure>("ai_pull_request_context", { path, source, target }),
+  aiComposePullRequest: (path: string, id: string, source: string, target: string, template: string) => call<PullRequestDraft>("ai_compose_pull_request", { path, id, source, target, template }),
+  branchComparison: (path: string, source: string, target: string) => call<BranchComparison>("branch_comparison", { path, source, target }),
+  mergePrediction: (path: string, id: string, ours: string, theirs: string) => call<MergePrediction>("merge_prediction", { path, id, ours, theirs }),
+  pullRequestTemplate: (path: string) => call<string | null>("pull_request_template", { path }),
   platformConnectionsList: () => call<PlatformConnection[]>("platform_connections_list"),
   platformConnectionAdd: (kind: PlatformKind, host: string, name: string, token: string, insecureTls: boolean) =>
     call<PlatformConnection>("platform_connection_add", { kind, host, name, token, insecureTls }),
@@ -356,6 +369,7 @@ export const client = {
   platformRepoMatch: (path: string) => call<MatchedRepo | null>("platform_repo_match", { path }),
   platformPrsList: (path: string, state: PrListState) => call<PullList>("platform_prs_list", { path, state }),
   platformPrDetail: (path: string, number: number) => call<PrDetail>("platform_pr_detail", { path, number }),
+  platformPrChecks: (path: string, number: number) => call<PullChecks | null>("platform_pr_checks", { path, number }),
   platformPrCreate: (path: string, input: CreatePull) => call<PullRequest>("platform_pr_create", { path, input }),
   platformPrMerge: (path: string, number: number) => call<PullRequest>("platform_pr_merge", { path, number }),
   platformMyPulls: (id: string) => call<LaunchpadPulls>("platform_my_pulls", { id }),

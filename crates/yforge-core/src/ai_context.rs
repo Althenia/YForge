@@ -4,7 +4,9 @@ use std::path::Path;
 use crate::commit;
 use crate::error::CoreError;
 use crate::git;
+use crate::git::CancelToken;
 use crate::model::{ChangeArea, DiffHunk, DiffLineKind, FileChange, FileStatus};
+use crate::pull_request::BranchComparison;
 use crate::undo::head_sha;
 use crate::{diff, repo};
 
@@ -28,6 +30,95 @@ pub struct ChangesContext {
     pub files: Vec<String>,
     pub excluded: Vec<String>,
     pub truncated: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PullRequestContext {
+    pub comparison: BranchComparison,
+    pub commit_messages: Vec<String>,
+    pub diff: String,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
+}
+
+pub fn pull_request_context(
+    path: &Path,
+    source: &str,
+    target: &str,
+    cancel: &CancelToken,
+) -> Result<PullRequestContext, CoreError> {
+    git::local_read(Some(cancel), || {
+        read_pull_request_context(path, source, target, cancel)
+    })
+}
+
+fn read_pull_request_context(
+    path: &Path,
+    source: &str,
+    target: &str,
+    cancel: &CancelToken,
+) -> Result<PullRequestContext, CoreError> {
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    let comparison = crate::branch_comparison(path, source, target)?;
+    if comparison.commits.is_empty() {
+        return Err(CoreError::invalid_request(
+            "the source has no commits that the target lacks",
+        ));
+    }
+    let root = repo::open(path)?;
+    let range = format!("{}..{}", comparison.target, comparison.source);
+    let messages = git::run(
+        &root,
+        &[
+            "log",
+            "--no-show-signature",
+            "-z",
+            "--format=%B",
+            &range,
+            "--",
+        ],
+    )?;
+    let entries: Vec<Entry> =
+        commit::commit_files(&root, &comparison.merge_base, &comparison.source)?
+            .into_iter()
+            .map(|file| Entry {
+                path: file.path,
+                original: file.original_path,
+                status: file.status,
+                untracked: false,
+            })
+            .collect();
+    refuse_secret_only(&entries, "compared")?;
+    let rendered = render_entries(&entries, |entry| {
+        if cancel.is_cancelled() {
+            return Err(CoreError::Cancelled);
+        }
+        let parsed = diff::read_commit_diff(
+            &root,
+            &comparison.merge_base,
+            &comparison.source,
+            &entry.path,
+            entry.original.as_deref(),
+            false,
+        )?;
+        Ok((parsed.binary, parsed.hunks))
+    })?;
+    if cancel.is_cancelled() {
+        return Err(CoreError::Cancelled);
+    }
+    Ok(PullRequestContext {
+        comparison,
+        commit_messages: messages
+            .trim_end_matches('\0')
+            .split('\0')
+            .map(|message| message.trim().to_owned())
+            .collect(),
+        diff: rendered.diff,
+        excluded: rendered.excluded,
+        truncated: rendered.truncated,
+    })
 }
 
 struct Rendered {
@@ -131,7 +222,7 @@ fn render_entries(
         truncated: Vec::new(),
     };
     for entry in entries {
-        if is_secret_file(&entry.path) {
+        if is_secret_file(&entry.path) || entry.original.as_deref().is_some_and(is_secret_file) {
             rendered.excluded.push(entry.path.clone());
             rendered
                 .diff

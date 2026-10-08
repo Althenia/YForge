@@ -1,10 +1,43 @@
 import { createHashHistory, createRootRoute, createRoute, createRouter, type RouterHistory } from "@tanstack/solid-router";
-import { Show } from "solid-js";
+import { createComputed, createSignal, on, Show } from "solid-js";
 import { Launchpad } from "./components/Launchpad";
+import { PendingLine } from "./components/PendingLine";
 import { SettingsView } from "./components/SettingsView";
 import { TabBar } from "./components/TabBar";
 import { RepositoryTab } from "./RepositoryTab";
 import { Shell } from "./Shell";
+import { createViewHold } from "./state/viewSwap";
+
+function RepositoryOutlet(props: { tab: string }) {
+  let host: HTMLDivElement | undefined;
+  const [settled, setSettled] = createSignal<string>();
+  const hold = createViewHold();
+  createComputed(
+    on(
+      () => props.tab,
+      () => {
+        const current = host?.querySelector(".app");
+        hold.capture(current, current?.querySelector(".tabbar"));
+      },
+      { defer: true },
+    ),
+  );
+  const settle = (path: string) => {
+    if (path !== props.tab) return;
+    setSettled(path);
+    hold.release();
+  };
+  return (
+    <div class="repo-outlet" ref={host}>
+      <div class="tab-pending">
+        <PendingLine pending={props.tab !== "" && settled() !== props.tab} label="Opening repository" />
+      </div>
+      <Show when={props.tab} keyed>
+        {(path) => <RepositoryTab path={path} onSettled={() => settle(path)} />}
+      </Show>
+    </div>
+  );
+}
 
 const rootRoute = createRootRoute({ component: Shell });
 
@@ -39,11 +72,7 @@ const repoRoute = createRoute({
   validateSearch: (search: Record<string, unknown>) => ({ tab: typeof search.tab === "string" ? search.tab : "" }),
   component: () => {
     const search = repoRoute.useSearch();
-    return (
-      <Show when={search().tab} keyed>
-        {(path) => <RepositoryTab path={path} />}
-      </Show>
-    );
+    return <RepositoryOutlet tab={search().tab} />;
   },
 });
 

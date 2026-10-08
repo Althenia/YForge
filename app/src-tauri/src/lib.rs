@@ -39,6 +39,10 @@ use yforge_core::{
     StashTarget, Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord, WorktreeIntegration,
     WorktreeStatus,
 };
+use yforge_core::{
+    BranchComparison, MergePrediction, MergePredictor, PullChecks, PullRequestDisclosure,
+    PullRequestDraft,
+};
 use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilter};
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -59,6 +63,7 @@ pub struct DataDir(pub PathBuf);
 pub struct AiState(pub Ai);
 
 pub struct PlatformState(pub Arc<PlatformService>);
+struct PredictionState(Arc<MergePredictor>);
 
 pub struct SshPassphrases(pub Arc<dyn PassphraseStore>);
 
@@ -330,15 +335,16 @@ fn choose_launch_path(
     repo_env: Option<OsString>,
     first_argument: Option<OsString>,
     current_dir: std::io::Result<PathBuf>,
-) -> Result<PathBuf, ErrorPayload> {
+    inside_repository: impl FnOnce(&Path) -> bool,
+) -> Option<PathBuf> {
     let explicit = repo_env
         .filter(|value| !value.is_empty())
         .or(first_argument.filter(|value| !value.is_empty()));
     match explicit {
-        Some(path) => Ok(PathBuf::from(path)),
-        None => current_dir.map_err(|error| {
-            ErrorPayload::internal(format!("cannot read the current directory: {error}"))
-        }),
+        Some(path) => Some(PathBuf::from(path)),
+        None => current_dir
+            .ok()
+            .filter(|directory| inside_repository(directory)),
     }
 }
 
@@ -422,13 +428,23 @@ async fn app_info() -> Result<AppInfo, ErrorPayload> {
 }
 
 #[tauri::command]
-async fn launch_path() -> Result<String, ErrorPayload> {
-    choose_launch_path(
-        std::env::var_os(REPO_ENV),
-        std::env::args_os().nth(1),
-        std::env::current_dir(),
-    )
-    .map(|path| path.to_string_lossy().into_owned())
+async fn launch_path() -> Result<Option<String>, ErrorPayload> {
+    let chosen = blocking(|| {
+        Ok(choose_launch_path(
+            std::env::var_os(REPO_ENV),
+            std::env::args_os().nth(1),
+            std::env::current_dir(),
+            |directory| yforge_core::repository_root(directory).is_ok(),
+        ))
+    })
+    .await?;
+    match &chosen {
+        Some(path) => log::debug!("launch_path {}", path.display()),
+        None => log::debug!(
+            "launch_path none: no {REPO_ENV} or argument, and the current directory is not inside a Git repository"
+        ),
+    }
+    Ok(chosen.map(|path| path.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
@@ -838,6 +854,28 @@ async fn commit_details(path: String, sha: String) -> Result<CommitDetails, Erro
             details.refs.len(),
             details.files.len()
         )
+    });
+    result
+}
+
+#[tauri::command]
+async fn revision_file_diff(
+    path: String,
+    base: String,
+    head: String,
+    file: String,
+    ignore_whitespace: Option<bool>,
+) -> Result<FileDiff, ErrorPayload> {
+    log::debug!(
+        "revision_file_diff path={path} base={base} head={head} file={file} ignore_whitespace={ignore_whitespace:?}"
+    );
+    let ignore = ignore_whitespace.unwrap_or(false);
+    let result = blocking(move || {
+        yforge_core::revision_file_diff(Path::new(&path), &base, &head, &file, ignore)
+    })
+    .await;
+    log_outcome("revision_file_diff", &result, |diff| {
+        format!("hunks={} binary={}", diff.hunks.len(), diff.binary)
     });
     result
 }
@@ -1653,10 +1691,14 @@ async fn publish<R: Runtime>(
     path: String,
     id: String,
     remote: String,
+    branch: Option<String>,
 ) -> Result<(), ErrorPayload> {
-    log::debug!("publish path={path} id={id} remote={remote}");
+    log::debug!("publish path={path} id={id} remote={remote} branch={branch:?}");
     let meta = track(&path, OperationKind::Publish, false, true);
-    let label = format!("Published the branch to {remote}");
+    let label = match &branch {
+        Some(name) => format!("Published {name} to {remote}"),
+        None => format!("Published the branch to {remote}"),
+    };
     let result = network(&app, &log, &operations)
         .run(
             meta,
@@ -1664,7 +1706,13 @@ async fn publish<R: Runtime>(
             true,
             move |()| label,
             move |cancel, progress| {
-                yforge_core::publish(Path::new(&path), &remote, cancel, progress)
+                yforge_core::publish(
+                    Path::new(&path),
+                    &remote,
+                    branch.as_deref(),
+                    cancel,
+                    progress,
+                )
             },
         )
         .await;
@@ -1843,6 +1891,70 @@ async fn integration_preview(
             "incoming={} outgoing={} fast_forward={}",
             preview.incoming.count, preview.outgoing.count, preview.fast_forward
         )
+    });
+    result
+}
+
+#[tauri::command]
+async fn incoming_commits(path: String) -> Result<Vec<String>, ErrorPayload> {
+    log::debug!("incoming_commits path={path}");
+    let result = blocking(move || yforge_core::incoming_commits(Path::new(&path))).await;
+    log_outcome("incoming_commits", &result, |commits| {
+        format!("count={}", commits.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn branch_comparison(
+    path: String,
+    source: String,
+    target: String,
+) -> Result<BranchComparison, ErrorPayload> {
+    log::debug!("branch_comparison path={path} source={source} target={target}");
+    let result =
+        blocking(move || yforge_core::branch_comparison(Path::new(&path), &source, &target)).await;
+    log_outcome("branch_comparison", &result, |comparison| {
+        format!(
+            "commits={} files={}",
+            comparison.commits.len(),
+            comparison.files
+        )
+    });
+    result
+}
+
+#[tauri::command]
+async fn pull_request_template(path: String) -> Result<Option<String>, ErrorPayload> {
+    log::debug!("pull_request_template path={path}");
+    let result = blocking(move || yforge_core::pull_request_template(Path::new(&path))).await;
+    log_outcome("pull_request_template", &result, |template| {
+        format!("found={}", template.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn merge_prediction(
+    operations: State<'_, Operations>,
+    predictions: State<'_, PredictionState>,
+    path: String,
+    id: String,
+    ours: String,
+    theirs: String,
+) -> Result<MergePrediction, ErrorPayload> {
+    log::debug!("merge_prediction path={path} id={id} ours={ours} theirs={theirs}");
+    let result = async {
+        let token = operations.running.register(&id, CancelToken::new())?;
+        let predictor = predictions.0.clone();
+        let result =
+            blocking(move || predictor.predict(Path::new(&path), &ours, &theirs, &token)).await;
+        operations.running.finish(&id);
+        result
+    }
+    .await;
+    log_outcome("merge_prediction", &result, |prediction| {
+        format!("conflicted={}", prediction.conflicted_files.len())
     });
     result
 }
@@ -4627,6 +4739,101 @@ async fn ai_stash_message<R: Runtime>(
 }
 
 #[tauri::command]
+async fn ai_pull_request_context(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    path: String,
+    source: String,
+    target: String,
+) -> Result<PullRequestDisclosure, ErrorPayload> {
+    log::debug!("ai_pull_request_context path={path} source={source} target={target}");
+    let result = async {
+        let selection =
+            ai.0.resolve(&data_dir(&data), AiFeature::ComposePullRequest)
+                .await
+                .map_err(ai_payload)?;
+        let context = blocking(move || {
+            yforge_core::pull_request_context(
+                Path::new(&path),
+                &source,
+                &target,
+                &CancelToken::new(),
+            )
+        })
+        .await?;
+        Ok(ai.0.pull_request_disclosure(&selection, &context))
+    }
+    .await;
+    log_outcome("ai_pull_request_context", &result, |sent| {
+        format!("commits={} files={}", sent.commit_messages, sent.files)
+    });
+    result
+}
+
+#[tauri::command]
+async fn ai_compose_pull_request<R: Runtime>(
+    app: AppHandle<R>,
+    path: String,
+    id: String,
+    source: String,
+    target: String,
+    template: String,
+) -> Result<PullRequestDraft, ErrorPayload> {
+    log::debug!("ai_compose_pull_request path={path} id={id} source={source} target={target}");
+    let result = compose_pull_request(&app, path, id, source, target, template).await;
+    log_outcome("ai_compose_pull_request", &result, |draft| {
+        format!("title_trimmed={}", draft.title_trimmed)
+    });
+    result
+}
+
+async fn compose_pull_request<R: Runtime>(
+    app: &AppHandle<R>,
+    path: String,
+    id: String,
+    source: String,
+    target: String,
+    template: String,
+) -> Result<PullRequestDraft, ErrorPayload> {
+    let ai = app.state::<AiState>();
+    let log = app.state::<ActivityLog>();
+    let operations = app.state::<Operations>();
+    let selection =
+        ai.0.resolve(&app.state::<DataDir>().0, AiFeature::ComposePullRequest)
+            .await
+            .map_err(ai_payload)?;
+    let call = AiCall {
+        app,
+        log: log.inner(),
+        registry: &operations.running,
+        repo: &path,
+        operation: OperationKind::AiComposePullRequest,
+        selection: &selection,
+        id: &id,
+    };
+    let target_path = path.clone();
+    call.run(|token| {
+        let (ai, selection) = (&ai.0, &selection);
+        async move {
+            let context_token = token.clone();
+            let context = tauri::async_runtime::spawn_blocking(move || {
+                yforge_core::pull_request_context(
+                    Path::new(&target_path),
+                    &source,
+                    &target,
+                    &context_token,
+                )
+            })
+            .await
+            .map_err(|error| AiError::invalid(error.to_string()))??;
+            ai.pull_request(selection, &context, &template, &token)
+                .await
+        }
+    })
+    .await
+}
+
+#[tauri::command]
 async fn reflog_refs(path: String) -> Result<Vec<String>, ErrorPayload> {
     log::debug!("reflog_refs path={path}");
     let result = blocking(move || yforge_core::reflog_refs(Path::new(&path))).await;
@@ -5037,6 +5244,40 @@ async fn platform_pr_detail(
 }
 
 #[tauri::command]
+async fn platform_pr_checks(
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    path: String,
+    number: i64,
+) -> Result<Option<PullChecks>, ErrorPayload> {
+    log::debug!("platform_pr_checks path={path} number={number}");
+    let result = async {
+        let service = platform.0.clone();
+        let dir = data_dir(&data);
+        let matched = blocking(move || {
+            service
+                .match_repo(&dir, Path::new(&path))
+                .map_err(CoreError::from)
+        })
+        .await?;
+        platform
+            .0
+            .pr_checks(matched.as_ref(), number)
+            .await
+            .map_err(platform_payload)
+    }
+    .await;
+    log_outcome("platform_pr_checks", &result, |checks| match checks {
+        Some(checks) => format!(
+            "passing={} failing={} pending={}",
+            checks.passing, checks.failing, checks.pending
+        ),
+        None => "checks=none".to_owned(),
+    });
+    result
+}
+
+#[tauri::command]
 async fn platform_pr_create(
     data: State<'_, DataDir>,
     platform: State<'_, PlatformState>,
@@ -5315,6 +5556,7 @@ pub fn register_with_passphrases<R: Runtime>(
         .manage(update::PendingUpdate::default())
         .manage(AiState(ai))
         .manage(PlatformState(Arc::new(platform)))
+        .manage(PredictionState(Arc::new(MergePredictor::default())))
         .manage(WatchState::default())
         .manage(Operations::default())
         .manage(lsp::Sessions::default())
@@ -5356,6 +5598,7 @@ pub fn register_with_passphrases<R: Runtime>(
             amend_info,
             commit_details,
             commit_file_diff,
+            revision_file_diff,
             file_history,
             file_blame,
             commit_tree_paths,
@@ -5414,6 +5657,10 @@ pub fn register_with_passphrases<R: Runtime>(
             operation_abort,
             mark_resolved,
             integration_preview,
+            incoming_commits,
+            branch_comparison,
+            merge_prediction,
+            pull_request_template,
             merge,
             rebase,
             rebase_plan,
@@ -5559,6 +5806,8 @@ pub fn register_with_passphrases<R: Runtime>(
             ai_compose_commits,
             compose_apply,
             ai_stash_message,
+            ai_pull_request_context,
+            ai_compose_pull_request,
             ai_propose_recompose,
             ai_propose_conflict,
             platform_connections_list,
@@ -5568,6 +5817,7 @@ pub fn register_with_passphrases<R: Runtime>(
             platform_repo_match,
             platform_prs_list,
             platform_pr_detail,
+            platform_pr_checks,
             platform_pr_create,
             platform_pr_merge,
             platform_my_pulls,
@@ -5634,18 +5884,31 @@ mod tests {
     }
 
     #[test]
-    fn launch_path_prefers_env_then_first_argument_then_current_directory() {
-        let chosen = choose_launch_path(Some("/env".into()), Some("/arg".into()), cwd()).unwrap();
-        assert_eq!(chosen, PathBuf::from("/env"));
-        let chosen = choose_launch_path(None, Some("/arg".into()), cwd()).unwrap();
-        assert_eq!(chosen, PathBuf::from("/arg"));
-        let chosen = choose_launch_path(Some("".into()), None, cwd()).unwrap();
-        assert_eq!(chosen, PathBuf::from("/work"));
+    fn launch_path_prefers_env_then_first_argument_then_a_current_directory_inside_a_repository() {
+        let inside = |directory: &Path| directory == Path::new("/work");
+        let chosen = choose_launch_path(Some("/env".into()), Some("/arg".into()), cwd(), inside);
+        assert_eq!(chosen, Some(PathBuf::from("/env")));
+        let chosen = choose_launch_path(None, Some("/arg".into()), cwd(), inside);
+        assert_eq!(chosen, Some(PathBuf::from("/arg")));
+        let chosen = choose_launch_path(Some("".into()), None, cwd(), inside);
+        assert_eq!(chosen, Some(PathBuf::from("/work")));
     }
 
     #[test]
-    fn launch_path_reports_an_unreadable_current_directory() {
-        let error = choose_launch_path(None, None, Err(std::io::Error::other("gone"))).unwrap_err();
-        assert_eq!(error.kind, yforge_core::ErrorKind::Internal);
+    fn launch_path_keeps_an_explicit_path_even_outside_a_repository() {
+        let outside = |_: &Path| false;
+        let chosen = choose_launch_path(Some("/env".into()), None, cwd(), outside);
+        assert_eq!(chosen, Some(PathBuf::from("/env")));
+        let chosen = choose_launch_path(None, Some("/arg".into()), cwd(), outside);
+        assert_eq!(chosen, Some(PathBuf::from("/arg")));
+    }
+
+    #[test]
+    fn launch_path_skips_a_current_directory_outside_a_repository_or_unreadable() {
+        let finder_launch = choose_launch_path(None, None, Ok(PathBuf::from("/")), |_| false);
+        assert_eq!(finder_launch, None);
+        let unreadable =
+            choose_launch_path(None, None, Err(std::io::Error::other("gone")), |_| true);
+        assert_eq!(unreadable, None);
     }
 }

@@ -24,19 +24,23 @@ const order = (left: LineRef, right: LineRef): number => left.hunk - right.hunk 
 function load(path: string, target: DiffTarget, ignoreWhitespace: boolean): Promise<FileDiff> {
   if (target.source === "working") return client.diffFile(path, target.file, target.area, ignoreWhitespace);
   if (target.source === "stash") return client.stashFileDiff(path, target.index, target.sha, target.file, ignoreWhitespace);
+  if (target.source === "range") return client.revisionFileDiff(path, target.base, target.head, target.file);
   return client.commitFileDiff(path, target.sha, target.file, ignoreWhitespace);
 }
 
 export function createDiffController(deps: { session: RepoSession; target: () => DiffTarget; prefs: DiffPrefs; commitWhitespace?: boolean }) {
   const { session, prefs } = deps;
   const path = session.path;
-  const ignoreWhitespace = () => (deps.target().source !== "commit" || deps.commitWhitespace === true) && prefs.ignoreWhitespace();
+  const ignoreWhitespace = () => ((deps.target().source !== "commit" && deps.target().source !== "range") || deps.commitWhitespace === true) && prefs.ignoreWhitespace();
   const diff = useQuery(() => ({
     queryKey: repoKeys.diff(path, deps.target(), ignoreWhitespace()),
     queryFn: () => load(path, deps.target(), ignoreWhitespace()),
     placeholderData: keepPreviousData,
   }));
   const shown = () => (diff.error == null ? diff.data : undefined);
+  const shownKey = createMemo<string | undefined>((previous) =>
+    shown() === undefined ? undefined : diff.isPlaceholderData ? previous : JSON.stringify(repoKeys.diff(path, deps.target(), ignoreWhitespace())),
+  );
   const failure = () => (diff.error == null ? undefined : fileViewError(diff.error, "diff"));
   const hunks = (): DiffHunk[] => shown()?.hunks ?? [];
 
@@ -195,6 +199,7 @@ export function createDiffController(deps: { session: RepoSession; target: () =>
   return {
     diff,
     shown,
+    shownKey,
     failure,
     hunks,
     actions,

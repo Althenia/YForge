@@ -7,3 +7,4 @@ app/src-tauri/gen/
 docs/design/proposals/
 .aphrodite/
 __pycache__/
+.worktrees/

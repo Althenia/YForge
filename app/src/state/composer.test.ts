@@ -1,3 +1,4 @@
+import type { OperationResult } from "./syncModel";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
@@ -106,6 +107,7 @@ function commitFixture(staged: number, push: () => Promise<void> = () => Promise
   const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const committed: string[] = [];
   const pushes: string[] = [];
+  const tracked: Array<{ label: string; result: OperationResult | undefined }> = [];
   const action = createCommitAction({
     session,
     composer,
@@ -116,8 +118,13 @@ function commitFixture(staged: number, push: () => Promise<void> = () => Promise
       pushes.push("push");
       return push();
     },
+    track: async (label, work, settle) => {
+      const value = await work();
+      tracked.push({ label, result: settle(value) });
+      return value;
+    },
   });
-  return { composer, session, committed, pushes, action };
+  return { composer, session, committed, pushes, tracked, action };
 }
 
 const pushable = { head: { kind: "branch", name: "main", sha: "a" }, remotes: ["origin"], operation: null } as Pick<RepoSnapshot, "head" | "remotes" | "operation">;
@@ -169,7 +176,7 @@ describe("commit action", () => {
     const calls: Array<{ cmd: string; args: unknown }> = [];
     mockIPC((cmd, args) => {
       calls.push({ cmd, args });
-      return cmd === "commit" ? "c0ffee" : { root: "/after" };
+      return cmd === "commit" ? "c0ffee" : { root: "/after", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: null };
     });
     const { composer, session, committed, action } = commitFixture(2);
     composer.setSummary("Tune retries");
@@ -184,6 +191,16 @@ describe("commit action", () => {
     expect(committed).toEqual(["c0ffee"]);
     expect([composer.summary(), composer.description(), composer.busy(), composer.failure()]).toEqual(["", "", false, undefined]);
     expect(session.snapshot().root).toBe("/after");
+  });
+
+  it("commits through the operation pill and states the commit with its next step (S73)", async () => {
+    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/r", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: { name: "origin/main", ahead_behind: { ahead: 1, behind: 0 } } }));
+    const { composer, tracked, action } = commitFixture(1);
+    composer.setSummary("Tune retries");
+
+    await action.submit();
+
+    expect(tracked).toEqual([{ label: "Committing", result: { outcome: "Committed “Tune retries”", next: "push" } }]);
   });
 
   it("does nothing while the button is disabled", async () => {
@@ -242,7 +259,7 @@ describe("commit action", () => {
     const order: string[] = [];
     mockIPC((cmd) => {
       order.push(cmd);
-      return cmd === "commit" ? "c0ffee" : { root: "/after" };
+      return cmd === "commit" ? "c0ffee" : { root: "/after", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: null };
     });
     const { composer, committed, pushes, action } = commitFixture(1, async () => {
       order.push("push");
@@ -258,7 +275,7 @@ describe("commit action", () => {
   });
 
   it("does not push for a plain commit", async () => {
-    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after" }));
+    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: null }));
     const { composer, pushes, action } = commitFixture(1);
     composer.setSummary("Local only");
 
@@ -268,7 +285,7 @@ describe("commit action", () => {
   });
 
   it("keeps the commit and reports the error when the push then fails", async () => {
-    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after" }));
+    mockIPC((cmd) => (cmd === "commit" ? "c0ffee" : { root: "/after", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: null }));
     const { composer, session, committed, action } = commitFixture(1, () =>
       Promise.reject(new IpcError({ kind: "push_rejected", message: "The remote rejected the push", output: null })),
     );

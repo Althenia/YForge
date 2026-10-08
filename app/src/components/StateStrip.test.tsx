@@ -1,6 +1,8 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createSignal } from "solid-js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StripNotice } from "../state/repoActions";
 import type { RepoActions } from "../state/repoActions";
@@ -42,7 +44,7 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as unknown as RepoSnapshot;
 
-type Setup = { shape?: RepoSnapshot; sync?: SyncState; notices?: StripNotice[]; online?: boolean; paused?: string };
+type Setup = { shape?: RepoSnapshot; sync?: SyncState | (() => SyncState); notices?: StripNotice[]; online?: boolean; paused?: string };
 
 function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], online = true, paused }: Setup = {}) {
   const calls: Array<[string, ...unknown[]]> = [];
@@ -52,7 +54,7 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
       calls.push([name, ...args]);
   const [current, setNotices] = createSignal(notices);
   const actions = {
-    sync: () => sync,
+    sync: typeof sync === "function" ? sync : () => sync,
     autoFetchPause: () => paused,
     notices: current,
     dismissNotice: (id: string) => {
@@ -66,6 +68,7 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
     retrySync: record("retry"),
     dismissSync: record("dismiss-sync"),
     cancelSync: record("cancel"),
+    runNextStep: record("next-step"),
     operationBusy: () => false,
   } as unknown as RepoActions;
   const openChanges = vi.fn();
@@ -299,5 +302,103 @@ describe("strip notices", () => {
     const labels = [...host.querySelectorAll(".op-bar button")].map((entry) => entry.textContent?.trim());
     expect(labels).toEqual(["Continue", "Skip", "Abort"]);
     expect((host.querySelector(".op-bar button") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("operation pill and result chip (S73)", () => {
+  const running = (overrides: Partial<Extract<SyncState, { kind: "running" }>> = {}): SyncState => ({ kind: "running", id: "op-1", label: "Fetching", phase: "Receiving objects", percent: 42, cancellable: true, ...overrides });
+  const done: SyncState = { kind: "done", outcome: "1 new commit on origin/main", next: "pull", baseline: "" };
+  const pill = (host: HTMLElement) => host.querySelector<HTMLElement>(".op-pill");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("shows the pill only after 150ms, naming the operation and stage, with a determinate bar and a text Cancel", () => {
+    const { host, calls } = mount({ sync: running() });
+    vi.advanceTimersByTime(149);
+    expect(pill(host)).toBeNull();
+    vi.advanceTimersByTime(1);
+
+    expect(pill(host)?.textContent).toContain("Fetching · Receiving objects 42%");
+    const bar = pill(host)?.querySelector('[role="progressbar"]');
+    expect(bar?.getAttribute("aria-valuenow")).toBe("42");
+    expect(bar?.classList.contains("indeterminate")).toBe(false);
+    button(pill(host) as HTMLElement, /^Cancel$/).click();
+    expect(calls.map(([name]) => name)).toContain("cancel");
+  });
+
+  it("offers no Cancel for an operation that cannot be cancelled, and shows an indeterminate bar without a stage percentage", () => {
+    const { host } = mount({ sync: running({ label: "Checking out feature", phase: undefined, percent: null, cancellable: false }) });
+    vi.advanceTimersByTime(150);
+    expect(pill(host)?.textContent).toContain("Checking out feature");
+    expect(pill(host)?.querySelector('[role="progressbar"]')?.classList.contains("indeterminate")).toBe(true);
+    expect(button(pill(host) as HTMLElement, /^Cancel$/)).toBeUndefined();
+  });
+
+  it("turns the same pill into the result chip, with the outcome, a text next step, and a dismiss icon", () => {
+    const [state, setState] = createSignal<SyncState>(running());
+    const { host, calls } = mount({ sync: state });
+    vi.advanceTimersByTime(600);
+    const element = pill(host);
+    setState(done);
+
+    expect(pill(host)).toBe(element);
+    expect(pill(host)?.querySelector(".op-outcome")?.textContent).toBe("1 new commit on origin/main");
+    button(pill(host) as HTMLElement, /^Pull$/).click();
+    expect(calls).toContainEqual(["next-step"]);
+    button(pill(host) as HTMLElement, /^Dismiss$/).click();
+    expect(calls.map(([name]) => name)).toContain("dismiss-sync");
+    expect(button(pill(host) as HTMLElement, /^Cancel$/)).toBeUndefined();
+  });
+
+  it("keeps the running pill for at least 400ms before it states the outcome", () => {
+    const [state, setState] = createSignal<SyncState>(running());
+    const { host } = mount({ sync: state });
+    vi.advanceTimersByTime(250);
+    setState(done);
+    expect(pill(host)?.textContent).toContain("Fetching");
+    expect(button(pill(host) as HTMLElement, /^Cancel$/)).toBeUndefined();
+    vi.advanceTimersByTime(299);
+    expect(pill(host)?.textContent).toContain("Fetching");
+    vi.advanceTimersByTime(1);
+    expect(pill(host)?.textContent).toContain("1 new commit on origin/main");
+  });
+
+  it("states the outcome at once when the operation ends within 150ms", () => {
+    const [state, setState] = createSignal<SyncState>(running());
+    const { host } = mount({ sync: state });
+    vi.advanceTimersByTime(100);
+    setState(done);
+    expect(pill(host)?.textContent).toContain("1 new commit on origin/main");
+    expect(pill(host)?.textContent).not.toContain("Fetching");
+  });
+
+  it("disables the next step with the reason while offline", () => {
+    const { host, calls } = mount({ sync: done, online: false });
+    const pull = button(pill(host) as HTMLElement, /^Pull$/);
+    expect(pull.getAttribute("aria-disabled")).toBe("true");
+    expect(pull.getAttribute("data-tip")).toBe("You are offline");
+    pull.click();
+    expect(calls).not.toContainEqual(["next-step"]);
+  });
+
+  it("enters with feedback-enter over quick with entrance easing, instantly under reduced motion, with a 2px bar", () => {
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/app.css"), "utf8");
+    const rule = (selector: string, source = css) => {
+      const start = source.indexOf(`${selector} {`);
+      return start < 0 ? "" : source.slice(start, source.indexOf("}", start));
+    };
+    expect(css).toContain("--ease-entrance: cubic-bezier(0, 0, 0, 1);");
+    expect(rule(".op-pill")).toContain("animation: feedback-enter var(--motion-quick) var(--ease-entrance);");
+    expect(rule(".op-pill .progress")).toContain("height: 2px;");
+    const frames = css.slice(css.indexOf("@keyframes feedback-enter"), css.indexOf("@keyframes feedback-enter") + 200);
+    expect(frames).toMatch(/opacity: 0;\s*transform: translateY\(4px\);/);
+    const reduced = css.indexOf("@media (prefers-reduced-motion: reduce) {\n  .op-pill");
+    expect(reduced).toBeGreaterThan(0);
+    expect(rule(".op-pill", css.slice(reduced))).toContain("animation: none;");
   });
 });

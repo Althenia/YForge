@@ -1,3 +1,4 @@
+import type { GraphRow } from "../ipc/bindings/GraphRow";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -401,5 +402,86 @@ describe("file operations in the center", () => {
     await flush(40);
 
     expect(calls.find((call) => call.cmd === "file_delete")?.args).toEqual({ path: "/r", file: "b.txt" });
+  });
+});
+
+describe("incoming markers (S74)", () => {
+  it("marks the commits a fetch brought in on their graph rows, and drops a marker once its row is selected", async () => {
+    const one = "1".repeat(40);
+    const two = "2".repeat(40);
+    const head = "a".repeat(40);
+    const row = (sha: string, summary: string, parent: string | undefined): GraphRow => ({ sha, parents: parent === undefined ? [] : [parent], summary, body: "", author: null, time: 1_700_000_000, refs: [], kind: "commit", column: 0, edges: [] });
+    const rows = [row(one, "Remote one", two), row(two, "Remote two", head), row(head, "Local", undefined)];
+    const tracked = { ...snapshot, remotes: ["origin"], upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 2 } } };
+    const { host } = await mountWorkspace((call) => {
+      if (call.cmd === "repo_graph") return { rows, carried: [], total: rows.length };
+      if (call.cmd === "incoming_commits") return [one, two];
+      return undefined;
+    }, tracked);
+    const marker = (index: number) => host.querySelector(`#graph-row-${index} .incoming-marker`);
+    expect(marker(0)).toBeNull();
+
+    [...host.querySelectorAll<HTMLButtonElement>(".chips button")].find((entry) => /Fetch now/.test(entry.getAttribute("aria-label") ?? ""))?.click();
+    await flush(80);
+    expect(marker(0)?.textContent).toBe("incoming");
+    expect(marker(1)?.textContent).toBe("incoming");
+    expect(marker(2)).toBeNull();
+
+    host.querySelector<HTMLElement>("#graph-row-0 .msg")?.click();
+    await flush(40);
+    expect(marker(0)).toBeNull();
+    expect(marker(1)?.textContent).toBe("incoming");
+  });
+});
+
+describe("conflict prediction (S76)", () => {
+  const base = "4d9e2f7".padEnd(40, "0");
+  const diverged: RepoSnapshot = { ...snapshot, head: { kind: "branch", name: "feature", sha: "a".repeat(40) }, upstream: { name: "origin/feature", ahead_behind: { ahead: 1, behind: 1 } }, branches: ["feature", "main"], remote_branches: ["origin/feature"], remotes: ["origin"] };
+  const graphRow: GraphRow = { sha: "a".repeat(40), parents: [], summary: "Local work", body: "", author: null, time: 1_700_000_000, refs: [{ kind: "local_branch", name: "feature", is_head: true }], kind: "commit", column: 0, edges: [] };
+  const respond = (call: Call) => {
+    if (call.cmd === "repo_graph") return { rows: [graphRow], carried: [], total: 1 };
+    if (call.cmd === "merge_prediction") return { merge_base: base, conflicted_files: ["app/src/styles/app.css"] };
+    if (call.cmd === "revision_file_diff") return { path: "app/src/styles/app.css", original_path: null, binary: false, old_size: null, new_size: null, hunks: [] };
+    if (call.cmd === "integration_preview") return { incoming: { count: 1, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
+    return undefined;
+  };
+  const popover = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="Predicted conflict"]') as HTMLElement;
+
+  it("marks the checked-out branch's label and row, and its strip chip offers each file's diff and a confirmed rebase", async () => {
+    const { host, calls } = await mountWorkspace(respond, diverged);
+
+    await vi.waitFor(() => expect(host.querySelector("#graph-row-0 .label .conflict-mark")?.textContent).toBe("!"));
+    expect(calls.find((call) => call.cmd === "merge_prediction")?.args).toMatchObject({ path: "/r", ours: "feature", theirs: "origin/feature" });
+    expect(host.querySelector("#graph-row-0 .label")?.getAttribute("title")).toContain("conflict with origin/feature");
+    expect(host.querySelector("#graph-row-0")?.getAttribute("aria-label")).toContain("conflict");
+    const branch = host.querySelector('[data-nav="branch:feature"]');
+    expect(branch?.querySelector(".conflict-mark")?.textContent).toBe("!");
+    expect(branch?.getAttribute("aria-label")).toContain("conflict with origin/feature");
+
+    const chip = host.querySelector<HTMLButtonElement>(".chips .conflict-chip");
+    expect(chip?.querySelector(".st-conflicted")?.textContent?.trim()).toBe("!");
+    expect(chip?.textContent).toContain("Conflicts with origin/feature · 1 file");
+    chip?.click();
+    await flush();
+    expect(popover().textContent).toContain("4d9e2f7");
+    expect(buttonNamed(popover(), "Compose pull request anyway")).toBeDefined();
+
+    buttonNamed(popover(), "app/src/styles/app.css")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "revision_file_diff")?.args).toEqual({ path: "/r", base, head: "origin/feature", file: "app/src/styles/app.css" });
+
+    chip?.click();
+    await flush();
+    buttonNamed(popover(), "Rebase feature onto origin/feature…")?.click();
+    await flush(40);
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull();
+    expect(calls.some((call) => call.cmd === "rebase")).toBe(false);
+  });
+
+  it("predicts nothing and marks nothing while the branch and its upstream have not diverged", async () => {
+    const { host, calls } = await mountWorkspace(respond, { ...diverged, upstream: { name: "origin/feature", ahead_behind: { ahead: 1, behind: 0 } } });
+
+    expect(calls.some((call) => call.cmd === "merge_prediction")).toBe(false);
+    expect(host.querySelector(".conflict-mark, .conflict-chip")).toBeNull();
   });
 });

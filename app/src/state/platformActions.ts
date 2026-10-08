@@ -1,16 +1,17 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
+import type { CreatePull } from "../ipc/bindings/CreatePull";
 import type { MatchedRepo } from "../ipc/bindings/MatchedRepo";
 import type { PullRequest } from "../ipc/bindings/PullRequest";
 import { client, type PrListState } from "../ipc/client";
 import type { ConfirmCopy } from "./confirmCopy";
-import { cardOfPlatform, defaultTarget, mergeCopy, platformFailure, type PlatformFailure, type PullDraft } from "./platformModel";
+import { cardOfPlatform, defaultTarget, mergeCopy, platformFailure, pullLookup, type PlatformFailure, type PullLookup } from "./platformModel";
 import { matchOptions, pullsOptions } from "./platformQueries";
 import { cappedText, countOf } from "./listCount";
 import { platformKeys } from "./queryKeys";
 import { useQuery } from "./query";
 import type { RepoSession } from "./repoSession";
 
-export type PullDialog = { draft: PullDraft };
+export type ComposeRequest = { source: string; target: string; title: string };
 
 export type PullConfirm = { copy: ConfirmCopy; run: () => Promise<void> };
 
@@ -18,6 +19,8 @@ export type PlatformDeps = {
   notify: (message: string) => void;
   fetchAll: () => Promise<void>;
   openSettings: () => void;
+  announce: (message: string, show: () => void) => void;
+  showPull: (number: number) => void;
 };
 
 export function createPlatformActions(session: RepoSession, deps: PlatformDeps) {
@@ -26,7 +29,11 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
   const matched = (): MatchedRepo | undefined => match.data ?? undefined;
   const [listState, setListState] = createSignal<PrListState>("open");
   const pulls = useQuery(() => pullsOptions(path, listState(), matched() !== undefined), () => session.queryClient);
-  const [dialog, setDialog] = createSignal<PullDialog | undefined>();
+  const lookup = createMemo((): PullLookup | undefined => {
+    const current = matched();
+    return current === undefined ? undefined : pullLookup(current.remote, pulls.data?.pulls ?? []);
+  });
+  const [compose, setCompose] = createSignal<ComposeRequest | undefined>();
   const [confirm, setConfirm] = createSignal<PullConfirm | undefined>();
 
   const platformTitle = (): string => {
@@ -62,6 +69,7 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
     matched,
     matchFailure: (): PlatformFailure | undefined => (match.error == null ? undefined : platformFailure(match.error)),
     pulls: (): PullRequest[] => pulls.data?.pulls ?? [],
+    pullLookup: lookup,
     pullsTotal: (): number => (pulls.data === undefined ? 0 : countOf(pulls.data.pulls.length, pulls.data)),
     pullsCappedText: (): string | undefined => (pulls.data === undefined ? undefined : cappedText(pulls.data)),
     loading: () => pulls.isFetching,
@@ -69,34 +77,27 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
     listState,
     setListState,
     platformTitle,
-    dialog,
-    closeDialog: () => setDialog(undefined),
+    compose,
+    closeCompose: () => setCompose(undefined),
     confirm,
     closeConfirm: () => setConfirm(undefined),
     editConnection: deps.openSettings,
-    async openCreate(): Promise<void> {
+    async openCompose(defaults: { source?: string; target?: string } = {}): Promise<void> {
       const current = matched();
       if (current === undefined) return;
       const snapshot = session.snapshot();
-      setDialog({
-        draft: {
-          source: snapshot.head.kind === "branch" ? snapshot.head.name : "",
-          target: defaultTarget(snapshot.remote_branches, current.remote) ?? "",
-          title: await headSubject(),
-          body: "",
-        },
+      setCompose({
+        source: defaults.source ?? (snapshot.head.kind === "branch" ? snapshot.head.name : ""),
+        target: defaults.target ?? defaultTarget(snapshot.remote_branches, current.remote) ?? "",
+        title: await headSubject(),
       });
     },
-    async create(draft: PullDraft): Promise<string | undefined> {
-      try {
-        const pull = await client.platformPrCreate(path, { source_ref: draft.source, target_ref: draft.target, title: draft.title.trim(), body: draft.body });
-        setDialog(undefined);
-        await refreshPulls();
-        deps.notify(`Created pull request #${pull.number}: ${pull.web_url}`);
-        return undefined;
-      } catch (failure) {
-        return platformFailure(failure).message;
-      }
+    async createPull(input: CreatePull): Promise<PullRequest> {
+      const pull = await client.platformPrCreate(path, input);
+      setCompose(undefined);
+      await refreshPulls();
+      deps.announce(`Created pull request #${pull.number}`, () => deps.showPull(pull.number));
+      return pull;
     },
     requestMerge(pull: PullRequest): void {
       if (pull.state !== "open") {

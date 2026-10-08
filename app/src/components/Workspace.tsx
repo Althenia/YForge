@@ -1,3 +1,5 @@
+import { createConflictPredictions } from "../state/conflicts";
+import { COMPOSE_NEEDS_PLATFORM } from "../state/platformModel";
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } from "solid-js";
 import type { Geometry } from "../graph/geometry";
@@ -30,7 +32,7 @@ import { ActivityBar } from "./ActivityBar";
 import { AiSheet } from "./AiSheet";
 import { BranchNameForm, StashForm } from "./BranchForms";
 import { CommandBar } from "./CommandBar";
-import { CreatePullDialog } from "./CreatePullDialog";
+import { ComposePullView } from "./ComposePullView";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { ConflictResolver } from "./ConflictResolver";
 import { ContextMenu } from "./ContextMenu";
@@ -93,11 +95,15 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     submoduleUpdateOnFetch: () => repoSettings()?.submodule_update_on_fetch === true,
     showFile: (target) => viewFile(target),
   });
+  createEffect(on(selection, (current) => selectedShas(current).forEach(actions.seeIncoming)));
   const platform = createPlatformActions(session, {
     notify: session.inform,
     fetchAll: () => actions.fetchAll(),
     openSettings: () => app.openSettings("platforms"),
+    announce: app.announce,
+    showPull: (number) => select({ kind: "pull", number }),
   });
+  const conflicts = createConflictPredictions(session, () => platform.pullLookup());
   const jira: JiraSidebar = {
     state: createJiraIssues(),
     select: (key) => select({ kind: "issue", key }),
@@ -395,9 +401,21 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           onRevealHead={() => revealHead(true)}
           onResolve={(file) => showDiff({ source: "working", area: "conflicted", file })}
           onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
+          conflict={conflicts.current()}
+          composeReason={platform.matched() === undefined ? COMPOSE_NEEDS_PLATFORM : undefined}
+          onOpenDiff={showDiff}
+          onCompose={() => {
+            const conflict = conflicts.current();
+            const head = session.snapshot().head;
+            const prefix = `${platform.matched()?.remote ?? ""}/`;
+            void platform.openCompose({
+              source: head.kind === "branch" ? head.name : undefined,
+              target: conflict !== undefined && conflict.target.startsWith(prefix) ? conflict.target.slice(prefix.length) : undefined,
+            });
+          }}
         />
         <div class="main" classList={{ "no-sidebar": app.sidebarHidden(), "no-inspector": app.inspectorHidden() }}>
-          <Sidebar snapshot={session.snapshot()} actions={actions} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} jira={jira} onSelectPull={(number) => select({ kind: "pull", number })} commitMessage={() => commitMessageOf(composer.summary(), composer.description())} />
+          <Sidebar snapshot={session.snapshot()} actions={actions} conflictOf={conflicts.conflictOf} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} jira={jira} onSelectPull={(number) => select({ kind: "pull", number })} commitMessage={() => commitMessageOf(composer.summary(), composer.description())} />
           <div class="center">
             <Show
               when={!unborn()}
@@ -409,8 +427,11 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
                 geometry={props.geometry}
                 selection={selection()}
                 revision={session.revision()}
-                covered={diffTarget() !== undefined || panel() !== undefined || fileTarget() !== undefined || actions.files.editing() !== undefined || historyRequest() !== undefined || historyOf("rebase") !== undefined || historyOf("recompose") !== undefined}
+                covered={platform.compose() !== undefined || diffTarget() !== undefined || panel() !== undefined || fileTarget() !== undefined || actions.files.editing() !== undefined || historyRequest() !== undefined || historyOf("rebase") !== undefined || historyOf("recompose") !== undefined}
                 actions={actions}
+                incoming={actions.incoming()}
+                pulls={platform.pullLookup()}
+                conflictOf={conflicts.conflictOf}
                 dimmed={(index) => isDimmed(search.state(), matches(), index)}
                 searching={search.open()}
                 focus={graphFocus()}
@@ -430,6 +451,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
             </Show>
             <Show when={historyOf("recompose")} keyed>
               {(view) => <RecomposeView session={session} base={view.base} onClose={() => void closeHistory()} onOpenAiSettings={() => app.openSettings("ai")} />}
+            </Show>
+            <Show when={platform.compose()} keyed>
+              {(request) => <ComposePullView session={session} platform={platform} actions={actions} request={request} onOpenAiSettings={() => app.openSettings("ai")} />}
             </Show>
             <Show when={panel()?.kind === "worktrees"}>
               <WorktreePanel session={session} actions={worktrees} onClose={closePanel} />
@@ -517,9 +541,6 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               onCancel={worktrees.closeConfirm}
             />
           )}
-        </Show>
-        <Show when={platform.dialog()} keyed>
-          {(dialog) => <CreatePullDialog snapshot={session.snapshot()} platform={platform} draft={dialog.draft} />}
         </Show>
         <Show when={platform.confirm()} keyed>
           {(pending) => (

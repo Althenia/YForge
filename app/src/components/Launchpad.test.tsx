@@ -14,6 +14,7 @@ import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
 let dispose: (() => void) | undefined;
 
 beforeEach(() => {
+  Element.prototype.scrollIntoView = () => undefined;
   mockWindows("main");
 });
 
@@ -37,7 +38,7 @@ const pull = (connection: string, number: number, title: string, overrides: Part
   role: "authored",
   draft: false,
   local_path: null,
-  pull: { number, title, body: "", state: "open", source_ref: "fix/ABC-142-retry", target_ref: "main", author: "nok", created_at: "2026-10-01T06:00:00Z", updated_at: "2026-10-01T06:00:00Z", mergeable: null, web_url: `https://host/pr/${number}` },
+  pull: { draft: false, number, title, body: "", state: "open", source_ref: "fix/ABC-142-retry", target_ref: "main", author: "nok", created_at: "2026-10-01T06:00:00Z", updated_at: "2026-10-01T06:00:00Z", mergeable: null, web_url: `https://host/pr/${number}` },
   ...overrides,
 });
 

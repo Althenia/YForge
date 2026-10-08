@@ -101,6 +101,7 @@ export function ChangesInspector(props: {
       if (snapshot().upstream === null && remote !== undefined) await props.actions.publish(remote);
       else await props.actions.push();
     },
+    track: props.actions.runLocal,
   });
 
   const stashDraft = createStashMessageAction({ session: props.session, composer: props.composer });

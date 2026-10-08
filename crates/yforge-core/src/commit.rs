@@ -298,6 +298,40 @@ pub fn commit_file_diff(
     )
 }
 
+fn commit_id(root: &Path, revision: &str) -> Result<String, CoreError> {
+    let unknown = || CoreError::invalid_request(format!("there is no commit {revision}"));
+    if revision.is_empty() || revision.starts_with('-') {
+        return Err(unknown());
+    }
+    let resolved = git::run_unchecked(
+        root,
+        &[
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            &format!("{revision}^{{commit}}"),
+        ],
+        None,
+    )?;
+    if !resolved.succeeded() {
+        return Err(unknown());
+    }
+    Ok(resolved.stdout.trim().to_owned())
+}
+
+pub fn revision_file_diff(
+    path: &Path,
+    base: &str,
+    head: &str,
+    file: &str,
+    ignore_whitespace: bool,
+) -> Result<FileDiff, CoreError> {
+    let root = repo::open(path)?;
+    let base = commit_id(&root, base)?;
+    let head = commit_id(&root, head)?;
+    diff::diff_between(&root, &base, &head, file, None, ignore_whitespace)
+}
+
 pub fn amend_info(path: &Path) -> Result<AmendInfo, CoreError> {
     let root = repo::open(path)?;
     let head = git::run_unchecked(

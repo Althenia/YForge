@@ -1,3 +1,4 @@
+import { nextStepOf, type OperationResult } from "./syncModel";
 import type { AmendInfo } from "../ipc/bindings/AmendInfo";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { ProfileList } from "../ipc/bindings/ProfileList";
@@ -142,6 +143,7 @@ export function createCommitAction(deps: {
   generating: () => boolean;
   onCommitted: (sha: string) => void;
   push: () => Promise<void>;
+  track: <T>(label: string, work: () => Promise<T>, settle: (value: T) => OperationResult | undefined) => Promise<T>;
 }) {
   const { session, composer } = deps;
   const button = () => deps.generating()
@@ -152,9 +154,19 @@ export function createCommitAction(deps: {
     if (button().disabledReason !== undefined) return;
     composer.setBusy(true);
     composer.setFailure(undefined);
+    const summary = composer.summary();
+    const amend = composer.amend();
     let sha: string;
     try {
-      sha = await client.commit(session.path, composer.summary(), composer.description(), composer.amend());
+      sha = await deps.track(
+        amend ? "Amending" : "Committing",
+        async () => {
+          const created = await client.commit(session.path, summary, composer.description(), amend);
+          await session.refresh();
+          return created;
+        },
+        () => ({ outcome: `${amend ? "Amended" : "Committed"} “${summary}”`, next: nextStepOf(session.snapshot()) }),
+      );
     } catch (failure) {
       composer.setFailure(asIpcError(failure));
       return;
@@ -165,7 +177,6 @@ export function createCommitAction(deps: {
     composer.setDescription("");
     composer.setAmend(false);
     composer.setPushed(false);
-    await session.refresh();
     deps.onCommitted(sha);
     if (!options.push) return;
     try {

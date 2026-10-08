@@ -7,7 +7,9 @@ export const EDITOR_REASON = "Choose an external editor in Settings → External
 export const DIFF_TOOL_REASON = "Choose an external diff tool in Settings → External tools";
 export const MERGE_TOOL_REASON = "Choose an external merge tool in Settings → External tools";
 
-export function diffToolSource(target: DiffTarget): DiffToolSource {
+export const COMPARISON_TOOL_REASON = "An external diff tool opens one commit or your changes, not a comparison";
+
+export function diffToolSource(target: Exclude<DiffTarget, { source: "range" }>): DiffToolSource {
   if (target.source === "working") return target.area === "staged" ? { kind: "staged" } : { kind: "unstaged" };
   return { kind: "commit", sha: target.sha };
 }

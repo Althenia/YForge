@@ -61,6 +61,11 @@ fn committed_dir() -> PathBuf {
 
 fn export_all(dir: &Path) {
     let config = Config::new().with_large_int("number").with_out_dir(dir);
+    yforge_core::BranchComparison::export_all(&config).expect("export BranchComparison");
+    yforge_core::MergePrediction::export_all(&config).expect("export MergePrediction");
+    yforge_core::PullChecks::export_all(&config).expect("export PullChecks");
+    yforge_core::PullRequestDisclosure::export_all(&config).expect("export PullRequestDisclosure");
+    yforge_core::PullRequestDraft::export_all(&config).expect("export PullRequestDraft");
     AppInfo::export_all(&config).expect("export AppInfo");
     ErrorPayload::export_all(&config).expect("export ErrorPayload");
     RepoSnapshot::export_all(&config).expect("export RepoSnapshot");

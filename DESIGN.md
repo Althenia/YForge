@@ -124,7 +124,10 @@ Product motion is functional:
 
 - hover and press feedback: `quick`;
 - panel reveal: `base`;
-- overlays: `slow`.
+- overlays: `slow`;
+- replacing held content: `quick`, the old content fading out over its opaque replacement, which never fades in.
+
+Pending work waits 150ms before it shows and then stays at least 400ms, so fast work never flashes; held content is never dimmed.
 
 There is no ambient motion (B7). Graph relayout is instant or a short cross-fade; it never slides rows. Under reduced motion, every transition becomes an instant state change and indeterminate progress becomes static text.
 

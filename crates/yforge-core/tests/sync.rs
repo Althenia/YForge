@@ -8,9 +8,9 @@ use std::time::{Duration, Instant};
 
 use common::Fixture;
 use yforge_core::{
-    delete_remote_branch, fetch, pull, pull_autostash, push, push_force, push_plan, push_to,
-    remote_branch_sha, repo_snapshot, CancelToken, ErrorKind, Head, Operation, Progress, PullMode,
-    PullOutcome, PullStash, StashKeptReason,
+    delete_remote_branch, fetch, incoming_commits, publish, pull, pull_autostash, push, push_force,
+    push_plan, push_to, remote_branch_sha, repo_snapshot, CancelToken, ErrorKind, Head, Operation,
+    Progress, PullMode, PullOutcome, PullStash, StashKeptReason,
 };
 
 struct Pair {
@@ -881,4 +881,79 @@ fn a_refused_pull_puts_the_stashed_changes_back() {
     assert_eq!(error.kind(), ErrorKind::NotFastForward);
     assert_eq!(pair.repo.read("a.txt"), "local edit\n");
     assert!(repo_snapshot(&pair.repo.path).unwrap().stashes.is_empty());
+}
+
+#[test]
+fn incoming_commits_lists_every_upstream_commit_the_branch_lacks_until_it_is_pulled() {
+    let pair = pair();
+    assert!(incoming_commits(&pair.repo.path).unwrap().is_empty());
+    let mut expected: Vec<String> = (0..25)
+        .map(|index| {
+            pair.repo.commit_in(
+                &pair.other,
+                &format!("remote-{index}.txt"),
+                "remote\n",
+                &format!("Remote {index}"),
+            )
+        })
+        .collect();
+    pair.repo.run_in(&pair.other, &["push", "-q"]);
+    fetch_now(&pair);
+
+    let mut incoming = incoming_commits(&pair.repo.path).unwrap();
+    incoming.sort();
+    expected.sort();
+    assert_eq!(incoming, expected);
+
+    pull(
+        &pair.repo.path,
+        PullMode::FastForwardOnly,
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap();
+    assert!(incoming_commits(&pair.repo.path).unwrap().is_empty());
+}
+
+#[test]
+fn incoming_commits_is_empty_without_a_tracked_upstream() {
+    let repo = Fixture::init();
+    repo.identity();
+    repo.commit("a.txt", "one\n", "First");
+    assert!(incoming_commits(&repo.path).unwrap().is_empty());
+
+    let pair = pair();
+    pair.repo
+        .commit_in(&pair.other, "b.txt", "b\n", "Remote work");
+    pair.repo.run_in(&pair.other, &["push", "-q"]);
+    fetch_now(&pair);
+    pair.repo.git(&["checkout", "-q", "--detach"]);
+    assert!(incoming_commits(&pair.repo.path).unwrap().is_empty());
+}
+
+#[test]
+fn publish_pushes_a_named_branch_that_is_not_checked_out_and_tracks_it() {
+    let pair = pair();
+    pair.repo.git(&["branch", "side"]);
+    pair.repo.git(&["checkout", "-q", "side"]);
+    let tip = pair.repo.commit("side.txt", "side\n", "Side work");
+    pair.repo.git(&["checkout", "-q", "main"]);
+
+    publish(
+        &pair.repo.path,
+        "origin",
+        Some("side"),
+        &CancelToken::new(),
+        &mut no_progress(),
+    )
+    .unwrap();
+
+    assert_eq!(remote_head(&pair, "side"), tip);
+    assert_eq!(
+        pair.repo
+            .git(&["rev-parse", "--abbrev-ref", "side@{upstream}"])
+            .trim(),
+        "origin/side"
+    );
+    assert_eq!(pair.repo.git(&["branch", "--show-current"]).trim(), "main");
 }

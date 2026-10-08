@@ -105,6 +105,7 @@ impl From<Pull> for PullRequest {
         };
         Self {
             number: pull.id,
+            draft: pull.draft,
             title: pull.title,
             body: pull.description.unwrap_or_default(),
             state,
@@ -219,6 +220,7 @@ impl Adapter for BitbucketCloud {
         let body = json!({
             "title": input.title,
             "description": input.body,
+            "draft": input.draft,
             "source": {"branch": {"name": input.source_ref}},
             "destination": {"branch": {"name": input.target_ref}},
         });
@@ -318,6 +320,7 @@ mod tests {
 
     fn input() -> CreatePull {
         CreatePull {
+            draft: false,
             source_ref: "feature".to_owned(),
             target_ref: "main".to_owned(),
             title: "Add thing".to_owned(),
@@ -550,7 +553,7 @@ mod tests {
         );
         assert_eq!(
             json_of(&requests[0]),
-            json!({"title": "Add thing", "description": "Because.",
+            json!({"title": "Add thing", "description": "Because.", "draft": false,
                    "source": {"branch": {"name": "feature"}},
                    "destination": {"branch": {"name": "main"}}})
         );
@@ -722,5 +725,49 @@ mod tests {
 
         assert_eq!(mine[0].items.len(), 70);
         assert_eq!((mine[0].total, mine[0].capped), (Some(70), false));
+    }
+    #[tokio::test]
+    async fn cloud_draft_creation_sends_the_flag_and_surfaces_it() {
+        let fake = HttpFake::start(|_| {
+            let mut pull = bitbucket_pull("OPEN");
+            pull["draft"] = json!(true);
+            Reply::ok(&pull.to_string())
+        });
+        let mut draft = input();
+        draft.draft = true;
+        let created = BitbucketCloud
+            .create(&http(&fake), &repo(), &draft)
+            .await
+            .unwrap();
+        assert!(created.draft);
+        assert_eq!(json_of(&fake.requests()[0])["draft"], true);
+    }
+
+    #[tokio::test]
+    async fn cloud_checks_are_bounded_and_mark_a_next_page_as_incomplete() {
+        let fake = HttpFake::start(|_| {
+            Reply::ok(
+                r#"{"values":[{"state":"SUCCESSFUL"},{"state":"FAILED"},{"state":"INPROGRESS"}],"next":"https://api.bitbucket.org/next"}"#,
+            )
+        });
+        let checks =
+            crate::checks::read(&http(&fake), crate::client::Api::BitbucketCloud, &repo(), 5)
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            (
+                checks.passing,
+                checks.failing,
+                checks.pending,
+                checks.capped
+            ),
+            (1, 1, 1, true)
+        );
+        assert_eq!(fake.requests().len(), 1);
+        assert_eq!(
+            fake.requests()[0].path,
+            "/2.0/repositories/owner/widget/pullrequests/5/statuses?pagelen=100"
+        );
     }
 }

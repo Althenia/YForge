@@ -30,6 +30,7 @@ export const platformKeys = {
   prsOf: (path: string) => ["platform", "prs", path] as const,
   pr: (path: string, number: number) => ["platform", "pr", path, number] as const,
   prsDetailOf: (path: string) => ["platform", "pr", path] as const,
+  checks: (path: string, number: number) => ["platform", "checks", path, number] as const,
 };
 
 export const jiraKeys = {

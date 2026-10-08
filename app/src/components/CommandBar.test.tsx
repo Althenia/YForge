@@ -148,7 +148,7 @@ describe("fetch, pull, and push", () => {
     expect(cleanBar.button("Stash")?.title).toBe("Nothing to stash");
     dispose?.();
 
-    const dirty = mountActions(tracked({ counts: { ...clean, modified: 1 } }), { kind: "running", id: "op", label: "Pulling", phase: undefined, percent: null });
+    const dirty = mountActions(tracked({ counts: { ...clean, modified: 1 } }), { kind: "running", id: "op", label: "Pulling", phase: undefined, percent: null, cancellable: true });
 
     expect(dirty.button("Stash")?.disabled).toBe(true);
     expect(dirty.button("Stash")?.title).toBe("A sync is running");

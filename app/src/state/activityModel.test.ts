@@ -89,7 +89,7 @@ describe("activity model", () => {
 
   it("toasts only successful toast-worthy entries for the open repository, with Undo when available", () => {
     expect(toastFor(entry(), "/r")).toMatchObject({ message: "Committed abc1234", undoable: true });
-    expect(toastFor(entry({ undo: { kind: "unavailable", reason: "x" } }), "/r")?.undoable).toBe(false);
+    expect(toastFor(entry({ undo: { kind: "unavailable", reason: "x" } }), "/r")).toMatchObject({ kind: "activity", undoable: false });
     expect(toastFor(entry({ toast: false }), "/r")).toBeUndefined();
     expect(toastFor(entry({ ok: false }), "/r")).toBeUndefined();
     expect(toastFor(entry(), "/other")).toBeUndefined();
@@ -100,7 +100,7 @@ describe("activity model", () => {
     const committed = entry();
     const toasts = refreshToasts([], committed, "/r");
     expect(toasts).toHaveLength(1);
-    expect(refreshToasts(toasts, { ...committed, undo: { kind: "undone" } }, "/r")[0]?.undoable).toBe(false);
+    expect(refreshToasts(toasts, { ...committed, undo: { kind: "undone" } }, "/r")[0]).toMatchObject({ undoable: false });
     expect(refreshToasts(toasts, { ...committed, toast: false }, "/r")).toEqual([]);
   });
 

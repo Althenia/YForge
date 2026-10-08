@@ -152,6 +152,63 @@ async function mountApp(
 }
 
 describe("routes", () => {
+  it("offers a confirmed reset when the remote counterpart of the checked-out branch is activated", async () => {
+    restoreLayout = stubLayout();
+    const before = "a".repeat(40);
+    const remote = "b".repeat(40);
+    let head = before;
+    const snapshot = () => ({
+      ...snapshotAt("/a"),
+      head: { kind: "branch" as const, name: "main", sha: head },
+      remotes: ["origin"],
+      remote_branches: ["origin/main"],
+      counts: { ...snapshotAt("/a").counts, modified: 1 },
+      files: [{ path: "src/work.ts", area: "unstaged" as const, status: "modified" as const, original_path: null }],
+    });
+    const graph = (): GraphPage => ({
+      total: 3,
+      carried: [],
+      rows: [
+        { ...graphAt("/a", 0, 1, true).rows[0]!, refs: [] },
+        { ...graphAt("/a", 1, 1).rows[0]!, sha: remote, summary: "Remote main tip", refs: [{ kind: "remote_branch", name: "origin/main", is_head: false }, ...(head === remote ? [{ kind: "local_branch" as const, name: "main", is_head: true }] : [])] },
+        { ...graphAt("/a", 2, 1).rows[0]!, sha: before, summary: "Local main tip", refs: head === before ? [{ kind: "local_branch", name: "main", is_head: true }] : [] },
+      ],
+    });
+    const { host, calls, app } = await mountApp({ tabs: ["/a"], active: 0 }, snapshot, graph, {
+      integration_preview: () => ({ incoming: { count: 1, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false }),
+      checkout: () => ({ auto_stash: "none" }),
+      reset: (args) => { expect(args).toEqual({ path: "/a", target: remote, mode: "hard" }); head = remote; return null; },
+    });
+    const activate = async () => {
+      const label = host.querySelector<HTMLElement>('#graph-row-1 .refcell > [data-ref-label]');
+      expect(label?.title).toBe("origin/main");
+      label?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: 20, clientY: 30 }));
+      await flush();
+      const modes = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')];
+      expect(modes.map((item) => item.querySelector(".label-text")?.textContent)).toEqual(["Soft", "Mixed", "Hard"]);
+      modes.find((item) => item.querySelector(".label-text")?.textContent === "Hard")?.click();
+      await flush();
+    };
+
+    await activate();
+    expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain("Hard reset main to origin/main?");
+    expect(calls.some((call) => call.cmd === "reset" || call.cmd === "checkout")).toBe(false);
+    [...document.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find((button) => button.textContent === "Cancel")?.click();
+    await flush();
+    expect(head).toBe(before);
+    expect(calls.some((call) => call.cmd === "reset")).toBe(false);
+
+    await activate();
+    const dialog = document.querySelector('[role="alertdialog"]');
+    const confirm = dialog?.querySelector<HTMLButtonElement>('button.danger');
+    expect(confirm?.disabled).toBe(false);
+    confirm?.click();
+    await vi.waitFor(() => expect(app.paletteContext().snapshot?.head).toEqual({ kind: "branch", name: "main", sha: remote }));
+    await vi.waitFor(() => expect(host.querySelector('#graph-row-1 .refcell > .label.active')?.textContent).toContain("main"));
+    expect(calls.filter((call) => call.cmd === "reset")).toHaveLength(1);
+    expect(calls.some((call) => call.cmd === "checkout")).toBe(false);
+  });
+
   it("renders the warm target graph without an uncached profile read suspending a dirty repository tab", async () => {
     restoreLayout = stubLayout();
     const profiles: ProfileList = { active: "default", profiles: [{ id: "default", name: "Default", author_name: "Synthetic", author_email: "author@example.test" }] };
@@ -499,5 +556,111 @@ describe("routes", () => {
     expect(viewOf(router.matchRoutes(router.state.location))).toEqual({ kind: "launcher" });
     await router.navigate({ to: "/repo", search: { tab: "/a b" } });
     expect(viewOf(router.matchRoutes(router.state.location))).toEqual({ kind: "repo", tab: "/a b" });
+  });
+});
+
+describe("repository tab continuity (S72)", () => {
+  const named = (path: string, name: string): RepoSnapshot => {
+    const snapshot = snapshotAt(path);
+    return { ...snapshot, head: { kind: "branch", name, sha: "a".repeat(40) } };
+  };
+  const deferred = () => {
+    const waiting = new Map<string, (snapshot: RepoSnapshot) => void>();
+    const booted = new Set<string>();
+    const open = (path: string): RepoSnapshot | Promise<RepoSnapshot> => {
+      if (!booted.has(path)) {
+        booted.add(path);
+        return named(path, "boot");
+      }
+      return new Promise<RepoSnapshot>((resolve) => waiting.set(path, resolve));
+    };
+    const finish = (path: string, name: string) => waiting.get(path)?.(named(path, name));
+    return { open, finish };
+  };
+  const held = () => document.querySelector<HTMLElement>("[data-swap-held]");
+  const selectedTab = (host: HTMLElement) => host.querySelector('.tab-main[aria-selected="true"]')?.getAttribute("title");
+
+  it("holds the previous repository on screen, inert, while an uncached tab opens, with no live previous workspace", async () => {
+    const pending = deferred();
+    const { app, host, workspaces } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, (path) => (path === "/a" ? named(path, "source-a") : pending.open(path)));
+    await vi.waitFor(() => expect(host.textContent).toContain("source-a"));
+
+    app.activate(1);
+    await flush(60);
+    expect(app.activePath()).toBe("/b");
+    expect(held()?.textContent).toContain("source-a");
+    expect(held()?.getAttribute("aria-hidden")).toBe("true");
+    expect(held()?.inert).toBe(true);
+    expect(workspaces()).toBe(0);
+    expect(selectedTab(host)).toBe("/b");
+    expect(host.textContent).not.toContain("Opening repository");
+    expect(host.querySelector("[data-indicator]")).toBeNull();
+
+    await flush(150);
+    expect(host.querySelector("[data-indicator]")?.getAttribute("role")).toBe("status");
+
+    pending.finish("/b", "target-b");
+    await flush(60);
+    expect(held()).toBeNull();
+    expect(host.textContent).toContain("target-b");
+    expect(workspaces()).toBe(1);
+  });
+
+  it("ends on the last tab chosen and never shows a superseded tab", async () => {
+    const pending = deferred();
+    const { app, host } = await mountApp({ tabs: ["/a", "/b", "/c"], active: 0 }, (path) => (path === "/a" ? named(path, "source-a") : pending.open(path)));
+    await vi.waitFor(() => expect(host.textContent).toContain("source-a"));
+
+    app.activate(1);
+    await flush(20);
+    app.activate(2);
+    await flush(20);
+    pending.finish("/b", "target-b");
+    await flush(60);
+    expect(held()?.textContent).toContain("source-a");
+    expect(document.body.textContent).not.toContain("target-b");
+    expect(selectedTab(host)).toBe("/c");
+
+    pending.finish("/c", "target-c");
+    await flush(60);
+    expect(host.textContent).toContain("target-c");
+    expect(held()).toBeNull();
+  });
+
+  it("opens a first repository with static skeleton rows after 150ms instead of a loading message", async () => {
+    const pending = deferred();
+    const { host } = await mountApp({ tabs: ["/a"], active: 0 }, (path) => pending.open(path));
+    expect(host.querySelector(".tabbar")).not.toBeNull();
+    expect(host.textContent).not.toContain("Opening repository");
+
+    await flush(150);
+    expect(host.querySelectorAll(".workspace-skeleton .skeleton").length).toBeGreaterThan(0);
+    expect(host.querySelector("[data-indicator]")?.getAttribute("role")).toBe("status");
+
+    pending.finish("/a", "source-a");
+    await flush(60);
+    expect(host.textContent).toContain("source-a");
+    expect(host.querySelector(".workspace-skeleton")).toBeNull();
+  });
+
+  it("brings the target in through view-swap: the previous view fades out above the live target", async () => {
+    window.matchMedia = ((query: string) => ({ matches: query !== "(prefers-reduced-motion: reduce)", addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+    const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+    document.documentElement.style.setProperty("--motion-quick", "120ms");
+    try {
+      const { app, host, workspaces } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, (path) => named(path, path === "/a" ? "source-a" : "target-b"));
+      await vi.waitFor(() => expect(host.textContent).toContain("source-a"));
+
+      app.activate(1);
+      await vi.waitFor(() => expect(host.textContent).toContain("target-b"));
+      const outgoing = held();
+      expect(outgoing?.textContent).toContain("source-a");
+      expect(animate.mock.contexts).toContain(outgoing);
+      expect(workspaces()).toBe(1);
+    } finally {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    }
   });
 });

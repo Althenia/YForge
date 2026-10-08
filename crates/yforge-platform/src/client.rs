@@ -13,7 +13,7 @@ use crate::http::{scheme_for, Http};
 use crate::paging::LIST_CAP;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Api {
+pub(crate) enum Api {
     GitHub,
     GitLab,
     BitbucketCloud,
@@ -95,6 +95,14 @@ impl Client {
 
     pub async fn detail(&self, repo: &RepoRef, number: i64) -> Result<PrDetail> {
         with_adapter!(self.api, adapter => adapter.detail(&self.http, repo, number).await)
+    }
+
+    pub async fn checks(
+        &self,
+        repo: &RepoRef,
+        number: i64,
+    ) -> Result<Option<yforge_core::PullChecks>> {
+        crate::checks::read(&self.http, self.api, repo, number).await
     }
 
     pub async fn create(&self, repo: &RepoRef, input: &CreatePull) -> Result<PullRequest> {

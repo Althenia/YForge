@@ -68,7 +68,7 @@ describe("feature failure copy", () => {
 });
 
 describe("feature order", () => {
-  it("lists the seven features in the order the core returns them, each with its title", () => {
+  it("lists the eight features in the order the core returns them, each with its title", () => {
     expect(FEATURE_ORDER).toEqual([
       "generate_commit",
       "recompose",
@@ -77,6 +77,7 @@ describe("feature order", () => {
       "explain_commit",
       "compose_commits",
       "stash_message",
+      "compose_pull_request",
     ]);
     expect(FEATURE_ORDER.map((feature) => FEATURE_TITLES[feature])).toEqual([
       "Generate commit message",
@@ -86,6 +87,7 @@ describe("feature order", () => {
       "Explain commit",
       "Compose commits",
       "Generate stash message",
+      "Pull request descriptions",
     ]);
   });
 });

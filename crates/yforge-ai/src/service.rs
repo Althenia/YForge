@@ -581,6 +581,26 @@ impl Ai {
         .await
     }
 
+    pub fn pull_request_disclosure(
+        &self,
+        selection: &Selection,
+        context: &yforge_core::PullRequestContext,
+    ) -> yforge_core::PullRequestDisclosure {
+        crate::pull_request::disclosure(&selection.config.name, context)
+    }
+
+    pub async fn pull_request(
+        &self,
+        selection: &Selection,
+        context: &yforge_core::PullRequestContext,
+        template: &str,
+        cancel: &CancelToken,
+    ) -> Result<yforge_core::PullRequestDraft> {
+        let text = crate::pull_request::context_text(context, template)?;
+        let reply = self.complete(selection, &text, cancel).await?;
+        crate::pull_request::parse(&selection.config.name, &reply, template, context)
+    }
+
     pub async fn commit_message(
         &self,
         selection: &Selection,

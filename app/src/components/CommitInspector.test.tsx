@@ -1,5 +1,9 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { createRoot, Show } from "solid-js";
+import { createRoot, createSignal, Show } from "solid-js";
+import type { GraphRow } from "../ipc/bindings/GraphRow";
+import { repoKeys } from "../state/queryKeys";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiFeature } from "../ipc/bindings/AiFeature";
 import { AiSheetContext, createAiSheet } from "../state/aiSheet";
@@ -533,5 +537,165 @@ describe("open in editor (S54)", () => {
     button?.click();
     await flush();
     expect(calls.some((call) => call.cmd === "open_in_editor")).toBe(false);
+  });
+});
+
+describe("commit continuity (S72)", () => {
+  const NEXT = "c".repeat(40);
+  const THIRD = "d".repeat(40);
+  const graphRow = (sha: string, summary: string): GraphRow => ({ sha, parents: [HEAD], summary, body: "", author: null, time: person.time, refs: [], kind: "commit", column: 0, edges: [] });
+  const loaded = (sha: string, summary: string, body: string): CommitDetails => ({ ...details(sha), summary, body });
+
+  function mountSwitching(start: string) {
+    const answers = new Map<string, { promise: Promise<CommitDetails>; resolve: (value: CommitDetails) => void }>();
+    const answer = (sha: string) => {
+      const known = answers.get(sha);
+      if (known !== undefined) return known;
+      let settle: (value: CommitDetails) => void = () => undefined;
+      const promise = new Promise<CommitDetails>((done) => {
+        settle = done;
+      });
+      const entry = { promise, resolve: (value: CommitDetails) => settle(value) };
+      answers.set(sha, entry);
+      return entry;
+    };
+    mockIPC((cmd, args) => {
+      if (cmd === "commit_details") return answer((args as { sha: string }).sha).promise;
+      if (cmd === "external_tools_status") return toolsStatus;
+      if (cmd === "app_ui_prefs_load") return { palette_recents: [], last_parent_folder: null, file_list_mode: "path" };
+      if (cmd === "ai_feature_config_list" || cmd === "jira_connections_list") return [];
+      if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map(() => []);
+      return null;
+    });
+    const session = testSession("/r", snapshot as unknown as RepoSnapshot);
+    session.queryClient.setQueryData(repoKeys.graph("/r", 0, "all"), { rows: [graphRow(NEXT, "Next summary"), graphRow(THIRD, "Third summary")], carried: [], total: 2 });
+    const [sha, setSha] = createSignal(start);
+    const actions = createRepoActions(session, { selectedSha: sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+    const mounted = mountWithApp(() => (
+      <CommitInspector session={session} actions={actions} sha={sha()} activeTarget={undefined} onSelectCommit={() => undefined} onOpenDiff={() => undefined} onViewFile={() => undefined} />
+    ));
+    dispose = mounted.dispose;
+    const title = () => mounted.host.querySelector(".ihead h2")?.textContent;
+    const body = () => mounted.host.querySelector(".cbody")?.textContent;
+    return { ...mounted, setSha, title, body, finish: (target: string, value: CommitDetails) => answer(target).resolve(value) };
+  }
+
+  async function settledOn(view: ReturnType<typeof mountSwitching>) {
+    view.finish(HEAD, loaded(HEAD, "Head summary", "Head body"));
+    await flush();
+    expect(view.title()).toBe("Head summary");
+  }
+
+  it("names the selected commit at once from its graph row and keeps the previous body, undimmed, until its details arrive", async () => {
+    const view = mountSwitching(HEAD);
+    await settledOn(view);
+
+    view.setSha(NEXT);
+    await flush();
+    expect(view.title()).toBe("Next summary");
+    expect(view.body()).toBe("Head body");
+    expect(view.host.textContent).not.toContain("Loading commit");
+
+    view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
+    await flush();
+    expect(view.body()).toBe("Next body");
+  });
+
+  it("ends on the last choice and never renders a superseded read", async () => {
+    const view = mountSwitching(HEAD);
+    await settledOn(view);
+
+    view.setSha(NEXT);
+    await flush();
+    view.setSha(THIRD);
+    await flush();
+    view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
+    await flush();
+    expect(view.title()).toBe("Third summary");
+    expect(view.body()).toBe("Head body");
+
+    view.finish(THIRD, loaded(THIRD, "Third summary", "Third body"));
+    await flush();
+    expect(view.body()).toBe("Third body");
+  });
+
+  it("shows the pending line only once a read has taken 150ms", async () => {
+    const view = mountSwitching(HEAD);
+    await settledOn(view);
+    const line = () => view.host.querySelector("[data-indicator]");
+
+    view.setSha(NEXT);
+    await flush(90);
+    expect(line()).toBeNull();
+    await flush(120);
+    expect(line()?.getAttribute("role")).toBe("status");
+  });
+
+  it("holds off any indicator on a first load, then fills the body with static skeletons in its final geometry", async () => {
+    const view = mountSwitching(NEXT);
+    await flush();
+    expect(view.title()).toBe("Next summary");
+    expect(view.host.querySelector(".skeleton")).toBeNull();
+    expect(view.host.textContent).not.toContain("Loading commit");
+
+    await flush(200);
+    const skeleton = view.host.querySelector(".commit-body[aria-hidden='true']");
+    expect(skeleton?.querySelectorAll(".cmeta .mrow .skeleton").length).toBeGreaterThan(0);
+    expect(skeleton?.querySelectorAll(".flist .frow .skeleton").length).toBeGreaterThan(0);
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/app.css"), "utf8");
+    const rule = css.slice(css.indexOf(".skeleton {"), css.indexOf("}", css.indexOf(".skeleton {")));
+    expect(rule).toContain("background: var(--colors-surface-2);");
+    expect(rule).not.toMatch(/animation|gradient|opacity|color-mix/);
+  });
+
+  it("shows the short hash at once and a skeleton title when the commit has no graph row", async () => {
+    const view = mountSwitching(OLDER);
+    await flush();
+    expect(view.host.querySelector(".ihead .ref")?.textContent).toBe(OLDER.slice(0, 7));
+    expect(view.host.querySelector(".ihead .skeleton")).toBeNull();
+    await flush(200);
+    expect(view.host.querySelector(".ihead .skeleton")).not.toBeNull();
+  });
+
+  it("replaces the first-load skeleton through view-swap", async () => {
+    const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+    document.documentElement.style.setProperty("--motion-quick", "120ms");
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    try {
+      const view = mountSwitching(NEXT);
+      await flush(200);
+      view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
+      await flush();
+      const held = view.host.querySelector<HTMLElement>(".inspector[data-swap-held]");
+      expect(held?.querySelector(".commit-body[aria-hidden='true'] .skeleton")).not.toBeNull();
+      expect(view.body()).toBe("Next body");
+      expect(animate.mock.contexts).toContain(held);
+    } finally {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    }
+  });
+
+  it("brings the arriving details in through view-swap", async () => {
+    const animate = vi.fn(() => ({ finished: new Promise(() => undefined), cancel: () => undefined }));
+    HTMLElement.prototype.animate = animate as unknown as typeof HTMLElement.prototype.animate;
+    document.documentElement.style.setProperty("--motion-quick", "120ms");
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+    try {
+      const view = mountSwitching(HEAD);
+      await settledOn(view);
+      view.setSha(NEXT);
+      await flush();
+      view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
+      await flush();
+      const held = view.host.querySelector<HTMLElement>("[data-swap-held]");
+      expect(held?.querySelector(".cbody")?.textContent).toBe("Head body");
+      expect(view.body()).toBe("Next body");
+      expect(animate).toHaveBeenCalledTimes(1);
+    } finally {
+      delete (HTMLElement.prototype as { animate?: unknown }).animate;
+      document.documentElement.style.removeProperty("--motion-quick");
+    }
   });
 });

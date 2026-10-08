@@ -2,8 +2,8 @@ mod common;
 
 use common::Fixture;
 use yforge_core::{
-    amend_info, commit, commit_details, commit_file_diff, edit_head_message, stage_all,
-    DiffLineKind, ErrorKind, FileStatus, RefKind,
+    amend_info, commit, commit_details, commit_file_diff, edit_head_message, revision_file_diff,
+    stage_all, DiffLineKind, ErrorKind, FileStatus, RefKind,
 };
 
 fn ready_repository() -> Fixture {
@@ -476,4 +476,32 @@ fn a_commit_diff_over_two_megabytes_is_refused_with_its_size() {
     let error = commit_file_diff(&repo.path, &sha, "big.txt", false).expect_err("refused");
 
     assert_eq!(error.kind(), ErrorKind::FileTooLarge, "{error:?}");
+}
+
+#[test]
+fn revision_file_diff_shows_a_file_between_two_named_revisions() {
+    let repo = ready_repository();
+    let base = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["checkout", "-q", "-b", "other"]);
+    repo.commit("a.txt", "1\n2\n", "Second");
+    repo.git(&["checkout", "-q", "-"]);
+
+    let diff = revision_file_diff(&repo.path, &base, "other", "a.txt", false).unwrap();
+
+    let added: Vec<&str> = diff.hunks[0]
+        .lines
+        .iter()
+        .filter(|line| line.kind == DiffLineKind::Added)
+        .map(|line| line.text.as_str())
+        .collect();
+    assert_eq!(added, ["2"]);
+}
+
+#[test]
+fn revision_file_diff_refuses_an_unknown_revision() {
+    let repo = ready_repository();
+
+    let error = revision_file_diff(&repo.path, "HEAD", "nope", "a.txt", false).unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::InvalidRequest);
 }

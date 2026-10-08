@@ -503,7 +503,7 @@ describe("platform commands", () => {
     const platform = {
       matched: () => (matched ? { remote: "origin" } : undefined),
       pulls: () => pulls,
-      openCreate: () => calls.push(["create"]),
+      openCompose: () => calls.push(["compose"]),
       requestMerge: (pull: { number: number }) => calls.push(["merge", pull.number]),
       openInBrowser: (pull: { number: number }) => calls.push(["browser", pull.number]),
     } as unknown as PlatformActions;
@@ -530,7 +530,7 @@ describe("platform commands", () => {
     find(commands, "pulls.merge").run(["3"]);
     find(commands, "pulls.open").run(["3"]);
 
-    expect(calls).toEqual([["create"], ["merge", 7], ["browser", 3]]);
+    expect(calls).toEqual([["compose"], ["merge", 7], ["browser", 3]]);
   });
 
   it("disables Merge when nothing is open, and opens Settings → Platforms for Add platform connection", () => {

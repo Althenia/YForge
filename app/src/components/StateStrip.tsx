@@ -1,17 +1,21 @@
 import { useQuery } from "../state/query";
-import { For, Show } from "solid-js";
+import { createComputed, createSignal, For, Show } from "solid-js";
+import { conflictLabel as predictionLabel, type Conflict } from "../state/conflicts";
+import type { DiffTarget } from "../state/diffModel";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import { useNow } from "../state/clock";
 import { conflictLabel, firstConflict, operationButtons, operationSummary, operationTitle, stepLabel } from "../state/operationModel";
+import { createPendingIndicator } from "../state/pending";
 import { repoKeys } from "../state/queryKeys";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import { SHORTCUTS } from "../state/shortcuts";
-import { freshness, OFFLINE_REASON, runningText, type SyncState } from "../state/syncModel";
+import { freshness, OFFLINE_REASON, runningText, type NextStep, type SyncState } from "../state/syncModel";
 import { MenuLabel } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { Popover } from "./Popover";
 import { tip } from "./Tooltip";
 
 const countLetters = [
@@ -228,34 +232,141 @@ function WorktreesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
   );
 }
 
-function SyncChip(props: { state: SyncState; actions: RepoActions }) {
-  const app = useApp();
+function ConflictChip(props: { conflict: Conflict; branch: string; composeReason: string | undefined; onOpenDiff: (target: DiffTarget) => void; onRebase: () => void; onCompose: () => void }) {
+  const [anchor, setAnchor] = createSignal<Anchor>();
+  const run = (action: () => void) => {
+    setAnchor(undefined);
+    action();
+  };
+  const fileTarget = (file: string): DiffTarget => ({ source: "range", base: props.conflict.base, head: props.conflict.target, label: `${props.conflict.target} since ${props.conflict.base.slice(0, 7)}`, file });
   return (
     <>
-      <Show when={props.state.kind === "running" && props.state}>
-        {(running) => (
-          <>
-            <span class="chip" role="group" aria-label={running().label}>
-              <span>{runningText(running())}</span>
-              <span
-                class="progress"
-                role="progressbar"
-                aria-label={running().label}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={running().percent ?? undefined}
-                classList={{ indeterminate: running().percent === null }}
-              >
-                <i style={{ width: `${running().percent ?? 40}%` }} />
-              </span>
-            </span>
-            <button type="button" class="btn sm" onClick={props.actions.cancelSync}>
-              Cancel
-            </button>
-          </>
+      <button type="button" class="chip conflict-chip" aria-haspopup="dialog" aria-expanded={anchor() !== undefined} onClick={(event) => setAnchor(anchorBelow(event.currentTarget))}>
+        <span class="st st-conflicted" aria-hidden="true">
+          !
+        </span>
+        {predictionLabel(props.conflict)}
+      </button>
+      <Show when={anchor()}>
+        {(at) => (
+          <Popover anchor={at()} label="Predicted conflict" onClose={() => setAnchor(undefined)}>
+            <div class="conflict-pop">
+              <p class="conflict-pop-title">{predictionLabel(props.conflict)}</p>
+              <p class="setting-note">
+                Merge base <span class="mono">{props.conflict.base.slice(0, 7)}</span>
+              </p>
+              <ul class="conflict-files">
+                <For each={props.conflict.files}>
+                  {(file) => (
+                    <li>
+                      <button type="button" class="link mono" onClick={() => run(() => props.onOpenDiff(fileTarget(file)))}>
+                        {file}
+                      </button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+              <div class="foot">
+                <button type="button" class="btn sm" onClick={() => run(props.onRebase)}>
+                  Rebase {props.branch} onto {props.conflict.target}…
+                </button>
+                <button
+                  type="button"
+                  class="btn sm"
+                  {...(props.composeReason === undefined ? {} : tip(props.composeReason, undefined, "Compose pull request anyway"))}
+                  aria-disabled={props.composeReason === undefined ? undefined : "true"}
+                  onClick={() => props.composeReason === undefined && run(props.onCompose)}
+                >
+                  Compose pull request anyway
+                </button>
+              </div>
+            </div>
+          </Popover>
         )}
       </Show>
-      <Show when={props.state.kind === "failed" && props.state}>
+    </>
+  );
+}
+
+type Running = Extract<SyncState, { kind: "running" }>;
+
+const nextStepLabel: Record<NextStep, string> = { pull: "Pull", push: "Push" };
+
+function OperationPill(props: { state: SyncState; actions: RepoActions; online: boolean }) {
+  const app = useApp();
+  const running = () => (props.state.kind === "running" ? props.state : undefined);
+  const shown = createPendingIndicator(() => running() !== undefined);
+  const [last, setLast] = createSignal<Running>();
+  createComputed(() => {
+    const current = running();
+    if (current !== undefined) setLast(current);
+  });
+  const progress = () => (shown() ? last() : undefined);
+  const result = () => (!shown() && props.state.kind === "done" ? props.state : undefined);
+  const failed = () => (!shown() && props.state.kind === "failed" ? props.state : undefined);
+  const nextReason = () => (props.online ? undefined : OFFLINE_REASON);
+  return (
+    <>
+      <Show when={progress() !== undefined || result() !== undefined}>
+        <span class="chip op-pill">
+          <Show
+            when={progress()}
+            fallback={
+              <Show when={result()}>
+                {(done) => (
+                  <>
+                    <Icon name="check" />
+                    <span class="op-outcome" title={done().outcome}>
+                      {done().outcome}
+                    </span>
+                    <Show when={done().next}>
+                      {(next) => (
+                        <button
+                          type="button"
+                          class="btn sm"
+                          {...(nextReason() === undefined ? {} : tip(nextReason() ?? "", undefined, nextStepLabel[next()]))}
+                          aria-disabled={nextReason() === undefined ? undefined : "true"}
+                          onClick={() => nextReason() === undefined && void props.actions.runNextStep()}
+                        >
+                          {nextStepLabel[next()]}
+                        </button>
+                      )}
+                    </Show>
+                    <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={props.actions.dismissSync}>
+                      <Icon name="close" />
+                    </button>
+                  </>
+                )}
+              </Show>
+            }
+          >
+            {(step) => (
+              <>
+                <span role="group" aria-label={step().label}>
+                  {runningText(step())}
+                </span>
+                <span
+                  class="progress"
+                  role="progressbar"
+                  aria-label={step().label}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={step().percent ?? undefined}
+                  classList={{ indeterminate: step().percent === null }}
+                >
+                  <i style={{ width: `${step().percent ?? 40}%` }} />
+                </span>
+                <Show when={running()?.cancellable}>
+                  <button type="button" class="btn sm" onClick={props.actions.cancelSync}>
+                    Cancel
+                  </button>
+                </Show>
+              </>
+            )}
+          </Show>
+        </span>
+      </Show>
+      <Show when={failed()}>
         {(failed) => (
           <>
             <span class="chip chip-danger" role="alert" title={failed().hint}>
@@ -347,7 +458,12 @@ export function StateStrip(props: {
   onRevealHead: () => void;
   onResolve: (file: string) => void;
   onOpenWorktrees: () => void;
+  conflict?: Conflict;
+  composeReason?: string;
+  onOpenDiff?: (target: DiffTarget) => void;
+  onCompose?: () => void;
 }) {
+  const branch = () => (props.snapshot.head.kind === "branch" ? props.snapshot.head.name : undefined);
   return (
     <div class="bar chips" role="status">
       <Show
@@ -358,10 +474,22 @@ export function StateStrip(props: {
             <DetachedAction head={props.snapshot.head} actions={props.actions} />
             <ChangesChip snapshot={props.snapshot} onOpen={props.onOpenChanges} />
             <FreshnessChip snapshot={props.snapshot} actions={props.actions} online={props.online} />
+            <Show when={branch() !== undefined ? props.conflict : undefined}>
+              {(conflict) => (
+                <ConflictChip
+                  conflict={conflict()}
+                  branch={branch() ?? ""}
+                  composeReason={props.composeReason}
+                  onOpenDiff={(target) => props.onOpenDiff?.(target)}
+                  onRebase={() => void props.actions.startRebase(conflict().target)}
+                  onCompose={() => props.onCompose?.()}
+                />
+              )}
+            </Show>
             <Show when={!props.online}>
               <OfflineChip />
             </Show>
-            <SyncChip state={props.actions.sync()} actions={props.actions} />
+            <OperationPill state={props.actions.sync()} actions={props.actions} online={props.online} />
             <Notices actions={props.actions} plain={false} />
             <span class="spacer" />
             <WorktreesChip snapshot={props.snapshot} onOpen={props.onOpenWorktrees} />

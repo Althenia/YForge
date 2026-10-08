@@ -1,17 +1,18 @@
-import { Show } from "solid-js";
+import { Show, type JSX } from "solid-js";
 import { beginLabelDrag, labelAt, registerLabel } from "../graph/labelDrag";
 import { refTarget, type LabelGroup } from "../graph/refLabels";
 import type { RefTarget } from "../state/refMenu";
 import type { RepoActions } from "../state/repoActions";
 import { Icon } from "./Icon";
+import { anchorBelow } from "./TabGroupLayer";
 
-export function RefLabel(props: { group: LabelGroup; sha: string | null; actions: RepoActions; onHighlight?: (sha: string | undefined) => void; onDone?: () => void }) {
+export function RefLabel(props: { group: LabelGroup; sha: string | null; actions: RepoActions; onHighlight?: (sha: string | undefined) => void; onDone?: () => void; note?: string; children?: JSX.Element }) {
   const target = (): RefTarget | undefined => (props.sha === null ? undefined : refTarget(props.group, props.sha));
   return (
     <span
       class="label"
       classList={{ active: props.group.head, tag: props.group.tag }}
-      title={props.group.title}
+      title={props.note === undefined ? props.group.title : `${props.group.title} · ${props.note}`}
       data-ref-label
       ref={(element) => registerLabel(element, target)}
       onPointerEnter={() => props.onHighlight?.(props.group.tag || props.sha === null ? undefined : props.sha)}
@@ -33,7 +34,7 @@ export function RefLabel(props: { group: LabelGroup; sha: string | null; actions
         const current = target();
         if (current === undefined || props.group.head) return;
         event.stopPropagation();
-        props.actions.checkoutRef(current);
+        props.actions.activateRef(current, anchorBelow(event.currentTarget));
         props.onDone?.();
       }}
     >
@@ -41,6 +42,7 @@ export function RefLabel(props: { group: LabelGroup; sha: string | null; actions
         <Icon name="check" size={14} />
       </Show>
       <span class="name">{props.group.name}</span>
+      {props.children}
       <Show when={props.group.local}>
         <Icon name="local" size={14} />
       </Show>

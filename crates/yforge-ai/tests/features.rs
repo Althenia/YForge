@@ -13,6 +13,60 @@ fn kind_of(error: AiError) -> ErrorKind {
 }
 
 #[tokio::test]
+async fn pull_request_drafts_disclose_only_compared_messages_and_diff_and_preserve_git() {
+    let h = Harness::new();
+    let repo = Repo::new();
+    repo.commit("base.txt", "base\n", "Unrelated history");
+    let base = repo.git(&["rev-parse", "HEAD"]);
+    repo.commit("feature.txt", "feature\n", "Add feature\n\nCompared detail");
+    repo.write("unsaved.txt", "NEVER_SEND_WORKTREE");
+    let before = repo.snapshot();
+    let ai = h.ai();
+    let reply = serde_json::json!({"title":"Add feature", "description":"## Summary\nAdd feature.\n\n## Testing\nNot run."}).to_string();
+    let (fake, selection) = feature_provider(&h, &ai, AiFeature::ComposePullRequest, &reply).await;
+    let context =
+        yforge_core::pull_request_context(&repo.path, "HEAD", &base, &CancelToken::new()).unwrap();
+    let draft = ai
+        .pull_request(
+            &selection,
+            &context,
+            "## Summary\n\n## Testing\n",
+            &CancelToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(draft.title, "Add feature");
+    assert!(draft.title.chars().count() <= 72);
+    assert_eq!(
+        (
+            draft.sent.commit_messages,
+            draft.sent.files,
+            draft.sent.additions,
+            draft.sent.deletions
+        ),
+        (1, 1, 1, 0)
+    );
+    assert_eq!(draft.sent.provider_name, selection.config.name);
+    assert_eq!(repo.snapshot(), before);
+    let sent = &fake.requests()[0].body;
+    assert!(sent.contains("Compared detail"));
+    assert!(sent.contains("+feature"));
+    assert!(!sent.contains("Unrelated history"));
+    assert!(!sent.contains("NEVER_SEND_WORKTREE"));
+    let cancel = CancelToken::new();
+    cancel.cancel();
+    assert_eq!(
+        kind_of(
+            ai.pull_request(&selection, &context, "", &cancel)
+                .await
+                .unwrap_err()
+        ),
+        ErrorKind::Cancelled
+    );
+    assert_eq!(fake.requests().len(), 1);
+}
+
+#[tokio::test]
 async fn a_commit_message_draft_uses_the_staged_diff_and_changes_nothing_in_the_repository() {
     let h = Harness::new();
     let repo = Repo::new();

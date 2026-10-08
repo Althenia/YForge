@@ -304,6 +304,25 @@ fn integrate_upstream(
     }))
 }
 
+pub fn incoming_commits(path: &Path) -> Result<Vec<String>, CoreError> {
+    let root = repo::open(path)?;
+    let Some(branch) = branch::current_branch(&root)? else {
+        return Ok(Vec::new());
+    };
+    let Some(upstream) = tracking(&root, &branch)? else {
+        return Ok(Vec::new());
+    };
+    let local = format!("refs/heads/{branch}");
+    if !branch::ref_exists(&root, &local)? || !branch::ref_exists(&root, &upstream.ref_name)? {
+        return Ok(Vec::new());
+    }
+    let listing = git::run(
+        &root,
+        &["rev-list", &format!("{local}..{}", upstream.ref_name)],
+    )?;
+    Ok(listing.lines().map(str::to_owned).collect())
+}
+
 pub fn pull(
     path: &Path,
     mode: PullMode,
@@ -421,11 +440,15 @@ fn publish_branch(
 pub fn publish(
     path: &Path,
     remote: &str,
+    branch: Option<&str>,
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
     let root = repo::open(path)?;
-    let branch = checked_out_branch(&root, "publish")?;
+    let branch = match branch {
+        Some(name) => name.to_owned(),
+        None => checked_out_branch(&root, "publish")?,
+    };
     if !refs::read_remotes(&root)?.iter().any(|name| name == remote) {
         return Err(CoreError::invalid_request(format!(
             "{remote} is not a remote of this repository"

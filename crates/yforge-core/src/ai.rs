@@ -174,10 +174,11 @@ pub enum AiFeature {
     ExplainCommit,
     ComposeCommits,
     StashMessage,
+    ComposePullRequest,
 }
 
 impl AiFeature {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::GenerateCommit,
         Self::Recompose,
         Self::ConflictFix,
@@ -185,6 +186,7 @@ impl AiFeature {
         Self::ExplainCommit,
         Self::ComposeCommits,
         Self::StashMessage,
+        Self::ComposePullRequest,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -196,6 +198,7 @@ impl AiFeature {
             Self::ExplainCommit => "explain_commit",
             Self::ComposeCommits => "compose_commits",
             Self::StashMessage => "stash_message",
+            Self::ComposePullRequest => "compose_pull_request",
         }
     }
 
@@ -214,8 +217,28 @@ impl AiFeature {
             Self::ExplainCommit => "Explain commit",
             Self::ComposeCommits => "Compose commits",
             Self::StashMessage => "Generate stash message",
+            Self::ComposePullRequest => "Pull request descriptions",
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct PullRequestDisclosure {
+    pub commit_messages: u32,
+    pub files: u32,
+    pub additions: u64,
+    pub deletions: u64,
+    pub provider_name: String,
+    pub excluded: Vec<String>,
+    pub truncated: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct PullRequestDraft {
+    pub title: String,
+    pub description: String,
+    pub title_trimmed: bool,
+    pub sent: PullRequestDisclosure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
