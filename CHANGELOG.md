@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.2] - 2026-10-08
+
+### Added
++ Pull request compose view replaces the create-pull-request dialog, with branch comparison, incoming commits, and PR checks for the selected branch.
++ AI-drafted pull request titles and bodies from the branch context.
++ Merge prediction that forecasts conflicting files before a pull request is created or a branch is published.
+
+### Changed
++ Views swap with a fade-out of the held content while the replacement appears immediately.
++ Pending indicators appear after 150ms and remain for at least 400ms; commit details and workspace loading show skeleton screens.
++ Publish accepts a target branch and shows richer status labels.
+
+### Fixed
++ Cached repository tabs stay visible while asynchronous reads run, and viewport reads queued during a failed graph refresh resume afterward.
++ Graph column width limits follow the rendered lanes rather than off-screen cached history, and saved widths are preserved.
+
 ## [0.3.1] - 2026-10-07
 
 The v0.3.0 tag did not produce a published release. This release includes its changes and the additional virtual-list fix below.
