@@ -5,5 +5,5 @@ members = ["crates/yforge-core", "crates/yforge-ai", "crates/yforge-platform", "
 [workspace.package]
 version = "0.3.2"
 edition = "2021"
-license = "UNLICENSED"
+license = "AGPL-3.0-only"
 publish = false
