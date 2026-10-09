@@ -1,6 +1,8 @@
 # Changelog
 
-## [0.3.3] - 2026-10-09
+## [0.3.4] - 2026-10-09
+
+The v0.3.3 tag did not produce a published release. This release includes its changes.
 
 ### Fixed
 + Linked worktrees located inside the repository (for example under `.worktrees/`) no longer appear as untracked changes or count toward the change totals, and Stage all no longer stages them as embedded repositories.

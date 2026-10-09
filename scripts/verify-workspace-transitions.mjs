@@ -131,6 +131,7 @@ requestAnimationFrame(probe);
 const server = await createServer({
   root: new URL("../app", import.meta.url).pathname,
   cacheDir: new URL("../app/node_modules/.vite-workspace-transitions", import.meta.url).pathname,
+  optimizeDeps: { include: ["@tauri-apps/api/mocks"] },
   configFile: new URL("../app/vite.config.ts", import.meta.url).pathname,
   server: { port: 1422, strictPort: true, host: "127.0.0.1" },
   plugins: [{
@@ -151,7 +152,7 @@ try {
   page.setDefaultTimeout(5000);
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/__workspace-transitions", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/@id/virtual:workspace-transitions"></script></body></html>' }));
-  await page.goto("http://127.0.0.1:1422/__workspace-transitions");
+  await page.goto("http://127.0.0.1:1422/__workspace-transitions", { timeout: 30000 });
   await page.waitForSelector('.gscroll .grow[role="option"]');
   assert.deepEqual(await page.evaluate(() => window.fixture.unknown), [], "fixture commands must all have verified responses");
   assert.deepEqual(errors, [], "fixture setup must not crash");

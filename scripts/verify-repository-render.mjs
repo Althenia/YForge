@@ -5,7 +5,7 @@ import { createServer } from "../app/node_modules/vite/dist/node/index.js";
 const require = createRequire(new URL("../app/package.json", import.meta.url));
 const { chromium } = require("playwright-core");
 let fixtureCode = "";
-const server = await createServer({ root: new URL("../app", import.meta.url).pathname, configFile: new URL("../app/vite.config.ts", import.meta.url).pathname, cacheDir: new URL("../app/node_modules/.vite-repository-render", import.meta.url).pathname, server: { port: 1421, strictPort: true, host: "127.0.0.1" }, plugins: [{ name: "repository-render-fixture", resolveId: (id) => id === "virtual:repository-render" ? "\0virtual:repository-render" : undefined, load: (id) => id === "\0virtual:repository-render" ? fixtureCode : undefined }] });
+const server = await createServer({ root: new URL("../app", import.meta.url).pathname, configFile: new URL("../app/vite.config.ts", import.meta.url).pathname, cacheDir: new URL("../app/node_modules/.vite-repository-render", import.meta.url).pathname, optimizeDeps: { include: ["@tauri-apps/api/mocks"] }, server: { port: 1421, strictPort: true, host: "127.0.0.1" }, plugins: [{ name: "repository-render-fixture", resolveId: (id) => id === "virtual:repository-render" ? "\0virtual:repository-render" : undefined, load: (id) => id === "\0virtual:repository-render" ? fixtureCode : undefined }] });
 await server.listen();
 let browser;
 let page;
@@ -39,7 +39,7 @@ const graphPrefs=testUiPrefs();window.graphPrefs=graphPrefs;
 const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},children:()=>createComponent(GraphPanel,{path:'/r',snapshot,incoming:new Set(),geometry:readGeometry(getComputedStyle(document.documentElement)),revision:0,covered:false,actions,dimmed:()=>false,searching:false,uiPrefs:graphPrefs,onSelect:()=>{},onRevealHead:()=>{}})}));graph.host.id='graph-fixture';window.ready=true;
 `;
   await page.route("**/__repository-render", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><head><style>body{display:flex;gap:8px}#fixture{display:grid;height:800px;width:372px}#empty-fixture,#graph-fixture{display:grid;height:800px;width:640px}</style></head><body><script type="module" src="/@id/virtual:repository-render"></script></body></html>' }));
-  await page.goto("http://127.0.0.1:1421/__repository-render");
+  await page.goto("http://127.0.0.1:1421/__repository-render", { timeout: 30000 });
   await page.waitForFunction(() => window.ready);
   await page.waitForSelector(".frow");
   const metrics = () => page.evaluate(() => {
