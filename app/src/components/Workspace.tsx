@@ -46,7 +46,6 @@ import { GraphPanel } from "./GraphPanel";
 import { Inspector } from "./Inspector";
 import { MergeForm, TagForm } from "./IntegrationForms";
 import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
-import { Notice } from "./Notice";
 import { RebaseEditor } from "./RebaseEditor";
 import { RecomposeView } from "./RecomposeView";
 import { SquashDialog } from "./SquashDialog";
@@ -66,6 +65,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   const app = useApp();
   const uiPrefs = createRepoUiPrefs(props.view.path, app.queryClient, (failure) => session.report(failure));
   const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient, () => uiPrefs.prefs().branch_visibility);
+  onCleanup(app.showRepoNotice({ message: session.notice, dismiss: session.dismissNotice }));
   const worktrees = createWorktreeActions(session, { openRepository: app.openRepository, closeTabsAt: app.closeTabsAt, notify: app.setNotice });
   const [panel, setPanel] = createSignal<Panel | undefined>();
   const [fileTarget, setFileTarget] = createSignal<FileViewTarget | undefined>();
@@ -574,7 +574,6 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
             />
           )}
         </Show>
-        <Notice message={session.notice()} onDismiss={session.dismissNotice} />
       </div>
     </AiSheetContext.Provider>
   );

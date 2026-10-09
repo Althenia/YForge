@@ -7,6 +7,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { requestFileHistory } from "../state/fileHistoryRequest";
 import type { RepoActions } from "../state/repoActions";
 import { defaultSettings } from "../state/settingsModel";
+import { Toasts } from "./Toasts";
 import { Workspace } from "./Workspace";
 import { buttonNamed, flush, mountWithApp, stubLayout } from "./testkit";
 
@@ -85,7 +86,12 @@ async function mountWorkspace(respond: (call: Call) => unknown = () => undefined
     },
     { shouldMockEvents: true },
   );
-  const mounted = mountWithApp(() => <Workspace view={{ status: "ready", path: "/r", snapshot: shape, info }} geometry={geometry} />);
+  const mounted = mountWithApp(() => (
+    <>
+      <Workspace view={{ status: "ready", path: "/r", snapshot: shape, info }} geometry={geometry} />
+      <Toasts onUndo={() => undefined} />
+    </>
+  ));
   dispose = mounted.dispose;
   await mounted.app.boot();
   await flush(60);
@@ -145,21 +151,36 @@ describe("automatic fetch", () => {
 });
 
 describe("checking out a branch that a worktree owns", () => {
-  it("shows the message with Open worktree, which opens that worktree's tab", async () => {
-    const { host, calls } = await mountWorkspace((call) => {
-      if (call.cmd === "checkout") throw { kind: "branch_in_worktree", message: "web-model-sort is checked out in worktree /w/web-model-sort", output: null };
+  const held: RepoSnapshot = {
+    ...snapshot,
+    worktrees: [...snapshot.worktrees, { path: "/w/web-model-sort", head: null, branch: "web-model-sort", bare: false, locked: false, prunable: false, current: false }],
+  };
+
+  it("opens that worktree's tab on double-click without a checkout or a notice (S79)", async () => {
+    const { host, calls } = await mountWorkspace(() => undefined, held);
+
+    host.querySelector<HTMLElement>('[data-nav="branch:web-model-sort"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+    await flush(40);
+
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toContain("/w/web-model-sort");
+    expect(calls.some((call) => call.cmd === "checkout")).toBe(false);
+    expect(host.querySelector(".strip-notice")).toBeNull();
+    expect(host.querySelector('.toast[role="alert"]')).toBeNull();
+  });
+});
+
+describe("a failed operation", () => {
+  it("is shown in the top-right toast stack, never inside the workspace grid (S48)", async () => {
+    const { host } = await mountWorkspace((call) => {
+      if (call.cmd === "checkout") throw { kind: "git_failed", message: "Checkout failed", output: "error: pathspec did not match" };
       return undefined;
     });
 
     host.querySelector<HTMLElement>('[data-nav="branch:web-model-sort"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     await flush(40);
 
-    expect(host.querySelector(".strip-notice")?.textContent).toContain("web-model-sort is checked out in worktree /w/web-model-sort");
-    buttonNamed(host, "Open worktree")?.click();
-    await flush(40);
-
-    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toContain("/w/web-model-sort");
-    expect(host.querySelector(".strip-notice")).toBeNull();
+    expect(host.querySelector('.toasts .toast[role="alert"] .toast-title')?.textContent).toBe("Checkout failed: error: pathspec did not match");
+    expect(host.querySelector('.app > .toast, .app .toast[role="alert"]')).toBeNull();
   });
 });
 
@@ -291,7 +312,12 @@ describe("file operations in the center", () => {
         bridge = next;
         return set(next as never);
       }) as typeof app.setBridge;
-      return <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />;
+      return (
+        <>
+          <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />
+          <Toasts onUndo={() => undefined} />
+        </>
+      );
     });
     dispose = mounted.dispose;
     await mounted.app.boot();

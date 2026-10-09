@@ -43,6 +43,28 @@ describe("command bar breadcrumb", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("reads repository › branch in the main worktree, with no worktree segment (S79)", () => {
+    const { host } = mount({ kind: "branch", name: "main", sha: "a" });
+
+    expect(host.querySelector(".crumb")?.textContent?.replace(/\s+/g, "")).toBe("repo›main");
+    expect(host.querySelector(".crumb-worktree")).toBeNull();
+    expect(host.querySelector(".crumb")?.textContent).not.toContain("main worktree");
+  });
+
+  it("names a linked worktree by its glyph and folder, with its full path as the tooltip (S79)", () => {
+    const linked = { ...snapshot({ kind: "branch", name: "feature/reasoning-budget", sha: "a" }), worktrees: [{ path: "/work/repo", current: false }, { path: "/work/.worktrees/reasoning-budget", current: true }] } as unknown as RepoSnapshot;
+    const mounted = mountWithApp(() => (
+      <CommandBar snapshot={linked} actions={{ sync: () => ({ kind: "idle" }) } as unknown as RepoActions} undo={{ kind: "unavailable", reason: "" }} redo={{ kind: "unavailable", reason: NOTHING_TO_REDO }} onUndo={() => undefined} onRedo={() => undefined} onPalette={() => undefined} onSearch={() => undefined} />
+    ));
+    dispose = mounted.dispose;
+    const worktree = mounted.host.querySelector(".crumb-worktree");
+
+    expect(worktree?.textContent?.trim()).toBe("reasoning-budget");
+    expect(worktree?.getAttribute("title")).toBe("/work/.worktrees/reasoning-budget");
+    expect(worktree?.querySelector("svg.icon")).not.toBeNull();
+    expect(mounted.host.querySelector(".crumb")?.textContent?.replace(/\s+/g, "")).toBe("repo›reasoning-budget›feature/reasoning-budget");
+  });
+
   it("has no branch menu before the first commit", () => {
     const { host } = mount({ kind: "unborn", branch: "main" });
 

@@ -1,5 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { defaultSettings } from "../state/settingsModel";
@@ -108,7 +109,7 @@ describe("toasts", () => {
     expect(buttonNamed(host, "Undo")).toBeUndefined();
   });
 
-  it("dismisses a success toast after five seconds, but not while the pointer is over it", async () => {
+  it("dismisses a success toast after three seconds, but not while the pointer is over it", async () => {
     const { host } = await mount();
     await record(entry());
     const toast = host.querySelector(".toast");
@@ -118,14 +119,14 @@ describe("toasts", () => {
     await tick(7000);
     expect(host.querySelector(".toast")).not.toBeNull();
     toast?.dispatchEvent(new MouseEvent("mouseleave"));
-    await tick(4900);
+    await tick(2900);
     expect(host.querySelector(".toast")).not.toBeNull();
     await tick(200);
 
     expect(host.querySelector(".toast")).toBeNull();
   });
 
-  it("waits while the window is unfocused and restarts the five seconds when it regains focus", async () => {
+  it("waits while the window is unfocused and restarts the three seconds when it regains focus", async () => {
     const { host } = await mount();
     await record(entry());
 
@@ -135,7 +136,7 @@ describe("toasts", () => {
     expect(host.querySelector(".toast")).not.toBeNull();
     windowFocused = true;
     window.dispatchEvent(new Event("focus"));
-    await tick(4900);
+    await tick(2900);
     expect(host.querySelector(".toast")).not.toBeNull();
     await tick(200);
 
@@ -162,7 +163,7 @@ describe("toasts", () => {
     await tick(30000);
     expect(host.querySelector(".toast")).not.toBeNull();
     toast?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-    await tick(5100);
+    await tick(3100);
 
     expect(host.querySelector(".toast")).toBeNull();
   });
@@ -216,6 +217,45 @@ describe("toasts", () => {
     await tick();
     expect([...host.querySelectorAll(".toast .toast-title")].map((title) => title.textContent)).toEqual(["Committed 4", "Committed 3", "Committed 2"]);
     expect(host.querySelector(".toast-more")?.textContent).toBe("1 more");
+  });
+
+  it("shows a failure in the same top-right stack as an alert with a countdown ring, and dismisses it after three seconds (S48)", async () => {
+    const { host, app } = await mount();
+    await record(entry());
+    app.setNotice("Checkout failed: boom");
+    await tick();
+    const failure = host.querySelector<HTMLElement>('.toasts .toast[role="alert"]') as HTMLElement;
+
+    expect(failure.querySelector(".toast-title")?.textContent).toBe("Checkout failed: boom");
+    expect(failure.querySelector(".sr-only")?.textContent).toBe("Failed:");
+    expect(failure.querySelector(".toast-ring")).not.toBeNull();
+    expect([...host.querySelectorAll(".toasts .toast-title")].map((title) => title.textContent)).toEqual(["Checkout failed: boom", "Committed abc1234"]);
+    await tick(2900);
+    expect(host.querySelector('.toast[role="alert"]')).not.toBeNull();
+    await tick(200);
+
+    expect(host.querySelector('.toast[role="alert"]')).toBeNull();
+    expect(app.notice()).toBeUndefined();
+  });
+
+  it("shows the open repository's failure in the stack and clears it from that repository when it expires", async () => {
+    const { host, app } = await mount();
+    const [message, setMessage] = createSignal<string | undefined>("web-model-sort could not be checked out");
+    const release = app.showRepoNotice({ message, dismiss: () => setMessage(undefined) });
+    await tick();
+
+    expect(host.querySelector('.toasts .toast[role="alert"] .toast-title')?.textContent).toBe("web-model-sort could not be checked out");
+    await tick(3100);
+    expect(message()).toBeUndefined();
+    expect(host.querySelector('.toast[role="alert"]')).toBeNull();
+
+    setMessage("again");
+    await tick();
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("again");
+    release();
+    await tick();
+
+    expect(host.querySelector('.toast[role="alert"]')).toBeNull();
   });
 
   it("dismisses the newest toast with Esc", async () => {

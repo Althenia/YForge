@@ -1341,43 +1341,53 @@ describe("history editing entries", () => {
 });
 
 describe("checkout of a branch owned by another worktree", () => {
-  const owned = () =>
-    setup((call) => {
+  const held = snapshot({
+    branches: ["main", "feature", "web-model-sort"],
+    remote_branches: ["origin/main", "origin/web-model-sort"],
+    worktrees: [
+      { path: "/r", head: "a", branch: "main", bare: false, locked: false, prunable: false, current: true },
+      { path: "/w/my repo", head: "b", branch: "web-model-sort", bare: false, locked: false, prunable: false, current: false },
+    ],
+  });
+
+  it("opens that worktree's tab instead of checking out, with no failure and no notice (S79)", async () => {
+    const { actions, session, names } = setup(() => null, held);
+
+    actions.checkout({ kind: "local_branch", name: "web-model-sort" });
+    await settle();
+
+    expect(openedWorktrees).toEqual(["/w/my repo"]);
+    expect(names()).not.toContain("checkout");
+    expect(actions.notices()).toEqual([]);
+    expect(session.notice()).toBeUndefined();
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("opens that worktree when its remote branch is activated or checked out (S79)", async () => {
+    const { actions, names } = setup(() => null, held);
+    const remote = { kind: "remote_branch" as const, name: "origin/web-model-sort", startPoint: "b" };
+
+    actions.activateRef(remote, { left: 0, top: 0 });
+    actions.checkoutRef(remote);
+    await settle();
+
+    expect(openedWorktrees).toEqual(["/w/my repo", "/w/my repo"]);
+    expect(names()).not.toContain("checkout");
+    expect(actions.menu()).toBeUndefined();
+  });
+
+  it("opens the worktree named by Git when the snapshot had not yet seen it take the branch", async () => {
+    const { actions, session } = setup((call) => {
       if (call.cmd === "checkout") throw rejection("branch_in_worktree", "web-model-sort is checked out in worktree /w/my repo");
       return null;
     });
 
-  it("shows the core's message with an Open worktree action that opens that worktree and clears the notice", async () => {
-    const { actions, session } = owned();
-
     actions.checkout({ kind: "local_branch", name: "web-model-sort" });
     await settle();
 
-    const notice = actions.notices()[0];
-    expect(notice?.text).toBe("web-model-sort is checked out in worktree /w/my repo");
-    expect(notice?.actions.map((action) => action.label)).toEqual(["Open worktree"]);
-    expect(session.notice()).toBeUndefined();
-    await notice?.actions[0]?.run();
     expect(openedWorktrees).toEqual(["/w/my repo"]);
     expect(actions.notices()).toEqual([]);
-  });
-
-  it("drops the notice when the next switch starts", async () => {
-    let refuse = true;
-    const { actions } = setup((call) => {
-      if (call.cmd !== "checkout") return null;
-      if (refuse) throw rejection("branch_in_worktree", "web-model-sort is checked out in worktree /w/other");
-      return { auto_stash: "none" };
-    });
-    actions.checkout({ kind: "local_branch", name: "web-model-sort" });
-    await settle();
-    expect(actions.notices()).toHaveLength(1);
-
-    refuse = false;
-    actions.checkout({ kind: "local_branch", name: "feature" });
-    await settle();
-
-    expect(actions.notices()).toEqual([]);
+    expect(session.notice()).toBeUndefined();
   });
 
   it("reports a refusal that names no worktree as plain text", async () => {
@@ -1389,6 +1399,7 @@ describe("checkout of a branch owned by another worktree", () => {
     actions.checkout({ kind: "local_branch", name: "feature" });
     await settle();
 
+    expect(openedWorktrees).toEqual([]);
     expect(actions.notices()).toEqual([]);
     expect(session.notice()).toBe("unexpected wording");
   });

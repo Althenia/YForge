@@ -130,10 +130,9 @@ export function CommandBar(props: {
   onSearch: () => void;
 }) {
   const labelled = createToolbarLabels();
-  const current = () => props.snapshot.worktrees.find((worktree) => worktree.current);
-  const worktreeLabel = () => {
-    const worktree = current();
-    return worktree === undefined || worktree.path === props.snapshot.worktrees[0]?.path ? "main worktree" : basename(worktree.path);
+  const linkedWorktree = () => {
+    const worktree = props.snapshot.worktrees.find((entry) => entry.current);
+    return worktree === undefined || worktree.path === props.snapshot.worktrees[0]?.path ? undefined : worktree.path;
   };
   const ahead = () => props.snapshot.upstream?.ahead_behind?.ahead;
   const behind = () => props.snapshot.upstream?.ahead_behind?.behind;
@@ -165,8 +164,17 @@ export function CommandBar(props: {
       <span class="crumb">
         <span class="crumb-repo" title={basename(props.snapshot.root)}>{basename(props.snapshot.root)}</span>
         <span class="sep">›</span>
-        <span class="crumb-worktree" title={worktreeLabel()}>{worktreeLabel()}</span>
-        <span class="sep">›</span>
+        <Show when={linkedWorktree()}>
+          {(worktree) => (
+            <>
+              <span class="crumb-worktree" title={worktree()}>
+                <Icon name="worktree" size={14} />
+                <span class="crumb-worktree-name">{basename(worktree())}</span>
+              </span>
+              <span class="sep">›</span>
+            </>
+          )}
+        </Show>
         <button
           type="button"
           class="branch"

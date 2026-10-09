@@ -431,8 +431,17 @@ p {
   overflow: hidden;
 }
 
+.commandbar .crumb-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-width: 0;
+}
+
+.commandbar .crumb-worktree .icon { flex: none; color: var(--colors-text-muted); }
+
 .commandbar .crumb-repo,
-.commandbar .crumb-worktree,
+.commandbar .crumb-worktree-name,
 .commandbar .branch-name {
   min-width: 0;
   overflow: hidden;

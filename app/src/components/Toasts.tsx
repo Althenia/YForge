@@ -1,31 +1,29 @@
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
-import { createEffect, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, onMount, Show, type JSX } from "solid-js";
 import { useApp } from "../state/app";
 import type { Toast } from "../state/activityModel";
 import { Icon } from "./Icon";
-import { Notice } from "./Notice";
 import { tip } from "./Tooltip";
 
-const LIFETIME_MS = 5000;
+const LIFETIME_MS = 3000;
 const VISIBLE = 3;
 
 const undoScope = (entry: ActivityEntry): string | undefined => (entry.undo.kind === "available" ? entry.undo.scope : undefined);
 
-function ToastView(props: { toast: Toast; windowActive: () => boolean; onUndo: (id: number) => void }) {
-  const app = useApp();
+function TimedToast(props: { failure: boolean; title: string; windowActive: () => boolean; onDismiss: () => void; children?: JSX.Element }) {
   const [hovered, setHovered] = createSignal(false);
   const [focused, setFocused] = createSignal(false);
   const held = () => hovered() || focused() || !props.windowActive();
   createEffect(() => {
     if (held()) return;
-    const timer = setTimeout(() => app.dismissToast(props.toast.id), LIFETIME_MS);
+    const timer = setTimeout(props.onDismiss, LIFETIME_MS);
     onCleanup(() => clearTimeout(timer));
   });
   return (
     <div
       class="toast stacked"
-      classList={{ held: held() }}
-      role="status"
+      classList={{ held: held(), failure: props.failure }}
+      role={props.failure ? "alert" : "status"}
       style={{ "--toast-life": `${LIFETIME_MS}ms` }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -35,61 +33,21 @@ function ToastView(props: { toast: Toast; windowActive: () => boolean; onUndo: (
         if (event.key !== "Escape") return;
         event.preventDefault();
         event.stopPropagation();
-        app.dismissToast(props.toast.id);
+        props.onDismiss();
       }}
     >
       <span class="toast-status">
-        <Icon name="check" size={14} />
-        <span class="sr-only">Done:</span>
+        <Icon name={props.failure ? "warning" : "check"} size={14} />
+        <span class="sr-only">{props.failure ? "Failed:" : "Done:"}</span>
       </span>
-      <span class="toast-title">{props.toast.message}</span>
-      <Show
-        when={props.toast.kind === "done" ? props.toast : undefined}
-        fallback={
-          <Show when={props.toast.kind === "activity" ? props.toast : undefined}>
-            {(activity) => (
-              <Show
-                when={activity().undoable}
-                fallback={
-                  <button
-                    type="button"
-                    class="btn sm"
-                    onClick={() => {
-                      app.dismissToast(activity().id);
-                      app.openDrawer();
-                    }}
-                  >
-                    Details
-                  </button>
-                }
-              >
-                <button type="button" class="btn sm" title={undoScope(activity().entry)} onClick={() => props.onUndo(activity().id)}>
-                  Undo
-                </button>
-              </Show>
-            )}
-          </Show>
-        }
-      >
-        {(done) => (
-          <button
-            type="button"
-            class="btn sm"
-            onClick={() => {
-              app.dismissToast(done().id);
-              done().show();
-            }}
-          >
-            Show
-          </button>
-        )}
-      </Show>
+      <span class="toast-title">{props.title}</span>
+      {props.children}
       <span class="toast-close">
         <svg class="toast-ring" viewBox="0 0 24 24" aria-hidden="true">
           <circle class="toast-ring-track" cx="12" cy="12" r="10" />
           <circle class="toast-ring-run" cx="12" cy="12" r="10" pathLength="100" />
         </svg>
-        <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => app.dismissToast(props.toast.id)}>
+        <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => props.onDismiss()}>
           <Icon name="close" size={14} />
         </button>
       </span>
@@ -97,19 +55,76 @@ function ToastView(props: { toast: Toast; windowActive: () => boolean; onUndo: (
   );
 }
 
-/// Top-right toasts (S48): newest first, three at a time, the rest queued behind a count.
+function ToastAction(props: { toast: Toast; onUndo: (id: number) => void }) {
+  const app = useApp();
+  return (
+    <Show
+      when={props.toast.kind === "done" ? props.toast : undefined}
+      fallback={
+        <Show when={props.toast.kind === "activity" ? props.toast : undefined}>
+          {(activity) => (
+            <Show
+              when={activity().undoable}
+              fallback={
+                <button
+                  type="button"
+                  class="btn sm"
+                  onClick={() => {
+                    app.dismissToast(activity().id);
+                    app.openDrawer();
+                  }}
+                >
+                  Details
+                </button>
+              }
+            >
+              <button type="button" class="btn sm" title={undoScope(activity().entry)} onClick={() => props.onUndo(activity().id)}>
+                Undo
+              </button>
+            </Show>
+          )}
+        </Show>
+      }
+    >
+      {(done) => (
+        <button
+          type="button"
+          class="btn sm"
+          onClick={() => {
+            app.dismissToast(done().id);
+            done().show();
+          }}
+        >
+          Show
+        </button>
+      )}
+    </Show>
+  );
+}
+
+/// Top-right toasts (S48): failures, then outcomes newest first, three at a time, the rest queued behind a count.
 export function Toasts(props: { onUndo: (id: number) => void }) {
   const app = useApp();
   const [windowActive, setWindowActive] = createSignal(document.hasFocus() && !document.hidden);
+  const repoFailure = () => app.repoNotice()?.message();
+  const failures = () => [app.notice(), repoFailure()].filter((message) => message !== undefined).length;
   const newestFirst = () => [...app.toasts()].reverse();
+  const slots = () => Math.max(0, VISIBLE - failures());
+  const dismissNewest = (): boolean => {
+    if (app.notice() !== undefined) app.setNotice(undefined);
+    else if (repoFailure() !== undefined) app.repoNotice()?.dismiss();
+    else {
+      const newest = newestFirst()[0];
+      if (newest === undefined) return false;
+      app.dismissToast(newest.id);
+    }
+    return true;
+  };
   onMount(() => {
     const sync = () => setWindowActive(document.hasFocus() && !document.hidden);
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      const newest = newestFirst()[0];
-      if (newest === undefined) return;
-      event.preventDefault();
-      app.dismissToast(newest.id);
+      if (dismissNewest()) event.preventDefault();
     };
     window.addEventListener("focus", sync);
     window.addEventListener("blur", sync);
@@ -124,10 +139,21 @@ export function Toasts(props: { onUndo: (id: number) => void }) {
   });
   return (
     <div class="toasts" aria-label="Notifications">
-      <Notice message={app.notice()} onDismiss={() => app.setNotice(undefined)} />
-      <For each={newestFirst().slice(0, VISIBLE)}>{(toast) => <ToastView toast={toast} windowActive={windowActive} onUndo={props.onUndo} />}</For>
-      <Show when={newestFirst().length > VISIBLE}>
-        <span class="toast-more">{newestFirst().length - VISIBLE} more</span>
+      <Show when={app.notice()} keyed>
+        {(message) => <TimedToast failure title={message} windowActive={windowActive} onDismiss={() => app.setNotice(undefined)} />}
+      </Show>
+      <Show when={repoFailure()} keyed>
+        {(message) => <TimedToast failure title={message} windowActive={windowActive} onDismiss={() => app.repoNotice()?.dismiss()} />}
+      </Show>
+      <For each={newestFirst().slice(0, slots())}>
+        {(toast) => (
+          <TimedToast failure={false} title={toast.message} windowActive={windowActive} onDismiss={() => app.dismissToast(toast.id)}>
+            <ToastAction toast={toast} onUndo={props.onUndo} />
+          </TimedToast>
+        )}
+      </For>
+      <Show when={newestFirst().length > slots()}>
+        <span class="toast-more">{newestFirst().length - slots()} more</span>
       </Show>
     </div>
   );

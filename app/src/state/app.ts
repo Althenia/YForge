@@ -77,6 +77,8 @@ export type Screen = { kind: "workspace" } | { kind: "settings"; section: string
 
 export type EntryDialog = "clone" | "create";
 
+export type RepoNotice = { message: () => string | undefined; dismiss: () => void };
+
 export type Restoring = { tabs: number; groups: UserGroup[] };
 
 export type ClosePlan = { ids: string[]; busy: Array<{ path: string; operation: Operation }> };
@@ -137,6 +139,7 @@ export function createAppState(router: AppRouter) {
   let announced = 0;
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
+  const [repoNotice, setRepoNotice] = createSignal<RepoNotice | undefined>();
   const [tabGroupSaveFailure, setTabGroupSaveFailure] = createSignal<string | undefined>();
   const [closedTabs, setClosedTabs] = createSignal<ClosedTab[]>([]);
   const [updateDialogOpen, setUpdateDialogOpen] = createSignal(false);
@@ -734,6 +737,11 @@ export function createAppState(router: AppRouter) {
     setEntryDialog,
     notice,
     setNotice,
+    repoNotice,
+    showRepoNotice: (source: RepoNotice) => {
+      setRepoNotice(() => source);
+      return () => setRepoNotice((current) => (current === source ? undefined : current));
+    },
     repoSettings,
     activeTab,
     activePath,
