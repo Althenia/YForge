@@ -12,19 +12,19 @@
 Commit graph, staging, branches, stashes, conflict resolution, worktrees, and undo. No account, no cloud service.</p>
 
 <p align="center">
-  <img src="docs/screenshots/graph.png" alt="YForge showing a commit graph, the repository sidebar, and the Changes panel" width="900">
+  <img src="docs/screenshots/graph.png" alt="YForge in dark theme: a sidebar of branches, tags, and worktrees; a commit graph with two merged branches; and a Changes panel listing two modified files and one untracked file" width="900">
 </p>
 
 YForge drives the `git` already on your Mac, so your hooks, config, signing, and credential helpers behave exactly as they do in the terminal. The core is Rust, the shell is Tauri 2, and the interface is SolidJS.
 
 ## Why YForge
 
-- **Local-first.** Every Git operation works offline and needs no sign-in. The network is used only for your own remotes and the optional integrations you turn on.
+- **Local-first.** Every Git operation works offline and needs no sign-in. Beyond your own remotes, the app reaches the network only for things you set up or ask for (hosting and AI providers, update checks) and for Gravatar profile pictures, which are on by default and switch off in Settings → Privacy & diagnostics.
 - **System Git.** YForge runs the `git` CLI (2.39 or newer) instead of reimplementing it.
 - **State always visible.** One strip shows HEAD, the branch and its upstream, and your local changes, with the running Git operation named when there is one.
 - **Safer risky moments.** Rebase, conflicts, and force pushes are handled with explicit steps, and Undo and Redo sit in the toolbar.
 - **Worktrees as first-class citizens.** Linked worktrees appear in the sidebar and as tabs.
-- **Private by default.** Keys, tokens, and SSH passphrases live in the macOS Keychain. Usage diagnostics are off by default and are written to your local app database only if you turn them on.
+- **Credentials stay in the Keychain.** AI keys, platform tokens, and SSH passphrases are stored in the macOS Keychain. Usage diagnostics are off by default and, when you turn them on, are written to your local app database.
 
 ## Features
 
@@ -73,8 +73,9 @@ See the [CHANGELOG](CHANGELOG.md) for what each release added.
 
 ## Install
 
-1. Download the DMG for your Mac from the [latest release](https://github.com/Althenia/YForge/releases/latest): `aarch64` for Apple silicon, `x64` for Intel.
+1. Download the DMG for your Mac from the [latest release](https://github.com/Althenia/YForge/releases/latest): `YForge_<version>_aarch64.dmg` for Apple silicon or `YForge_<version>_x64.dmg` for Intel.
 2. Open the DMG and drag **YForge** to **Applications**.
+3. Launch YForge and open a repository from the Launchpad with **Open…**, **Clone…**, or **Create…**, or drop a folder onto it.
 
 **Requirements:** macOS 13.3 or newer and Git 2.39 or newer.
 
@@ -84,9 +85,13 @@ See the [CHANGELOG](CHANGELOG.md) for what each release added.
 xattr -dr com.apple.quarantine /Applications/YForge.app
 ```
 
-Because the signature is ad-hoc, macOS asks again for stored AI keys, platform tokens, and SSH passphrases after each update.
+Because the signature is ad-hoc, macOS asks again for stored AI keys, platform tokens, and SSH passphrases for each new build. Updates come from GitHub Releases as signed builds, and the check runs from the in-app update dialog.
 
-**Command line.** Install the `yforge` command from Settings → General → Install yforge command. It writes `~/.local/bin/yforge`, so put `~/.local/bin` on your `PATH`. Then `yforge <path>` opens a repository in the running window.
+**Command line.** Install the `yforge` command from Settings → General → Install yforge command. It writes `~/.local/bin/yforge`, so put `~/.local/bin` on your `PATH`. Then `yforge <path>` opens a repository in the running window:
+
+```bash
+yforge ~/code/my-project
+```
 
 ## Configuration
 
@@ -96,7 +101,17 @@ Because the signature is ad-hoc, macOS asks again for stored AI keys, platform t
 | `YFORGE_DATA_DIR` | Directory for the app database (settings, recents, tabs, interface preferences). Use it to keep test runs out of your real app data. |
 | `RUST_LOG` | Log filter. Defaults to `warn` in release builds and `warn,yforge_lib=debug` in debug builds. |
 
-## Build from source
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md): what each release added.
+- [docs/USER_FLOWS.md](docs/USER_FLOWS.md): the core workflows, step by step.
+- [docs/MVP_SCOPE.md](docs/MVP_SCOPE.md): goals, users, and what is in and out of scope.
+- [docs/YFORGE_PRODUCT_DIRECTION.md](docs/YFORGE_PRODUCT_DIRECTION.md): product principles and positioning.
+- [docs/CORE_UI_CONTRACT.md](docs/CORE_UI_CONTRACT.md): commands, events, and errors between the core and the UI.
+- [docs/PLATFORM_INTEGRATIONS.md](docs/PLATFORM_INTEGRATIONS.md) and [docs/AI_PROVIDERS_V2.md](docs/AI_PROVIDERS_V2.md): integration design.
+
+<details>
+<summary><b>Build from source</b></summary>
 
 You need Rust stable (with `clippy` and `rustfmt`; verified with 1.98.1), Node.js (verified with 24.21.0), pnpm (verified with 12.4.1), and Git 2.39 or newer.
 
@@ -127,6 +142,8 @@ YFORGE_REPO=<repository path> YFORGE_DATA_DIR=<scratch directory> \
 ```
 
 Note that `cargo build` produces `target/debug/YForge`, which loads the dev URL and shows a blank window unless `pnpm dev` is running. Use `pnpm tauri build` for a self-contained app.
+
+</details>
 
 ## Project structure
 
@@ -165,14 +182,7 @@ pnpm build
 ```
 
 - After changing a type in `crates/yforge-core/src/model.rs` or `error.rs`, run `pnpm bindings` in `app/` to regenerate the TypeScript bindings.
-- UI changes follow [DESIGN.md](DESIGN.md) and [app/DESIGN.md](app/DESIGN.md). Change a rule before the work that depends on it, then run the design lints (they need Python 3 and the `daedalus` skill script):
-
-  ```bash
-  python3 ~/.agents/skills/daedalus/scripts/design_md.py lint DESIGN.md --strict
-  python3 ~/.agents/skills/daedalus/scripts/design_md.py lint app/DESIGN.md --strict
-  ```
-
-  `pnpm test` also checks that `app/DESIGN.md` and `app/src/styles/tokens.css` agree, that the bindings are current, and that text and graphic color pairs meet WCAG contrast in both themes.
+- UI changes follow [DESIGN.md](DESIGN.md) and [app/DESIGN.md](app/DESIGN.md). Change a rule before the work that depends on it, then run the strict design lints listed in [AGENTS.md](AGENTS.md). `pnpm test` also checks that `app/DESIGN.md` and `app/src/styles/tokens.css` agree, that the bindings are current, and that text and graphic color pairs meet WCAG contrast in both themes.
 - Large-data UI flow checks (they use an installed Google Chrome and ports 1421 and 1422), from `app/`:
 
   ```bash
@@ -181,13 +191,6 @@ pnpm build
   ```
 
 The app version has one source: `version` in `app/package.json`. Pushing a matching `v*` tag on `main` runs the verification checks and creates a draft GitHub release; both Mac architectures upload to it, and it is published only after the downloaded assets' sizes, SHA-256 digests, and updater records check out.
-
-## Documentation
-
-- [docs/CORE_UI_CONTRACT.md](docs/CORE_UI_CONTRACT.md): commands, events, and errors between the core and the UI.
-- [docs/YFORGE_PRODUCT_DIRECTION.md](docs/YFORGE_PRODUCT_DIRECTION.md): product principles and positioning.
-- [docs/MVP_SCOPE.md](docs/MVP_SCOPE.md): goals, users, and core flows.
-- [docs/PLATFORM_INTEGRATIONS.md](docs/PLATFORM_INTEGRATIONS.md) and [docs/AI_PROVIDERS_V2.md](docs/AI_PROVIDERS_V2.md): integration design.
 
 ## License
 
