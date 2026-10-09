@@ -58,7 +58,14 @@ const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},
   assert(visible.top >= scrolled.scrollTopEdge && visible.top + visible.height <= scrolled.scrollTopEdge + scrolled.height, "scrolled file must lie inside its viewport");
   await page.evaluate(() => window.selectCommit("small"));
   await page.waitForFunction(() => document.querySelector(".ihead h2")?.textContent === "small", null, { timeout: 5000 });
-  await page.waitForTimeout(250);
+  await page.waitForFunction(() => {
+    const row = document.querySelector('#fixture [data-row="src/file-0.txt"]');
+    const list = document.querySelector("#fixture .flist");
+    return Boolean(row && list && Math.abs(row.getBoundingClientRect().top - list.getBoundingClientRect().top) <= 1);
+  }).catch(async (error) => {
+    const state = await metrics();
+    throw new Error(`${error.message}\n${JSON.stringify({ ...state, rows: state.rows.slice(0, 3) })}`);
+  });
   const small = await metrics();
   assert(small.rows.some((row) => row.path === "src/file-0.txt"), "first file must render after switching to a shorter commit");
   assert(Math.abs(small.rows[0].top - small.listTop) <= 1, "first file must start at the list top without a blank band");
