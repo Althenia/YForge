@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.3] - 2026-10-09
+
+### Fixed
++ Linked worktrees located inside the repository (for example under `.worktrees/`) no longer appear as untracked changes or count toward the change totals, and Stage all no longer stages them as embedded repositories.
+
 ## [0.3.2] - 2026-10-08
 
 ### Added

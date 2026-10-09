@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use common::Fixture;
 use yforge_core::{
-    create_worktree, integrate_worktree, list_worktrees, remove_worktree, repo_snapshot,
-    suggest_worktree_path, ErrorKind, Operation, WorktreeIntegration,
+    create_worktree, integrate_worktree, list_worktrees, remove_worktree, repo_snapshot, stage_all,
+    suggest_worktree_path, ChangeArea, ErrorKind, Operation, WorktreeIntegration,
 };
 
 fn ready() -> Fixture {
@@ -399,4 +399,93 @@ fn a_repository_without_linked_worktrees_is_its_own_main_root() {
     let snapshot = repo_snapshot(&repo.path).unwrap();
 
     assert_eq!(snapshot.main_root, snapshot.root);
+}
+
+fn nested(repo: &Fixture, branch: &str) -> PathBuf {
+    let path = repo.path.join(".worktrees").join(branch);
+    create_worktree(&repo.path, branch, true, None, &path).unwrap();
+    path
+}
+
+fn untracked_paths(repo: &Fixture) -> Vec<String> {
+    repo_snapshot(&repo.path)
+        .unwrap()
+        .files
+        .into_iter()
+        .filter(|change| change.area == ChangeArea::Untracked)
+        .map(|change| change.path)
+        .collect()
+}
+
+#[test]
+fn a_linked_worktree_inside_the_repository_is_not_an_untracked_change() {
+    let repo = ready();
+    nested(&repo, "feature");
+    nested(&repo, "feature-two");
+    repo.write("notes.txt", "loose\n");
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+
+    assert_eq!(untracked_paths(&repo), vec!["notes.txt".to_owned()]);
+    assert_eq!(snapshot.counts.untracked, 1);
+    assert_eq!(snapshot.worktrees.len(), 3);
+}
+
+#[test]
+fn a_linked_worktree_inside_the_repository_leaves_a_clean_repository_clean() {
+    let repo = ready();
+    nested(&repo, "feature");
+
+    let snapshot = repo_snapshot(&repo.path).unwrap();
+
+    assert!(snapshot.files.is_empty());
+    assert_eq!(snapshot.counts.total(), 0);
+}
+
+#[test]
+fn files_in_an_ordinary_directory_that_shares_a_worktree_name_prefix_stay_untracked() {
+    let repo = ready();
+    nested(&repo, "feature");
+    repo.write(".worktrees/feature-notes/todo.txt", "x\n");
+
+    assert_eq!(
+        untracked_paths(&repo),
+        vec![".worktrees/feature-notes/todo.txt".to_owned()]
+    );
+}
+
+#[test]
+fn stage_all_does_not_stage_a_linked_worktree_inside_the_repository() {
+    let repo = ready();
+    nested(&repo, "feature");
+    repo.write("notes.txt", "loose\n");
+
+    stage_all(&repo.path).unwrap();
+
+    let staged: Vec<String> = repo_snapshot(&repo.path)
+        .unwrap()
+        .files
+        .into_iter()
+        .filter(|change| change.area == ChangeArea::Staged)
+        .map(|change| change.path)
+        .collect();
+    assert_eq!(staged, vec!["notes.txt".to_owned()]);
+    assert!(!repo.git(&["ls-files", "--stage"]).contains("160000"));
+}
+
+#[test]
+fn a_linked_worktree_opened_as_the_repository_shows_its_own_changes_only() {
+    let repo = ready();
+    let linked = nested(&repo, "feature");
+    fs::write(linked.join("inside.txt"), "x\n").unwrap();
+
+    let snapshot = repo_snapshot(&linked).unwrap();
+
+    let untracked: Vec<_> = snapshot
+        .files
+        .iter()
+        .filter(|change| change.area == ChangeArea::Untracked)
+        .map(|change| change.path.as_str())
+        .collect();
+    assert_eq!(untracked, vec!["inside.txt"]);
 }

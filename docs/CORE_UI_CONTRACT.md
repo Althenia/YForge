@@ -1,6 +1,6 @@
 # Core–UI contract
 
-Status: implemented for the first vertical slice (2026-09-29) and extended with the local working-tree loop, phase 2a (2026-09-30), branches, sync, and operations in progress, phase 2b (2026-09-30), and entry points, authentication prompts, settings, the command palette, search, and the Activity drawer with undo, phase 3b (2026-09-30). Decisions: Tauri 2 shell, system `git` (≥ 2.39) with porcelain v2 parsing, graph layout computed in Rust ([YFORGE_PRODUCT_DIRECTION.md](YFORGE_PRODUCT_DIRECTION.md) D4, D5).
+Status: implemented for the first vertical slice (2026-09-29) and extended with the local working-tree loop, phase 2a (2026-09-30), branches, sync, and operations in progress, phase 2b (2026-09-30), and entry points, authentication prompts, settings, the command palette, search, and the Activity drawer with undo, phase 3b (2026-09-30). Decisions: Tauri 2 shell, system `git` (≥ 2.39) with porcelain v2 parsing, graph layout computed in Rust ([YFORGE_PRODUCT_DIRECTION.md](YFORGE_PRODUCT_DIRECTION.md) D4, D5). Revision (2026-10-09): untracked entries for linked worktrees that sit inside the repository are left out of `files` and `counts`, and `stage_all` skips them.
 
 ## Architecture
 
@@ -220,7 +220,7 @@ The watcher (`crates/yforge-core/src/watch.rs`, the `notify` crate) watches the 
 | `head` | `{ kind: "branch", name, sha }`, `{ kind: "detached", sha }`, or `{ kind: "unborn", branch }` |
 | `upstream` | `null`, or `{ name, ahead_behind }`; `ahead_behind` is `null` when git reports no counts (for example, a gone upstream) |
 | `counts` | `{ modified, added, deleted, renamed, untracked, conflicted }`: one count per path, using the staged letter if any, else the unstaged letter; type changes count as modified and copies as renamed |
-| `files` | `FileChange { path, original_path, area, status }`: `area` is `staged`, `unstaged`, `untracked`, or `conflicted`; a path changed on both sides appears once per side |
+| `files` | `FileChange { path, original_path, area, status }`: `area` is `staged`, `unstaged`, `untracked`, or `conflicted`; a path changed on both sides appears once per side. An untracked entry that is, or lies inside, the directory of a linked worktree (from `git worktree list`) located inside the repository is omitted from `files` and `counts`; the worktree stays in `worktrees` |
 | `operation` | `null`, `merge`, `rebase`, `cherry_pick`, `revert`, `cherry_pick_sequence`, `revert_sequence`, or `bisect`, from `rebase-merge/`, `rebase-apply/`, `MERGE_HEAD`, `sequencer/`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, and `BISECT_LOG` in the directory reported by `git rev-parse --git-dir`, checked in that order. A `sequencer/` directory (a multi-commit cherry-pick or revert, whether stopped on a conflict or paused after the conflict was committed) is a revert sequence when the first step of `sequencer/todo` is `revert` (or `r`), or when that file is empty or missing and `REVERT_HEAD` exists; otherwise a cherry-pick sequence |
 | `worktrees` | `git worktree list --porcelain -z`: `{ path, head, branch, bare, locked, prunable, current }` |
 | `branches`, `remote_branches`, `remotes`, `tags` | Names, sorted by ref name; `origin/HEAD` symrefs are omitted |
@@ -252,7 +252,7 @@ Hunk commands cover tracked files. An untracked file has no unstaged diff, so a 
 
 - `stage_files`: `git add -- <files>` (adds, modifies, and stages deletions).
 - `unstage_files` and `unstage_all`: `git reset --quiet [-- <files>]`; both work on a repository with no commits. A staged rename needs both names in `files`.
-- `stage_all`: `git add --all`. It fails with `invalid_request` while any file is conflicted.
+- `stage_all`: `git add --all`, with an `:(exclude,literal)<directory>` pathspec for each linked worktree located inside the repository, so those directories are never staged as embedded repositories. It fails with `invalid_request` while any file is conflicted.
 - `discard_files`: every listed file must have an `unstaged` or `untracked` entry, otherwise the call fails with `invalid_request` before changing anything. Tracked files are restored from the index (`git restore`), so staged content survives; untracked files are removed with `git clean --force`, only when listed.
 
 ### Commit commands
@@ -659,7 +659,7 @@ In debug builds, every command logs its arguments and its outcome at `debug` lev
 
 ## Tests
 
-- `crates/yforge-core`: parser and layout unit tests; fixture-repository integration tests (`tests/snapshot.rs`, `tests/graph.rs`, `tests/diff.rs`, `tests/staging.rs`, `tests/commit.rs`, `tests/branches.rs`, `tests/stash.rs`, `tests/sync.rs`, `tests/operations.rs`, `tests/integrate.rs`, `tests/tags.rs`, `tests/conflicts.rs`, `tests/watch.rs`). The sync tests use local bare repositories as remotes; the authentication tests use a loopback HTTP server that answers 401, and the cancellation tests slow the remote with `remote.origin.uploadpack`. The watcher tests use real file-system events, wait up to 10 s for a positive event and 1.5 s to assert silence.
+- `crates/yforge-core`: parser and layout unit tests; fixture-repository integration tests (`tests/snapshot.rs`, `tests/graph.rs`, `tests/diff.rs`, `tests/staging.rs`, `tests/commit.rs`, `tests/branches.rs`, `tests/stash.rs`, `tests/sync.rs`, `tests/operations.rs`, `tests/integrate.rs`, `tests/tags.rs`, `tests/conflicts.rs`, `tests/watch.rs`, `tests/worktree.rs`). The sync tests use local bare repositories as remotes; the authentication tests use a loopback HTTP server that answers 401, and the cancellation tests slow the remote with `remote.origin.uploadpack`. The watcher tests use real file-system events, wait up to 10 s for a positive event and 1.5 s to assert silence.
 - `app/src-tauri/tests/ipc.rs`: invokes the registered commands through Tauri's mock runtime IPC path (`tauri::test`) and asserts the serialized responses and error payloads for a fixture repository, including the `repo-changed` and `operation-progress` events, sync against a local bare remote, and cancelling a running fetch.
 - `crates/yforge-core/tests/askpass.rs` (a loopback HTTP server that demands Basic credentials and a `credential.helper` script that logs `store` and `erase`; fake ssh commands that call `SSH_ASKPASS`), `lifecycle.rs` (clone with progress and cancel, init, publish), `config.rs` (identity sources with `GIT_CONFIG_GLOBAL` pointed at a temporary file, remotes CRUD), `store.rs`, `search.rs`, and `undo.rs` (every undo path with the restored state asserted, plus each refusal).
 - `app/src-tauri/tests/phase3b.rs`: the phase 3b commands over the mock runtime, including a clone from a local bare remote, activity records with hook output and redaction, and undo through `undo_last`; `src/auth.rs` unit tests cover the prompt round trip, timeout, and cancel.

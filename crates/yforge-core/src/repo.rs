@@ -70,7 +70,24 @@ pub(crate) fn read_status(root: &Path) -> Result<ParsedStatus, CoreError> {
             "--untracked-files=all",
         ],
     )?;
-    status::parse_status(&output)
+    let mut parsed = status::parse_status(&output)?;
+    if parsed.counts.untracked > 0 {
+        status::drop_untracked_inside(&mut parsed, &nested_worktree_directories(root)?);
+    }
+    Ok(parsed)
+}
+
+pub(crate) fn nested_worktree_directories(root: &Path) -> Result<Vec<String>, CoreError> {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    Ok(read_worktrees(&root)?
+        .iter()
+        .filter_map(|worktree| {
+            let path = Path::new(&worktree.path);
+            let path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+            let relative = path.strip_prefix(&root).ok()?.to_str()?.to_owned();
+            (!relative.is_empty()).then_some(relative)
+        })
+        .collect())
 }
 
 fn sequence_operation(git_dir: &Path) -> Operation {

@@ -36,7 +36,18 @@ pub fn stage_all(path: &Path) -> Result<(), CoreError> {
             if conflicted == 1 { "file" } else { "files" }
         )));
     }
-    git::run(&root, &["add", "--all"]).map(drop)
+    let mut args = vec!["add".to_owned(), "--all".to_owned()];
+    let nested = repo::nested_worktree_directories(&root)?;
+    if !nested.is_empty() {
+        args.extend(["--".to_owned(), ".".to_owned()]);
+        args.extend(
+            nested
+                .iter()
+                .map(|directory| format!(":(exclude,literal){directory}")),
+        );
+    }
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    git::run(&root, &args).map(drop)
 }
 
 pub fn unstage_all(path: &Path) -> Result<(), CoreError> {

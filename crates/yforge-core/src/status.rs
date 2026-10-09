@@ -112,6 +112,22 @@ fn tracked_entry(
     Ok(())
 }
 
+pub(crate) fn drop_untracked_inside(parsed: &mut ParsedStatus, directories: &[String]) {
+    let inside = |path: &str| {
+        let path = path.trim_end_matches('/');
+        directories.iter().any(|directory| {
+            path.strip_prefix(directory.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+        })
+    };
+    let before = parsed.files.len();
+    parsed
+        .files
+        .retain(|file| file.area != ChangeArea::Untracked || !inside(&file.path));
+    let dropped = before - parsed.files.len();
+    parsed.counts.untracked -= u32::try_from(dropped).unwrap_or(u32::MAX);
+}
+
 pub(crate) fn parse_status(output: &str) -> Result<ParsedStatus, CoreError> {
     let mut headers = Headers::default();
     let mut parsed = ParsedStatus {
@@ -205,6 +221,61 @@ pub(crate) fn parse_status(output: &str) -> Result<ParsedStatus, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn untracked(path: &str) -> String {
+        format!("? {path}\0")
+    }
+
+    fn with_untracked(paths: &[&str]) -> ParsedStatus {
+        let mut input = headers("main", &[]);
+        input.push_str(&ordinary(".M", "tracked.txt"));
+        for path in paths {
+            input.push_str(&untracked(path));
+        }
+        parse_status(&input).unwrap()
+    }
+
+    #[test]
+    fn untracked_entries_inside_a_directory_are_dropped_and_uncounted() {
+        let mut parsed = with_untracked(&[
+            ".worktrees/a/",
+            ".worktrees/a/inner.txt",
+            ".worktrees/ab/file.txt",
+            "notes.txt",
+        ]);
+
+        drop_untracked_inside(&mut parsed, &[".worktrees/a".to_owned()]);
+
+        let paths: Vec<&str> = parsed.files.iter().map(|file| file.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec!["tracked.txt", ".worktrees/ab/file.txt", "notes.txt"]
+        );
+        assert_eq!(parsed.counts.untracked, 2);
+        assert_eq!(parsed.counts.modified, 1);
+    }
+
+    #[test]
+    fn a_tracked_change_inside_a_listed_directory_is_kept() {
+        let mut input = headers("main", &[]);
+        input.push_str(&ordinary(".M", "wt/tracked.txt"));
+        let mut parsed = parse_status(&input).unwrap();
+
+        drop_untracked_inside(&mut parsed, &["wt".to_owned()]);
+
+        assert_eq!(parsed.files.len(), 1);
+        assert_eq!(parsed.counts.modified, 1);
+    }
+
+    #[test]
+    fn no_listed_directory_leaves_the_status_unchanged() {
+        let mut parsed = with_untracked(&["a/", "b.txt"]);
+        let before = parsed.clone();
+
+        drop_untracked_inside(&mut parsed, &[]);
+
+        assert_eq!(parsed, before);
+    }
 
     const SHA: &str = "1111111111111111111111111111111111111111";
     const ZERO: &str = "0000000000000000000000000000000000000000";
