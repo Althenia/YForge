@@ -83,6 +83,15 @@ mockIPC((cmd,args={})=>{
 },{shouldMockEvents:true});
 const probes={frames:0,blankFrames:0,maxBlankRun:0,maxMainHeight:0,maxGraphViewport:0,maxFileViewport:0,maxCommitMargin:0,busyFrames:0,indicatorShows:0,indicatorFlashes:[],headlessInspectorFrames:0,spinnerFrames:0,heldTabFrames:0,heldClipMisses:[],graphTransitions:[],anomalies:[]};
 const indicators=new Map();
+const indicatorsIn=(node)=>node.nodeType===1?[...(node.matches('[data-indicator]')?[node]:[]),...node.querySelectorAll('[data-indicator]')]:[];
+const settle=(element,removedAt)=>{const seen=indicators.get(element);if(!seen||element.isConnected)return;indicators.delete(element);const shown=removedAt-seen.start;if(seen.parent?.isConnected&&shown<380&&probes.indicatorFlashes.length<12)probes.indicatorFlashes.push(Math.round(shown));};
+new MutationObserver((records)=>{
+  const now=performance.now();
+  for(const record of records){
+    for(const node of record.addedNodes)for(const element of indicatorsIn(node))if(!indicators.has(element)&&element.closest('#root')&&!element.closest('[data-swap-held]')){indicators.set(element,{start:now,parent:element.parentElement});probes.indicatorShows++;}
+    for(const node of record.removedNodes)for(const element of indicatorsIn(node))if(indicators.has(element))setTimeout(()=>settle(element,now),0);
+  }
+}).observe(document,{childList:true,subtree:true});
 let blankRun=0;
 let graphState='';
 let navigationReady=false;
@@ -94,8 +103,6 @@ const probe=()=>{
   const commitList=document.querySelector('#root .inspector[aria-label="Commit"]:not([data-swap-held]) .flist');
   const busy=document.querySelector('.inspector[aria-busy="true"],.dpanel[aria-busy="true"],.graph[aria-busy="true"]');
   const now=performance.now();
-  for(const element of document.querySelectorAll('#root [data-indicator]'))if(!element.closest('[data-swap-held]')&&!indicators.has(element)){indicators.set(element,{start:now,parent:element.parentElement});probes.indicatorShows++;}
-  for(const [element,seen] of indicators)if(!element.isConnected){indicators.delete(element);const shown=now-seen.start;if(seen.parent?.isConnected&&shown<380&&probes.indicatorFlashes.length<12)probes.indicatorFlashes.push(Math.round(shown));}
   const commitInspector=document.querySelector('#root .inspector[aria-label="Commit"]:not([data-swap-held])');
   if(commitInspector&&!commitInspector.querySelector('.ihead h2,.ihead .ref'))probes.headlessInspectorFrames++;
   if(document.querySelector('#root .graph .busy-spinner'))probes.spinnerFrames++;
