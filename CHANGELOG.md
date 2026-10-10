@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.6] - 2026-10-10
+
+### Changed
++ A worktree is no longer locked to its branch: checking out a local branch that another worktree also has checked out switches the current worktree to it instead of refusing or opening another tab.
++ The command bar breadcrumb reads repository › branch in the main worktree, and names a linked worktree by its folder, with the full path as the tooltip.
++ Failures appear in the top-right toast stack with the same three-second lifetime as other toasts.
+
+### Fixed
++ The active tab keeps its worktree count while a worktree tab that has not been opened yet loads, and opening a repository no longer reads it twice or flashes the loading screen.
+
 ## [0.3.5] - 2026-10-09
 
 The v0.3.3 and v0.3.4 tags did not produce a published release. This release includes their changes.
