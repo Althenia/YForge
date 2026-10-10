@@ -147,7 +147,11 @@ fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError
             validated_name(root, name)?;
             require_local_branch(root, name)?;
             Ok(Switch {
-                args: vec!["switch".into(), name.clone()],
+                args: vec![
+                    "switch".into(),
+                    "--ignore-other-worktrees".into(),
+                    name.clone(),
+                ],
                 detached: false,
                 label: name.clone(),
             })

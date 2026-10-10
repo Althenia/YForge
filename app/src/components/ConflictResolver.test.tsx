@@ -104,7 +104,6 @@ async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = sna
         pullMode: () => "fast_forward_or_merge",
         offline: () => false,
         inspectStash: () => undefined,
-        openWorktree: async () => true,
         undoEntry: () => undefined,
       }),
     };

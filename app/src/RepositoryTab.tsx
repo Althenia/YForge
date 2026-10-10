@@ -8,7 +8,7 @@ import { IpcError } from "./ipc/client";
 import { useApp } from "./state/app";
 import { createPendingIndicator } from "./state/pending";
 import { repoKeys } from "./state/queryKeys";
-import { appInfoOptions, snapshotOptions, workspaceView, type WorkspaceView } from "./state/workspace";
+import { appInfoOptions, cachedWorktreeCount, snapshotOptions, workspaceView, type WorkspaceView } from "./state/workspace";
 
 const root = document.documentElement;
 
@@ -56,7 +56,7 @@ export function RepositoryTab(props: { path: string; onSettled?: () => void }) {
     <>
       <Show when={workspace() === undefined}>
         <div class="app tab-only">
-          <TabBar />
+          <TabBar count={cachedWorktreeCount(app.queryClient, props.path)} />
           <Show when={waiting()}>
             <WorkspaceSkeleton />
           </Show>

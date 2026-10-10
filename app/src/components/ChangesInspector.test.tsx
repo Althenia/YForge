@@ -82,7 +82,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
   const mounted = mountWithApp(() => {
     const session = testSession("/r", current);
     const composer = createComposer();
-    const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined }));
+    const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined }));
     const sheet = createAiSheet(session);
     return (
       <AiSheetContext.Provider value={sheet}>

@@ -156,14 +156,14 @@ describe("checking out a branch that a worktree owns", () => {
     worktrees: [...snapshot.worktrees, { path: "/w/web-model-sort", head: null, branch: "web-model-sort", bare: false, locked: false, prunable: false, current: false }],
   };
 
-  it("opens that worktree's tab on double-click without a checkout or a notice (S79)", async () => {
-    const { host, calls } = await mountWorkspace(() => undefined, held);
+  it("checks it out in this worktree on double-click, opening no other tab and raising no notice (S79)", async () => {
+    const { host, calls } = await mountWorkspace((call) => (call.cmd === "checkout" ? { auto_stash: "none" } : undefined), held);
 
     host.querySelector<HTMLElement>('[data-nav="branch:web-model-sort"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     await flush(40);
 
-    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toContain("/w/web-model-sort");
-    expect(calls.some((call) => call.cmd === "checkout")).toBe(false);
+    expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.target)).toEqual([{ kind: "local_branch", name: "web-model-sort" }]);
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).not.toContain("/w/web-model-sort");
     expect(host.querySelector(".strip-notice")).toBeNull();
     expect(host.querySelector('.toast[role="alert"]')).toBeNull();
   });

@@ -664,3 +664,48 @@ describe("repository tab continuity (S72)", () => {
     }
   });
 });
+
+describe("worktree count on the active tab", () => {
+  const linked = (path: string): RepoSnapshot => ({
+    ...snapshotAt(path),
+    main_root: "/a",
+    worktrees: [
+      { path: "/a", head: "a".repeat(40), branch: "main", bare: false, locked: false, prunable: false, current: path === "/a" },
+      { path: "/w", head: "b".repeat(40), branch: "feature", bare: false, locked: false, prunable: false, current: path === "/w" },
+    ],
+  });
+  const count = (host: HTMLElement) => host.querySelector('.tab-main[aria-selected="true"] .tab-count')?.textContent?.replace(/\s+/g, " ").trim();
+
+  it("keeps showing the repository's worktree count while a worktree tab it has not opened yet loads", async () => {
+    const booted = new Set<string>();
+    const { app, host } = await mountApp({ tabs: ["/a", "/w"], active: 0 }, (path) => {
+      if (path === "/a" || !booted.has(path)) {
+        booted.add(path);
+        return linked(path);
+      }
+      return new Promise<RepoSnapshot>(() => undefined);
+    });
+    await vi.waitFor(() => expect(count(host)).toBe("2 worktrees"));
+
+    app.activate(1);
+    await flush(60);
+
+    expect(app.activePath()).toBe("/w");
+    expect(count(host)).toBe("2 worktrees");
+  });
+
+  it("opens a worktree from the snapshot it just read, with no second read and no loading frame", async () => {
+    const { app, host, calls } = await mountApp({ tabs: ["/a", "/w"], active: 0 }, linked);
+    await vi.waitFor(() => expect(count(host)).toBe("2 worktrees"));
+    const reads = () => calls.filter((call) => call.cmd === "repo_open" && call.args.path === "/w").length;
+    const before = reads();
+
+    await app.openRepository("/w");
+    await flush();
+
+    expect(app.activePath()).toBe("/w");
+    expect(reads()).toBe(before + 1);
+    expect(host.querySelectorAll(".commandbar")).toHaveLength(1);
+    expect(count(host)).toBe("2 worktrees");
+  });
+});

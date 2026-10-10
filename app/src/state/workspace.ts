@@ -1,3 +1,4 @@
+import type { QueryClient } from "@tanstack/solid-query";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client, IpcError } from "../ipc/client";
@@ -11,6 +12,11 @@ export type WorkspaceView =
 export const appInfoOptions = () => ({ queryKey: appKeys.info, queryFn: () => client.appInfo(), staleTime: Infinity });
 
 export const snapshotOptions = (path: string) => ({ queryKey: repoKeys.snapshot(path), queryFn: () => client.repoOpen(path), staleTime: Infinity });
+
+export function cachedWorktreeCount(queryClient: QueryClient, path: string): number | undefined {
+  const snapshots = queryClient.getQueriesData<RepoSnapshot>({ predicate: (query) => query.queryKey.length === 3 && query.queryKey[2] === "snapshot" && query.queryKey[0] === "repo" });
+  return snapshots.find(([, snapshot]) => snapshot?.worktrees.some((worktree) => worktree.path === path))?.[1]?.worktrees.length;
+}
 
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 

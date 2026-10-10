@@ -85,7 +85,7 @@ function mount(sha: string, options: { pushed?: boolean; operation?: boolean; fi
   });
   const current = options.operation === true ? ({ ...snapshot, operation: "rebase" } as unknown as RepoSnapshot) : snapshot;
   const session = testSession("/r", current);
-  const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+  const actions = createRepoActions(session, { selectedSha: () => sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
   const sheet = createRoot(() => createAiSheet(session));
   const mounted = mountWithApp(() => (
     <AiSheetContext.Provider value={sheet}>
@@ -570,7 +570,7 @@ describe("commit continuity (S72)", () => {
     const session = testSession("/r", snapshot as unknown as RepoSnapshot);
     session.queryClient.setQueryData(repoKeys.graph("/r", 0, "all"), { rows: [graphRow(NEXT, "Next summary"), graphRow(THIRD, "Third summary")], carried: [], total: 2 });
     const [sha, setSha] = createSignal(start);
-    const actions = createRepoActions(session, { selectedSha: sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+    const actions = createRepoActions(session, { selectedSha: sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
     const mounted = mountWithApp(() => (
       <CommitInspector session={session} actions={actions} sha={sha()} activeTarget={undefined} onSelectCommit={() => undefined} onOpenDiff={() => undefined} onViewFile={() => undefined} />
     ));

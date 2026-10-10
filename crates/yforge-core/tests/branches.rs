@@ -166,24 +166,31 @@ fn stashing_a_clean_tree_switches_without_creating_a_stash() {
     assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
 }
 
+#[cfg(unix)]
+fn delete_branch_once_stashed(repo: &Fixture, branch: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let hook = repo.path.join(".git/hooks/reference-transaction");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\n[ \"$1\" = committed ] || exit 0\ngrep -q ' refs/stash$' || exit 0\ngit update-ref -d refs/heads/{branch}\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
 #[test]
 fn a_failed_switch_restores_the_auto_stash_and_reports_the_failure() {
     let repo = ready();
-    repo.git(&["branch", "occupied"]);
-    let worktree = repo.sibling("occupied-tree");
-    repo.git(&[
-        "worktree",
-        "add",
-        "-q",
-        worktree.to_str().unwrap(),
-        "occupied",
-    ]);
+    repo.git(&["branch", "vanishing"]);
+    delete_branch_once_stashed(&repo, "vanishing");
     repo.write("a.txt", "local\n");
 
-    let error = checkout(&repo.path, &local("occupied"), true).unwrap_err();
+    let error = checkout(&repo.path, &local("vanishing"), true).unwrap_err();
 
-    assert_eq!(error.kind(), ErrorKind::BranchInWorktree);
+    assert_eq!(error.kind(), ErrorKind::GitFailed);
     assert_eq!(repo.read("a.txt"), "local\n");
+    assert!(matches!(branch_head(&repo), Head::Branch { name, .. } if name == "main"));
     assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
 }
 
@@ -555,24 +562,19 @@ fn a_recorded_stash_that_no_longer_exists_is_not_offered_and_dismiss_keeps_the_s
     assert_eq!(repo_snapshot(&repo.path).unwrap().stashes.len(), 1);
 }
 
+#[cfg(unix)]
 #[test]
 fn leaving_a_stash_from_a_detached_head_or_with_a_failing_switch_keeps_the_changes_and_records_nothing(
 ) {
     let repo = ready();
-    repo.git(&["branch", "occupied"]);
-    let worktree = repo.sibling("occupied-tree");
-    repo.git(&[
-        "worktree",
-        "add",
-        "-q",
-        worktree.to_str().unwrap(),
-        "occupied",
-    ]);
+    repo.git(&["branch", "vanishing"]);
+    delete_branch_once_stashed(&repo, "vanishing");
     repo.write("a.txt", "local\n");
     let dir = data_dir();
 
-    let failed = checkout_leaving_stash(&repo.path, &local("occupied"), dir.path()).unwrap_err();
-    assert_eq!(failed.kind(), ErrorKind::BranchInWorktree);
+    let failed = checkout_leaving_stash(&repo.path, &local("vanishing"), dir.path()).unwrap_err();
+    assert_eq!(failed.kind(), ErrorKind::GitFailed);
+    std::fs::remove_file(repo.path.join(".git/hooks/reference-transaction")).unwrap();
     assert_eq!(repo.read("a.txt"), "local\n");
     assert!(repo_snapshot(&repo.path).unwrap().stashes.is_empty());
     assert!(switch_stashes(dir.path(), &repo.path, "main")
@@ -587,19 +589,24 @@ fn leaving_a_stash_from_a_detached_head_or_with_a_failing_switch_keeps_the_chang
 }
 
 #[test]
-fn switching_to_a_branch_owned_by_a_worktree_names_the_worktree() {
+fn checks_out_a_branch_that_another_worktree_also_has_checked_out() {
     let repo = ready();
     repo.git(&["branch", "feature/wt"]);
     let worktree = repo.sibling("wt-feature");
-    repo.git(&["worktree", "add", worktree.to_str().unwrap(), "feature/wt"]);
+    repo.git(&[
+        "worktree",
+        "add",
+        "-q",
+        worktree.to_str().unwrap(),
+        "feature/wt",
+    ]);
 
-    let error = checkout(&repo.path, &local("feature/wt"), false).unwrap_err();
+    let outcome = checkout(&repo.path, &local("feature/wt"), false).unwrap();
 
-    assert_eq!(error.kind(), ErrorKind::BranchInWorktree);
-    assert!(matches!(
-        &error,
-        yforge_core::CoreError::BranchInWorktree { branch, worktree: wt }
-            if branch == "feature/wt" && wt == worktree.to_str().unwrap()
-    ));
-    assert_eq!(repo.read("a.txt"), "one\n");
+    assert_eq!(outcome.auto_stash, AutoStash::None);
+    assert!(matches!(branch_head(&repo), Head::Branch { name, .. } if name == "feature/wt"));
+    assert_eq!(
+        repo.run_in(&worktree, &["symbolic-ref", "--short", "HEAD"]),
+        "feature/wt"
+    );
 }

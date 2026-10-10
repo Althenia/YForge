@@ -152,7 +152,6 @@ export function restoreMessage(kind: "apply" | "pop", restore: StashRestore): st
 }
 
 const PULL_STASH_NOTICE = "pull-stash";
-const worktreeOfMessage = (message: string): string | undefined => /^\S+ is checked out in worktree (.+)$/.exec(message)?.[1];
 
 let sequence = 0;
 const nextId = (): string => `op-${Date.now()}-${(sequence += 1)}`;
@@ -163,7 +162,6 @@ export type RepoActionDeps = {
   pullMode: () => PullMode;
   offline: () => boolean;
   inspectStash: (sha: string) => void;
-  openWorktree: (path: string) => Promise<boolean>;
   undoEntry: (id: number) => ActivityEntry | undefined;
   submoduleUpdateOnFetch?: () => boolean;
   showFile?: (target: FileViewTarget) => void;
@@ -489,15 +487,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (state.kind === "running" && state.id === progress.id) setSync({ ...state, phase: progress.phase, percent: progress.percent });
   }
 
-  function openOwningWorktree(error: IpcError): void {
-    const worktree = worktreeOfMessage(error.message);
-    if (worktree === undefined) fail(error);
-    else void deps.openWorktree(worktree);
-  }
-
-  const worktreeHolding = (branch: string): string | undefined =>
-    snapshot().worktrees.find((worktree) => !worktree.current && worktree.branch === branch)?.path;
-
   async function switchTo(target: CheckoutTarget, label: string, stash: boolean): Promise<void> {
     dismissNotice(PULL_STASH_NOTICE);
     const left = currentBranch();
@@ -516,7 +505,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     } catch (failure) {
       const error = asIpcError(failure);
       if (error.kind === "local_changes" && !stash) confirm(stashAndSwitchCopy(label, currentBranch()), () => switchTo(target, label, true));
-      else if (error.kind === "branch_in_worktree") openOwningWorktree(error);
       else fail(error);
       await session.refresh();
     }
@@ -526,11 +514,6 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (target.kind === "tag" || target.kind === "commit") {
       const label = target.kind === "tag" ? target.name : target.sha.slice(0, 7);
       confirm(detachCopy(label, changeTotal(snapshot().counts) > 0), () => switchTo(target, label, false));
-      return;
-    }
-    const holder = target.kind === "local_branch" ? worktreeHolding(target.name) : undefined;
-    if (holder !== undefined) {
-      void deps.openWorktree(holder);
       return;
     }
     const label = target.kind === "local_branch" ? target.name : shortRefName(target, snapshot().remotes);

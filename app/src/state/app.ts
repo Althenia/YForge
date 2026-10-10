@@ -308,6 +308,7 @@ export function createAppState(router: AppRouter) {
     try {
       const snapshot = await client.repoOpen(path);
       rememberMainRoot(snapshot);
+      queryClient.setQueryData(repoKeys.snapshot(snapshot.root), snapshot);
       applyTabs(closed === undefined ? openRepoTab(tabs(), snapshot.root) : reopenTab(tabs(), mainRoots(), { ...closed, path: snapshot.root }));
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;

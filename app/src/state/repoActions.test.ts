@@ -8,13 +8,11 @@ import { testSession } from "../components/testkit";
 
 let offline = false;
 const inspected: string[] = [];
-const openedWorktrees: string[] = [];
 
 afterEach(() => {
   clearMocks();
   offline = false;
   inspected.length = 0;
-  openedWorktrees.length = 0;
 });
 
 const counts = { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 };
@@ -49,7 +47,7 @@ function setup(handler: (call: Call) => unknown, initial: RepoSnapshot = snapsho
     return handler(call);
   });
   const session = testSession("/r", initial);
-  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", offline: () => offline, inspectStash: (sha) => inspected.push(sha), openWorktree: async (target) => (openedWorktrees.push(target), true), undoEntry: (id) => entries.find((entry) => entry.id === id) });
+  const actions = createRepoActions(session, { selectedSha: () => selectedSha, onSelectionGone, pullMode: () => "fast_forward_or_merge", offline: () => offline, inspectStash: (sha) => inspected.push(sha), undoEntry: (id) => entries.find((entry) => entry.id === id) });
   return { calls, session, actions, names: () => calls.map((call) => call.cmd) };
 }
 
@@ -270,7 +268,7 @@ describe("sync", () => {
       return null;
     });
     const session = testSession("/r", snapshot());
-    const base = { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge" as const, offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined };
+    const base = { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge" as const, offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined };
     await createRepoActions(session, base).fetchAll();
     expect(calls.some((call) => call.cmd === "submodule_update")).toBe(false);
 
@@ -722,7 +720,7 @@ describe("integration actions", () => {
 describe("phase 3b actions", () => {
   it("pulls with the effective default mode", async () => {
     const { actions, calls } = setup(() => null, snapshot(), undefined);
-    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+    const rebasing = createRepoActions(testSession("/r", snapshot()), { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "rebase", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
 
     await rebasing.pullDefault();
     await actions.pullDefault();
@@ -1350,58 +1348,24 @@ describe("checkout of a branch owned by another worktree", () => {
     ],
   });
 
-  it("opens that worktree's tab instead of checking out, with no failure and no notice (S79)", async () => {
-    const { actions, session, names } = setup(() => null, held);
+  it("checks the branch out here, with no failure and no notice (S79)", async () => {
+    const { actions, session, calls } = setup(() => ({ auto_stash: "none" }), held);
 
     actions.checkout({ kind: "local_branch", name: "web-model-sort" });
     await settle();
 
-    expect(openedWorktrees).toEqual(["/w/my repo"]);
-    expect(names()).not.toContain("checkout");
-    expect(actions.notices()).toEqual([]);
-    expect(session.notice()).toBeUndefined();
-    expect(actions.sync()).toEqual({ kind: "idle" });
-  });
-
-  it("opens that worktree when its remote branch is activated or checked out (S79)", async () => {
-    const { actions, names } = setup(() => null, held);
-    const remote = { kind: "remote_branch" as const, name: "origin/web-model-sort", startPoint: "b" };
-
-    actions.activateRef(remote, { left: 0, top: 0 });
-    actions.checkoutRef(remote);
-    await settle();
-
-    expect(openedWorktrees).toEqual(["/w/my repo", "/w/my repo"]);
-    expect(names()).not.toContain("checkout");
-    expect(actions.menu()).toBeUndefined();
-  });
-
-  it("opens the worktree named by Git when the snapshot had not yet seen it take the branch", async () => {
-    const { actions, session } = setup((call) => {
-      if (call.cmd === "checkout") throw rejection("branch_in_worktree", "web-model-sort is checked out in worktree /w/my repo");
-      return null;
-    });
-
-    actions.checkout({ kind: "local_branch", name: "web-model-sort" });
-    await settle();
-
-    expect(openedWorktrees).toEqual(["/w/my repo"]);
+    expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.target)).toEqual([{ kind: "local_branch", name: "web-model-sort" }]);
     expect(actions.notices()).toEqual([]);
     expect(session.notice()).toBeUndefined();
   });
 
-  it("reports a refusal that names no worktree as plain text", async () => {
-    const { actions, session } = setup((call) => {
-      if (call.cmd === "checkout") throw rejection("branch_in_worktree", "unexpected wording");
-      return null;
-    });
+  it("checks out the local branch here when its remote branch is checked out (S79)", async () => {
+    const { actions, calls } = setup(() => ({ auto_stash: "none" }), held);
 
-    actions.checkout({ kind: "local_branch", name: "feature" });
+    actions.checkoutRef({ kind: "remote_branch", name: "origin/web-model-sort", startPoint: "b" });
     await settle();
 
-    expect(openedWorktrees).toEqual([]);
-    expect(actions.notices()).toEqual([]);
-    expect(session.notice()).toBe("unexpected wording");
+    expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.target)).toEqual([{ kind: "local_branch", name: "web-model-sort" }]);
   });
 });
 
@@ -1546,7 +1510,6 @@ describe("file operations", () => {
       pullMode: () => "fast_forward_or_merge",
       offline: () => false,
       inspectStash: () => undefined,
-      openWorktree: async () => true,
       undoEntry: () => undefined,
       showFile: (target) => shown.push(target),
     });
@@ -1797,7 +1760,7 @@ function operations(handler: (call: Call, become: (next: RepoSnapshot) => void) 
     return handler(call, become);
   });
   const session = testSession("/r", first);
-  const actions = createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, openWorktree: async () => true, undoEntry: () => undefined });
+  const actions = createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
   return { calls, session, actions, become };
 }
 

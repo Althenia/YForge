@@ -90,7 +90,6 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     pullMode: () => effectivePullMode(app.settings(), repoSettings()).mode,
     offline: () => !app.online(),
     inspectStash: (sha) => inspectStash(sha),
-    openWorktree: worktrees.open,
     undoEntry: (id) => app.activity().find((entry) => entry.id === id),
     submoduleUpdateOnFetch: () => repoSettings()?.submodule_update_on_fetch === true,
     showFile: (target) => viewFile(target),
