@@ -14,6 +14,7 @@ type FrontMatter = {
   layout: Group;
   cursors: Group;
   elevation: Group;
+  materials: Record<string, { background: string; fallback: string; blur: string; rim?: string; shadow?: string }>;
   themes: { light: { colors: Group; elevation: Group } } & Record<string, { colors: Group; elevation?: Group }>;
 };
 
@@ -93,15 +94,46 @@ function drift(expected: Map<string, string>, actual: Map<string, string>): stri
 const tokenSource = readFileSync(resolve(import.meta.dirname, "tokens.css"), "utf8");
 
 describe("app/DESIGN.md front matter vs src/styles/tokens.css", () => {
+  it("keeps the five materials opaque and unblurred, backed by existing theme tokens", () => {
+    const roles = { panel: "surface-1", graph: "canvas", raised: "surface-raised", control: "surface-2", "control-hover": "surface-3" };
+    expect(Object.keys(surface.materials).sort()).toEqual(Object.keys(roles).sort());
+    for (const [name, color] of Object.entries(roles)) {
+      const material = surface.materials[name];
+      expect(material).toMatchObject({ background: `{colors.${color}}`, fallback: `{colors.${color}}`, blur: "0px" });
+      for (const theme of [undefined, "light", ...namedThemes]) {
+        const colors = theme === undefined ? surface.colors : { ...surface.colors, ...surface.themes[theme]?.colors };
+        const actual = merge(declarations(tokenSource, ":root"), theme === undefined ? new Map() : declarations(tokenSource, `[data-theme="${theme}"]`));
+        expect(resolveReference(material?.background ?? "", colors)).toBe(actual.get(`--colors-${color}`));
+        expect(resolveReference(material?.fallback ?? "", colors)).toBe(actual.get(`--colors-${color}`));
+      }
+    }
+    expect(surface.materials.panel?.rim).toBe("1px solid {colors.rule-panel}");
+    expect(surface.materials.graph?.rim).toBe("1px solid {colors.rule-panel}");
+    expect(surface.materials.panel?.shadow).toBe("{elevation.panel}");
+    expect(surface.materials.control?.rim).toBe("inset 0 0 0 1px {colors.rule}");
+    expect(surface.materials["control-hover"]?.rim).toBe("inset 0 0 0 1px {colors.rule}");
+  });
   it("sets the graph column to the approved 56px default while retaining its 56px minimum", () => {
     expect(surface.layout["graph-column"]).toBe("56px");
     expect(surface.layout["graph-column-min"]).toBe("56px");
     expect(declarations(tokenSource, ":root").get("--layout-graph-column")).toBe("56px");
   });
-  it("raises non-graph typography one pixel while leaving graph typography at its approved size", () => {
+  it("uses the approved Strata reading scale while retaining the commit summary and graph roles", () => {
     const sizes = Object.fromEntries(Object.entries(surface.typography).map(([role, values]) => [role, values.fontSize]));
-    expect(sizes).toMatchObject({ "ui-body": "14px", "ui-label": "14px", "ui-strong": "14px", "ui-small": "13px", "ui-caption": "13px", "ui-section": "13px", "ui-micro": "12px", title: "17px", heading: "21px", code: "13px", ref: "13px" });
+    expect(sizes).toMatchObject({ "ui-body": "15px", "ui-label": "14px", "ui-strong": "14px", "ui-small": "13px", "ui-caption": "13px", "ui-section": "13px", "ui-micro": "12px", title: "18px", heading: "21px", code: "13px", ref: "13px" });
+    expect(surface.typography.title).toMatchObject({ fontWeight: 600, lineHeight: 1.4 });
+    expect(surface.typography["ui-strong"]).toMatchObject({ fontWeight: 600, lineHeight: 1.54 });
     expect(Object.fromEntries(Object.entries(sizes).filter(([role]) => role.startsWith("graph")))).toEqual({ graph: "12px", "graph-strong": "12px", "graph-tag": "11px", "graph-micro": "10px", "graph-initials": "10px" });
+  });
+  it("owns Strata chrome geometry and flat panels without changing graph geometry", () => {
+    expect(surface.controls).toMatchObject({ "row-list": "32px", "row-detail": "28px", "row-repository": "42px", "panel-header": "40px", "sidebar-section-header": "36px", "height-chip": "32px", "bar-state": "44px", "row-graph": "28px" });
+    expect(surface.layout).toMatchObject({ sidebar: "260px", inspector: "380px", "sidebar-medium": "220px", "inspector-medium": "340px", "sidebar-rail": "48px", "inspector-compact": "320px", "panel-gap": "8px", "command-field-min": "210px", "graph-ref-column": "130px" });
+    expect(surface.elevation.panel).toBe("none");
+    expect(surface.themes.light.elevation.panel).toBe("none");
+    for (const name of ["raised", "overlay", "modal"]) {
+      expect(surface.elevation[name]).not.toBe("none");
+      expect(surface.themes.light.elevation[name]).not.toBe("none");
+    }
   });
   it("has identical dark (root) tokens in both directions", () => {
     expect(drift(expectedDark, declarations(tokenSource, ":root"))).toEqual([]);

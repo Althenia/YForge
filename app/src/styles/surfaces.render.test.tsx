@@ -26,6 +26,33 @@ afterEach(() => {
 });
 
 describe("solid surfaces told apart by tone (S14)", () => {
+  it("keeps Strata reading, header, badge and table geometry on shared tokens (S65)", () => {
+    document.body.innerHTML = '<div class="sidebar"><div class="sidebar-body"><section><div class="sec"><span class="count">24</span></div><div class="srow"></div></section></div></div><div class="ilist"><div class="lhead"></div></div><div class="mrow"><span class="v"><span class="avatar">A</span></span></div><div class="repo-row"></div>';
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    expect(style(".sec").minHeight).toBe("var(--controls-sidebar-section-header)");
+    expect(style(".sec").marginTop).toBe("var(--spacing-3)");
+    expect(style(".sec .count").minWidth).toBe("var(--controls-height-dense)");
+    expect(style(".sec .count").height).toBe("var(--spacing-5)");
+    expect(style(".srow").height).toBe("var(--controls-row-list)");
+    expect(style(".lhead").height).toBe("var(--controls-panel-header)");
+    expect(style(".mrow").minHeight).toBe("var(--controls-row-detail)");
+    expect(style(".mrow .avatar").width).toBe("var(--controls-height-dense)");
+    expect(style(".repo-row").minHeight).toBe("var(--controls-row-repository)");
+    expect(style(".repo-row").font).toBe("var(--font-ui-label)");
+    const rules = [...stylesheet.sheet!.cssRules].filter((rule): rule is CSSStyleRule => "selectorText" in rule);
+    expect(rules.find((rule) => rule.selectorText === ".sec .count")!.style.background).toBe("var(--colors-field)");
+    const list = rules.find((rule) => rule.selectorText === ".ilist")!.style;
+    expect(list.padding).toBe("0 var(--spacing-4) var(--spacing-4)");
+  });
+  it("makes worded state chips intrinsically wide and locally scrollable without losing actions", () => {
+    document.body.innerHTML = '<div class="chips"><span class="chip"><span class="chip-text">Fetched 2 min ago</span></span><span class="strip-notice"><span class="chip">Changes kept</span><button class="btn">Apply</button></span></div>';
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    expect(style(".chips").overflowX).toBe("auto");
+    expect(style(".chips").overflowY).toBe("hidden");
+    expect(style(".chips > .chip").flexShrink).toBe("0");
+    expect(style(".strip-notice").flexShrink).toBe("0");
+    expect(style(".chip-text").overflow).not.toBe("hidden");
+  });
   it("keeps the centered command field within its approved width while breadcrumb labels can truncate", () => {
     const css = read("app.css");
     const block = css.slice(css.indexOf(".commandbar .cmd {"), css.indexOf("}", css.indexOf(".commandbar .cmd {")));

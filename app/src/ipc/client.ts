@@ -165,12 +165,14 @@ export type PrListState = "open" | "all";
 export class IpcError extends Error {
   readonly kind: ErrorKind;
   readonly output: string | null;
+  readonly command: string | undefined;
 
-  constructor(payload: Pick<ErrorPayload, "kind" | "message"> & Partial<Pick<ErrorPayload, "output">>) {
+  constructor(payload: Pick<ErrorPayload, "kind" | "message"> & Partial<Pick<ErrorPayload, "output">>, command?: string) {
     super(payload.message);
     this.name = "IpcError";
     this.kind = payload.kind;
     this.output = payload.output ?? null;
+    this.command = command;
   }
 }
 
@@ -189,8 +191,8 @@ async function call<T>(command: string, args?: Record<string, unknown>): Promise
   try {
     return await invoke<T>(command, args);
   } catch (failure) {
-    if (isErrorPayload(failure)) throw new IpcError(failure);
-    throw new IpcError({ kind: "internal", message: String(failure) });
+    if (isErrorPayload(failure)) throw new IpcError(failure, command);
+    throw new IpcError({ kind: "internal", message: String(failure) }, command);
   }
 }
 

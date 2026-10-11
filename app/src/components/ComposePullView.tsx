@@ -15,6 +15,7 @@ import type { RepoSession } from "../state/repoSession";
 import { AiFailureNote } from "./AiFailureNote";
 import { AiTrigger } from "./AiTrigger";
 import { Icon } from "./Icon";
+import { statusIcon, statusWord } from "../state/changes";
 import { Select } from "./Select";
 import { Switch } from "./Switch";
 import { TextArea } from "./TextArea";
@@ -201,8 +202,8 @@ export function ComposePullView(props: { session: RepoSession; platform: Platfor
         <Show when={comparable()}>
           <p class="compose-conflict" role="status">
             <Show when={conflictLine().conflicted}>
-              <span class="st st-conflicted" aria-hidden="true">
-                !
+              <span class="st st-conflicted" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+                <Icon name={statusIcon.conflicted} />
               </span>
             </Show>
             {conflictLine().text}

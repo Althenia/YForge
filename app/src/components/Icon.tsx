@@ -105,6 +105,9 @@ const glyphs: Record<IconName, () => JSX.Element> = {
     </>
   ),
   edit: () => <path d="M4 20l1-4L16.5 4.5a2.1 2.1 0 0 1 3 3L8 19zM14.5 6.5l3 3" />,
+  renamed: () => <path d="M3 12h10M9 8l4 4-4 4M17 5v14M14 5h6M14 19h6" />,
+  type_changed: () => <path d="M4 8h16M16 4l4 4-4 4M20 16H4M8 12l-4 4 4 4" />,
+  untracked: () => <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8zM14 3v5h5" stroke-dasharray="2 3" />,
   terminal: () => (
     <>
       <rect x="3" y="5" width="18" height="14" rx="2" />
@@ -200,6 +203,7 @@ export function Icon(props: { name: IconName; size?: 14 | 16 | 20 | 32 }) {
   return (
     <svg
       class="icon"
+      data-icon={props.name}
       width={size()}
       height={size()}
       viewBox="0 0 24 24"

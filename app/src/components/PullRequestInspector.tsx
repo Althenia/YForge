@@ -5,7 +5,8 @@ import { client, IpcError } from "../ipc/client";
 import { useNow } from "../state/clock";
 import type { PlatformActions } from "../state/platformActions";
 import { countOf, partialFilesNote } from "../state/listCount";
-import { changeTotals, epochSeconds, fileBadgeClass, fileLetter, fileWord, mergeabilityView, platformFailure, prStateView } from "../state/platformModel";
+import { changeTotals, epochSeconds, fileBadgeClass, fileStatus, fileWord, mergeabilityView, platformFailure, prStateView } from "../state/platformModel";
+import { statusIcon } from "../state/changes";
 import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
 import type { RepoSession } from "../state/repoSession";
@@ -148,8 +149,8 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                       <For each={detail().files}>
                         {(file) => (
                           <li class="frow" aria-label={`${fileWord(file.status)} ${file.filename}`} title={file.filename}>
-                            <span class={`badge ${fileBadgeClass(file.status)}`} aria-hidden="true">
-                              {fileLetter(file.status)}
+                            <span class={`badge ${fileBadgeClass(file.status)}`} role="img" aria-label={fileWord(file.status)} title={fileWord(file.status)}>
+                              <Icon name={statusIcon[fileStatus(file.status)]} />
                             </span>
                             <span class="path">
                               <bdi dir="ltr">

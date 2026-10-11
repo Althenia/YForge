@@ -9,7 +9,7 @@ import type { ReflogEntry } from "../ipc/bindings/ReflogEntry";
 import type { SnapshotInfo } from "../ipc/bindings/SnapshotInfo";
 import { client, IpcError } from "../ipc/client";
 import { branchNameProblem } from "../state/branchName";
-import { statusLetter } from "../state/changes";
+import { statusIcon, statusWord } from "../state/changes";
 import type { ConfirmCopy } from "../state/confirmCopy";
 import { repoKeys } from "../state/queryKeys";
 import { createRestoreActions, type RestoreActions } from "../state/recoveryActions";
@@ -332,8 +332,8 @@ function SnapshotDetail(props: { session: RepoSession; info: SnapshotInfo; onNot
           {(change) => (
             <li class="snapfile">
               <input type="checkbox" aria-label={`Restore ${change.path}`} checked={checked().has(change.path)} onChange={() => toggle(change.path)} />
-              <span class={`badge st-${change.status}`} aria-hidden="true">
-                {statusLetter[change.status]}
+              <span class={`badge st-${change.status}`} role="img" aria-label={statusWord[change.status]} title={statusWord[change.status]}>
+                <Icon name={statusIcon[change.status]} />
               </span>
               <span class="path-line" title={change.path}>
                 <bdi dir="ltr">{change.path}</bdi>

@@ -5,7 +5,8 @@ import { createServer } from "../app/node_modules/vite/dist/node/index.js";
 const require = createRequire(new URL("../app/package.json", import.meta.url));
 const { chromium } = require("playwright-core");
 let fixtureCode = "";
-const server = await createServer({ root: new URL("../app", import.meta.url).pathname, configFile: new URL("../app/vite.config.ts", import.meta.url).pathname, cacheDir: new URL("../app/node_modules/.vite-repository-render", import.meta.url).pathname, optimizeDeps: { include: ["@tauri-apps/api/mocks"] }, server: { port: 1421, strictPort: true, host: "127.0.0.1" }, plugins: [{ name: "repository-render-fixture", resolveId: (id) => id === "virtual:repository-render" ? "\0virtual:repository-render" : undefined, load: (id) => id === "\0virtual:repository-render" ? fixtureCode : undefined }] });
+let strataCode = "";
+const server = await createServer({ root: new URL("../app", import.meta.url).pathname, configFile: new URL("../app/vite.config.ts", import.meta.url).pathname, cacheDir: new URL("../app/node_modules/.vite-repository-render", import.meta.url).pathname, optimizeDeps: { include: ["@tauri-apps/api/mocks"] }, server: { port: 1421, strictPort: true, host: "127.0.0.1" }, plugins: [{ name: "repository-render-fixture", resolveId: (id) => ["virtual:repository-render", "virtual:strata-render"].includes(id) ? `\0${id}` : undefined, load: (id) => id === "\0virtual:repository-render" ? fixtureCode : id === "\0virtual:strata-render" ? strataCode : undefined }] });
 await server.listen();
 let browser;
 let page;
@@ -144,7 +145,120 @@ const graph=mountWithApp(()=>createComponent(Show,{get when(){return visible()},
   await page.waitForSelector('#graph-fixture .grow[role="option"]');
   assert.equal(await graphSize(), 164, "graph remount must retain the chosen width");
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ commitFiles: 5000, initialRows: initial.rows.length, scrolledRows: scrolled.rows.length, shorterCommitFiles: 24, blankBand: false, emptyRepositoryFiles: 5000, firstCommitActionContained: true, layoutCases: 6, graphCommits: 6575, resizedGraphWidth: 164, cachedGraphRemounts: 10, errors }));
+  strataCode = `
+import '/src/styles/fonts.css';import '/src/styles/tokens.css';import '/src/styles/app.css';import '/src/styles/changes.css';import '/src/styles/markdown.css';import '/src/styles/shell-extras.css';
+import {createComponent} from 'solid-js/web';import {mockIPC,mockWindows} from '@tauri-apps/api/mocks';
+import {Workspace} from '/src/components/Workspace.tsx';import {Launchpad} from '/src/components/Launchpad.tsx';
+import {readGeometry} from '/src/graph/geometry.ts';import {mountWithApp} from '/src/components/testkit.tsx';
+import {defaultSettings} from '/src/state/settingsModel.ts';import {defaultUiPrefs} from '/src/state/repoUiPrefs.ts';
+const person={name:'Synthetic Author',email:'synthetic@example.test',time:1700000000};
+const counts={modified:3,added:0,deleted:0,renamed:0,untracked:0,conflicted:0};
+const snapshot={root:'/synthetic/strata',main_root:'/synthetic/strata',head:{kind:'branch',name:'feature/readable-repository-navigation',sha:'sha0'},upstream:{name:'origin/feature/readable-repository-navigation',ahead_behind:{ahead:2,behind:1}},operation:null,operation_detail:null,last_fetch:Math.floor(Date.now()/1000)-120,remotes:['origin'],remote_branches:['origin/main'],branches:Array.from({length:500},(_,i)=>'branch-'+String(i).padStart(3,'0')),files:[],counts,tags:['v1'],stashes:[],worktrees:[]};
+const repos=Array.from({length:4},(_,i)=>({path:'/synthetic/repository-'+i,folder:null,opened_at:1700000000}));
+mockWindows('main');mockIPC((cmd,args)=>{
+ if(cmd==='settings_load')return {...defaultSettings,profile_pictures:false};
+ if(cmd==='app_ui_prefs_load')return {palette_recents:[],last_parent_folder:null,file_list_mode:'path'};
+ if(cmd==='repo_ui_prefs_load')return defaultUiPrefs;
+ if(cmd==='hooks_list')return {directory:'/synthetic/hooks',hooks:[]};
+ if(cmd==='repositories_list')return {folders:[],repos};
+ if(cmd==='recent_statuses')return repos.map(repo=>({path:repo.path,exists:true,branch:'main',unborn:false,ahead_behind:{ahead:0,behind:0},counts:{...counts,modified:0},worktrees:1,unreadable:null}));
+ if(cmd==='repo_graph')return {total:100,carried:[],rows:Array.from({length:Math.min(args.limit,100-args.offset)},(_,i)=>({sha:'sha'+(args.offset+i),parents:[],summary:'Commit '+(args.offset+i),body:'Supporting graph prose',author:person.name,time:1700000000,refs:[],kind:'commit',column:(args.offset+i)%3,edges:[]}))};
+ if(cmd==='commit_details')return {sha:args.sha,summary:'Readable commit summary',body:'Paragraph with **emphasis**.\\n\\n- First item\\n- Second item',author:person,committer:person,parents:[],refs:[],files:Array.from({length:24},(_,i)=>({path:'src/file-'+i+'.ts',status:'modified',original_path:null,additions:4,deletions:2}))};
+ if(['ai_feature_config_list','jira_connections_list','platform_connections_list','submodule_list','worktree_list','switch_stashes','activity_list','recents_list','launchpad_wips','commit_tree_paths','repo_aliases_list'].includes(cmd))return [];
+ if(cmd==='repo_open')return snapshot;
+ return null;
+},{shouldMockEvents:true});
+const workspace=mountWithApp(()=>createComponent(Workspace,{view:{status:'ready',path:snapshot.root,snapshot,info:{app_version:'test',git_version:'test'}},geometry:readGeometry(getComputedStyle(document.documentElement))}));workspace.host.id='strata-workspace';
+const launchpad=mountWithApp(()=>createComponent(Launchpad,{}));launchpad.host.id='strata-launchpad';launchpad.host.style.display='none';
+window.strataReady=true;
+`;
+  await page.route("**/__strata-render", (route) => route.fulfill({ contentType: "text/html", body: '<!doctype html><html><body><script type="module" src="/@id/virtual:strata-render"></script></body></html>' }));
+  await page.goto("http://127.0.0.1:1421/__strata-render", { timeout: 30000 });
+  await page.waitForFunction(() => window.strataReady);
+  await page.waitForSelector('#strata-workspace .grow[role="option"]');
+  const strata = [];
+  for (const theme of ["dark", "light"]) {
+    for (const [width, height] of [[960, 600], [1280, 720], [1440, 900]]) {
+      await page.setViewportSize({ width, height });
+      await page.evaluate((theme) => { document.documentElement.dataset.theme = theme; document.querySelector('#strata-workspace').style.display = ''; document.querySelector('#strata-launchpad').style.display = 'none'; }, theme);
+      await page.waitForFunction((width) => document.querySelector('.sidebar').classList.contains('compact') === (width < 1280), width);
+      if (width === 960) {
+        await page.locator('.sidebar-rail [aria-label="Show Branches"]').click();
+      }
+      await page.waitForSelector('.sidebar section[aria-label="Branches"] .srow');
+      const sidebar = await page.locator('.sidebar').evaluate((panel) => {
+        const body = panel.querySelector('.sidebar-body');
+        const row = body.querySelector('section[aria-label="Branches"] .srow');
+        const sec = body.querySelector('.sec');
+        const count = sec.querySelector('.count');
+        const guide = row.querySelector('.tree-guide:last-of-type') ?? row.querySelector('.tree-guide');
+        return { width: panel.getBoundingClientRect().width, row: row.getBoundingClientRect().height, section: sec.getBoundingClientRect().height, count: [count.getBoundingClientRect().width, count.getBoundingClientRect().height], rows: body.querySelectorAll('section[aria-label="Branches"] .srow').length, guideGap: row.querySelector('.name').getBoundingClientRect().left - guide.getBoundingClientRect().right };
+      });
+      assert.equal(sidebar.width, width < 1280 ? 260 : width < 1440 ? 220 : 260);
+      assert.equal(sidebar.row, 32);
+      assert.equal(sidebar.section, 36);
+      assert(sidebar.count[0] >= 24 && sidebar.count[1] === 20);
+      assert(sidebar.rows > 0 && sidebar.rows < 80, 'sidebar virtualization must stay bounded at its final row height');
+      assert.equal(sidebar.guideGap, 4, 'tree names must start 4px clear of their guide');
+      if (width === 960) await page.locator('[aria-label="Close repository sidebar"]').click();
+      await page.locator('#strata-workspace .grow[role="option"]').first().click();
+      await page.waitForSelector('.commit-message p');
+      const reading = await page.locator('.commit-inspector').evaluate((panel) => {
+        const style = (selector) => getComputedStyle(panel.querySelector(selector));
+        const bounds = panel.getBoundingClientRect();
+        const body = panel.querySelector('.commit-message').getBoundingClientRect();
+        return { width: bounds.width, summary: [style('.commit-summary').fontSize, style('.commit-summary').fontWeight, style('.commit-summary').color], prose: style('.commit-message').fontSize, inset: body.left - bounds.left - 1, metadata: style('.mrow').fontSize, detail: panel.querySelector('.mrow').getBoundingClientRect().height, avatar: panel.querySelector('.avatar').getBoundingClientRect().width, listHeader: panel.querySelector('.lhead').getBoundingClientRect().height, headerInset: panel.querySelector('.lhead-title').getBoundingClientRect().left - bounds.left - 1, bodyOverflow: panel.scrollWidth > panel.clientWidth, ink: getComputedStyle(panel).color };
+      });
+      assert.equal(reading.width, width === 960 ? 380 : width === 1280 ? 340 : 380);
+      assert.deepEqual(reading.summary.slice(0, 2), ['14px', '600']);
+      assert.equal(reading.summary[2], reading.ink);
+      assert.equal(reading.prose, '15px');
+      assert.equal(reading.inset, 16);
+      assert.equal(reading.metadata, '13px');
+      assert.equal(reading.detail, 28);
+      assert.equal(reading.avatar, 24);
+      assert.equal(reading.listHeader, 40);
+      assert.equal(reading.headerInset, 16);
+      assert.equal(reading.bodyOverflow, false);
+      if (width === 960) await page.locator('[aria-label="Close inspector"]').click();
+      const chrome = await page.locator('#strata-workspace .app').evaluate((app) => {
+        const strip = app.querySelector('.chips');
+        const graph = app.querySelector('.graph');
+        const row = graph.querySelector('.grow[role="option"]');
+        const panels = [...app.querySelectorAll('.main > .sidebar, .main > .center, .main > .inspector-slot')].filter(panel => panel.getBoundingClientRect().width > 0).map(panel => { const box = panel.getBoundingClientRect(); return { left: box.left, right: box.right, bottom: box.bottom }; });
+        return { body: getComputedStyle(document.body).fontSize, strip: strip.getBoundingClientRect().height, chip: strip.querySelector('.chip-group').getBoundingClientRect().height, overflow: getComputedStyle(strip).overflowX, stripWidth: strip.clientWidth, stripScrollWidth: strip.scrollWidth, row: row.getBoundingClientRect().height, graph: graph.style.getPropertyValue('--graph-w'), refs: graph.style.getPropertyValue('--ref-w'), graphType: getComputedStyle(row.querySelector('.msg')).fontSize, headerType: getComputedStyle(graph.querySelector('.gh')).fontSize, panels, appOverflow: app.scrollWidth > app.clientWidth, command: app.querySelector('.cmd').getBoundingClientRect().width, breadcrumb: app.querySelector('.crumb').getBoundingClientRect().width };
+      });
+      assert.equal(chrome.body, '15px');
+      assert.equal(chrome.strip, 44);
+      assert.equal(chrome.chip, 32);
+      assert.equal(chrome.overflow, 'auto');
+      assert.equal(chrome.row, 28);
+      assert.equal(chrome.graph, '70px');
+      assert.equal(chrome.refs, '130px');
+      assert.equal(chrome.graphType, '12px');
+      assert.equal(chrome.headerType, '10px');
+      assert.equal(chrome.appOverflow, false);
+      for (const panel of chrome.panels) assert(panel.left >= 0 && panel.right <= width && panel.bottom <= height, 'panels must remain within the window');
+      if (width === 960) {
+        assert(chrome.command >= 210 && chrome.breadcrumb <= 120);
+        assert(chrome.stripScrollWidth > chrome.stripWidth, 'long worded chips must scroll rather than clip');
+        await page.locator('.chips [aria-label="Show inspector"]').scrollIntoViewIfNeeded();
+        await page.locator('.chips [aria-label="Show inspector"]').click();
+        await page.locator('[aria-label="Close inspector"]').click();
+      }
+      await page.evaluate(() => { document.querySelector('#strata-workspace').style.display = 'none'; document.querySelector('#strata-launchpad').style.display = ''; });
+      await page.waitForSelector('.repo-row');
+      const launchpad = await page.locator('.launchpad').evaluate((panel) => ({ top: getComputedStyle(panel).paddingTop, rows: [...panel.querySelectorAll('.repo-row')].map(row => row.getBoundingClientRect().height), text: getComputedStyle(panel.querySelector('.repo-row')).fontSize, button: panel.querySelector('.repo-actbar .btn').getBoundingClientRect().height, table: panel.querySelector('.repo-table').getBoundingClientRect().height, overflow: panel.scrollWidth > panel.clientWidth }));
+      assert.equal(launchpad.top, '20px');
+      assert.equal(launchpad.text, '14px');
+      assert.equal(launchpad.button, 32);
+      assert(launchpad.rows.every(row => row === 42), 'normal repository rows must remain 42px rather than stretch');
+      assert.equal(launchpad.overflow, false);
+      strata.push({ width, height, theme, sidebar, reading, chrome, launchpad });
+    }
+  }
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ commitFiles: 5000, initialRows: initial.rows.length, scrolledRows: scrolled.rows.length, shorterCommitFiles: 24, blankBand: false, emptyRepositoryFiles: 5000, firstCommitActionContained: true, layoutCases: 6, graphCommits: 6575, resizedGraphWidth: 164, cachedGraphRemounts: 10, strata, errors }));
 } catch (failure) {
   console.error(await page?.evaluate(() => {
     const list = document.querySelector('.empty-repo-list');

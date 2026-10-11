@@ -175,7 +175,7 @@ describe("git flow section", () => {
     row(mounted.host, "Finish feature login").click();
     await flush();
 
-    expect(mounted.app.notice()).toContain("clean working tree");
+    expect(mounted.app.notice()).toBe("Git flow finish failed: local changes would be overwritten");
   });
 
   it("filters the flow rows and shows matched over total", async () => {

@@ -3,6 +3,7 @@ import type { RepoSettings } from "../ipc/bindings/RepoSettings";
 import type { Submodule } from "../ipc/bindings/Submodule";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { failureNotice } from "../state/errorNotice";
 import { repoKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
 import type { Anchor, MenuState } from "../state/repoActions";
@@ -32,7 +33,7 @@ const detailOf = (row: Submodule): string => {
   return checked !== undefined && checked !== recorded ? `${word} · recorded ${recorded} · checked out ${checked}` : `${word} · ${recorded}`;
 };
 
-const messageOf = (failure: unknown): string => (failure instanceof Error ? failure.message : "The submodule command failed");
+const messageOf = failureNotice;
 
 export function SubmoduleSection(props: { root: string; expanded: boolean; onToggle: () => void; filter: string }) {
   const app = useApp();

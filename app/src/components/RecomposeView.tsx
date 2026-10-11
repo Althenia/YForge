@@ -6,7 +6,7 @@ import { client, IpcError } from "../ipc/client";
 import { featureAvailable, featuresOptions } from "../state/aiFeatures";
 import { createAiRun } from "../state/aiRun";
 import { fileList } from "../state/fileList";
-import { statusLetter, statusWord } from "../state/changes";
+import { statusIcon, statusWord } from "../state/changes";
 import { beginPointerDrag } from "../state/pointerDrag";
 import { historyKeys } from "../state/queryKeys";
 import { dirtyReason } from "../state/rebaseModel";
@@ -293,8 +293,8 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
               </span>
             </button>
           </Show>
-          <span class={`badge st-${fileProps.file.status}`} title={statusWord[fileProps.file.status]} aria-hidden="true">
-            {statusLetter[fileProps.file.status]}
+          <span class={`badge st-${fileProps.file.status}`} title={statusWord[fileProps.file.status]} role="img" aria-label={statusWord[fileProps.file.status]}>
+            <Icon name={statusIcon[fileProps.file.status]} />
           </span>
           <span class="path-line" title={fileProps.file.path}>
             <bdi dir="ltr">{fileProps.file.path}</bdi>

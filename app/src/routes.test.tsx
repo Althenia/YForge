@@ -459,7 +459,7 @@ describe("routes", () => {
     await app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot("/a") });
     await flush();
 
-    expect(host.textContent).toContain("git status could not read the index");
+    expect([...host.querySelectorAll('.toast[role="alert"] .toast-title')].map((title) => title.textContent)).toContain("Open repository failed: See Activity for details");
     expect(workspaces()).toBe(1);
     expect(app.paletteContext().snapshot?.root).toBe("/a");
   });
@@ -482,19 +482,19 @@ describe("routes", () => {
 
   it("keeps an invalid launch or open notice visible on repository, settings, and Launchpad routes", async () => {
     const { app, host, router } = await mountApp({ tabs: ["/a"], active: 0 });
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/nowhere is not a Git repository");
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("Open repository failed: not a Git repository");
 
     expect(await app.openRepository("/missing")).toBe(false);
     expect(app.activePath()).toBe("/a");
     expect(router.state.location.pathname).toBe("/repo");
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("Open repository failed: not a Git repository");
 
     app.openSettings("general");
     await flush(60);
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("Open repository failed: not a Git repository");
     app.openLaunchpad();
     await flush(60);
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain("/missing is not a Git repository");
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("Open repository failed: not a Git repository");
 
     app.setNotice(undefined);
     expect(await app.openRepository("/a")).toBe(true);

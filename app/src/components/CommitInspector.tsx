@@ -1,6 +1,6 @@
 import { keepPreviousData } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, Index, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import { cachedGraphRow } from "../graph/graphStore";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
@@ -19,6 +19,7 @@ import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
 import { createIssueChips } from "../state/jiraIssues";
+import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { createPendingIndicator } from "../state/pending";
 import { createViewSwap } from "../state/viewSwap";
 import { createFolderState, useFileListMode } from "../state/fileList";
@@ -189,6 +190,13 @@ export function CommitInspector(props: {
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
+  const [markdown] = createResource(
+    () => shown()?.body ? { text: shown()!.body, sha: shown()!.sha } : false,
+    async (source) => {
+      try { return { html: await renderMarkdown(source.text), sha: source.sha, failure: undefined }; }
+      catch (error) { props.session.report(error); return { html: "", sha: source.sha, failure: error instanceof Error ? error.message : String(error) }; }
+    },
+  );
   const failure = () => (details.error instanceof IpcError ? details.error.message : details.error == null ? undefined : String(details.error));
   const row = createMemo(() => cachedGraphRow(props.session.queryClient, path, props.sha));
   const header = (): CommitHeader | undefined => {
@@ -202,7 +210,7 @@ export function CommitInspector(props: {
   createViewSwap(() => panel, () => shown()?.sha ?? (waiting() ? "skeleton" : undefined));
   const headBlock = (head: () => CommitHeader) => (
     <div class="ihead">
-      <h2>{head().summary || "(no message)"}</h2>
+      <h2 class="commit-summary">{head().summary || "(no message)"}</h2>
       <p>{head().parents.length > 1 ? "Merge commit" : "Commit"} · {head().parents.length} {head().parents.length === 1 ? "parent" : "parents"}</p>
       <Show when={explainable() || (isHead() && !editing())}>
         <span class="ihead-action ihead-tools">
@@ -245,7 +253,7 @@ export function CommitInspector(props: {
     return active !== undefined && fileRows(shown()?.files ?? []).some((row) => rowId(row) === active) ? active === key : index === 0;
   };
   return (
-    <aside class="panel inspector" aria-label="Commit" aria-busy={details.isFetching} ref={panel}>
+    <aside class="panel inspector commit-inspector" aria-label="Commit" aria-busy={details.isFetching} ref={panel}>
       <PendingLine pending={details.isFetching} label="Loading commit details" />
       <Show
         when={shown()}
@@ -290,7 +298,10 @@ export function CommitInspector(props: {
               <Show when={editing()}>
                 <MessageForm session={props.session} generateAvailable={featureAvailable(features.data, "generate_commit")} onClose={() => setEditing(false)} onSaved={props.onSelectCommit} />
               </Show>
-              <Show when={!editing() && commit().body}>{(body) => <p class="cbody">{body()}</p>}</Show>
+              <Show when={!editing() && commit().body}>
+                <Show when={markdown()?.failure}>{(failure) => <div role="alert">{failure()}</div>}</Show>
+                <article class="markdown-body commit-message" innerHTML={markdown()?.html ?? ""} onClick={(event) => handleMarkdownClick(event, event.currentTarget, (file, fragment) => props.onViewFile({ file, rev: markdown()?.sha ?? commit().sha, source: (markdown()?.sha ?? commit().sha).slice(0, 7), fragment }))} />
+              </Show>
               <div class="cmeta">
                 <Show when={chips.keysFor(`${commit().summary}\n${commit().body}`).length > 0}>
                   <div class="mrow">

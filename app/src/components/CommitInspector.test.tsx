@@ -4,7 +4,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot, createSignal, Show } from "solid-js";
 import type { GraphRow } from "../ipc/bindings/GraphRow";
 import { repoKeys } from "../state/queryKeys";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AiFeature } from "../ipc/bindings/AiFeature";
 import { AiSheetContext, createAiSheet } from "../state/aiSheet";
 import type { DiffTarget } from "../state/diffModel";
@@ -23,6 +23,15 @@ let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
 let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
+let stylesheet: HTMLStyleElement;
+
+beforeAll(() => {
+  stylesheet = document.createElement("style");
+  stylesheet.textContent = ["tokens.css", "app.css", "markdown.css"].map((name) => readFileSync(resolve(import.meta.dirname, "../styles", name), "utf8")).join("\n");
+  document.head.append(stylesheet);
+});
+
+afterAll(() => stylesheet.remove());
 
 beforeEach(() => {
   vi.stubGlobal(
@@ -57,7 +66,7 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
+function mount(sha: string, options: { body?: string; pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
   const selected: string[] = [];
   const opened: DiffTarget[] = [];
   const viewed: FileViewTarget[] = [];
@@ -76,7 +85,7 @@ function mount(sha: string, options: { pushed?: boolean; operation?: boolean; fi
       const found = options.jira?.summary ?? null;
       return (args as { keys: string[] }).keys.map((key) => ({ key, issue: found === null ? null : { key, summary: found, status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: options.jira?.failure ?? null }));
     }
-    if (cmd === "commit_details") return { ...details(sha), summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
+    if (cmd === "commit_details") return { ...details(sha), body: options.body ?? "Because.", summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
     if (cmd === "integration_preview") return { incoming: { count: 0, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
@@ -109,6 +118,31 @@ const field = (host: HTMLElement, label: string) => host.querySelector<HTMLInput
 const verb = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.ihead button[aria-label="${name}"]`);
 
 describe("commit age", () => {
+  it("renders the message body as Markdown and gives only the commit summary the strong role", async () => {
+    const { host, viewed } = mount(OLDER, { body: "- First\n- **Second**\n\n[File](src/app.ts#notes) [Visit](https://example.test)" });
+    await flush(80);
+    expect(host.querySelector(".ihead h2")?.classList.contains("commit-summary")).toBe(true);
+    const summary = getComputedStyle(host.querySelector(".commit-summary")!);
+    expect(summary.font).toBe("var(--font-ui-strong)");
+    expect(summary.color).toBe("var(--colors-text)");
+    expect(summary.cursor).toBe("var(--cursors-text)");
+    const body = getComputedStyle(host.querySelector(".commit-message")!);
+    expect(body.font).toBe("var(--font-ui-body)");
+    expect(body.color).toBe("var(--colors-text)");
+    expect(body.cursor).toBe("var(--cursors-text)");
+    expect(body.borderTopWidth).toBe("1px");
+    expect(body.borderTopStyle).toBe("solid");
+    expect(body.borderTopColor).toBe("var(--colors-rule)");
+    expect([...host.querySelectorAll(".commit-message ul li")].map((item) => item.textContent)).toEqual(["First", "Second"]);
+    expect(host.querySelector(".commit-message strong")?.textContent).toBe("Second");
+    expect(host.querySelector(".cbody")).toBeNull();
+    [...host.querySelectorAll<HTMLAnchorElement>(".commit-message a")].find((link) => link.textContent === "File")?.click();
+    expect(viewed).toEqual([{ file: "src/app.ts", rev: OLDER, source: OLDER.slice(0, 7), fragment: "notes" }]);
+    const external = [...host.querySelectorAll<HTMLAnchorElement>(".commit-message a")].find((link) => link.textContent === "Visit");
+    expect(external?.hasAttribute("href")).toBe(false);
+    expect(external?.title).toBe("https://example.test");
+  });
+
   it("ages the committer time as the clock ticks", async () => {
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     try {
@@ -576,7 +610,7 @@ describe("commit continuity (S72)", () => {
     ));
     dispose = mounted.dispose;
     const title = () => mounted.host.querySelector(".ihead h2")?.textContent;
-    const body = () => mounted.host.querySelector(".cbody")?.textContent;
+    const body = () => mounted.host.querySelector(".commit-message")?.textContent.trim();
     return { ...mounted, setSha, title, body, finish: (target: string, value: CommitDetails) => answer(target).resolve(value) };
   }
 
@@ -690,7 +724,7 @@ describe("commit continuity (S72)", () => {
       view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
       await flush();
       const held = view.host.querySelector<HTMLElement>("[data-swap-held]");
-      expect(held?.querySelector(".cbody")?.textContent).toBe("Head body");
+      expect(held?.querySelector(".commit-message")?.textContent.trim()).toBe("Head body");
       expect(view.body()).toBe("Next body");
       expect(animate).toHaveBeenCalledTimes(1);
     } finally {

@@ -2,6 +2,7 @@ import { createSignal, For, Show } from "solid-js";
 import type { FlowKind } from "../ipc/bindings/FlowKind";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { failureNotice } from "../state/errorNotice";
 import { CONFLICT_NOTICE, finishLabel, finishNote, flowBranchOf, FLOW_KINDS, kindTitle, prefixOf, startLabel, startNote } from "../state/gitFlow";
 import { repoKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
@@ -9,7 +10,7 @@ import { countLabel, matchesFilter } from "../state/sidebarModel";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
 
-const messageOf = (failure: unknown): string => (failure instanceof Error ? failure.message : "The Git Flow command failed");
+const messageOf = failureNotice;
 
 function StartDialog(props: { kind: FlowKind; prefix: string; note: string; onStart: (name: string) => Promise<string | undefined>; onClose: () => void }) {
   const [name, setName] = createSignal("");
@@ -133,7 +134,7 @@ export function GitFlowSection(props: { root: string; head: string | undefined; 
                   aria-label={row.label}
                   aria-disabled={row.id === "finish" && finishing() ? "true" : undefined}
                   title={row.note}
-                  style={{ "padding-left": "20px" }}
+                  style={{ "padding-left": "calc(var(--spacing-3) + var(--spacing-1-5))" }}
                   onClick={row.run}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && event.target === event.currentTarget) {

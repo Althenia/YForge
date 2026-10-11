@@ -2,20 +2,21 @@ import type { ChangeArea } from "../ipc/bindings/ChangeArea";
 import type { ChangeCounts } from "../ipc/bindings/ChangeCounts";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { FileStatus } from "../ipc/bindings/FileStatus";
+import type { IconName } from "../iconNames";
 import type { MenuEntry } from "./refMenu";
 
 export const changeTotal = (counts: ChangeCounts): number =>
   counts.modified + counts.added + counts.deleted + counts.renamed + counts.untracked + counts.conflicted;
 
-export const statusLetter: Record<FileStatus, string> = {
-  modified: "M",
-  added: "A",
-  deleted: "D",
-  renamed: "R",
-  copied: "C",
-  type_changed: "T",
-  untracked: "U",
-  conflicted: "!",
+export const statusIcon: Record<FileStatus, IconName> = {
+  modified: "edit",
+  added: "plus",
+  deleted: "minus",
+  renamed: "renamed",
+  copied: "copy",
+  type_changed: "type_changed",
+  untracked: "untracked",
+  conflicted: "warning",
 };
 
 export const statusWord: Record<FileStatus, string> = {

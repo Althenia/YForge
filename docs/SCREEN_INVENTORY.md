@@ -16,6 +16,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
   - Search and sort repositories; Rescan or Stop scanning a folder.
   - Reveal in Finder, Open in Terminal, Remove from list (with Undo).
 - **Information displayed:** for each repository: name, path, branch, status in words (changes, to push, to pull, Clean, Not found, Status unavailable), and when it was last opened; each scanned folder's repository count, depth, and scan time; the S41 lists with counts and per-source update times.
+- **Strata scale (S65, approved 2026-10-11):** Top-aligned table, 20px top inset, 42px minimum repository rows, 32px actions, 14px table text; real multiline content may grow rows without clipping.
 
 ### S02 · Repository workspace: graph (MVP)
 - **Purpose:** Understand and act on history and the current state.
@@ -46,6 +47,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
     - relative age;
     - short SHA (optional).
   - Inspector and Activity bar.
+- **Strata scale (S65):** 15px prose, 32px sidebar rows, 44px state strip with worded 32px chips and local horizontal scrolling; desktop sidebar/inspector 260px/380px, medium 220px/340px, existing rail and overlay behavior at compact/minimum. Keep graph geometry, typography, colors, and column rules unchanged.
 - **Entry points:** Open or clone a repository; switch tab.
 - **Exit points:** Center views (diff, resolver); Settings; close tab.
 - **Empty state:** Unborn branch → S26.
@@ -75,7 +77,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
   - Show in Finder.
 - **Information displayed:**
   - Sections: Conflicted, Unstaged, Untracked, Staged, each with a count.
-  - Status letters: M, A, D, R, U, !, T.
+  - Named status icons from the shared S3 mapping.
   - Summary field with a 72-character guide; description.
   - Author identity; the target branch; the upstream after pushing.
 - **Entry points:** Working-tree row; sidebar Changes; state-strip Changes segment; ⌘1 (proposal).
@@ -90,6 +92,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 
 ### S04 · Commit inspector (MVP)
 - **Purpose:** Understand a commit.
+- **Strata reading (S65):** Retain the 14px/600 commit summary in normal ink; shared sanitized Markdown body follows 15px UI prose. Use 16px reading insets, 13px metadata in 28px detail rows, and 24px author badges outside the graph.
 - **Primary actions:**
   - Open a file diff.
   - Copy SHA.
@@ -107,7 +110,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
   - Author and committer, with absolute and relative dates.
   - Parents (links).
   - Refs at the commit.
-  - Changed files with status letters and +/− counts.
+  - Changed files with named status icons and +/− counts.
   - Signature badge (Post-MVP).
 - **Entry points:** Select a commit row; search result; parent link.
 - **Exit points:** Select another object; file → S07.
@@ -168,7 +171,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
   - Copy path.
 - **Information displayed:**
   - Breadcrumb (Graph › source › path) with the rename source.
-  - Status letter; encoding; mode (working tree / staged / commit / stash).
+  - Named status icon; encoding; mode (working tree / staged / commit / stash).
   - Hunk headers; old and new line numbers; ± gutters; word-level highlight; syntax highlighting.
 - **Entry points:** File in S03, S04, S05, or S06.
 - **Exit points:** Esc or breadcrumb back to the graph, with selection and scroll restored.

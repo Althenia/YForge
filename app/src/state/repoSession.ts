@@ -4,13 +4,11 @@ import { useQuery } from "./query";
 import { createSignal, onCleanup } from "solid-js";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { client, IpcError } from "../ipc/client";
+import { client } from "../ipc/client";
+import { failureNotice } from "./errorNotice";
 import { repoKeys } from "./queryKeys";
 import { visibilityKey } from "./repoUiPrefs";
 import { snapshotOptions } from "./workspace";
-
-const asIpcError = (failure: unknown): IpcError =>
-  failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
 export function createRepoSession(path: string, initial: RepoSnapshot, queryClient: QueryClient, visibility: () => GraphVisibility = () => ({ kind: "all" })) {
   const snapshot = useQuery(() => ({ ...snapshotOptions(path), initialData: initial }), () => queryClient);
@@ -21,7 +19,7 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
     queryClient.getQueryCache().subscribe((event) => {
       if (event.type !== "updated" || event.query.queryHash !== snapshotHash) return;
       if (event.action.type === "success") setRevision((value) => value + 1);
-      else if (event.action.type === "error") setNotice(asIpcError(event.action.error).message);
+      else if (event.action.type === "error") setNotice(failureNotice(event.action.error));
     }),
   );
   type Reload = { waiters: Array<() => void> };
@@ -56,7 +54,7 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
       await mutation.mutateAsync(action);
       return true;
     } catch (failure) {
-      setNotice(asIpcError(failure).message);
+      setNotice(failureNotice(failure));
       return false;
     }
   }
@@ -68,7 +66,7 @@ export function createRepoSession(path: string, initial: RepoSnapshot, queryClie
     revision,
     notice,
     dismissNotice: () => setNotice(undefined),
-    report: (failure: unknown) => setNotice(asIpcError(failure).message),
+    report: (failure: unknown, operation?: string) => setNotice(failureNotice(failure, operation)),
     inform: (message: string) => setNotice(message),
     refresh,
     mutate,

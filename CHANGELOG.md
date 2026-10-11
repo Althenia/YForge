@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.7] - 2026-10-11
+
+### Changed
++ The Strata layout uses 15px UI text, 18px panel titles, and roomier, flat panels while keeping commit summaries at 14px and the graph layout unchanged.
++ Narrow windows use a repository navigation rail with an expandable sidebar and an inspector drawer.
++ File statuses and change counts use labeled icons instead of letter badges.
++ Failure notices show a concise operation and cause; full diagnostics remain in Activity.
++ Push on a diverged branch opens the force-push-with-lease confirmation directly. Push and Force push no longer leave a success chip in the state strip.
++ Commit bodies and Markdown file previews render front matter, GitHub-flavored tables and task lists, alerts, footnotes, syntax-highlighted code, and heading anchors. Relative file links open at the same revision, and embedded HTML is sanitized to keep previews passive.
+
+---
+
 ## [0.3.6] - 2026-10-10
 
 ### Changed

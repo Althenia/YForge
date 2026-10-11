@@ -11,5 +11,6 @@ import "./styles/file-editor.css";
 import "./styles/hooks.css";
 import "./styles/settings-tools.css";
 import "./styles/shell-extras.css";
+import "./styles/markdown.css";
 
 render(() => <App />, document.getElementById("root")!);

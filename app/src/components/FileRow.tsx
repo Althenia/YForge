@@ -1,7 +1,7 @@
 import { For, Show, type JSX } from "solid-js";
 import { splitPath } from "../format";
 import type { FileStatus } from "../ipc/bindings/FileStatus";
-import { statusLetter, statusWord } from "../state/changes";
+import { statusIcon, statusWord } from "../state/changes";
 import { useFileListMode } from "../state/fileList";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -118,8 +118,8 @@ export function FileRow(props: {
       onKeyDown={onKeyDown}
     >
       <Guides depth={props.depth} />
-      <span class={`badge st-${props.status}`} classList={{ partial: props.partial === true }} title={props.partial ? "Partially staged" : undefined} aria-hidden="true">
-        {statusLetter[props.status]}
+      <span class={`badge st-${props.status}`} classList={{ partial: props.partial === true }} role="img" aria-label={statusWord[props.status]} title={props.partial ? `${statusWord[props.status]} · Partially staged` : statusWord[props.status]}>
+        <Icon name={statusIcon[props.status]} />
         <Show when={props.partial}>
           <span class="half">½</span>
         </Show>

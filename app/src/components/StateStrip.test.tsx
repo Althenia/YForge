@@ -84,6 +84,20 @@ function mount({ shape = snapshot(), sync = { kind: "idle" }, notices = [], onli
 const button = (host: ParentNode, name: RegExp) => [...host.querySelectorAll("button")].find((entry) => name.test(entry.getAttribute("aria-label") ?? entry.textContent ?? "")) as HTMLButtonElement;
 
 describe("state strip chips", () => {
+  it("states ahead and behind as words beside their glyphs and keeps the Pull menu action", () => {
+    const { host, calls } = mount();
+    const pull = button(host, /^Pull menu/);
+    expect(pull.textContent).toContain("↑2 ahead");
+    expect(pull.textContent).toContain("↓1 behind");
+    expect(pull.textContent).toContain("· Pull");
+    pull.click();
+    expect(calls.map((call) => call[0])).toEqual(["pull-menu"]);
+  });
+  it("pairs each Changes count with the named status icon, never a status letter", () => {
+    const { host } = mount({ shape: snapshot({ counts: { modified: 1, added: 2, deleted: 3, renamed: 4, untracked: 5, conflicted: 6 } }) });
+    const chip = button(host, /Changes/);
+    expect([...chip.querySelectorAll(".st")].map((badge) => [badge.getAttribute("aria-label"), badge.querySelector("svg")?.getAttribute("data-icon"), badge.textContent?.trim()])).toEqual([["Modified: 1", "edit", "1"], ["Added: 2", "plus", "2"], ["Deleted: 3", "minus", "3"], ["Renamed: 4", "renamed", "4"], ["Untracked: 5", "untracked", "5"], ["Conflicted: 6", "warning", "6"]]);
+  });
   it("reveals HEAD in the graph from the HEAD chip", () => {
     const { host, revealHead } = mount();
 
@@ -100,26 +114,11 @@ describe("state strip chips", () => {
     expect(calls.map((call) => call[0])).toEqual(["branch-picker"]);
   });
 
-  it("shows a force-push-with-lease notice that names the remote commit and cannot be dismissed", () => {
-    const { host, calls } = mount({
-      notices: [
-        {
-          id: "diverged-push",
-          icon: "warning",
-          text: "This branch has diverged",
-          detail: "c4d5e6f Fix the proxy timeout would be replaced",
-          dismiss: false,
-          actions: [{ label: "Force push with lease", run: () => void calls.push(["force"]) }],
-        },
-      ],
-    });
-    const notice = host.querySelector(".strip-notice") as HTMLElement;
-
-    expect(notice.textContent).toContain("This branch has diverged");
-    expect(notice.textContent).toContain("c4d5e6f Fix the proxy timeout would be replaced");
-    button(notice, /^Force push with lease/).click();
-    expect(calls.map((call) => call[0])).toEqual(["force"]);
-    expect(notice.querySelector("button[aria-label='Dismiss']")).toBeNull();
+  it("does not render a diverged strip notice or force-push action", () => {
+    const { host } = mount();
+    expect(host.querySelector(".strip-notice")).toBeNull();
+    expect(host.textContent).not.toContain("This branch has diverged");
+    expect(host.textContent).not.toContain("Force push with lease");
   });
 
   it("opens the pull menu from the ahead and behind chip, which states diverged in text", () => {

@@ -98,6 +98,29 @@ async function mountWorkspace(respond: (call: Call) => unknown = () => undefined
   return { ...mounted, calls };
 }
 
+describe("minimum inspector presentation (S65)", () => {
+  it("starts closed, opens the selected Changes inspector, and closes without losing the selection", async () => {
+    vi.stubGlobal("innerWidth", 960);
+    const { host } = await mountWorkspace();
+    const main = host.querySelector(".main")!;
+    expect(main.classList.contains("inspector-open")).toBe(false);
+    expect(host.querySelector('[aria-label="Show inspector"]')).not.toBeNull();
+    host.querySelector<HTMLButtonElement>('.chips button:has([data-icon="changes"])')?.click();
+    expect(main.classList.contains("inspector-open")).toBe(true);
+    const inspector = host.querySelector(".inspector");
+    host.querySelector<HTMLButtonElement>('[aria-label="Close inspector"]')?.click();
+    expect(main.classList.contains("inspector-open")).toBe(false);
+    expect(host.querySelector(".inspector")).toBe(inspector);
+    host.querySelector<HTMLButtonElement>('[aria-label="Show inspector"]')?.click();
+    expect(main.classList.contains("inspector-open")).toBe(true);
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    host.querySelector('.inspector')?.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(main.classList.contains("inspector-open")).toBe(false);
+    expect(document.activeElement).toBe(host.querySelector('[aria-label="Show inspector"]'));
+  });
+});
+
 describe("Escape in the workspace", () => {
   it("is consumed even when there is nothing to close, so the system never acts on it", async () => {
     await mountWorkspace();
@@ -129,7 +152,7 @@ describe("automatic fetch", () => {
       await flush(60);
 
       expect(fetches().map((call) => call.args.interactive)).toEqual([false]);
-      expect(chip()?.textContent).toContain("Auto-fetch paused: git fetch failed");
+      expect(chip()?.textContent).toContain("Auto-fetch paused: Auto-fetch failed: See Activity for details");
 
       vi.advanceTimersByTime(5 * 60 * 1000);
       await flush(60);
@@ -179,7 +202,7 @@ describe("a failed operation", () => {
     host.querySelector<HTMLElement>('[data-nav="branch:web-model-sort"]')?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
     await flush(40);
 
-    expect(host.querySelector('.toasts .toast[role="alert"] .toast-title')?.textContent).toBe("Checkout failed: error: pathspec did not match");
+    expect(host.querySelector('.toasts .toast[role="alert"] .toast-title')?.textContent).toBe("Checkout failed: the selected path did not match");
     expect(host.querySelector('.app > .toast, .app .toast[role="alert"]')).toBeNull();
   });
 });
@@ -476,16 +499,18 @@ describe("conflict prediction (S76)", () => {
   it("marks the checked-out branch's label and row, and its strip chip offers each file's diff and a confirmed rebase", async () => {
     const { host, calls } = await mountWorkspace(respond, diverged);
 
-    await vi.waitFor(() => expect(host.querySelector("#graph-row-0 .label .conflict-mark")?.textContent).toBe("!"));
+    await vi.waitFor(() => expect(host.querySelector("#graph-row-0 .label .conflict-mark svg")?.getAttribute("data-icon")).toBe("warning"));
     expect(calls.find((call) => call.cmd === "merge_prediction")?.args).toMatchObject({ path: "/r", ours: "feature", theirs: "origin/feature" });
     expect(host.querySelector("#graph-row-0 .label")?.getAttribute("title")).toContain("conflict with origin/feature");
     expect(host.querySelector("#graph-row-0")?.getAttribute("aria-label")).toContain("conflict");
     const branch = host.querySelector('[data-nav="branch:feature"]');
-    expect(branch?.querySelector(".conflict-mark")?.textContent).toBe("!");
+    expect(branch?.querySelector(".conflict-mark svg")?.getAttribute("data-icon")).toBe("warning");
+    expect(branch?.querySelector(".conflict-mark")?.getAttribute("aria-label")).toBe("Conflicted");
     expect(branch?.getAttribute("aria-label")).toContain("conflict with origin/feature");
 
     const chip = host.querySelector<HTMLButtonElement>(".chips .conflict-chip");
-    expect(chip?.querySelector(".st-conflicted")?.textContent?.trim()).toBe("!");
+    expect(chip?.querySelector(".st-conflicted svg")?.getAttribute("data-icon")).toBe("warning");
+    expect(chip?.querySelector(".st-conflicted")?.getAttribute("aria-label")).toBe("Conflicted");
     expect(chip?.textContent).toContain("Conflicts with origin/feature · 1 file");
     chip?.click();
     await flush();

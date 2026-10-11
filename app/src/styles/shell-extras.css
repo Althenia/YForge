@@ -78,6 +78,6 @@
 }
 
 .main.no-sidebar > .sidebar,
-.main.no-inspector > .inspector {
+.main.no-inspector > .inspector-slot {
   display: none;
 }

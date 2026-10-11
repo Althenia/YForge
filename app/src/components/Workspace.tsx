@@ -5,6 +5,7 @@ import { createEffect, createMemo, createSignal, on, onCleanup, onMount, Show } 
 import type { Geometry } from "../graph/geometry";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { failureNotice } from "../state/errorNotice";
 import { redoState, undoState } from "../state/activityModel";
 import { createStoreValue } from "../state/clientStore";
 import { AiSheetContext, createAiSheet } from "../state/aiSheet";
@@ -56,6 +57,8 @@ import { SearchBar } from "./SearchBar";
 import { Sidebar } from "./Sidebar";
 import { StateStrip } from "./StateStrip";
 import { TabBar } from "./TabBar";
+import { Icon } from "./Icon";
+import { createMinWidth } from "../state/viewport";
 
 type Panel = { kind: "worktrees" } | { kind: "recovery"; tab: RecoveryTab };
 
@@ -63,6 +66,12 @@ const MINUTE_MS = 60_000;
 
 export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready" }>; geometry: Geometry }) {
   const app = useApp();
+  const dockedInspector = createMinWidth(1024);
+  const [inspectorOpen, setInspectorOpen] = createSignal(false);
+  const closeInspector = () => {
+    setInspectorOpen(false);
+    document.querySelector<HTMLButtonElement>('.chips [aria-label="Show inspector"]')?.focus();
+  };
   const uiPrefs = createRepoUiPrefs(props.view.path, app.queryClient, (failure) => session.report(failure));
   const session = createRepoSession(props.view.path, props.view.snapshot, app.queryClient, () => uiPrefs.prefs().branch_visibility);
   onCleanup(app.showRepoNotice({ message: session.notice, dismiss: session.dismissNotice }));
@@ -118,7 +127,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   };
   createEffect(() => {
     const problem = platform.matchFailure();
-    if (problem !== undefined) session.inform(problem.message);
+    if (problem !== undefined) session.inform(failureNotice(problem.message, "Match repository"));
   });
   const popoverOf = <K extends PopoverState["kind"]>(...kinds: K[]) => {
     const state = actions.popover();
@@ -211,6 +220,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
 
   const focusGraph = () => document.querySelector<HTMLElement>(".gscroll")?.focus();
   const select = (next: Selection) => {
+    setInspectorOpen(true);
     setSelection(next);
     setDiffTarget(undefined);
   };
@@ -397,6 +407,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           actions={actions}
           online={app.online()}
           onOpenChanges={() => select({ kind: "changes" })}
+          onShowInspector={!dockedInspector() && !app.inspectorHidden() ? () => setInspectorOpen(true) : undefined}
           onRevealHead={() => revealHead(true)}
           onResolve={(file) => showDiff({ source: "working", area: "conflicted", file })}
           onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
@@ -413,7 +424,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
             });
           }}
         />
-        <div class="main" classList={{ "no-sidebar": app.sidebarHidden(), "no-inspector": app.inspectorHidden() }}>
+        <div class="main" classList={{ "no-sidebar": app.sidebarHidden(), "no-inspector": app.inspectorHidden(), minimum: !dockedInspector(), "inspector-open": inspectorOpen() }}>
           <Sidebar snapshot={session.snapshot()} actions={actions} conflictOf={conflicts.conflictOf} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} jira={jira} onSelectPull={(number) => select({ kind: "pull", number })} commitMessage={() => commitMessageOf(composer.summary(), composer.description())} />
           <div class="center">
             <Show
@@ -463,7 +474,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               )}
             </Show>
             <Show when={historyRequest()} keyed>
-              {(request) => <FileHistory session={session} request={request} prefs={diffPrefs} onClose={closeFileHistory} onSelectCommit={(sha) => select({ kind: "commit", sha })} />}
+              {(request) => <FileHistory session={session} request={request} prefs={diffPrefs} onClose={closeFileHistory} onSelectCommit={(sha) => select({ kind: "commit", sha })} onViewFile={viewFile} />}
             </Show>
             <Show when={fileTarget()} keyed>
               {(target) => <FileView session={session} target={target} onClose={closeFile} />}
@@ -477,19 +488,30 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
             </Show>
             <AiSheet sheet={aiSheet} onOpenAiSettings={() => app.openSettings("ai")} />
           </div>
-          <Inspector
-            session={session}
-            actions={actions}
-            platform={platform}
-            jira={jira}
-            composer={composer}
-            selection={selection()}
-            activeTarget={diffTarget()}
-            onOpenDiff={showDiff}
-            onViewFile={viewFile}
-            onSelectCommit={(sha) => select({ kind: "commit", sha })}
-            onCommitted={committed}
-          />
+          <div class="inspector-slot" hidden={!dockedInspector() && !inspectorOpen()} onKeyDown={(event) => {
+            if (event.key === "Escape" && !event.defaultPrevented && !dockedInspector()) {
+              event.preventDefault();
+              event.stopPropagation();
+              closeInspector();
+            }
+          }}>
+            <Inspector
+              session={session}
+              actions={actions}
+              platform={platform}
+              jira={jira}
+              composer={composer}
+              selection={selection()}
+              activeTarget={diffTarget()}
+              onOpenDiff={showDiff}
+              onViewFile={viewFile}
+              onSelectCommit={(sha) => select({ kind: "commit", sha })}
+              onCommitted={committed}
+            />
+            <Show when={!dockedInspector()}>
+              <button type="button" class="icon-btn inspector-close" aria-label="Close inspector" onClick={closeInspector}><Icon name="close" /></button>
+            </Show>
+          </div>
         </div>
         <ActivityBar info={props.view.info} root={session.snapshot().root} />
         <Show when={actions.menu()} keyed>

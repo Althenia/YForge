@@ -1,8 +1,9 @@
 import { createSignal, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { statusLetter } from "../state/changes";
+import { statusIcon, statusWord } from "../state/changes";
 import type { RepoActions } from "../state/repoActions";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
+import { Icon } from "./Icon";
 
 export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoActions }) {
   let scroller: HTMLDivElement | undefined;
@@ -45,7 +46,7 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
               <VirtualRows class="flist empty-files" items={files()} scroller={() => scroller} estimate={fileRowHeight()}>
                 {(file, row) => (
                   <li class="frow" ref={row.measure} style={row.style}>
-                    <span class={`badge st-${file.status}`}>{statusLetter[file.status]}</span>
+                    <span class={`badge st-${file.status}`} role="img" aria-label={statusWord[file.status]} title={statusWord[file.status]}><Icon name={statusIcon[file.status]} /></span>
                     <span class="path">
                       <bdi dir="ltr">{file.path}</bdi>
                     </span>

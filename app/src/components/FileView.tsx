@@ -1,13 +1,12 @@
 import { useQuery } from "../state/query";
-import DOMPurify from "dompurify";
-import { marked } from "marked";
-import { createEffect, createMemo, createSignal, For, onCleanup, Show, type JSX } from "solid-js";
+import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
 import { client } from "../ipc/client";
 import { fileLines, fileViewError, formatBytes, previewKind, type FileViewTarget } from "../state/fileView";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import { displayText } from "../state/diffHighlight";
 import { highlightLines, languageOf, loadLanguage, type LanguageId } from "../state/syntax";
+import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
 import { VirtualRows } from "./VirtualRows";
@@ -64,7 +63,7 @@ function createFileAt(session: RepoSession, target: () => { file: string; rev: s
   return { file, shown, text, lines };
 }
 
-export function FileBody(props: { session: RepoSession; file: string; rev: string }) {
+export function FileBody(props: { session: RepoSession; file: string; rev: string; fragment?: string; onOpenFile: (file: string, fragment?: string) => void }) {
   const content = createFileAt(props.session, () => ({ file: props.file, rev: props.rev }));
   const kind = () => previewKind(props.file);
   const [mode, setMode] = createSignal<"preview" | "source">(kind() === undefined ? "source" : "preview");
@@ -90,23 +89,22 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
       if (id !== undefined) void client.previewStop(id).catch(props.session.report);
     });
   });
-  const markdown = createMemo(() => {
-    const base = preview()?.url;
-    const html = marked.parse(content.text()?.text ?? "", { async: false });
-    DOMPurify.addHook("uponSanitizeAttribute", (node, attribute) => {
-      if (node.nodeName === "IMG" && attribute.attrName === "src") {
-        try {
-          const url = new URL(attribute.attrValue, base);
-          if (base === undefined || url.origin !== new URL(base).origin || !url.pathname.startsWith(new URL(base).pathname.split("/").slice(0, 2).join("/") + "/")) attribute.keepAttr = false;
-          else attribute.attrValue = url.href;
-        } catch { attribute.keepAttr = false; }
-      }
-      if (node.nodeName === "A" && attribute.attrName === "href" && !attribute.attrValue.startsWith("#")) attribute.keepAttr = false;
-    });
-    try { return DOMPurify.sanitize(html, { USE_PROFILES: { html: true }, FORBID_ATTR: ["style", "srcset"] }); }
-    finally { DOMPurify.removeHook("uponSanitizeAttribute"); }
-  });
+  const [markdown] = createResource(
+    () => kind() === "markdown" && preview() !== undefined ? { text: content.text()?.text ?? "", file: props.file, previewBase: preview()!.url } : false,
+    async (source) => {
+      try { return { html: await renderMarkdown(source.text, source), failure: undefined }; }
+      catch (error) { props.session.report(error); return { html: "", failure: fileViewError(error) }; }
+    },
+  );
   let body: HTMLDivElement | undefined;
+  createEffect(() => {
+    const hash = props.fragment;
+    if (markdown.loading || markdown()?.html === undefined || hash === undefined) return;
+    try {
+      const id = decodeURIComponent(hash);
+      [...(body?.querySelectorAll<HTMLElement>("article [id]") ?? [])].find((element) => element.id === id)?.scrollIntoView({ block: "start" });
+    } catch { return; }
+  });
   return (
     <>
     <Show when={kind() !== undefined}>
@@ -126,9 +124,12 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
       <Show when={mode() === "preview" && kind() !== undefined && content.shown() !== undefined}>
         <Show when={previewError()}>{(error) => <div class="graph-error" role="alert">{error()}</div>}</Show>
         <Show when={preview() === undefined && previewError() === undefined}><div class="empty" role="status" aria-busy="true"><span class="busy-spinner" aria-hidden="true" />Preparing preview…</div></Show>
-        <Show when={preview()}>{(session) => <div class="file-preview" classList={{ "file-preview-markdown": kind() === "markdown" }}>
+        <Show when={preview()}>{(session) => <div class="file-preview">
           <Show when={kind() === "image"}><img src={session().url} alt={props.file} /></Show>
-          <Show when={kind() === "markdown"}><article innerHTML={markdown()} /></Show>
+          <Show when={kind() === "markdown"}>
+            <Show when={markdown()?.failure}>{(failure) => <div role="alert">{failure()}</div>}</Show>
+            <article class="markdown-body markdown-file" innerHTML={markdown()?.html ?? ""} onClick={(event) => handleMarkdownClick(event, event.currentTarget, props.onOpenFile)} />
+          </Show>
           <Show when={kind() === "html"}><iframe title={`${props.file} preview`} src={session().url} sandbox="allow-scripts" referrerpolicy="no-referrer" /></Show>
         </div>}</Show>
       </Show>
@@ -147,7 +148,10 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
 }
 
 export function FileView(props: { session: RepoSession; target: FileViewTarget; onClose: () => void }) {
-  const content = createFileAt(props.session, () => props.target);
+  const [target, setTarget] = createSignal(props.target);
+  const [fragment, setFragment] = createSignal<string | undefined>(props.target.fragment);
+  createEffect(on(() => props.target, (next) => { setTarget(next); setFragment(next.fragment); }));
+  const content = createFileAt(props.session, target);
   const lines = content.lines;
 
   return (
@@ -169,10 +173,10 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
             Graph
           </button>
           <span aria-hidden="true">›</span>
-          <span>{props.target.source}</span>
+          <span>{target().source}</span>
           <span aria-hidden="true">›</span>
           <span class="path" aria-current="page">
-            {props.target.file}
+            {target().file}
           </span>
         </nav>
         <span class="spacer" />
@@ -186,14 +190,14 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
             </>
           )}
         </Show>
-        <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={() => void client.openPath(`${props.session.snapshot().root}/${props.target.file}`, "editor").catch(props.session.report)}>
+        <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={() => void client.openPath(`${props.session.snapshot().root}/${target().file}`, "editor").catch(props.session.report)}>
           <Icon name="edit" />
         </button>
         <button type="button" class="icon-btn dense" {...tip("Close file view", "Esc")} onClick={props.onClose}>
           <Icon name="close" />
         </button>
       </div>
-      <FileBody session={props.session} file={props.target.file} rev={props.target.rev} />
+      <FileBody session={props.session} file={target().file} rev={target().rev} onOpenFile={(file, hash) => { setFragment(hash); setTarget({ ...target(), file }); }} fragment={fragment()} />
     </section>
   );
 }

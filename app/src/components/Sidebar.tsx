@@ -36,10 +36,12 @@ import { GitFlowSection } from "./GitFlowSection";
 import { HooksSection } from "./HooksSection";
 import { ContextMenu } from "./ContextMenu";
 import { Icon } from "./Icon";
+import { statusIcon, statusWord } from "../state/changes";
 import { PullBadge } from "./PullBadge";
 import type { Conflict } from "../state/conflicts";
 import { tip } from "./Tooltip";
 import { listRowHeight, VirtualRows, type VirtualRow } from "./VirtualRows";
+import { createMinWidth } from "../state/viewport";
 
 const RECOVERY_ROWS: ReadonlyArray<{ panel: PanelRequest; title: string; label: string; note: string }> = [
   { panel: "reflog", title: "Reflog", label: "Reflog", note: "HEAD and branch history, restorable" },
@@ -52,7 +54,7 @@ const anchorOf = (element: HTMLElement): Anchor => {
   return { left: rect.left + 24, top: rect.bottom };
 };
 
-const indent = (depth: number, base = 14): string => `${base + depth * 14}px`;
+const indent = (depth: number, base = 12): string => `${base + depth * 12}px`;
 
 const branchCount = (count: number): string => `${count} ${count === 1 ? "branch" : "branches"}`;
 
@@ -83,6 +85,13 @@ export function Sidebar(props: {
   commitMessage?: () => string;
 }) {
   const snapshot = () => props.snapshot;
+  const docked = createMinWidth(1280);
+  const [expanded, setExpanded] = createSignal(false);
+  let railOpener: HTMLButtonElement | undefined;
+  const closeSidebar = () => {
+    setExpanded(false);
+    railOpener?.focus();
+  };
   const collapsedFolders = createMemo((): ReadonlySet<string> => new Set(props.uiPrefs.prefs().collapsed_folders));
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const [worktreeMenu, setWorktreeMenu] = createSignal<MenuState | undefined>();
@@ -442,7 +451,7 @@ export function Sidebar(props: {
           <Icon name="chevron" size={14} />
         </span>
         <span class="name">{row.name}</span>
-        <span class="meta">{branchCount(row.count)}</span>
+        <Show when={isChosen(row.id)}><span class="meta">{branchCount(row.count)}</span></Show>
       </div>
     );
   }
@@ -538,8 +547,8 @@ export function Sidebar(props: {
         <span class="name">{row.label}</span>
         <Show when={pullOfLocal(props.platform?.pullLookup(), row.path)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(row.path)}>
-          <span class="st st-conflicted conflict-mark" aria-hidden="true">
-            !
+          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+            <Icon name={statusIcon.conflicted} />
           </span>
         </Show>
         <Show when={props.jira}>{(jira) => <IssueChips keys={jira().chips.keysFor(row.path)} lookup={jira().chips.lookup} />}</Show>
@@ -584,8 +593,8 @@ export function Sidebar(props: {
         <span class="name">{row.label}</span>
         <Show when={pullOfRemote(props.platform?.pullLookup(), `${remote}/${row.path}`)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(`${remote}/${row.path}`)}>
-          <span class="st st-conflicted conflict-mark" aria-hidden="true">
-            !
+          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+            <Icon name={statusIcon.conflicted} />
           </span>
         </Show>
       </NavRow>
@@ -593,7 +602,35 @@ export function Sidebar(props: {
   };
 
   return (
-    <aside class="panel sidebar" aria-label="Repository" onKeyDown={onKeyDown}>
+    <aside class="panel sidebar" classList={{ compact: !docked(), expanded: !docked() && expanded() }} aria-label="Repository" onKeyDown={(event) => {
+      if (event.key === "Escape" && !event.defaultPrevented && !docked() && expanded()) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeSidebar();
+      } else onKeyDown(event);
+    }}>
+      <Show when={!docked()}>
+          <nav class="sidebar-rail" aria-label="Repository sections" hidden={expanded()}>
+            <For each={[
+              { title: "Branches", icon: "branch" }, { title: "Remotes", icon: "remote" },
+              { title: "Worktrees", icon: "worktree" }, { title: "Tags", icon: "tag" },
+              { title: "Stashes", icon: "stash" }, { title: "Recovery", icon: "history" },
+            ] as const}>
+              {(section) => <button type="button" class="icon-btn" {...tip(`Show ${section.title}`)} onClick={(event) => {
+                railOpener = event.currentTarget;
+                setExpanded(true);
+                queueMicrotask(() => {
+                  const target = body?.querySelector<HTMLElement>(`section[aria-label="${section.title}"] .sec-title`);
+                  target?.focus();
+                  target?.scrollIntoView({ block: "nearest" });
+                });
+              }}><Icon name={section.icon} /></button>}
+            </For>
+          </nav>
+        <Show when={expanded()}>
+          <button type="button" class="icon-btn sidebar-close" {...tip("Close repository sidebar")} onClick={closeSidebar}><Icon name="close" /></button>
+        </Show>
+      </Show>
       <label class="input sfilter">
         <Icon name="search" size={14} />
         <input
@@ -947,7 +984,7 @@ export function Sidebar(props: {
                 tabindex="0"
                 aria-label={entry.label}
                 title={entry.note}
-                style={{ "padding-left": `${6 + 14}px` }}
+                style={{ "padding-left": indent(1, 6) }}
                 onClick={() => props.onOpenPanel(entry.panel)}
                 onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}
               >

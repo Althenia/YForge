@@ -17,7 +17,8 @@ let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 
 beforeEach(() => {
-  restoreLayout = stubScrollLayout({ viewport: 600, row: 28, total: 20_000 });
+  restoreLayout = stubScrollLayout({ viewport: 600, row: 32, total: 20_000 });
+  vi.stubGlobal("innerWidth", 1440);
 });
 
 afterEach(async () => {
@@ -77,6 +78,37 @@ const names = (host: ParentNode) => [...host.querySelectorAll('[data-nav]')].map
 const folder = (host: ParentNode, label: string) => host.querySelector<HTMLElement>(`[aria-label^="${label}"]`) as HTMLElement;
 
 describe("sidebar branch tree", () => {
+  it("uses named object glyphs in the compact rail and opens and closes the same sidebar", async () => {
+    vi.stubGlobal("innerWidth", 960);
+    Element.prototype.scrollIntoView = () => undefined;
+    const { host } = mount();
+    const sidebar = host.querySelector(".sidebar")!;
+    expect(sidebar.classList.contains("compact")).toBe(true);
+    const branches = host.querySelector<HTMLButtonElement>('.sidebar-rail [aria-label="Show Branches"]');
+    expect(branches?.querySelector("svg")?.getAttribute("data-icon")).toBe("branch");
+    branches?.click();
+    await flush();
+    expect(sidebar.classList.contains("expanded")).toBe(true);
+    host.querySelector<HTMLButtonElement>('[aria-label="Close repository sidebar"]')?.click();
+    expect(sidebar.classList.contains("expanded")).toBe(false);
+    expect(document.activeElement).toBe(branches);
+    branches?.click();
+    await flush();
+    const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    host.querySelector('.sec-title')?.dispatchEvent(escape);
+    expect(escape.defaultPrevented).toBe(true);
+    expect(sidebar.classList.contains("expanded")).toBe(false);
+    expect(document.activeElement).toBe(branches);
+  });
+  it("omits repeated folder counts until selected while retaining them in accessible names", async () => {
+    const { host } = mount();
+    const row = folder(host, "Remote origin,");
+    expect(row.getAttribute("aria-label")).toContain("2 branches");
+    expect(row.querySelector(".meta")).toBeNull();
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
+    await flush();
+    expect(row.querySelector(".meta")?.textContent).toBe("2 branches");
+  });
   it("groups slash-separated branch names into folders with their branch counts", () => {
     const { host } = mount();
 
@@ -790,7 +822,7 @@ describe("sidebar with thousands of refs", () => {
     const { host, calls } = mount(undefined, many);
     await flush(60);
     click(row(host, "branch:b-0000"));
-    (host.querySelector(".sidebar-body") as HTMLElement).scrollTop = TOTAL * 28;
+    (host.querySelector(".sidebar-body") as HTMLElement).scrollTop = TOTAL * 32;
     await flush(80);
     await flush(80);
 

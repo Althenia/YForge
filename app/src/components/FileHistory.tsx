@@ -11,7 +11,7 @@ import { diffModes, type DiffTarget } from "../state/diffModel";
 import type { DiffPrefs } from "../state/diffPrefs";
 import { blameRows, createFileHistory, historyViews, revertedNotice, revertReason, type FileHistoryState } from "../state/fileHistory";
 import type { FileHistoryRequest } from "../state/fileHistoryRequest";
-import { fileViewError } from "../state/fileView";
+import { fileViewError, type FileViewTarget } from "../state/fileView";
 import { useQuery } from "../state/query";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
@@ -99,13 +99,13 @@ function HistoryDiff(props: { session: RepoSession; state: FileHistoryState; rev
   );
 }
 
-function HistoryFile(props: { session: RepoSession; state: FileHistoryState; revision: () => FileRevision }) {
+function HistoryFile(props: { session: RepoSession; state: FileHistoryState; revision: () => FileRevision; onViewFile: (target: FileViewTarget) => void }) {
   return (
     <div class="hpane">
       <div class="dtool" role="toolbar" aria-label="History options">
         <ViewSwitch state={props.state} />
       </div>
-      <FileBody session={props.session} file={props.revision().path} rev={props.revision().sha} />
+      <FileBody session={props.session} file={props.revision().path} rev={props.revision().sha} onOpenFile={(file, fragment) => props.onViewFile({ file, rev: props.revision().sha, source: props.revision().short, fragment })} />
     </div>
   );
 }
@@ -162,7 +162,7 @@ function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; re
   );
 }
 
-export function FileHistory(props: { session: RepoSession; request: FileHistoryRequest; prefs: DiffPrefs; onClose: () => void; onSelectCommit: (sha: string) => void }) {
+export function FileHistory(props: { session: RepoSession; request: FileHistoryRequest; prefs: DiffPrefs; onClose: () => void; onSelectCommit: (sha: string) => void; onViewFile: (target: FileViewTarget) => void }) {
   const state = createFileHistory(props.session, props.request);
   const now = useNow();
   let list: HTMLDivElement | undefined;
@@ -267,7 +267,7 @@ export function FileHistory(props: { session: RepoSession; request: FileHistoryR
               <HistoryDiff session={props.session} state={state} revision={() => state.selected() as FileRevision} prefs={props.prefs} />
             </Show>
             <Show when={state.view() === "file"}>
-              <HistoryFile session={props.session} state={state} revision={() => state.selected() as FileRevision} />
+              <HistoryFile session={props.session} state={state} revision={() => state.selected() as FileRevision} onViewFile={props.onViewFile} />
             </Show>
             <Show when={state.view() === "blame"}>
               <HistoryBlame session={props.session} state={state} revision={() => state.selected() as FileRevision} onPick={pickBlame} />

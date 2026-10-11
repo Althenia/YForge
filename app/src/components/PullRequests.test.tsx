@@ -1,6 +1,8 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { AiFeature } from "../ipc/bindings/AiFeature";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import type { PrDetail } from "../ipc/bindings/PrDetail";
@@ -14,6 +16,15 @@ import { aiFeatureList, buttonNamed, choose, flush, mountWithApp, stubLayout, ty
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
+let stylesheet: HTMLStyleElement;
+
+beforeAll(() => {
+  stylesheet = document.createElement("style");
+  stylesheet.textContent = ["tokens.css", "app.css"].map((name) => readFileSync(resolve(import.meta.dirname, "../styles", name), "utf8")).join("\n");
+  document.head.append(stylesheet);
+});
+
+afterAll(() => stylesheet.remove());
 
 class ResizeObserverStub {
   observe = () => undefined;
@@ -238,11 +249,25 @@ describe("pull request detail", () => {
     expect(panel.textContent).toContain("Updated");
     const files = [...panel.querySelectorAll(".flist .frow")].map((item) => item.getAttribute("aria-label"));
     expect(files).toEqual(["Added src/retry.ts", "Modified src/app.ts", "Deleted old.ts"]);
+    expect([...panel.querySelectorAll(".flist .badge")].map((badge) => [badge.getAttribute("aria-label"), badge.getAttribute("title"), badge.querySelector("svg")?.getAttribute("data-icon"), badge.textContent])).toEqual([["Added", "Added", "plus", ""], ["Modified", "Modified", "edit", ""], ["Deleted", "Deleted", "minus", ""]]);
     expect(panel.querySelector('.flist .frow[aria-label="Modified src/app.ts"] .delta')?.textContent).toBe("+3 −4");
     expect(panel.querySelector('section[aria-label="Files"] .lhead .delta')?.textContent).toBe("+23 −13");
     expect(row(host, 7).getAttribute("aria-current")).toBe("true");
     expect(panel.querySelector('section[aria-label="Files"] .lhead-title')?.textContent).toContain("Files · 3");
     expect(panel.querySelector('section[aria-label="Files"] .field-note')).toBeNull();
+    const body = panel.querySelector(".cbody")!;
+    const style = getComputedStyle(body);
+    expect(style.whiteSpace).toBe("pre-wrap");
+    expect(style.overflowWrap).toBe("anywhere");
+    expect(style.color).toBe("var(--colors-text-muted)");
+    expect(style.font).toBe("var(--font-ui-body)");
+    expect(style.cursor).toBe("var(--cursors-text)");
+    const rules = [...stylesheet.sheet!.cssRules];
+    const bodyRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ".cbody");
+    const rootRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ":root");
+    expect(bodyRule?.style.getPropertyValue("margin")).toBe("0 var(--spacing-2) var(--spacing-2)");
+    expect(bodyRule?.style.getPropertyValue("padding")).toBe("0 var(--spacing-2)");
+    expect(rootRule?.style.getPropertyValue("--spacing-2")).toBe("8px");
   });
 
   describe("files beyond the loaded page (S44)", () => {
@@ -373,6 +398,7 @@ describe("compose pull request (S77)", () => {
     await openCompose({ respond: (call) => (call.cmd === "merge_prediction" ? { merge_base: comparison.merge_base, conflicted_files: ["a.txt"] } : undefined) });
 
     expect(compose()?.querySelector(".compose-conflict")?.textContent).toContain("Conflicts with origin/main · 1 file");
+    expect(compose()?.querySelector('.compose-conflict [aria-label="Conflicted"] svg')?.getAttribute("data-icon")).toBe("warning");
   });
 
   it("disables Create with a visible reason while the comparison is read or the title is empty, and requires a different target", async () => {

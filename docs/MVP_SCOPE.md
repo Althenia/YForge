@@ -79,7 +79,7 @@ The decision for each candidate follows its workflow dependency.
    - Reveal HEAD.
 5. **Search:** message, SHA, author; dims non-matches, with N of M navigation.
 6. **Changes inspector**
-   - Unstaged, staged, untracked, and conflicted files, with status letters.
+   - Unstaged, staged, untracked, and conflicted files, with named status icons.
    - Stage, unstage, and discard at file, hunk, and line level.
    - Stage all.
    - Commit composer with a 72-character guide, amend (with a pushed warning), and split Commit / Commit & Push.

@@ -182,7 +182,7 @@ export function createCommitAction(deps: {
     try {
       await deps.push();
     } catch (failure) {
-      session.report(failure);
+      session.report(failure, "Push");
     }
   }
 

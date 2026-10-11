@@ -67,11 +67,11 @@ describe("empty repository file list", () => {
     await flush();
     expect(button?.disabled).toBe(false);
   });
-  it("lists a handful of untracked files with their status letters", async () => {
+  it("lists a handful of untracked files with named status icons", async () => {
     const { host, paths } = await mount(3);
 
     expect(paths()).toEqual(["src/file-0.ts", "src/file-1.ts", "src/file-2.ts"]);
-    expect([...host.querySelectorAll(".empty-files .badge")].map((badge) => badge.textContent)).toEqual(["U", "U", "U"]);
+    expect([...host.querySelectorAll(".empty-files .badge")].map((badge) => [badge.getAttribute("aria-label"), badge.getAttribute("title"), badge.querySelector("svg")?.getAttribute("data-icon"), badge.textContent])).toEqual(Array.from({ length: 3 }, () => ["Untracked", "Untracked", "untracked", ""]));
     expect(host.querySelector("h3")?.textContent).toBe("Files · 3");
     expect(host.querySelector<HTMLElement>(".empty-repo-list")?.tabIndex).toBe(0);
   });

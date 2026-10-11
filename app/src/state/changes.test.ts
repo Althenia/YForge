@@ -19,9 +19,9 @@ import {
   selectedFiles,
   selectionMenuEntries,
   stagedFileCount,
-  statusLetter,
   toggleSelected,
 } from "./changes";
+import * as changes from "./changes";
 
 const file = (path: string, area: FileChange["area"]): FileChange => ({ path, original_path: null, area, status: "modified" });
 
@@ -30,17 +30,18 @@ describe("changes helpers", () => {
     expect(changeTotal({ modified: 1, added: 2, deleted: 3, renamed: 4, untracked: 5, conflicted: 6 })).toBe(21);
   });
 
-  it("maps every status to the letter the design pairs with its color", () => {
-    expect(statusLetter).toEqual({
-      modified: "M",
-      added: "A",
-      deleted: "D",
-      renamed: "R",
-      copied: "C",
-      type_changed: "T",
-      untracked: "U",
-      conflicted: "!",
+  it("maps every file status to its approved icon with no letter mapping", () => {
+    expect(changes).toHaveProperty("statusIcon", {
+      modified: "edit",
+      added: "plus",
+      deleted: "minus",
+      renamed: "renamed",
+      copied: "copy",
+      type_changed: "type_changed",
+      untracked: "untracked",
+      conflicted: "warning",
     });
+    expect(changes).not.toHaveProperty("statusLetter");
   });
 
   it("filters files by area", () => {

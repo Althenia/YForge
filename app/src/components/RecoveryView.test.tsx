@@ -301,7 +301,7 @@ describe("recovery view", () => {
       expect(host.textContent).toContain("No snapshots yet. YForge saves one before it discards, hard-resets, rewrites history, drops a stash, or deletes a branch.");
     });
 
-    it("shows the files of a snapshot with status letters and restores the checked ones", async () => {
+    it("shows the files of a snapshot with named status icons and restores the checked ones", async () => {
       const { host } = mount({ ...withSnapshots, snapshot_restore_files: () => "refs/yforge/snapshots/300-restore_files" }, { tab: "snapshots" });
       await flush(40);
 
@@ -310,7 +310,7 @@ describe("recovery view", () => {
 
       expect(calls.find((call) => call.cmd === "snapshot_files")?.args).toEqual({ path: "/r", reference: first.ref });
       const files = rows(host, "Snapshot files");
-      expect(files.map((row) => [row.querySelector(".badge")?.textContent, row.querySelector(".path-line")?.textContent])).toEqual([["M", "src/a.ts"], ["A", "notes.txt"]]);
+      expect(files.map((row) => [row.querySelector(".badge")?.getAttribute("aria-label"), row.querySelector(".badge svg")?.getAttribute("data-icon"), row.querySelector(".badge")?.textContent, row.querySelector(".path-line")?.textContent])).toEqual([["Modified", "edit", "", "src/a.ts"], ["Added", "plus", "", "notes.txt"]]);
       const restore = buttonNamed(host, "Restore selected files") as HTMLButtonElement;
       expect(restore.disabled).toBe(true);
       const box = host.querySelector<HTMLInputElement>('input[aria-label="Restore src/a.ts"]') as HTMLInputElement;

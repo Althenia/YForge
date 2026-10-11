@@ -37,6 +37,7 @@ import { createMinWidth, GRAPH_COLUMNS_MIN_WIDTH } from "../state/viewport";
 import { ColumnResizer } from "./ColumnResizer";
 import { GraphSettings } from "./GraphSettings";
 import { Icon } from "./Icon";
+import { statusIcon, statusWord } from "../state/changes";
 import { PendingLine } from "./PendingLine";
 import { PullBadge } from "./PullBadge";
 import { RefLabel } from "./RefLabel";
@@ -447,8 +448,8 @@ export function GraphPanel(props: {
     <>
       <Show when={pullOfGroup(props.pulls, group)}>{(pull) => <PullBadge path={props.path} pull={pull()} onOpen={(number) => props.onSelect({ kind: "pull", number })} />}</Show>
       <Show when={conflictOfGroup(group)}>
-        <span class="st st-conflicted conflict-mark" aria-hidden="true">
-          !
+        <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+          <Icon name={statusIcon.conflicted} />
         </span>
       </Show>
     </>

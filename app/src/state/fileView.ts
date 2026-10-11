@@ -1,7 +1,7 @@
 import { IpcError } from "../ipc/client";
 import type { DiffTarget } from "./diffModel";
 
-export type FileViewTarget = { file: string; rev: string; source: string };
+export type FileViewTarget = { file: string; rev: string; source: string; fragment?: string };
 
 export function previewKind(file: string): "image" | "markdown" | "html" | undefined {
   const extension = file.split(".").at(-1)?.toLowerCase();

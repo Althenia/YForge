@@ -1,15 +1,24 @@
 # Component Specs (core set)
 
 - **Status:** approved 2026-09-29; revised the same day for Rail graph styling, and on 2026-10-03 for the solid charcoal surfaces with no aurora (S14).
-- **Rules revision:** `DESIGN.md` + `app/DESIGN.md`, alpha, 2026-10-03 (S14 charcoal surfaces, Rail).
+- **Rules revision:** `DESIGN.md` + `app/DESIGN.md`, alpha, 2026-10-11 (owner-approved Strata S65 scale; graph unchanged).
 - **Token names:** from [../../app/DESIGN.md](../../app/DESIGN.md).
 - **Other components:** use the token defaults in the design system until they get specs (see its Components registry).
 
 ---
 
+## Strata chrome and reading scale
+
+- **Approval:** Owner-approved 2026-10-11, S65; retain all graph colors, type, geometry, and expanding-column rules.
+- **Reading:** `ui-body` 15px, `title` 18px/600/1.4, `ui-strong` 14px/22/600 for commit summaries in `text` ink; Markdown follows `ui-body`.
+- **Panels:** Desktop 260px sidebar and 380px inspector; medium 220px/340px; 8px gaps, 10px radii, opaque existing role colors, no panel shadow. Headers use `controls.panel-header` 40px and 16px inline insets with 13px/600 section labels.
+- **Sidebar:** `controls.row-list` 32px in rows and virtual estimates; 36px section headers, 12px section gaps, minimum 24×20px field-backed count pills; 12px tree indent with 4px guide clearance. Retain counts in accessible names; omit repeated unselected folder counts. Compact uses a 48px owned object-glyph rail opening the same sidebar as an elevated overlay, with Close and Escape returning focus to the opener.
+- **Inspector:** 16px reading insets, 13px metadata, `controls.row-detail` 28px minimum rows, 24px author badges outside the graph. At minimum width use a 380px overlay, initially closed; selection or Inspector opens it, Close or Escape returns focus to Inspector without losing content.
+- **Launchpad:** Top-aligned with 20px top inset; `controls.row-repository` 42px minimum rows, 14px table text, 32px action buttons. Preserve real content and allow multiline rows to grow rather than clip.
+
 ## State strip (with operation banner)
 
-- **Purpose and non-goals:** Answers the seven orientation questions in one 36px row of chips; it hosts operation controls while Git is mid-operation. It is not a notification area and not a toolbar.
+- **Purpose and non-goals:** Answers the seven orientation questions in one 44px row of 32px worded chips; it hosts operation controls while Git is mid-operation. It is not a notification area and not a toolbar.
 - **Anatomy:**
 
   | Part | Token(s) |
@@ -18,13 +27,14 @@
   | Chip group | One pill (`chip` surface) of three flat segment buttons that gain `material.control-hover` at hover: HEAD, branch and upstream, ahead and behind |
   | HEAD segment | `head-junction` glyph (a 12px lane disc inside a 1.5px ring, 2px clear of the disc) + "HEAD" + ref in `ref` role, `text`; detached reads "HEAD detached at 1a2b3c4" with the warning glyph in `attention-ink`. Click reveals HEAD in the graph (⌘⇧H) |
   | Branch segment | "→" + upstream in `ref` role, or "no upstream". Click opens the branch menu: every local branch (the checked-out one marked with the check glyph and disabled with its reason), then Set upstream… and, when one exists, Unset upstream |
-  | Sync segment | ↑ ahead in `status-added` ink, ↓ behind in `text-muted`; tabular figures; diverged adds the word "diverged"; "—" with a tooltip when unknown. Click opens the Pull menu. When the branch has diverged, Push is disabled and the strip shows a notice naming the remote commits a force push with lease would replace, with the action Force push with lease |
-  | Changes chip | `changes` glyph (16px, 6px gap) + "Changes" + status letters in `status-*` inks (S15: icon and label) |
+  | Sync segment | ↑ N ahead in `status-added` ink, ↓ N behind in `text-muted`, followed by "· Pull"; tabular figures; diverged adds the word "diverged"; "—" with a tooltip when unknown. Click opens the Pull menu. Divergence alone does not disable Push: pressing Push opens the existing force-push-with-lease confirmation directly, listing the remote commits to replace and the lease, with Cancel as default focus and a danger confirm. Cancel changes nothing; confirm runs the force push. No diverged strip notice |
+  | Changes chip | `changes` glyph (16px, 6px gap) + "Changes" + named status icons and counts in `status-*` inks from the shared S3 mapping (S15: icon and label) |
   | Remote freshness chip | A button. `chip-success` (accent-tint / accent-ink) with the check glyph while fresh; the warning state uses `attention-ink` + warning icon. Click fetches now; disabled with its reason while offline, syncing, or mid-operation |
   | Offline chip | `chip-attention` with the warning glyph and the word "Offline"; while it shows, Fetch, Pull, Push, and Push to… are disabled with the reason "You are offline" |
   | Auth failure | `chip-danger` "auth failed for <remote>", the hint, then text-labelled Fix (settings glyph; opens the SSH key setting for an SSH remote, the repository's remotes otherwise), Retry, and Dismiss |
   | Detached action | Beside the chip group while HEAD is detached: a `btn sm` with the `branch` glyph and the text "Create branch here". It opens the Create branch form at the detached commit, checked out on submit (name, Enter) |
-  | Strip notice | A `chip-attention` chip with the outcome in text, an optional `hint-text` detail, text-labelled `btn sm` actions, and a dismiss icon button unless the notice must stay. Used for "Your changes were stashed and restored", "Your changes are kept in stash@{n}" (Apply, Pop), "Restore the changes stashed when you left <branch>?" (Restore, Keep in stash), and "This branch has diverged" (detail names the remote commits, action Force push with lease, no dismiss). Inside the operation banner it is plain text |
+  | Strip notice | A `chip-attention` chip with the outcome in text, an optional `hint-text` detail, text-labelled `btn sm` actions, and a dismiss icon button unless the notice must stay. Used for "Your changes were stashed and restored", "Your changes are kept in stash@{n}" (Apply, Pop), and "Restore the changes stashed when you left <branch>?" (Restore, Keep in stash). Inside the operation banner it is plain text |
+  | Operation pill | Running operations show their stage, progress, and Cancel while cancellable. Successful Push and Force push clear the pill with no result chip; all other result chips, including fetch ("1 new commit on origin/main · Pull"), pull, publish, and push-to, stay unchanged. Failures follow S66 |
   | Worktrees chip | A button: worktree glyph + count, then "· N with changes", pushed to the end. It opens a popover list: branch in `ref` role, path truncated from the left, and text flags (current, changes, locked, missing) |
   | Operation banner (replaces all chips) | `banner-operation` (attention-tint / attention-ink, ui-strong, pill, `controls.banner`, 1px inset attention at 35%) + buttons at `controls.height-dense`: Resolve `button-primary`, Continue and Skip `button-secondary`, Abort `button-danger`; these keep a text label (S15) |
 
@@ -39,9 +49,9 @@
   - unknown ahead/behind → "—" with a tooltip ("Fetch to compare");
   - long branch names → truncate the middle, keeping the prefix and tail.
 - **Responsive behavior:**
-  - Below 1280, freshness collapses to an icon, and the Worktrees segment collapses to its count.
+  - Chips retain their words and intrinsic widths; the strip scrolls horizontally when they do not fit.
   - Operation buttons never collapse.
-  - Strip notices keep their text and actions; the detail line truncates first.
+  - Strip notices keep their text and actions in the strip's scroll region.
 - **Motion:** The banner appears with `panel-reveal`; under reduced motion it appears instantly.
 - **Accessibility contract:**
   - `role="status"` region for segment updates, announced politely.
@@ -133,7 +143,7 @@
 - **Purpose:** One file in the Changes, commit, or stash file lists.
 - **Anatomy:**
   - Row: `file-row` (`controls.row-file`, `rounded.md`, `code` role), 8px inset.
-  - Status badge: a 20px `rounded.md` tile with a white 5% fill (dark) and the status letter in `status-*` ink (`ref` role).
+  - Status badge: a 20px `rounded.md` tile with a white 5% fill (dark) and the shared S3 status icon in `status-*` ink; its accessible name and tooltip give the status word.
   - Path: the directory in `text-muted`, the name in `text`, truncated from the left.
   - Rename shown as "old → new".
   - Row actions (S15, icon only, 16px glyph in a `controls.height-dense` square, each with an `aria-label` and a tooltip that names the action and its shortcut): Open diff (`diff`, ↵), Open in editor (`edit`), Stage or Unstage (`plus` or `minus`, S or U), More (`more`). Discard is in the More menu as a text item with a leading `trash` glyph, because destructive actions keep their label. Conflicted rows show Resolve (`merge`) and Mark resolved (`check`). The actions follow S7: visible on hover, focus, or selection.
@@ -184,6 +194,7 @@
 ## Commit inspector actions
 
 - **Purpose:** Carry the common commit verbs in the header of the commit inspector as compact icon controls, so a selected commit needs no context menu (Flow C).
+- **Message:** Summary uses `ui-strong` in `text` ink, not `title`. Body uses the shared sanitized GitHub-flavored Markdown renderer (`app/src/state/markdown.ts`), `ui-body` in `text` ink, paragraph spacing, and the S17 text cursor; a 1px `rule` separates the message from the actions. The renderer follows S67: collapsed highlighted YAML front matter, tables, read-only task lists, strikethrough, autolinks, anchored h1–h6 headings and in-page scrolling, highlighted fenced code, word-titled GitHub alerts, footnotes, and token-styled quotes, rules, nested lists, and inline code. Relative repository-file links open the file at the same revision; external URLs are non-navigable text with URL tooltips; raw HTML is sanitized.
 - **Anatomy:** a row of four `icon-btn dense` icon-only controls under the header text, 4px apart: Branch here (`branch` glyph), Cherry-pick (`cherry` glyph), Revert (`undo` glyph), and Reset (`reset` glyph). Each carries an `aria-label` naming the action and its target ("Branch here", "Reset main to here") and a tooltip naming the action in full ("Cherry-pick 1a2b3c4 onto main", "Reset main to 1a2b3c4"); no text is shown in the control.
 - **States:** enablement and disabled reasons are those of the commit context menu: Cherry-pick and Revert are `aria-disabled` on a merge commit ("A merge commit needs a parent choice, which is not available yet"); Cherry-pick, Revert, and Reset are `aria-disabled` while an operation is in progress ("Finish or abort the rebase first"), with the reason as tooltip.
 - **Interaction:** Branch here opens the Create branch form at that commit (button, name, Enter). Cherry-pick and Revert run at once. Reset opens the Soft, Mixed, Hard menu below the button, then the same confirmation as the context menu.
@@ -273,7 +284,7 @@ Rule S25. A dialog titled "Squash N commits" lists the commits to combine oldest
 
 Specimen 18, rules S24 and S25. A center panel with a toolbar (Base select defaulting to the upstream, "n of m changes assigned", Propose with AI while that feature is available (S34), Restore my grouping), the pushed warning, and two columns.
 
-- **Changes (left):** file rows with a drag handle, expand chevron (S23 pattern), status letter, left-truncated mono path, an assignment chip (Unassigned in `attention`, Commit N in `accent`, Split when a file or hunk is divided), and an assign button that opens a menu of the commits. Expanding a file lists its hunks (label, +added −removed, chip, assign); expanding a hunk lists its changed lines as checkboxes (S18 pattern) with "Assign n selected lines…". A binary or hunkless file is one whole-file unit.
+- **Changes (left):** file rows with a drag handle, expand chevron (S23 pattern), named S3 status icon, left-truncated mono path, an assignment chip (Unassigned in `attention`, Commit N in `accent`, Split when a file or hunk is divided), and an assign button that opens a menu of the commits. Expanding a file lists its hunks (label, +added −removed, chip, assign); expanding a hunk lists its changed lines as checkboxes (S18 pattern) with "Assign n selected lines…". A binary or hunkless file is one whole-file unit.
 - **New commits (right):** oldest first. Each card has "Commit N", Move earlier, Move later, and Remove icon buttons, a message textarea, and the assigned files with their scope ("whole file", "1 of 2 hunks", "3 lines") and counts. A card under a dragged row takes the `accent-tint` fill and a 2px `accent` inset. "Add commit" appends a card.
 - **Keys:** on a focused row 1–9 assign to that commit and 0 unassigns.
 - **Footer:** "Recompose N commits" (primary) disabled until every change is assigned exactly once and every message is filled, with the first blocking reason in text.
@@ -332,7 +343,7 @@ Specimens 23 and 24, rule S27. A center panel with the header "Recovery" and "Ba
 - **Tabs:** the `segmented` control with `role="tablist"`: Reflog, Lost commits, Snapshots, each with its glyph (`history`, `search`, `stash`).
 - **Reflog:** a Reference select (HEAD, then each branch), and rows of the action chip, mono short SHA, summary, mono selector, relative age (absolute time as tooltip), and three icon buttons (Restore as branch, Check out detached, Reset the current branch). A pruned commit reads "Commit no longer exists" in muted ink with the buttons disabled and the reason as tooltip. Pages of 50 load with "Show older".
 - **Lost commits:** a primary "Scan for lost commits"; while it runs, the status "Scanning with git fsck…" and "Cancel scan". Rows match the reflog rows; a stash-shaped commit carries a "Dropped stash" chip. Empty and cancelled scans say so in text.
-- **Snapshots:** rows are buttons (`aria-expanded`) with the action in `ui-strong`, the description, a file-count chip, the branch, and the age. The open row takes the selection fill and the accent bar and lists its files (checkbox, status letter, left-truncated path) with "Restore selected files", "Restore everything…", and a danger "Delete snapshot…". A restore shows the ref of the safety snapshot in a status note.
+- **Snapshots:** rows are buttons (`aria-expanded`) with the action in `ui-strong`, the description, a file-count chip, the branch, and the age. The open row takes the selection fill and the accent bar and lists its files (checkbox, named S3 status icon, left-truncated path) with "Restore selected files", "Restore everything…", and a danger "Delete snapshot…". A restore shows the ref of the safety snapshot in a status note.
 - **Restore controls:** Restore as branch opens a popover with a free suggested name; Reset opens the Soft, Mixed, Hard menu; a hard reset, a detached checkout, Restore everything, and Delete snapshot confirm with text-labelled buttons.
 
 ## File view
@@ -358,7 +369,7 @@ Specimen 26, rule S31 (proposal).
 - **Sidebar section:** the section header with the `pullrequest` glyph, "Pull requests", the count, and a plus icon button "New pull request". The section exists only while a connection matches one of the repository's remotes.
 - **Row:** a two-line `srow`: `#number` (mono, muted) and the title, then the author and mono `source → target` in `ui-small` muted; a state chip on the first line (`chip-success` Open with `pullrequest`, plain Merged with `merge`, `chip-danger` Closed with `close`); Open in browser and Merge as 24px icon buttons overlaying the second line on hover, focus, and selection, with Merge `aria-disabled` and its reason unless the pull request is open; the row menu (⇧F10) offers the same two actions. The selected row uses the selection fill and the 2px accent bar.
 - **States:** "No open pull requests" when the list is empty; the platform's error in `danger-ink` with "Edit connection" for a rejected token; "Show merged and closed" and "Show open only" toggle the list between open and all.
-- **Inspector:** the commit inspector frame. The header shows `#number title`, the state chip, the author, and the text buttons Open in browser and Merge…; the body shows the description, the meta rows (Branches, Author, Created and Updated as absolute time with relative age, Mergeable in words or "—" with a tooltip, Address in mono), and Files with the status letter, left-truncated path, and +/- counts, with the totals in the section header.
+- **Inspector:** the commit inspector frame. The header shows `#number title`, the state chip, the author, and the text buttons Open in browser and Merge…; the body shows the description, the meta rows (Branches, Author, Created and Updated as absolute time with relative age, Mergeable in words or "—" with a tooltip, Address in mono), and Files with the named S3 status icon, left-truncated path, and +/- counts, with the totals in the section header.
 - **Compose view (S77):** a center view of the workspace that replaces the create dialog: the platform and repository line; Source branch and Target branch owned Selects (defaults: the current branch and the remote's main); the comparison summary (commits, files, +/− lines) with a read-only commit list; the conflict prediction for source → target (S76), "No conflicts with <target>" with a check glyph or the conflicted files with Rebase; Title (defaults to the HEAD subject); the owned TextArea Description prefilled with the repository's pull request template; a Draft switch; the AI Generate wand with its disclosure note (S78); Cancel; and the primary "Create pull request", disabled with a visible reason while the title is empty or the comparison is being read. A warning-glyph note says when the source is not on the remote and that creating pushes it first; creating then shows "Pushing <branch> to <remote>…" and "Creating pull request…". Success returns to the graph, shows the branch's pull request badge (S75), and raises the toast "Created pull request #<n>" whose Show opens the inspector.
 - **Merge confirmation:** an `alertdialog` titled "Merge pull request #<n>?" with the pull request title, the sentence that names both branches and the platform and says the merge happens on the server and cannot be undone from YForge, and the sentence that YForge then fetches all remotes; a lead line warns when the platform reports conflicts. Cancel is focused first; the confirm button is the primary "Merge pull request".
 - **Entry points:** the sidebar section, the inspector, and the palette ("Create pull request…", "Merge pull request…", "Open pull request in browser…", and "Add platform connection…").

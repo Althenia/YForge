@@ -81,6 +81,11 @@ async function mount(config: { snapshot?: RepoSnapshot; preview?: RecomposePrevi
 }
 
 describe("recompose view", () => {
+  it("names each file status and uses its icon instead of a letter", async () => {
+    const { host } = await mount();
+    const badges = [...host.querySelectorAll(".crow.file .badge")];
+    expect(badges.map((badge) => [badge.getAttribute("aria-label"), badge.getAttribute("title"), badge.querySelector("svg")?.getAttribute("data-icon"), badge.textContent])).toEqual([["Modified", "Modified", "edit", ""], ["Added", "Added", "plus", ""]]);
+  });
   it("renders only the files near the viewport of a long file list and still counts every file", async () => {
     const files = Array.from({ length: 600 }, (_, index) => ({ path: `src/file${index}.ts`, status: "added" as const, binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] }));
     const { host, unit } = await mount({ preview: preview({ files }) });

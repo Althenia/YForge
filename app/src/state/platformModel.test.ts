@@ -12,7 +12,7 @@ import {
   CONNECTION_FIELDS,
   connectionFieldProblem,
   defaultTarget,
-  fileLetter,
+  fileStatus,
   mergeabilityView,
   mergeCopy,
   platformFailure,
@@ -114,7 +114,7 @@ describe("pull request presentation", () => {
   });
 
   it("letters file statuses and totals the change counts", () => {
-    expect(["added", "modified", "removed", "renamed", "copied"].map(fileLetter)).toEqual(["A", "M", "D", "R", "M"]);
+    expect(["added", "modified", "removed", "renamed", "copied"].map(fileStatus)).toEqual(["added", "modified", "deleted", "renamed", "copied"]);
     const files: PrFile[] = [
       { filename: "a.ts", status: "added", additions: 10, deletions: 0 },
       { filename: "b.ts", status: "modified", additions: 3, deletions: 4 },

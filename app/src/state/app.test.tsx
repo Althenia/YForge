@@ -121,7 +121,7 @@ describe("app state", () => {
     expect(app.fatal()).toBeUndefined();
     expect(app.activePath()).toBe("/a");
     expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
-    expect(app.notice()).toBe("/not-git is not a Git repository");
+    expect(app.notice()).toBe("Open repository failed: not a Git repository");
   });
 
   it("restores the saved tabs without a notice when the launch folder was skipped because it is not a repository", async () => {
@@ -142,7 +142,7 @@ describe("app state", () => {
 
     expect(app.ready()).toBe(true);
     expect(app.activeTab()).toEqual({ kind: "launcher" });
-    expect(app.notice()).toBe("Cannot read repository: permission denied");
+    expect(app.notice()).toBe("Open repository failed: Cannot read repository: permission denied");
   });
 
   it("applies the saved theme and density to the document", async () => {
@@ -170,7 +170,7 @@ describe("app state", () => {
     expect(await app.openRepository("/nope")).toBe(false);
 
     expect(app.activePath()).toBe("/r");
-    expect(app.notice()).toBe("/nope is not a Git repository");
+    expect(app.notice()).toBe("Open repository failed: not a Git repository");
     expect(calls.find((call) => call.cmd === "recent_add")?.args).toEqual({ path: "/r" });
     expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/r"], active: 0, groups: [] } });
   });
@@ -360,7 +360,7 @@ describe("app state", () => {
     await flush();
 
     expect(app.activePath()).toBe("/a");
-    expect(app.notice()).toBe("/nope is not a Git repository");
+    expect(app.notice()).toBe("Open repository failed: not a Git repository");
   });
 
   it("closes the tabs of a worktree that was removed", async () => {
@@ -444,7 +444,7 @@ describe("app state", () => {
 
     app.newTabGroup("/w/a", "Work", "blue");
     await flush();
-    expect(app.tabGroupSaveFailure()).toBe("disk full");
+    expect(app.tabGroupSaveFailure()).toBe("Session save failed: disk full");
     expect(app.notice()).toBeUndefined();
 
     failing = false;
@@ -578,7 +578,7 @@ describe("app state", () => {
 
     expect(await app.setAlias("/w/a", "API")).toBeUndefined();
     expect(await app.setAlias("/w/b", "Web")).toBeUndefined();
-    expect(await app.setAlias("/w/a", "refuse")).toBe("An alias is at most 40 characters");
+    expect(await app.setAlias("/w/a", "refuse")).toBe("Repo alias set failed: An alias is at most 40 characters");
     expect(app.aliases()).toEqual({ "/w/a": "API", "/w/b": "Web" });
     expect(await app.setAlias("/w/a", null)).toBeUndefined();
 
@@ -639,7 +639,7 @@ describe("app state", () => {
     await emit("menu-action", "theme.light");
     await flush();
 
-    expect(app.notice()).toBe("settings database is read-only");
+    expect(app.notice()).toBe("Settings save failed: settings database is read-only");
     expect(app.settings().theme).toBe("dark");
   });
 
@@ -973,7 +973,7 @@ describe("profiles (S60)", () => {
 
     await app.switchProfile("gone");
 
-    expect(app.notice()).toBe("That profile no longer exists");
+    expect(app.notice()).toBe("Profile switch failed: That profile no longer exists");
     expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/a" }]);
   });
 });
@@ -1001,7 +1001,7 @@ describe("external tools and LFS from the palette (S54, S61)", () => {
       },
     });
     await failing.app.openExternal("editor");
-    expect(failing.app.notice()).toBe("Visual Studio Code could not be started: not found");
+    expect(failing.app.notice()).toBe("Open in editor failed: Visual Studio Code could not be started: not found");
   });
 
   it("opens a staged or unstaged file in the diff tool and a conflicted file in the merge tool, which then refreshes the repository", async () => {

@@ -4,6 +4,7 @@ import type { LaunchpadPull } from "../ipc/bindings/LaunchpadPull";
 import type { Wip } from "../ipc/bindings/Wip";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { failureNotice } from "../state/errorNotice";
 import { useNow } from "../state/clock";
 import { requestConnectKind, requestPullInspector } from "../state/connectRequest";
 import { createIssueChips } from "../state/jiraIssues";
@@ -103,7 +104,7 @@ export function Launchpad() {
     try {
       client.openUrl(url);
     } catch (failure) {
-      app.setNotice(failure instanceof Error ? failure.message : String(failure));
+      app.setNotice(failureNotice(failure, "Open link"));
     }
   };
 

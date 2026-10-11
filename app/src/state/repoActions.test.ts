@@ -142,7 +142,7 @@ describe("checkout", () => {
     actions.checkout({ kind: "local_branch", name: "feature" });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(session.notice()).toBe("git switch failed: fatal: bad");
+    expect(session.notice()).toBe("Checkout failed: bad");
   });
 
   it("words each auto-stash outcome", () => {
@@ -375,28 +375,42 @@ describe("sync", () => {
 
     await actions.push();
 
-    expect(session.notice()).toBe("The remote has commits you do not have. Pull first, then push.");
+    expect(session.notice()).toBe("Push failed: the remote has commits you do not have; pull first");
     expect(actions.dialog()).toBeUndefined();
   });
 
-  it("keeps Push from opening a force dialog when the branch diverged and offers the lease from the strip notice", async () => {
+  it("opens the force-with-lease confirmation directly on diverged Push, with no strip notice, and Cancel changes nothing", async () => {
     const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "c4d5e6f" }, upstream: "origin/main", replaced: { count: 1, commits: [{ sha: "c4d5e6fabc", summary: "Fix the proxy timeout" }] } };
     const diverged = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } } });
-    const { actions, names } = setup((call) => (call.cmd === "push_plan" ? plan : null), diverged);
+    const { actions, names, session } = setup((call) => (call.cmd === "push_plan" ? plan : null), diverged);
 
-    expect(actions.notices()[0]).toMatchObject({ text: "This branch has diverged", dismiss: false, detail: "Remote commits would be replaced." });
+    expect(actions.notices()).toEqual([]);
+    expect(names()).toEqual([]);
     await actions.push();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(names()).toEqual(["push_plan"]);
-    expect(actions.dialog()).toBeUndefined();
-    const notice = actions.notices()[0];
-    expect(notice?.detail).toBe("c4d5e6f Fix the proxy timeout would be replaced");
-    expect(notice?.actions[0]?.label).toBe("Force push with lease");
-    await notice?.actions[0]?.run();
-
     expect(actions.dialog()?.copy.title).toBe("Force push with lease");
     expect(actions.dialog()?.copy.names).toContain("c4d5e6f Fix the proxy timeout");
+    expect(actions.dialog()?.copy.warning).toBe(true);
+    expect(actions.dialog()?.copy.consequences.join(" ")).toContain("Lease: origin/main must still be at c4d5e6f");
+    expect(actions.notices()).toEqual([]);
+    actions.closeDialog();
+    expect(actions.dialog()).toBeUndefined();
+    expect(names()).toEqual(["push_plan"]);
+    expect(actions.sync()).toEqual({ kind: "idle" });
+    expect(session.snapshot().upstream).toEqual(diverged.upstream);
+  });
+
+  it("confirms diverged Push with the reviewed lease and no result chip", async () => {
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "c4d5e6f" }, upstream: "origin/main", replaced: { count: 1, commits: [{ sha: "c4d5e6fabc", summary: "Fix the proxy timeout" }] } };
+    const { actions, calls } = setup((call) => (call.cmd === "push_plan" ? plan : null), snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } } }));
+    await actions.push();
+    expect(actions.dialog()).toBeDefined();
+    await actions.dialog()?.run();
+    expect(calls.find((call) => call.cmd === "push_force")?.args).toMatchObject({ lease: plan.lease });
+    expect(calls.some((call) => call.cmd === "push")).toBe(false);
+    expect(actions.sync()).toEqual({ kind: "idle" });
   });
 
   it("force pushes with the lease from the plan and reports a rejected lease", async () => {
@@ -513,7 +527,7 @@ describe("operations in progress", () => {
     await actions.markResolved(["a.txt"]);
 
     expect(calls[0]).toEqual({ cmd: "mark_resolved", args: { path: "/r", files: ["a.txt"] } });
-    expect(session.notice()).toBe("a.txt still contains conflict markers");
+    expect(session.notice()).toBe("Mark resolved failed: conflict markers remain");
   });
 });
 
@@ -590,7 +604,7 @@ describe("integration actions", () => {
     actions.menu()?.run("fast_forward");
     await settle();
 
-    expect(session.notice()).toBe("main cannot be fast-forwarded to feature: main has commits that feature does not contain");
+    expect(session.notice()).toBe("Fast forward failed: the branches cannot be fast-forwarded");
   });
 
   it("cherry-picks and reverts the commit of a commit menu and reports conflicts", async () => {
@@ -755,12 +769,12 @@ describe("phase 3b actions", () => {
 
     await actions.autoFetch();
 
-    expect(actions.autoFetchPause()).toBe("Authentication failed for origin");
+    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: authentication failed");
     expect(session.notice()).toBeUndefined();
     expect(actions.sync()).toMatchObject({ kind: "failed", message: "auth failed for origin" });
   });
 
-  it("pauses with the first line of git's output when an auto-fetch fails for another reason", async () => {
+  it("pauses with the shared concise cause when an auto-fetch fails for another reason", async () => {
     const { actions, session } = setup((call) => {
       if (call.cmd === "fetch") throw rejection("internal", "git fetch failed", "\nfatal: unable to access 'https://host/r.git/': Could not resolve host\n");
       return null;
@@ -768,7 +782,7 @@ describe("phase 3b actions", () => {
 
     await actions.autoFetch();
 
-    expect(actions.autoFetchPause()).toBe("git fetch failed: fatal: unable to access 'https://host/r.git/': Could not resolve host");
+    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: unable to access 'https://host/r.git/': Could not resolve host");
     expect(session.notice()).toBeUndefined();
   });
 
@@ -794,11 +808,11 @@ describe("phase 3b actions", () => {
     await actions.autoFetch();
     await actions.autoFetch();
     expect(fetches()).toBe(1);
-    expect(actions.autoFetchPause()).toBe("git fetch failed");
+    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: See Activity for details");
 
     await actions.fetchAll();
     expect(fetches()).toBe(2);
-    expect(actions.autoFetchPause()).toBe("git fetch failed");
+    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: See Activity for details");
 
     failing = false;
     await actions.fetchAll();
@@ -831,7 +845,7 @@ describe("phase 3b actions", () => {
       return null;
     });
     await refused.actions.undo(7);
-    expect(refused.session.notice()).toContain("Nothing was changed");
+    expect(refused.session.notice()).toBe("Undo last failed: HEAD is no longer where the operation left it");
   });
 
   it("asks for confirmation that states the consequence before undoing a force push, and runs the undo only when confirmed", async () => {
@@ -1130,7 +1144,7 @@ describe("remote branches", () => {
     await actions.dialog()?.run();
 
     expect(names()).not.toContain("delete_remote_branch");
-    expect(session.notice()).toBe("Cannot delete");
+    expect(session.notice()).toBe("Delete branch failed: Cannot delete");
   });
 });
 
@@ -1180,7 +1194,7 @@ describe("upstream and Push to…", () => {
 
     await actions.pushTo({ remote: "origin", name: "main", set_upstream: false });
 
-    expect(session.notice()).toBe("origin/main has commits this branch does not. Pull first, or push to another name.");
+    expect(session.notice()).toBe("Push to failed: the remote rejected the push");
     expect(actions.dialog()).toBeUndefined();
   });
 
@@ -1428,7 +1442,7 @@ describe("bulk branch and stash actions", () => {
     await actions.dialog()?.run();
     await settle();
 
-    expect(session.notice()).toBe("1 of 2 could not be deleted. feature: feature is checked out in worktree /w/x");
+    expect(session.notice()).toBe("Delete branches failed: 1 of 2: feature: feature is checked out in worktree /w/x");
   });
 
   it("shows the refusal when no branch could be deleted", async () => {
@@ -1442,7 +1456,7 @@ describe("bulk branch and stash actions", () => {
     await actions.dialog()?.run();
     await settle();
 
-    expect(session.notice()).toBe("feature is checked out in worktree /w/x");
+    expect(session.notice()).toBe("Delete branches failed: the branch is checked out in another worktree");
   });
 
   it("deletes several tags after one confirmation that names them, in one call", async () => {
@@ -1465,7 +1479,7 @@ describe("bulk branch and stash actions", () => {
     await actions.dialog()?.run();
     await settle();
 
-    expect(session.notice()).toBe("1 of 2 could not be deleted. v2.0: there is no tag v2.0");
+    expect(session.notice()).toBe("Delete tags failed: 1 of 2: v2.0: there is no tag v2.0");
   });
 
   it("drops several stashes in one call after one confirmation", async () => {
@@ -1607,7 +1621,7 @@ describe("file operations", () => {
     await settle();
 
     expect(actions.files.editing()).toBeUndefined();
-    expect(session.notice()).toBe("Invalid request: image.bin is a binary file; the editor opens text files only");
+    expect(session.notice()).toBe("File editable failed: image.bin is a binary file; the editor opens text files only");
   });
 
   it("saves the editor text with its line ending and refreshes the changes", async () => {
@@ -1680,7 +1694,7 @@ describe("file operations", () => {
     await settle();
     await settle();
 
-    expect(session.notice()).toBe("Invalid request: there are no changes to put in a patch");
+    expect(session.notice()).toBe("Create patch failed: there are no changes to put in a patch");
   });
 
   it("applies the chosen patch and refreshes, and shows Git's message when it is refused", async () => {
@@ -1700,7 +1714,7 @@ describe("file operations", () => {
     refused.actions.applyPatch();
     await settle();
     await settle();
-    expect(refused.session.notice()).toBe("git apply --3way /tmp/bad.patch exited with status 1: error: a.txt: does not match index");
+    expect(refused.session.notice()).toBe("Apply patch failed: a.txt: does not match index");
   });
 
   it("does nothing when the patch chooser is cancelled", async () => {
@@ -1741,7 +1755,7 @@ describe("file operations", () => {
 
     await actions.maintain();
 
-    expect(session.notice()).toBe("git maintenance run exited with status 1: fatal: unable to lock");
+    expect(session.notice()).toBe("Repository maintenance failed: unable to lock");
   });
 });
 
@@ -1825,10 +1839,25 @@ describe("operation pill and result chip (S73)", () => {
     expect(session.notice()).toBeUndefined();
   });
 
-  it("states a push in the chip", async () => {
+  it("clears a successful Push without a result chip", async () => {
     const { actions } = operations((call, become) => (call.cmd === "push" ? become(tracking(0, 0)) : null), tracking(2, 0));
     await actions.push();
-    expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Pushed main to origin/main", next: undefined });
+    expect(actions.sync()).toEqual({ kind: "idle" });
+  });
+
+  it("shows Force push stage, progress and Cancel while running, then clears without a result chip", async () => {
+    let release: () => void = () => undefined;
+    const plan = { lease: { remote: "origin", branch: "main", remote_ref: "refs/heads/main", expected_sha: "c4d5e6f" }, upstream: "origin/main", replaced: { count: 0, commits: [] } };
+    const { actions } = operations((call) => call.cmd === "push_force" ? new Promise<void>((resolve) => { release = resolve; }) : null, tracking(2, 1));
+    const pushing = actions.confirmForcePush(plan);
+    const running = actions.sync();
+    expect(running).toMatchObject({ kind: "running", label: "Force pushing", cancellable: true });
+    if (running.kind !== "running") throw new Error("Expected running Force push");
+    actions.onProgress({ id: running.id, phase: "Sending objects", percent: 42 });
+    expect(actions.sync()).toMatchObject({ kind: "running", phase: "Sending objects", percent: 42, cancellable: true });
+    release();
+    await pushing;
+    expect(actions.sync()).toEqual({ kind: "idle" });
   });
 
   it("shows a checkout in the pill without Cancel, then states it and offers Pull when the branch is behind", async () => {

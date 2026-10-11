@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import { defaultSettings } from "../state/settingsModel";
 import { Toasts } from "./Toasts";
-import { buttonNamed, mountWithApp } from "./testkit";
+import { buttonNamed, mountWithApp, testSession } from "./testkit";
+import { client } from "../ipc/client";
+import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 
 const tick = (ms = 10) => vi.advanceTimersByTimeAsync(ms);
 
@@ -74,6 +76,19 @@ const record = async (value: ActivityEntry) => {
 };
 
 describe("toasts", () => {
+  it("renders Stage all's concise cause instead of raw Git commands, hints and stderr", async () => {
+    const { host, app } = await mount();
+    const session = testSession("/r", { root: "/r" } as RepoSnapshot);
+    app.showRepoNotice({ message: session.notice, dismiss: session.dismissNotice });
+    mockIPC((cmd) => {
+      if (cmd === "stage_all") throw { kind: "git_failed", message: "`git add --all -- . :(exclude,literal).worktrees/topic` exited with status 1: The following paths are ignored by one of your .gitignore files:\n.worktrees\nhint: Use -f to add them", output: null };
+      return null;
+    });
+    try { await client.stageAll("/r"); } catch (failure) { session.report(failure); }
+    await tick();
+    expect(host.querySelector('.toast[role="alert"] .toast-title')?.textContent).toBe("Stage all failed: .worktrees is ignored by .gitignore");
+    expect(host.textContent).not.toMatch(/git add|pathspec|exclude,literal|exited with status|hint:|\n/);
+  });
   it("shows the outcome with Undo, whose tooltip states the undo scope, and Undo reports the entry id", async () => {
     const undone: number[] = [];
     const { host } = await mount(undone);

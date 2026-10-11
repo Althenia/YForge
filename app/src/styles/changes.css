@@ -8,6 +8,14 @@
   padding-bottom: var(--spacing-2);
 }
 
+.badge[role="img"],
+.chip .st[role="img"] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-1);
+}
+
 .changes-head h2 .count,
 .lhead-title .count {
   color: var(--colors-text-muted);

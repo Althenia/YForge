@@ -1,5 +1,7 @@
 import type { LabelGroup } from "../graph/refLabels";
 import type { IconName } from "../iconNames";
+import type { FileStatus } from "../ipc/bindings/FileStatus";
+import { statusIcon, statusWord } from "./changes";
 import { client, IpcError } from "../ipc/client";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import type { PrFile } from "../ipc/bindings/PrFile";
@@ -69,17 +71,11 @@ export function mergeabilityView(pull: PullRequest): MergeabilityView {
   return { label: "—", tone: "muted", detail: "The platform has not reported whether this can be merged." };
 }
 
-const FILE_LETTERS: Record<string, string> = { added: "A", modified: "M", removed: "D", renamed: "R" };
+export const fileStatus = (status: string): FileStatus => status === "removed" ? "deleted" : Object.hasOwn(statusIcon, status) ? status as FileStatus : "modified";
 
-export const fileLetter = (status: string): string => FILE_LETTERS[status] ?? "M";
+export const fileWord = (status: string): string => statusWord[fileStatus(status)];
 
-const FILE_WORDS: Record<string, string> = { added: "Added", modified: "Modified", removed: "Deleted", renamed: "Renamed" };
-
-export const fileWord = (status: string): string => FILE_WORDS[status] ?? "Modified";
-
-const FILE_BADGES: Record<string, string> = { added: "st-added", modified: "st-modified", removed: "st-deleted", renamed: "st-renamed" };
-
-export const fileBadgeClass = (status: string): string => FILE_BADGES[status] ?? "st-modified";
+export const fileBadgeClass = (status: string): string => `st-${fileStatus(status)}`;
 
 export const epochSeconds = (timestamp: string): number => Math.floor(Date.parse(timestamp) / 1000);
 

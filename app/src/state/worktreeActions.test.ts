@@ -182,7 +182,7 @@ describe("worktree actions", () => {
 
       expect(calls.filter((call) => call.cmd === "worktree_remove")).toHaveLength(1);
       expect(closed).toEqual([]);
-      expect(session.notice()).toBe("could not remove /w/repo-feature");
+      expect(session.notice()).toBe("Worktree remove failed: could not remove /w/repo-feature");
     });
   });
 

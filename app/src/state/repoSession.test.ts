@@ -6,6 +6,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createQueryClient } from "./queryClient";
 import { repoKeys } from "./queryKeys";
 import { createRepoSession } from "./repoSession";
+import { client } from "../ipc/client";
 
 afterEach(() => clearMocks());
 
@@ -82,7 +83,7 @@ describe("repo session", () => {
     const succeeded = await session.mutate(() => client.stageFiles("/r", []));
 
     expect(succeeded).toBe(false);
-    expect(session.notice()).toBe("Invalid request: no files were given");
+    expect(session.notice()).toBe("Stage files failed: no files were given");
     expect(repo.calls).toEqual(["stage_files", "repo_open"]);
     await vi.waitFor(() => expect(session.snapshot().root).toBe("/after"));
     session.dismissNotice();
@@ -99,7 +100,7 @@ describe("repo session", () => {
 
     expect(session.snapshot().root).toBe("/initial");
     expect(session.revision()).toBe(0);
-    await vi.waitFor(() => expect(session.notice()).toBe("`git status` exited with status 128"));
+    await vi.waitFor(() => expect(session.notice()).toBe("Open repository failed: See Activity for details"));
   });
 
   it("marks only this repository's cached reads stale on refresh and after a mutation", async () => {
@@ -118,6 +119,26 @@ describe("repo session", () => {
     expect(stale("/r")).toBe(false);
     await session.mutate(() => Promise.resolve());
     expect(stale("/r")).toBe(true);
+  });
+});
+
+describe("concise failure notices (S48)", () => {
+  it.each([
+    ["ignored paths", { kind: "git_failed", message: "`git add --all -- . :(exclude,literal).worktrees/topic` exited with status 1: The following paths are ignored by one of your .gitignore files:\n.worktrees\nhint: Use -f if you really want to add them.\nhint: Disable this message with git config advice.addIgnoredFile false", output: null }, "Stage all failed: .worktrees is ignored by .gitignore"],
+    ["fatal cause", { kind: "git_failed", message: "`git add --all` exited with status 128: fatal: Unable to create index.lock: File exists\nhint: remove lock", output: "fatal: Unable to create index.lock: File exists\nhint: remove lock" }, "Stage all failed: Unable to create index.lock: File exists"],
+    ["known kind", { kind: "local_changes", message: "unstructured raw message", output: null }, "Stage all failed: local changes would be overwritten"],
+    ["no usable cause", { kind: "git_failed", message: "`git add --all` exited with status 1", output: "hint: use -f\n:(exclude,literal).worktrees/topic" }, "Stage all failed: See Activity for details"],
+  ])("formats %s without changing the raw error", async (_name, payload, expected) => {
+    mockIPC((cmd) => {
+      if (cmd === "stage_all") throw payload;
+      return snapshotWith("/initial");
+    });
+    const session = sessionAt("/initial");
+    let failure: unknown;
+    try { await client.stageAll("/r"); } catch (error) { failure = error; }
+    session.report(failure);
+    expect(session.notice()).toBe(expected);
+    expect(failure).toMatchObject({ message: payload.message, output: payload.output });
   });
 });
 

@@ -296,7 +296,7 @@ describe("commit action", () => {
     expect(committed).toEqual(["c0ffee"]);
     expect(composer.summary()).toBe("");
     expect(composer.busy()).toBe(false);
-    expect(session.notice()).toBe("The remote rejected the push");
+    expect(session.notice()).toBe("Push failed: the remote rejected the push");
   });
 
   it("does not push when the commit fails", async () => {

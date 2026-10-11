@@ -1,5 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileAtRevision } from "../ipc/bindings/FileAtRevision";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { FileViewTarget } from "../state/fileView";
@@ -9,6 +11,15 @@ import { flush, mountWithApp, stubLayout, testSession } from "./testkit";
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let stylesheet: HTMLStyleElement;
+
+beforeAll(() => {
+  stylesheet = document.createElement("style");
+  stylesheet.textContent = ["tokens.css", "app.css", "markdown.css"].map((name) => readFileSync(resolve(import.meta.dirname, "../styles", name), "utf8")).join("\n");
+  document.head.append(stylesheet);
+});
+
+afterAll(() => stylesheet.remove());
 
 beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe = () => undefined; unobserve = () => undefined; disconnect = () => undefined; });
@@ -21,6 +32,7 @@ afterEach(async () => {
   dispose = undefined;
   restoreLayout?.();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   await flush();
   document.body.innerHTML = "";
   clearMocks();
@@ -28,11 +40,11 @@ afterEach(async () => {
 
 const target: FileViewTarget = { file: "src/app.ts", rev: "abcdef1234567", source: "abcdef1" };
 
-function mount(result: () => FileAtRevision, shown: FileViewTarget = target) {
+function mount(result: (file: string) => FileAtRevision, shown: FileViewTarget = target) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "file_at_revision") return result();
-    if (cmd === "preview_start") return ["preview-token", `http://127.0.0.1:4321/preview-token/${shown.file}`];
+    if (cmd === "file_at_revision") return result((args as { file: string }).file);
+    if (cmd === "preview_start") return ["preview-token", `http://127.0.0.1:4321/preview-token/${(args as { file: string }).file}`];
     return null;
   });
   const closed = vi.fn();
@@ -42,6 +54,68 @@ function mount(result: () => FileAtRevision, shown: FileViewTarget = target) {
 }
 
 describe("file view", () => {
+  it("renders collapsed front matter, a GFM table, a word-labelled alert and a local heading anchor", async () => {
+    const text = "---\nname: Forge\n---\n\n[Jump](#notes)\n\n# Notes\n\n| Key | Value |\n| --- | --- |\n| Name | Forge |\n\n> [!NOTE]\n> Read this";
+    const { host } = mount(() => ({ kind: "text", text, size: text.length, eol: "\n" }), { ...target, file: "README.md" });
+    await flush(80);
+    expect(host.querySelector("details summary")?.textContent).toBe("Front matter");
+    expect(host.querySelector<HTMLDetailsElement>("details")?.open).toBe(false);
+    expect(host.querySelector("td")?.textContent).toBe("Name");
+    expect(host.querySelector(".markdown-alert-title")?.textContent).toBe("Note");
+    expect(getComputedStyle(host.querySelector("article")!).cursor).toBe("var(--cursors-text)");
+    expect(getComputedStyle(host.querySelector("summary")!).cursor).toBe("var(--cursors-action)");
+    expect(getComputedStyle(host.querySelector('a[href="#notes"]')!).cursor).toBe("var(--cursors-action)");
+    const heading = host.querySelector<HTMLElement>("h1#notes");
+    expect(heading).not.toBeNull();
+    const scroll = vi.fn();
+    if (heading) heading.scrollIntoView = scroll;
+    host.querySelector<HTMLAnchorElement>('a[href="#notes"]')?.click();
+    expect(scroll).toHaveBeenCalledWith({ block: "start" });
+  });
+
+  it("opens a relative file in this view at the same revision and keeps an external link non-navigable", async () => {
+    const text = "[File](../src/app.ts) [Visit](https://example.test/path)";
+    const { host } = mount(() => ({ kind: "text", text, size: text.length, eol: "\n" }), { ...target, file: "docs/README.md" });
+    await flush(80);
+    const external = [...host.querySelectorAll<HTMLAnchorElement>("article a")].find((link) => link.textContent === "Visit");
+    expect(external?.hasAttribute("href")).toBe(false);
+    expect(external?.title).toBe("https://example.test/path");
+    expect(getComputedStyle(external!).cursor).toBe("var(--cursors-text)");
+    [...host.querySelectorAll<HTMLAnchorElement>("article a")].find((link) => link.textContent === "File")?.click();
+    await flush(80);
+    expect(calls.some((call) => call.cmd === "file_at_revision" && call.args.file === "src/app.ts" && call.args.rev === target.rev)).toBe(true);
+    expect(host.querySelector(".crumbs .path")?.textContent).toBe("src/app.ts");
+  });
+
+  it("scrolls to the fragment after opening another Markdown file at the same revision", async () => {
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      const { host } = mount((file) => {
+        const text = file === "docs/README.md" ? "[Other](other.md#notes)" : "# Notes\n\nContent";
+        return { kind: "text", text, size: text.length, eol: "\n" };
+      }, { ...target, file: "docs/README.md" });
+      await flush(80);
+      host.querySelector<HTMLAnchorElement>("article a")?.click();
+      await flush(80);
+      expect(host.querySelector(".crumbs .path")?.textContent).toBe("docs/other.md");
+      expect(host.querySelector("h1#notes")?.textContent).toBe("Notes");
+      expect(scroll).toHaveBeenCalledWith({ block: "start" });
+      expect(scroll.mock.contexts).toContain(host.querySelector("h1#notes"));
+    } finally { delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
+  });
+
+  it("scrolls to a fragment carried by the initial file view target", async () => {
+    const scroll = vi.fn();
+    HTMLElement.prototype.scrollIntoView = scroll;
+    try {
+      const text = "# Notes\n\nContent";
+      mount(() => ({ kind: "text", text, size: text.length, eol: "\n" }), { ...target, file: "README.md", fragment: "notes" });
+      await flush(80);
+      expect(scroll).toHaveBeenCalledWith({ block: "start" });
+    } finally { delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView; }
+  });
+
   it("previews a binary image from the selected revision and stops the server when closed", async () => {
     const { host } = mount(() => ({ kind: "binary", size: 1024 }), { ...target, file: "assets/logo.png" });
     await flush(80);

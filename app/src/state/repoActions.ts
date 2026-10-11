@@ -62,8 +62,9 @@ import {
 import type { RepoSession } from "./repoSession";
 import { announceOperation } from "./operationLabels";
 import { createFileOps } from "./fileOps";
+import { failureNotice } from "./errorNotice";
 import type { FileViewTarget } from "./fileView";
-import { authFailure, authFix, divergedPushDetail, fetchedCommits, fetchMenu, fetchResult, isDiverged, nextStepOf, pullMenu, pullResult, pushResult, refsKey, type AuthFix, type OperationResult, type SyncState } from "./syncModel";
+import { authFailure, authFix, fetchedCommits, fetchMenu, fetchResult, isDiverged, nextStepOf, pullMenu, pullResult, pushResult, refsKey, type AuthFix, type OperationResult, type SyncState } from "./syncModel";
 
 const PREVIEW_CONCURRENCY = 4;
 
@@ -122,11 +123,6 @@ type SyncResult<T> = { value: T } | { error: IpcError };
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
 
-const describe = (error: IpcError): string => {
-  const detail = error.output?.split("\n").find((line) => line.trim() !== "");
-  return detail === undefined ? error.message : `${error.message}: ${detail.trim()}`;
-};
-
 export function autoStashMessage(outcome: AutoStash, label: string, left?: string): string | undefined {
   switch (outcome) {
     case "none":
@@ -174,51 +170,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const [dialog, setDialog] = createSignal<DialogState | undefined>();
   const [syncState, setSync] = createSignal<SyncState>({ kind: "idle" });
   const [operationBusy, setOperationBusy] = createSignal(false);
-  const [noticeList, setNotices] = createSignal<StripNotice[]>([]);
-  const [replaced, setReplaced] = createSignal<{ key: string; count: number; commits: Array<{ sha: string; summary: string }> } | undefined>();
-  let pendingKey = "";
-  const DIVERGED_NOTICE = "diverged-push";
-  const divergedKey = () => {
-    const counts = snapshot().upstream?.ahead_behind;
-    return isDiverged(snapshot()) && counts != null ? `${counts.ahead}:${counts.behind}:${snapshot().upstream?.name ?? ""}` : "";
-  };
-  const refreshDiverged = () => {
-    const key = divergedKey();
-    if (key === "") {
-      pendingKey = "";
-      if (replaced() !== undefined) queueMicrotask(() => setReplaced(undefined));
-      return;
-    }
-    if (pendingKey === key || replaced()?.key === key) return;
-    pendingKey = key;
-    void session
-      .read(["push-plan"], () => client.pushPlan(path))
-      .then((plan) => {
-        if (divergedKey() !== key) return;
-        setReplaced({ key, count: plan.replaced.count, commits: plan.replaced.commits.map((commit) => ({ sha: commit.sha, summary: commit.summary })) });
-      })
-      .catch(() => {
-        if (pendingKey === key) pendingKey = "";
-      });
-  };
-  const notices = (): StripNotice[] => {
-    refreshDiverged();
-    const list = noticeList();
-    const key = divergedKey();
-    if (key === "") return list;
-    const plan = replaced();
-    return [
-      {
-        id: DIVERGED_NOTICE,
-        icon: "warning",
-        text: "This branch has diverged",
-        detail: plan?.key === key ? divergedPushDetail(plan.commits, plan.count) : "Remote commits would be replaced.",
-        dismiss: false,
-        actions: [{ label: "Force push with lease", run: () => openForcePush() }],
-      },
-      ...list,
-    ];
-  };
+  const [notices, setNotices] = createSignal<StripNotice[]>([]);
   const [autoFetchPause, setAutoFetchPause] = createSignal<string | undefined>();
   const [history, setHistory] = createSignal<HistoryView | undefined>();
   let retry: (() => Promise<void>) | undefined;
@@ -280,7 +232,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     const head = snapshot().head;
     return head.kind === "branch" ? head.name : undefined;
   };
-  const fail = (failure: unknown) => session.inform(describe(asIpcError(failure)));
+  const fail = (failure: unknown) => session.report(failure);
   const confirm = (copy: ConfirmCopy, run: () => void | Promise<void>) => setDialog({ copy, run });
   const busy = () => sync().kind === "running";
   const addNotice = (notice: StripNotice) => setNotices((list) => [...list.filter((entry) => entry.id !== notice.id), notice]);
@@ -418,7 +370,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (autoFetchPause() !== undefined || deps.offline() || sync().kind === "running" || snapshot().operation !== null || snapshot().remotes.length === 0) return;
     const result = await runSync("Fetch", (id) => client.fetch(path, id, false, false), () => true, (_value, before) => (fetchedCommits(before, snapshot()) > 0 ? fetchResult(before, snapshot(), false) : undefined));
     if ("value" in result) await markIncoming();
-    else if (result.error.kind !== "cancelled") setAutoFetchPause(describe(result.error));
+    else if (result.error.kind !== "cancelled") setAutoFetchPause(failureNotice(result.error, "Auto-fetch"));
   }
 
   async function undo(id: number): Promise<void> {
@@ -460,21 +412,24 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   async function push(): Promise<void> {
-    if (isDiverged(snapshot())) return;
+    if (isDiverged(snapshot())) {
+      await openForcePush();
+      return;
+    }
     await runSync("Push", (id) => client.push(path, id), (error) => {
       if (error.kind !== "push_rejected") return false;
       if ((snapshot().upstream?.ahead_behind?.ahead ?? 0) > 0) void openForcePush();
-      else session.inform("The remote has commits you do not have. Pull first, then push.");
+      else session.inform(failureNotice("the remote has commits you do not have; pull first", "Push"));
       return true;
-    }, () => pushResult("Pushed", snapshot()));
+    });
   }
 
   async function confirmForcePush(plan: ForcePushPlan): Promise<void> {
     await runSync("Force push", (id) => client.pushForce(path, id, plan.lease), (error) => {
       if (error.kind !== "push_rejected") return false;
-      session.inform("The remote changed after these commits were listed, so nothing was replaced. Fetch and review again.");
+      session.inform(failureNotice("the remote changed; nothing was replaced", "Force push"));
       return true;
-    }, () => pushResult("Force pushed", snapshot()));
+    });
   }
 
   function cancelSync(): void {
@@ -553,12 +508,12 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     confirm(deleteBranchCopy(name, lost), () => void session.mutate(() => client.deleteBranch(path, name, true)));
   }
 
-  async function runBatch(total: number, verb: string, run: () => Promise<BatchOutcome>): Promise<void> {
+  async function runBatch(total: number, operation: string, run: () => Promise<BatchOutcome>): Promise<void> {
     const outcomes: BatchOutcome[] = [];
     await session.mutate(async () => void outcomes.push(await run()));
     const failed = outcomes[0]?.failed ?? [];
     const [first] = failed;
-    if (first !== undefined) session.inform(`${failed.length} of ${total} could not be ${verb}. ${first.name}: ${first.reason}`);
+    if (first !== undefined) session.inform(failureNotice(`${failed.length} of ${total}: ${first.name}: ${first.reason}`, operation));
   }
 
   async function deleteBranches(names: readonly string[]): Promise<void> {
@@ -573,7 +528,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     confirm(deleteBranchesCopy(names, lost), () =>
       runBatch(
         names.length,
-        "deleted",
+        "Delete branches",
         () =>
           client.deleteBranches(
             path,
@@ -635,7 +590,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     setPopover(undefined);
     await runSync("Push to", (id) => client.pushTo(path, id, target), (error) => {
       if (error.kind !== "push_rejected") return false;
-      session.inform(`${target.remote}/${target.name} has commits this branch does not. Pull first, or push to another name.`);
+      session.report(error, "Push to");
       return true;
     }, () => pushResult("Pushed", snapshot(), `${target.remote}/${target.name}`));
   }
@@ -741,8 +696,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       await client.fastForward(path, branch, target);
     } catch (failure) {
       const error = asIpcError(failure);
-      if (error.kind === "not_fast_forward") session.inform(`${branch} cannot be fast-forwarded to ${target}: ${error.output ?? error.message}`);
-      else fail(error);
+      fail(error);
     }
     await session.refresh();
   }
@@ -897,7 +851,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const deleteLocalTag = (name: string) => confirm(deleteTagCopy(name), () => void session.mutate(() => client.deleteTag(path, name)));
 
-  const deleteTags = (names: readonly string[]) => confirm(deleteTagsCopy(names), () => runBatch(names.length, "deleted", () => client.deleteTags(path, names)));
+  const deleteTags = (names: readonly string[]) => confirm(deleteTagsCopy(names), () => runBatch(names.length, "Delete tags", () => client.deleteTags(path, names)));
 
   function deleteTagOnRemote(name: string): void {
     const remote = pushRemote(snapshot().remotes);
@@ -909,7 +863,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
 
   const dropStashes = (stashes: readonly StashEntry[]) =>
     confirm(dropStashesCopy(stashes), () =>
-      runBatch(stashes.length, "dropped", () =>
+      runBatch(stashes.length, "Drop stashes", () =>
         client.dropStashes(
           path,
           stashes.map(({ index, sha }) => ({ index, sha })),

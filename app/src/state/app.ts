@@ -10,7 +10,8 @@ import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RepoAlias } from "../ipc/bindings/RepoAlias";
 import type { RepoSettings } from "../ipc/bindings/RepoSettings";
-import { client, IpcError } from "../ipc/client";
+import { client } from "../ipc/client";
+import { failureNotice } from "./errorNotice";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { AppRouter } from "../routes";
 import { viewOf } from "../routes";
@@ -111,10 +112,10 @@ const NO_REPOSITORY_OPEN = "Open a repository first";
 
 const aliasMap = (stored: readonly RepoAlias[]): Aliases => Object.fromEntries(stored.map((entry) => [entry.path, entry.alias]));
 
-const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
+const asMessage = failureNotice;
 
-const openFailureMessage = (path: string, failure: unknown): string =>
-  failure instanceof IpcError && failure.kind === "not_a_repository" ? `${path} is not a Git repository` : asMessage(failure);
+const openFailureMessage = (failure: unknown): string =>
+  failureNotice(failure, "Open repository");
 
 export function createAppState(router: AppRouter) {
   const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
@@ -313,7 +314,7 @@ export function createAppState(router: AppRouter) {
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
     } catch (failure) {
-      setNotice(openFailureMessage(path, failure));
+      setNotice(openFailureMessage(failure));
       return false;
     }
   }
@@ -328,7 +329,7 @@ export function createAppState(router: AppRouter) {
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
       const launchPaths = launch === null ? [] : [launch];
       const opened = await Promise.all([...launchPaths, ...session.tabs].map((path, index) => client.repoOpen(path).then((snapshot) => snapshot, (failure) => {
-        if (index < launchPaths.length) setNotice(openFailureMessage(path, failure));
+        if (index < launchPaths.length) setNotice(openFailureMessage(failure));
         return undefined;
       })));
       opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));

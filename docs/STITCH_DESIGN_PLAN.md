@@ -71,7 +71,7 @@ The component sheet (#0) covers:
 - buttons (primary, secondary, danger, icon, split);
 - tabs, chips, command field, breadcrumb;
 - ref labels in the tinted Rail treatment (10 lane tints and edges, checked-out fills, local/remote/both, tag, worktree, `+N`);
-- status letters;
+- named status icons;
 - graph node shapes;
 - state strip (idle, operation, error, detached);
 - menu, palette, toast, tooltip, dialog, input;
@@ -97,7 +97,7 @@ Regions (px): tab bar 40 · command bar 48 · state strip 36 · sidebar 248 · g
 Screen: <inventory ID and name>. Purpose: <purpose>.
 Content (sample repository "sample"): <rows/files/refs from the sandbox>.
 States to show: <states>.
-Rules: status colors always paired with letters (M A D R U !); SHAs, paths, and refs outside the graph in mono; the commit graph follows GitKraken's graph topology with Rail styling (PROMPTS.md GRAPH);
+Rules: status colors always paired with named icons from the shared S3 mapping; SHAs, paths, and refs outside the graph in mono; the commit graph follows GitKraken's graph topology with Rail styling (PROMPTS.md GRAPH);
 the state strip is always visible; destructive buttons use danger styling and are never the default.
 Never: GitKraken branding, logos, or chrome styling, mascots, illustrations, gradients outside the dark backdrop glows, glows or sheen, cards, uppercase section labels (the graph header excepted), marketing copy.
 ```

@@ -197,6 +197,15 @@ try {
   const liveTab = (name) => `#root .tab-main[title="/synthetic/${name}"]`;
   const graph = (label) => measure(liveGraph, '.grow[role="option"]', label);
   const inspector = (label) => measure(liveList, ".frow", label);
+  const closeInspector = async () => {
+    const button = page.getByRole('button', { name: 'Close inspector', exact: true });
+    if (!await button.isVisible()) return;
+    const before = await page.locator(liveGraph).evaluate((element) => ({ selection: element.getAttribute('aria-activedescendant'), scrollTop: element.scrollTop }));
+    await button.click();
+    await page.locator('#root .inspector-slot').waitFor({ state: 'hidden' });
+    const after = await page.locator(liveGraph).evaluate((element) => ({ selection: element.getAttribute('aria-activedescendant'), scrollTop: element.scrollTop }));
+    assert.deepEqual(after, before, `${stage}: closing the inspector drawer must preserve graph selection and scroll`);
+  };
   const closeDiff = async () => {
     await page.locator('#root .dpanel .crumbs button').click();
     await page.waitForFunction(() => !document.querySelector('#root .dpanel'));
@@ -207,6 +216,7 @@ try {
     await page.waitForSelector(`${liveGraph} .grow[role="option"]`);
   };
   const selectCommit = async (index, summary) => {
+    await closeInspector();
     await page.locator(`#graph-row-${index} .msg`).click();
     const early = await page.evaluate(() => {
       const panel = document.querySelector('#root .inspector[aria-label="Commit"]:not([data-swap-held])');
@@ -252,6 +262,7 @@ try {
     assert.equal(short.first.id, "src/commit-0000.ts", "short commit must return to its first file");
     await clickVisibleFile();
     await closeDiff();
+    await closeInspector();
     await page.locator(liveGraph).evaluate((element) => { element.scrollTop = 0; });
     await page.waitForSelector('#graph-row-0');
     await page.locator('#graph-row-0 .msg').click();
@@ -287,6 +298,7 @@ try {
     assert.deepEqual(errors, [], "mixed transitions must not crash");
   }
   stage = "remote main activation";
+  await closeInspector();
   await page.locator(liveGraph).evaluate((element) => { element.scrollTop = 0; });
   const remoteMain = page.locator('#graph-row-2 .refcell > [data-ref-label][title="origin/main"]');
   await remoteMain.dblclick();
@@ -296,6 +308,7 @@ try {
   assert.deepEqual(await page.evaluate(() => window.fixture.resets), [], "double-click and reset-mode selection must not mutate Git");
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   assert.deepEqual(await page.evaluate(() => window.fixture.resets), [], "reset cancellation must not mutate Git");
+  await closeInspector();
   await remoteMain.dblclick();
   await page.getByRole('menuitem', { name: /^Hard/ }).click();
   await page.getByRole('button', { name: 'Hard reset', exact: true }).click();

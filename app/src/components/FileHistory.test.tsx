@@ -84,10 +84,11 @@ function mount(request: FileHistoryRequest = { file: "src/util.js" }, respond: R
   const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const prefs = createDiffPrefs();
   const closed = vi.fn();
+  const viewed = vi.fn();
   const selected: string[] = [];
-  const mounted = mountWithApp(() => <FileHistory session={session} request={request} prefs={prefs} onClose={closed} onSelectCommit={(sha) => selected.push(sha)} />);
+  const mounted = mountWithApp(() => <FileHistory session={session} request={request} prefs={prefs} onClose={closed} onSelectCommit={(sha) => selected.push(sha)} onViewFile={viewed} />);
   dispose = mounted.dispose;
-  return { ...mounted, session, prefs, closed, selected };
+  return { ...mounted, session, prefs, closed, selected, viewed };
 }
 
 const named = (host: ParentNode, label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
@@ -174,6 +175,23 @@ describe("file history list", () => {
 });
 
 describe("file history views", () => {
+  it("opens a relative Markdown link in the file view at the selected history revision", async () => {
+    const text = "[Helper](../src/util.js#notes)";
+    const { host, viewed } = mount({ file: "docs/README.md", sha: "b".repeat(40) }, (cmd) => {
+      if (cmd === "file_history") return revisions.map((entry) => ({ ...entry, path: "docs/README.md" }));
+      if (cmd === "file_at_revision") return { kind: "text", text, size: text.length, eol: "\n" };
+      if (cmd === "preview_start") return ["preview-token", "http://127.0.0.1:4321/preview-token/docs/README.md"];
+      return undefined;
+    });
+    await flush(80);
+    groupButton(host, "View", "File")?.click();
+    await flush(80);
+
+    expect(host.querySelector("article a")?.textContent).toBe("Helper");
+    host.querySelector<HTMLAnchorElement>("article a")?.click();
+    expect(viewed).toHaveBeenCalledExactlyOnceWith({ file: "src/util.js", rev: "b".repeat(40), source: "bbbbbbb", fragment: "notes" });
+  });
+
   it("switches between File, Diff, and Blame", async () => {
     const { host } = mount();
     await flush(80);
@@ -302,7 +320,7 @@ describe("file history diff", () => {
     expect(session.notice()).toBe("Reverted a hunk of src/util.js from ccccccc. The change is in Unstaged; nothing is committed.");
   });
 
-  it("shows the core's refusal when the hunk no longer applies", async () => {
+  it("shows a concise refusal when the hunk no longer applies and retains the full core error", async () => {
     const refusal = "This hunk changed again after ccccccc, so it cannot be reverted. Nothing was changed.";
     const { host, session } = mount({ file: "src/util.js" }, (cmd) => {
       if (cmd === "revert_hunk") throw { kind: "stale_hunk", message: refusal, output: null };
@@ -313,6 +331,7 @@ describe("file history diff", () => {
     named(host, "Revert hunk")?.click();
     await flush(60);
 
-    expect(session.notice()).toBe(refusal);
+    expect(session.notice()).toBe("Revert hunk failed: the selected changes are out of date");
+    expect(session.queryClient.getMutationCache().getAll().at(-1)?.state.error).toMatchObject({ kind: "stale_hunk", message: refusal });
   });
 });

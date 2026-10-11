@@ -3,6 +3,7 @@ import type { HookEntry } from "../ipc/bindings/HookEntry";
 import type { HookMode } from "../ipc/bindings/HookMode";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
+import { failureNotice } from "../state/errorNotice";
 import { hookConfirmCopy, hookRowLabel, hookStateWord, hooksDirectoryLabel, runVerb } from "../state/hooks";
 import { repoKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
@@ -16,7 +17,7 @@ import { tip } from "./Tooltip";
 
 type Pending = { hook: HookEntry; mode: HookMode };
 
-const messageOf = (failure: unknown): string => (failure instanceof Error ? failure.message : "The hook command failed");
+const messageOf = failureNotice;
 
 export function HooksSection(props: { root: string; expanded: boolean; onToggle: () => void; filter: string; commitMessage: () => string }) {
   const app = useApp();
@@ -123,7 +124,7 @@ export function HooksSection(props: { root: string; expanded: boolean; onToggle:
               data-nav={`hook:${hook.name}`}
               aria-label={hookRowLabel(hook)}
               title={hook.reason === null ? hook.path : `${hook.path} · ${hook.reason}`}
-              style={{ "padding-left": "20px" }}
+              style={{ "padding-left": "calc(var(--spacing-3) + var(--spacing-1-5))" }}
               onClick={() => view(hook)}
               onContextMenu={(event) => {
                 event.preventDefault();

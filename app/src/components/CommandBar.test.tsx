@@ -182,11 +182,12 @@ describe("fetch, pull, and push", () => {
     expect(dirty.host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Push"] button[aria-label="Push to…"]')?.disabled).toBe(true);
   });
 
-  it("disables Push when the branch has diverged and leaves force push out of the toolbar, while the target picker still acts", () => {
-    const { button, host } = mountActions(tracked({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } }, counts: { ...clean, modified: 1 } }));
+  it("enables Push when the branch has diverged and routes it through the ordinary Push action", () => {
+    const { button, host, calls } = mountActions(tracked({ upstream: { name: "origin/main", ahead_behind: { ahead: 2, behind: 1 } }, counts: { ...clean, modified: 1 } }));
 
-    expect(button("Push")?.disabled).toBe(true);
-    expect(button("Push")?.title).toBe("This branch has diverged. Force push with lease is in the status strip.");
+    expect(button("Push")?.disabled).toBe(false);
+    button("Push")?.click();
+    expect(calls).toEqual(["push"]);
     expect(host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Push"] button[aria-label="Push to…"]')?.disabled).toBe(false);
     expect(button("Pull")?.disabled).toBe(false);
     expect(button("Fetch")?.disabled).toBe(false);

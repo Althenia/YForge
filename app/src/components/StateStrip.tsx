@@ -7,6 +7,7 @@ import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import { useNow } from "../state/clock";
+import { statusIcon, statusWord } from "../state/changes";
 import { conflictLabel, firstConflict, operationButtons, operationSummary, operationTitle, stepLabel } from "../state/operationModel";
 import { createPendingIndicator } from "../state/pending";
 import { repoKeys } from "../state/queryKeys";
@@ -18,14 +19,7 @@ import { Icon } from "./Icon";
 import { Popover } from "./Popover";
 import { tip } from "./Tooltip";
 
-const countLetters = [
-  ["modified", "M"],
-  ["added", "A"],
-  ["deleted", "D"],
-  ["renamed", "R"],
-  ["untracked", "U"],
-  ["conflicted", "!"],
-] as const;
+const countStatuses = ["modified", "added", "deleted", "renamed", "untracked", "conflicted"] as const;
 
 const anchorBelow = (element: Element): Anchor => {
   const rect = element.getBoundingClientRect();
@@ -98,11 +92,12 @@ function HeadChip(props: { snapshot: RepoSnapshot; actions: RepoActions; onRevea
             <Show when={counts()} fallback={<span title="Fetch to compare">—</span>}>
               {(value) => (
                 <>
-                  <span class="ahead">↑{value().ahead}</span>
-                  <span>↓{value().behind}</span>
+                  <span class="ahead">↑{value().ahead} ahead</span>
+                  <span>↓{value().behind} behind</span>
                   <Show when={value().ahead > 0 && value().behind > 0}>
                     <span>diverged</span>
                   </Show>
+                  <span>· Pull</span>
                 </>
               )}
             </Show>
@@ -128,16 +123,16 @@ function DetachedAction(props: { head: RepoSnapshot["head"]; actions: RepoAction
 }
 
 function ChangesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
-  const present = () => countLetters.filter(([key]) => props.snapshot.counts[key] > 0);
+  const present = () => countStatuses.filter((key) => props.snapshot.counts[key] > 0);
   return (
     <button type="button" class="chip" onClick={props.onOpen}>
       <Icon name="changes" />
       Changes
       <Show when={present().length > 0} fallback={<span>clean</span>}>
         <For each={present()}>
-          {([key, letter]) => (
-            <span class={`st st-${key}`}>
-              {letter} {props.snapshot.counts[key]}
+          {(key) => (
+            <span class={`st st-${key}`} role="img" aria-label={`${statusWord[key]}: ${props.snapshot.counts[key]}`} title={statusWord[key]}>
+              <Icon name={statusIcon[key]} /> {props.snapshot.counts[key]}
             </span>
           )}
         </For>
@@ -242,8 +237,8 @@ function ConflictChip(props: { conflict: Conflict; branch: string; composeReason
   return (
     <>
       <button type="button" class="chip conflict-chip" aria-haspopup="dialog" aria-expanded={anchor() !== undefined} onClick={(event) => setAnchor(anchorBelow(event.currentTarget))}>
-        <span class="st st-conflicted" aria-hidden="true">
-          !
+        <span class="st st-conflicted" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+          <Icon name={statusIcon.conflicted} />
         </span>
         {predictionLabel(props.conflict)}
       </button>
@@ -403,7 +398,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
       </span>
       <Show when={step()}>{(text) => <span aria-label={text()}>· {text()}</span>}</Show>
       <Show when={conflicts() > 0}>
-        <span class="st st-conflicted">! {conflictLabel(conflicts())}</span>
+        <span class="st st-conflicted"><span role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}><Icon name={statusIcon.conflicted} /></span> {conflictLabel(conflicts())}</span>
       </Show>
       <Notices actions={props.actions} plain />
       <span class="spacer" />
@@ -462,6 +457,7 @@ export function StateStrip(props: {
   composeReason?: string;
   onOpenDiff?: (target: DiffTarget) => void;
   onCompose?: () => void;
+  onShowInspector?: () => void;
 }) {
   const branch = () => (props.snapshot.head.kind === "branch" ? props.snapshot.head.name : undefined);
   return (
@@ -493,6 +489,9 @@ export function StateStrip(props: {
             <Notices actions={props.actions} plain={false} />
             <span class="spacer" />
             <WorktreesChip snapshot={props.snapshot} onOpen={props.onOpenWorktrees} />
+            <Show when={props.onShowInspector}>
+              {(open) => <button type="button" class="chip" aria-label="Show inspector" onClick={open()}><Icon name="file" />Inspector</button>}
+            </Show>
           </>
         }
       >

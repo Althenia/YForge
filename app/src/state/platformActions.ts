@@ -48,7 +48,7 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
     try {
       await client.platformPrMerge(path, pull.number);
     } catch (failure) {
-      session.inform(platformFailure(failure).message);
+      session.report(failure);
       return;
     }
     await refreshPulls();

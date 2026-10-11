@@ -51,7 +51,7 @@ export function fetchResult(before: RepoSnapshot, after: RepoSnapshot, prune: bo
   return { outcome: fresh === 0 ? `No new commits on ${state.upstream}` : `${commits(fresh, "new ")} on ${state.upstream}`, next: state.behind > 0 ? "pull" : undefined };
 }
 
-export function pushResult(verb: "Pushed" | "Force pushed" | "Published", after: RepoSnapshot, destination?: string): OperationResult {
+export function pushResult(verb: "Pushed" | "Published", after: RepoSnapshot, destination?: string): OperationResult {
   const branch = after.head.kind === "branch" ? after.head.name : "HEAD";
   return { outcome: `${verb} ${branch} to ${destination ?? after.upstream?.name ?? "its remote"}`, next: undefined };
 }
@@ -87,16 +87,6 @@ export function isDiverged(snapshot: Pick<RepoSnapshot, "upstream">): boolean {
 }
 
 export const OFFLINE_REASON = "You are offline";
-
-export const DIVERGED_PUSH_REASON = "This branch has diverged. Force push with lease is in the status strip.";
-
-export function divergedPushDetail(commits: ReadonlyArray<{ sha: string; summary: string }>, count: number): string {
-  const first = commits[0];
-  const line = first === undefined ? undefined : `${first.sha.slice(0, 7)} ${first.summary}`;
-  if (line === undefined) return count === 1 ? "1 remote commit would be replaced" : `${count.toLocaleString("en-US")} remote commits would be replaced`;
-  if (count <= 1) return `${line} would be replaced`;
-  return `${line} and ${(count - 1).toLocaleString("en-US")} more would be replaced`;
-}
 
 const withReason = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
 
@@ -147,7 +137,7 @@ export function syncMenu(snapshot: RepoSnapshot, busy: boolean, defaultMode: Pul
       label: [snapshot.upstream === null && reasons.onBranch ? "Push and set upstream" : "Push"],
       icon: "push",
       shortcut: SHORTCUTS.push,
-      ...withReason(isDiverged(snapshot) && reasons.push === undefined ? DIVERGED_PUSH_REASON : reasons.push),
+      ...withReason(reasons.push),
     },
     { kind: "item", id: "push_to", label: ["Push to…"], icon: "push", ...withReason(reasons.push) },
     { kind: "item", id: "set_upstream", label: ["Set upstream…"], ...withReason(reasons.upstream) },
