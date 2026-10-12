@@ -20,6 +20,9 @@ export function cachedWorktreeCount(queryClient: QueryClient, path: string): num
 
 const asMessage = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
+export const isNotARepository = (failure: unknown): failure is IpcError =>
+  failure instanceof IpcError && (failure.kind === "not_a_repository" || failure.kind === "uninitialized_folder");
+
 export function workspaceView(
   path: string,
   info: { data: AppInfo | undefined; error: unknown },
@@ -29,7 +32,7 @@ export function workspaceView(
   if (snapshot.data !== undefined) return { status: "ready", path, snapshot: snapshot.data, info: info.data };
   if (snapshot.error == null) return undefined;
   const failure = snapshot.error;
-  return failure instanceof IpcError && failure.kind === "not_a_repository"
+  return isNotARepository(failure)
     ? { status: "not_a_repository", path, message: failure.message }
     : { status: "failed", message: asMessage(failure) };
 }

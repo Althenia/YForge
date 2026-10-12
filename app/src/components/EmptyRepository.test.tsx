@@ -32,9 +32,10 @@ const snapshotOf = (count: number): RepoSnapshot =>
     files: Array.from({ length: count }, (_, index) => ({ path: `src/file-${index}.ts`, original_path: null, area: "untracked", status: "untracked" })),
   }) as unknown as RepoSnapshot;
 
-async function mount(count: number, stageAll: () => Promise<unknown> = async () => undefined) {
+async function mount(count: number, stageAll: () => Promise<unknown> = async () => undefined, summary?: HTMLInputElement) {
   const host = document.createElement("div");
   document.body.append(host);
+  if (summary !== undefined) document.body.append(summary);
   const actions = { stageAll } as unknown as RepoActions;
   dispose = render(() => <EmptyRepository snapshot={snapshotOf(count)} actions={actions} />, host);
   await flush(60);
@@ -46,6 +47,40 @@ async function mount(count: number, stageAll: () => Promise<unknown> = async () 
   };
   return { host, paths, scrollTo };
 }
+
+describe("first commit action", () => {
+  const summaryField = () => {
+    const input = document.createElement("input");
+    input.setAttribute("aria-label", "Summary");
+    return input;
+  };
+
+  it("is offered with no files and focuses the composer summary without staging", async () => {
+    let staged = 0;
+    const summary = summaryField();
+    const { host } = await mount(0, async () => { staged += 1; return true; }, summary);
+
+    const button = [...host.querySelectorAll<HTMLButtonElement>(".empty-repo button")].find((entry) => entry.textContent?.trim() === "Create first commit");
+    expect(button).toBeDefined();
+    button?.click();
+    await flush();
+
+    expect(staged).toBe(0);
+    expect(document.activeElement).toBe(summary);
+  });
+
+  it("stages every file and then focuses the composer summary", async () => {
+    let staged = 0;
+    const summary = summaryField();
+    const { host } = await mount(2, async () => { staged += 1; return true; }, summary);
+
+    host.querySelector<HTMLButtonElement>(".empty-repo-actions button")?.click();
+    await flush();
+
+    expect(staged).toBe(1);
+    expect(document.activeElement).toBe(summary);
+  });
+});
 
 describe("empty repository file list", () => {
   it("announces staging and locks the first-commit action until it completes", async () => {

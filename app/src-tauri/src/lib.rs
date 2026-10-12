@@ -2,6 +2,7 @@ mod auth;
 mod crash;
 mod hooks_flow;
 mod instance;
+mod labels;
 mod lsp;
 pub mod menu;
 mod open;
@@ -48,6 +49,7 @@ use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilte
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
 pub use instance::{requested_path, second_instance, OPEN_PATH_REQUESTED_EVENT};
+use labels::leaf;
 use open::OpenWith;
 use tracking::{execute, plain, unix_now, ActivityLog, AiRun, Draft, Track};
 
@@ -771,7 +773,7 @@ async fn discard_hunk<R: Runtime>(
     );
     let ignore = ignore_whitespace.unwrap_or(false);
     let target = path.clone();
-    let name = file.clone();
+    let name = leaf(&file).to_owned();
     let listed = vec![file.clone()];
     let result = recorder(&app, &log)
         .tracked(
@@ -956,7 +958,7 @@ async fn revert_hunk<R: Runtime>(
     log::debug!("revert_hunk path={path} sha={sha} file={file} hunk={hunk}");
     let target = path.clone();
     let planned = path.clone();
-    let name = file.clone();
+    let name = leaf(&file).to_owned();
     let commit = short(&sha);
     let listed = vec![file.clone()];
     let result = recorder(&app, &log)
@@ -1069,7 +1071,7 @@ async fn file_delete<R: Runtime>(
 ) -> Result<(), ErrorPayload> {
     log::debug!("file_delete path={path} file={file}");
     let target = path.clone();
-    let name = file.clone();
+    let name = leaf(&file).to_owned();
     let result = recorder(&app, &log)
         .tracked(
             track(&path, OperationKind::DeleteFile, true, true),
@@ -1122,7 +1124,7 @@ async fn patch_create<R: Runtime>(
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::CreatePatch, false, true),
-            move |()| format!("Created the patch {saved}"),
+            move |()| labels::patch_created(&saved),
             move || {
                 yforge_core::patch_create(
                     Path::new(&target),
@@ -1151,7 +1153,7 @@ async fn patch_apply<R: Runtime>(
     let result = recorder(&app, &log)
         .tracked(
             track(&path, OperationKind::ApplyPatch, true, true),
-            move |()| format!("Applied the patch {named}"),
+            move |()| labels::patch_applied(&named),
             move || {
                 let files = yforge_core::patch_affected(Path::new(&prepared), Path::new(&checked))?;
                 snapshot_of(&prepared, files)()
@@ -1652,7 +1654,7 @@ async fn pull<R: Runtime>(
             meta,
             id,
             true,
-            |outcome: &PullOutcome| format!("Pull: {outcome:?}"),
+            |outcome: &PullOutcome| labels::pulled(*outcome),
             move |cancel, progress| yforge_core::pull(Path::new(&path), mode, cancel, progress),
         )
         .await;
@@ -1806,7 +1808,9 @@ async fn operation_continue<R: Runtime>(
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::Continue, true, true),
-            |outcome: &OperationOutcome| format!("Continue: {outcome:?}"),
+            |outcome: &OperationOutcome| {
+                labels::stepped("Continued the operation", "Continue", conflicted(outcome))
+            },
             move || yforge_core::operation_continue(Path::new(&target), message.as_deref()),
         )
         .await;
@@ -1827,7 +1831,9 @@ async fn operation_skip<R: Runtime>(
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::Skip, true, true),
-            |outcome: &OperationOutcome| format!("Skip: {outcome:?}"),
+            |outcome: &OperationOutcome| {
+                labels::stepped("Skipped the step", "Skip", conflicted(outcome))
+            },
             move || yforge_core::operation_skip(Path::new(&target)),
         )
         .await;
@@ -2034,10 +2040,10 @@ async fn rebase_interactive<R: Runtime>(
         .tracked(
             track(&path, OperationKind::InteractiveRebase, true, true),
             move |result: &RebaseResult| {
-                format!(
-                    "Rewrote history with {}: {:?}",
-                    counted(count, "step"),
-                    result.outcome
+                labels::rewritten(
+                    &format!("Rewrote history with {}", counted(count, "step")),
+                    "Rewrite",
+                    result.outcome,
                 )
             },
             state_of(&path),
@@ -2066,10 +2072,10 @@ async fn squash_commits<R: Runtime>(
         .tracked(
             track(&path, OperationKind::SquashCommits, true, true),
             move |result: &RebaseResult| {
-                format!(
-                    "Squashed {}: {:?}",
-                    counted(count, "commit"),
-                    result.outcome
+                labels::rewritten(
+                    &format!("Squashed {}", counted(count, "commit")),
+                    "Squash",
+                    result.outcome,
                 )
             },
             state_of(&path),
@@ -3376,10 +3382,10 @@ async fn undo_last<R: Runtime>(
             track(&path, OperationKind::Undo, false, true),
             format!("undo-{id}"),
             true,
-            move |(message, _): &(
+            move |_: &(
                 String,
                 Option<(yforge_core::UndoPlan, yforge_core::UndoPlan)>,
-            )| format!("Undid {label}: {message}"),
+            )| labels::undone(&label),
             move |cancel, progress| {
                 let redo = yforge_core::plan_redo(Path::new(&target), &plan.action).ok();
                 let message =
@@ -3419,7 +3425,7 @@ async fn redo_last<R: Runtime>(
             track(&path, OperationKind::Redo, true, true),
             format!("redo-{id}"),
             true,
-            move |message: &String| format!("Redid {label}: {message}"),
+            move |_: &String| labels::redone(&label),
             move |cancel, progress| {
                 yforge_core::undo_with(Path::new(&repository), &redo.action, cancel, progress)
             },
@@ -3510,7 +3516,7 @@ async fn discard_lines<R: Runtime>(
     );
     let ignore = ignore_whitespace.unwrap_or(false);
     let target = path.clone();
-    let name = file.clone();
+    let name = leaf(&file).to_owned();
     let listed = vec![file.clone()];
     let result = recorder(&app, &log)
         .tracked(
@@ -3725,7 +3731,7 @@ async fn pull_with_autostash<R: Runtime>(
             meta,
             id,
             true,
-            |report: &PullReport| format!("Pull: {:?}, stash: {:?}", report.outcome, report.stash),
+            |report: &PullReport| labels::pulled_with_stash(report.outcome, &report.stash),
             move |cancel, progress| {
                 yforge_core::pull_autostash(Path::new(&path), mode, cancel, progress)
             },
@@ -4037,7 +4043,7 @@ async fn worktree_create<R: Runtime>(
         "worktree_create path={path} branch={branch} create={create} start={start:?} destination={destination}"
     );
     let target = path.clone();
-    let label = format!("Created a worktree for {branch} at {destination}");
+    let label = labels::worktree_created(&branch);
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::CreateWorktree, true, true),
@@ -4069,7 +4075,7 @@ async fn worktree_remove<R: Runtime>(
 ) -> Result<(), ErrorPayload> {
     log::debug!("worktree_remove path={path} worktree={worktree} force={force}");
     let target = path.clone();
-    let label = format!("Removed the worktree at {worktree}");
+    let label = labels::worktree_removed(&worktree);
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::RemoveWorktree, true, true),
@@ -4105,7 +4111,7 @@ async fn worktree_integrate<R: Runtime>(
                         if *cleaned_up { " and removed it" } else { "" }
                     ),
                     WorktreeIntegration::Conflicts { worktree } => {
-                        format!("Rebase stopped on conflicts in {worktree}")
+                        labels::worktree_conflicts(worktree)
                     }
                 }
             },
@@ -5043,12 +5049,7 @@ async fn snapshot_restore_files<R: Runtime>(
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::RestoreSnapshot, true, true),
-            move |safety: &String| {
-                format!(
-                    "Restored {} from a snapshot; the previous state is saved as {safety}",
-                    counted(count, "file")
-                )
-            },
+            move |_: &String| format!("Restored {} from a snapshot", counted(count, "file")),
             move || yforge_core::snapshot_restore_files(Path::new(&target), &reference, &files),
         )
         .await;
@@ -5071,9 +5072,7 @@ async fn snapshot_restore_all<R: Runtime>(
     let result = recorder(&app, &log)
         .recorded(
             track(&path, OperationKind::RestoreSnapshot, true, true),
-            move |safety: &String| {
-                format!("Restored a snapshot; the previous state is saved as {safety}")
-            },
+            |_: &String| "Restored a snapshot".to_owned(),
             move || yforge_core::snapshot_restore_all(Path::new(&target), &reference, force),
         )
         .await;

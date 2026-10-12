@@ -9,11 +9,16 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
   let scroller: HTMLDivElement | undefined;
   const [staging, setStaging] = createSignal(false);
   const files = () => props.snapshot.files.filter((file) => file.area === "untracked" || file.area === "unstaged" || file.area === "staged");
+  const focusSummary = () => document.querySelector<HTMLInputElement>('input[aria-label="Summary"]')?.focus();
   const createFirstCommit = async () => {
     if (staging()) return;
+    if (files().length === 0) {
+      focusSummary();
+      return;
+    }
     setStaging(true);
     try {
-      if (await props.actions.stageAll()) document.querySelector<HTMLInputElement>('input[aria-label="Summary"]')?.focus();
+      if (await props.actions.stageAll()) focusSummary();
     } finally {
       setStaging(false);
     }
@@ -25,7 +30,7 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
           <h2>This repository has no commits yet</h2>
           <p>Stage files and create the first commit to start the history.</p>
         </header>
-        <Show when={files().length > 0} fallback={<p class="setting-note">Add files to this folder, then commit them.</p>}>
+        <Show when={files().length > 0} fallback={<p class="setting-note">Add files to this folder, or commit with no files.</p>}>
           <section class="empty-repo-files">
             <h3>Files · {files().length}</h3>
             <div
@@ -55,13 +60,13 @@ export function EmptyRepository(props: { snapshot: RepoSnapshot; actions: RepoAc
               </VirtualRows>
             </div>
           </section>
-          <div class="empty-repo-actions">
-            <button type="button" class="btn primary" disabled={staging()} aria-busy={staging()} onClick={() => void createFirstCommit()}>
-              {staging() ? "Staging…" : "Create first commit"}
-            </button>
-            <Show when={staging()}><p class="setting-note" role="status"><span class="busy-spinner" aria-hidden="true" />Staging files…</p></Show>
-          </div>
         </Show>
+        <div class="empty-repo-actions">
+          <button type="button" class="btn primary" disabled={staging()} aria-busy={staging()} onClick={() => void createFirstCommit()}>
+            {staging() ? "Staging…" : "Create first commit"}
+          </button>
+          <Show when={staging()}><p class="setting-note" role="status"><span class="busy-spinner" aria-hidden="true" />Staging files…</p></Show>
+        </div>
       </div>
     </section>
   );

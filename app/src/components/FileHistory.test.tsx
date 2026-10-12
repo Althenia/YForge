@@ -318,7 +318,7 @@ describe("file history diff", () => {
     await flush(60);
 
     expect(called("revert_hunk")).toEqual([{ cmd: "revert_hunk", args: { path: "/r", sha: "c".repeat(40), file: "src/util.js", hunk: 1 } }]);
-    expect(session.notice()).toBe("Reverted a hunk of src/util.js from ccccccc. The change is in Unstaged; nothing is committed.");
+    expect(session.notice()).toBe("Reverted a hunk of util.js from ccccccc");
   });
 
   it("shows a concise refusal when the hunk no longer applies and retains the full core error", async () => {

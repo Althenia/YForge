@@ -2,8 +2,9 @@ mod common;
 
 use common::Fixture;
 use yforge_core::{
-    amend_info, commit, commit_details, commit_file_diff, edit_head_message, revision_file_diff,
-    stage_all, DiffLineKind, ErrorKind, FileStatus, RefKind,
+    amend_info, commit, commit_details, commit_file_diff, edit_head_message, init_repository,
+    repo_snapshot, revision_file_diff, stage_all, DiffLineKind, ErrorKind, FileStatus, Head,
+    RefKind,
 };
 
 fn ready_repository() -> Fixture {
@@ -50,6 +51,48 @@ fn rejects_an_empty_summary_and_reports_nothing_to_commit_with_git_output() {
     assert!(payload
         .output
         .is_some_and(|output| output.contains("nothing to commit")));
+}
+
+#[test]
+fn an_unborn_branch_takes_an_empty_first_commit_and_the_snapshot_then_has_a_head() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("fresh");
+    init_repository(&path, "trunk").unwrap();
+    repo_git(&path, &["config", "user.name", "Yui Lin"]);
+    repo_git(&path, &["config", "user.email", "yui@example.test"]);
+    repo_git(&path, &["config", "commit.gpgsign", "false"]);
+    assert!(matches!(
+        repo_snapshot(&path).unwrap().head,
+        Head::Unborn { ref branch } if branch == "trunk"
+    ));
+
+    let sha = commit(&path, "Initial commit", "", false).unwrap();
+
+    let snapshot = repo_snapshot(&path).unwrap();
+    assert!(matches!(
+        snapshot.head,
+        Head::Branch { ref name, sha: ref head } if name == "trunk" && *head == sha
+    ));
+    assert_eq!(repo_git(&path, &["log", "--format=%s"]), "Initial commit");
+    assert_eq!(
+        repo_git(&path, &["show", "--format=", "--name-only", "HEAD"]),
+        ""
+    );
+}
+
+#[test]
+fn the_empty_first_commit_still_refuses_an_empty_summary_and_an_amend() {
+    let repo = Fixture::init();
+    repo.identity();
+
+    assert_eq!(
+        commit(&repo.path, " ", "", false).unwrap_err().kind(),
+        ErrorKind::InvalidRequest
+    );
+    assert_eq!(
+        commit(&repo.path, "Initial", "", true).unwrap_err().kind(),
+        ErrorKind::CommitFailed
+    );
 }
 
 #[test]
@@ -504,4 +547,14 @@ fn revision_file_diff_refuses_an_unknown_revision() {
     let error = revision_file_diff(&repo.path, "HEAD", "nope", "a.txt", false).unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::InvalidRequest);
+}
+
+fn repo_git(path: &std::path::Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(path)
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }

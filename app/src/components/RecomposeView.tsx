@@ -9,7 +9,7 @@ import { fileList } from "../state/fileList";
 import { statusIcon, statusWord } from "../state/changes";
 import { beginPointerDrag } from "../state/pointerDrag";
 import { historyKeys } from "../state/queryKeys";
-import { dirtyReason } from "../state/rebaseModel";
+import { dirtyReason, PUSHED_REWRITE_NOTICE } from "../state/rebaseModel";
 import {
   addGroup,
   assign,
@@ -141,7 +141,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
     try {
       const result = await apply.mutateAsync(groupsOf(draft(), catalog()));
       await props.session.refresh();
-      if (result.pushed) props.session.inform("Commits that are already on the upstream were rewritten. The next push needs a force push.");
+      if (result.pushed) props.session.inform(PUSHED_REWRITE_NOTICE);
       props.onClose();
     } catch (error) {
       setFailure(error instanceof IpcError ? error : new IpcError({ kind: "internal", message: String(error) }));

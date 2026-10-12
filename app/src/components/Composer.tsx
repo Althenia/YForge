@@ -18,6 +18,7 @@ const STASH_DRAFT_NOTE = "Draft from your changes. Review and edit it; nothing i
 const COMPOSE_ACTION = "Compose the changes into commits";
 const STASH_ACTION = "Generate a stash message from the changes";
 const DESCRIPTION_ROWS = 3;
+const EMPTY_FIRST_COMMIT_NOTE = "This commit will contain no files.";
 
 export function FieldAi(props: {
   visible: boolean;
@@ -98,9 +99,9 @@ export function Composer(props: {
   const button = () => props.action.button();
   const warning = () => amendWarning(props.state.pushed(), props.snapshot.upstream?.name);
   const unborn = () => props.snapshot.head.kind === "unborn";
-  const amendReason = () =>
-    unborn() ? "There is no commit to amend yet" : props.snapshot.operation !== null ? "Finish the operation in progress first" : undefined;
-  const chipReason = () => (unborn() ? "There is no commit to amend yet" : props.state.busy() ? "Committing…" : props.generate.running() ? "Generating a commit message…" : undefined);
+  const emptyFirstCommit = () => unborn() && props.clean;
+  const amendReason = () => (props.snapshot.operation !== null ? "Finish the operation in progress first" : undefined);
+  const chipReason = () => (props.state.busy() ? "Committing…" : props.generate.running() ? "Generating a commit message…" : undefined);
   const failure = () => props.state.failure();
   const tab = (): ComposerTab => (props.snapshot.operation === null ? props.state.tab() : "commit");
   const stashState = () => stashButton({ files: props.snapshot.files, untracked: props.state.stashUntracked(), busy: props.state.stashing() });
@@ -173,7 +174,7 @@ export function Composer(props: {
 
   return (
     <Show
-      when={!props.clean || props.state.amend()}
+      when={!props.clean || props.state.amend() || unborn()}
       fallback={
         <div class="composer compact" role="group" aria-label="Commit" aria-busy={props.state.busy()}>
           <button
@@ -342,22 +343,27 @@ export function Composer(props: {
               onInput={props.state.setDescription}
             />
             <div class="composer-row">
-              <button
-                type="button"
-                class="chip-toggle"
-                role="checkbox"
-                aria-checked={props.state.amend()}
-                aria-disabled={chipReason() === undefined ? undefined : "true"}
-                title={chipReason() ?? "Amend the previous commit instead of creating a new one"}
-                onClick={() => chipReason() === undefined && void props.action.toggleAmend(!props.state.amend())}
-              >
-                <Icon name="edit" size={14} />
-                Amend
-              </button>
+              <Show when={!unborn()}>
+                <button
+                  type="button"
+                  class="chip-toggle"
+                  role="checkbox"
+                  aria-checked={props.state.amend()}
+                  aria-disabled={chipReason() === undefined ? undefined : "true"}
+                  title={chipReason() ?? "Amend the previous commit instead of creating a new one"}
+                  onClick={() => chipReason() === undefined && void props.action.toggleAmend(!props.state.amend())}
+                >
+                  <Icon name="edit" size={14} />
+                  Amend
+                </button>
+              </Show>
               <Show when={props.compose.available}>
                 <AiTrigger action={COMPOSE_ACTION} reason={props.state.busy() ? "Committing…" : props.compose.reason} onRun={props.compose.run} />
               </Show>
             </div>
+            <Show when={emptyFirstCommit()}>
+              <div class="note" role="status">{EMPTY_FIRST_COMMIT_NOTE}</div>
+            </Show>
             <Show when={warning()}>{(text) => <div class="note attention" role="status">{text()}</div>}</Show>
             <Show when={failure()}>
               {(error) => (

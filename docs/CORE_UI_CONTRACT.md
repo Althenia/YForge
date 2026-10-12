@@ -470,7 +470,8 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 
 | `kind` | Cause |
 |---|---|
-| `not_a_repository` | The path is missing, not a directory, or not inside a Git work tree |
+| `not_a_repository` | The path is missing, not a directory, or a bare repository |
+| `uninitialized_folder` | The path is an existing folder that is not inside a Git work tree; the UI offers to initialize a repository there (`init_repo`) |
 | `git_missing` | `git` was not found on `PATH` |
 | `git_too_old` | `git --version` is below 2.39 |
 | `git_failed` | A git command exited non-zero; the message carries the command, status, and stderr |

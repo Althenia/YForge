@@ -31,4 +31,4 @@ export const finishNote = (config: GitFlowConfig, flow: FlowBranch): string =>
 
 export const startNote = (config: GitFlowConfig, kind: FlowKind): string => `Creates ${prefixOf(config, kind)}<name> from ${startBase(config, kind)} and checks it out`;
 
-export const CONFLICT_NOTICE = "Finish stopped on conflicts. Resolve them, then continue, or abort. Nothing was deleted.";
+export const CONFLICT_NOTICE = "Finish stopped on conflicts; nothing was deleted";

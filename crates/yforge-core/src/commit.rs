@@ -334,12 +334,7 @@ pub fn revision_file_diff(
 
 pub fn amend_info(path: &Path) -> Result<AmendInfo, CoreError> {
     let root = repo::open(path)?;
-    let head = git::run_unchecked(
-        &root,
-        &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
-        None,
-    )?;
-    if !head.succeeded() {
+    if !has_commits(&root)? {
         return Err(CoreError::invalid_request(
             "there is no commit to amend yet",
         ));
@@ -351,6 +346,15 @@ pub fn amend_info(path: &Path) -> Result<AmendInfo, CoreError> {
         summary: commit.summary,
         description: commit.body,
     })
+}
+
+fn has_commits(root: &Path) -> Result<bool, CoreError> {
+    Ok(git::run_unchecked(
+        root,
+        &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+        None,
+    )?
+    .succeeded())
 }
 
 pub(crate) fn has_upstream(root: &Path) -> Result<bool, CoreError> {
@@ -395,6 +399,8 @@ pub fn commit(
     let mut args = vec!["commit", "--quiet"];
     if amend {
         args.push("--amend");
+    } else if !has_commits(&root)? {
+        args.push("--allow-empty");
     }
     args.extend(["-m", summary]);
     if !description.trim().is_empty() {

@@ -5,7 +5,7 @@ import { workspaceView } from "./workspace";
 
 const info = { app_version: "0.1.0", git_version: "2.55.0" };
 const snapshot = { root: "/repo" } as RepoSnapshot;
-const failure = (kind: "not_a_repository" | "git_failed" | "git_missing", message: string) => new IpcError({ kind, message, output: null });
+const failure = (kind: "not_a_repository" | "uninitialized_folder" | "git_failed" | "git_missing", message: string) => new IpcError({ kind, message, output: null });
 
 describe("workspaceView", () => {
   it("is ready once app info and the snapshot have loaded", () => {
@@ -22,6 +22,14 @@ describe("workspaceView", () => {
       status: "not_a_repository",
       path: "/tmp",
       message: "/tmp is not inside a Git repository",
+    });
+  });
+
+  it("reports a restored folder that lost its repository as the same empty state", () => {
+    expect(workspaceView("/tmp/plain", { data: info, error: null }, { data: undefined, error: failure("uninitialized_folder", "/tmp/plain is not a Git repository") })).toEqual({
+      status: "not_a_repository",
+      path: "/tmp/plain",
+      message: "/tmp/plain is not a Git repository",
     });
   });
 

@@ -48,7 +48,7 @@ describe("shell sheets and the repository search palette", () => {
   function mountApp(extra: Record<string, unknown> = {}) {
     mockIPC(
       (cmd) => {
-        if (cmd in extra) return extra[cmd];
+        if (cmd in extra) return typeof extra[cmd] === "function" ? (extra[cmd] as () => unknown)() : extra[cmd];
         if (cmd === "repo_open") throw { kind: "not_a_repository", message: "not a repository", output: null };
         if (cmd === "settings_load") return defaultSettings;
         if (cmd === "repo_aliases_list") return [];
@@ -76,6 +76,34 @@ describe("shell sheets and the repository search palette", () => {
     expect(host.querySelector(".palette .pal-chip.scope")?.textContent).toContain("Open repo");
     expect(host.querySelector<HTMLInputElement>('.palette input[aria-label="Command"]')?.placeholder).toBe("Search for a repository to open");
     expect([...host.querySelectorAll(".palette .pal-item .pal-label")].map((label) => label.textContent)).toEqual(["/work/api", "/scan/web"]);
+  });
+
+  it("confirms before initializing a launch folder that is not a repository and opens it after Initialize repository", async () => {
+    const initialized: unknown[] = [];
+    let ready = false;
+    const host = mountApp({
+      launch_path: "/plain",
+      repo_open: () => {
+        if (ready) return { root: "/plain", main_root: "/plain", head: { kind: "unborn", branch: "main" }, files: [], counts: {}, remotes: [], branches: [], tags: [], stashes: [], worktrees: [], operation: null, upstream: null };
+        throw { kind: "uninitialized_folder", message: "/plain is not inside a Git repository", output: null };
+      },
+      init_repo: () => {
+        ready = true;
+        initialized.push("/plain");
+        return "/plain";
+      },
+    });
+    await flush(80);
+
+        const dialog = host.querySelector('[role="alertdialog"]');
+    expect(dialog?.querySelector("h3")?.textContent).toBe("Initialize a Git repository?");
+    expect(dialog?.textContent).toContain("/plain");
+    expect(initialized).toEqual([]);
+    [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent === "Initialize repository")?.click();
+    await flush(120);
+
+    expect(initialized).toEqual(["/plain"]);
+    expect(host.querySelector('[role="alertdialog"]')).toBeNull();
   });
 
   it("shows the keyboard shortcuts sheet for Help → Keyboard Shortcuts and closes it with Escape", async () => {

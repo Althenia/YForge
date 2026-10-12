@@ -174,10 +174,10 @@ describe("pushed warning and outcome notices", () => {
 
   it("reports conflicts, an edit stop, dropped-all, and pushed rewrites, and nothing for a plain completion", () => {
     const result = (overrides: Partial<RebaseResult>): RebaseResult => ({ outcome: "completed", pushed: false, dropped_all: false, ...overrides });
-    expect(outcomeNotice(result({ outcome: "conflicts" }), "Interactive rebase")).toBe("Interactive rebase stopped on conflicts. Resolve them, then continue, or abort.");
-    expect(outcomeNotice(result({ outcome: "stopped_to_edit" }), "Interactive rebase")).toBe("Interactive rebase stopped to edit a commit. Amend it or change files, then Continue.");
-    expect(outcomeNotice(result({ dropped_all: true }), "Interactive rebase")).toBe("Every commit was dropped. The branch is back at the base.");
-    expect(outcomeNotice(result({ pushed: true }), "Squash")).toBe("Commits that are already on the upstream were rewritten. The next push needs a force push.");
+    expect(outcomeNotice(result({ outcome: "conflicts" }), "Interactive rebase")).toBe("Interactive rebase stopped on conflicts");
+    expect(outcomeNotice(result({ outcome: "stopped_to_edit" }), "Interactive rebase")).toBe("Interactive rebase stopped to edit a commit");
+    expect(outcomeNotice(result({ dropped_all: true }), "Interactive rebase")).toBe("Every commit was dropped");
+    expect(outcomeNotice(result({ pushed: true }), "Squash")).toBe("Pushed commits were rewritten; force push next");
     expect(outcomeNotice(result({}), "Squash")).toBeUndefined();
   });
 });

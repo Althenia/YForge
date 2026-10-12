@@ -116,7 +116,7 @@ const progressive: Record<SyncName, string> = {
 
 export type TagRequest = { name: string; message: string | null; push: boolean };
 
-const conflictNotice = (verb: string): string => `${verb} stopped on conflicts. Resolve them, then continue, or abort.`;
+const conflictNotice = (verb: string): string => `${verb} stopped on conflicts`;
 
 type SyncResult<T> = { value: T } | { error: IpcError };
 
@@ -128,23 +128,23 @@ export function autoStashMessage(outcome: AutoStash, label: string, left?: strin
     case "none":
       return undefined;
     case "restored":
-      return `Switched to ${label}. Your stashed changes were restored.`;
+      return `Switched to ${label}; stash restored`;
     case "conflicts":
-      return `Switched to ${label}. Restoring your changes conflicted; they are kept in stash@{0}.`;
+      return `Switched to ${label}; restoring the stash conflicted`;
     case "kept":
-      return `Switched to ${label}. Your changes could not be restored automatically and remain in stash@{0}.`;
+      return `Switched to ${label}; stash kept in stash@{0}`;
     case "stashed":
       return left === undefined
-        ? `Switched to ${label}. Your changes are stashed in stash@{0}.`
-        : `Switched to ${label}. Your changes are stashed and will be offered back when you return to ${left}.`;
+        ? `Switched to ${label}; changes stashed in stash@{0}`
+        : `Switched to ${label}; changes stashed for ${left}`;
   }
 }
 
 export function restoreMessage(kind: "apply" | "pop", restore: StashRestore): string | undefined {
   if (restore === "applied") return undefined;
   return kind === "pop"
-    ? "The stash applied with conflicts and was kept. Resolve them in the Changes list."
-    : "The stash applied with conflicts. Resolve them in the Changes list.";
+    ? "The stash applied with conflicts and was kept"
+    : "The stash applied with conflicts";
 }
 
 const PULL_STASH_NOTICE = "pull-stash";
@@ -320,7 +320,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   function reportPull(outcome: PullOutcome): void {
-    if (outcome === "conflicts") session.inform("Pull stopped on conflicts. Resolve them, then continue, or abort.");
+    if (outcome === "conflicts") session.inform(conflictNotice("Pull"));
   }
 
   function showPullStash(stash: PullStash): void {
@@ -886,7 +886,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function openDropMenu(dragged: RefTarget, dropped: RefTarget, anchor: Anchor): Promise<void> {
     const base = dropBase(dragged, dropped, currentBranch());
     if (base === undefined) {
-      session.inform("That drop has no integration to offer. Drop a branch on the checked-out branch, or the checked-out branch on another branch.");
+      session.inform("That drop offers no integration");
       return;
     }
     const preview = await previewOf(base.into === currentBranch() ? null : base.into, base.other);

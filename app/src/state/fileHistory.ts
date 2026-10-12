@@ -2,6 +2,7 @@ import { createMemo, createSignal } from "solid-js";
 import type { BlameRun } from "../ipc/bindings/BlameRun";
 import type { FileRevision } from "../ipc/bindings/FileRevision";
 import { client } from "../ipc/client";
+import { basename } from "../format";
 import type { FileHistoryRequest } from "./fileHistoryRequest";
 import { useQuery } from "./query";
 import { repoKeys } from "./queryKeys";
@@ -21,7 +22,7 @@ export const REVERT_WHITESPACE_REASON = "Turn off Ignore whitespace to revert a 
 
 export const revertReason = (ignoreWhitespace: boolean): string | undefined => (ignoreWhitespace ? REVERT_WHITESPACE_REASON : undefined);
 
-export const revertedNotice = (file: string, short: string): string => `Reverted a hunk of ${file} from ${short}. The change is in Unstaged; nothing is committed.`;
+export const revertedNotice = (file: string, short: string): string => `Reverted a hunk of ${basename(file)} from ${short}`;
 
 export function pickRevision(revisions: readonly FileRevision[], sha: string | undefined): FileRevision | undefined {
   return (sha === undefined ? undefined : revisions.find((revision) => revision.sha.startsWith(sha))) ?? revisions[0];

@@ -7,6 +7,7 @@ import { draftNotes } from "../state/aiGenerate";
 import { createAiRun } from "../state/aiRun";
 import { useApp } from "../state/app";
 import { amendWarning, summaryRemaining } from "../state/composer";
+import { PUSHED_REWRITE_NOTICE } from "../state/rebaseModel";
 import type { RepoSession } from "../state/repoSession";
 import { AiFailureNote } from "./AiFailureNote";
 import { FieldAi } from "./Composer";
@@ -32,8 +33,7 @@ function Fields(props: { session: RepoSession; info: AmendInfo; generateAvailabl
         edit = await client.editHeadMessage(props.session.path, props.info.sha, value.summary, value.description);
       });
       if (!saved || edit === undefined) return;
-      const warning = edit.pushed ? amendWarning(true, upstream) : undefined;
-      if (warning !== undefined) props.session.inform(warning);
+      if (edit.pushed) props.session.inform(PUSHED_REWRITE_NOTICE);
       props.onSaved(edit.sha);
       props.onClose();
     },

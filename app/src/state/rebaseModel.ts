@@ -131,11 +131,13 @@ export function pushedRewriteWarning(rows: readonly RebaseRow[], upstream: strin
   return `${count} of these commits ${single ? "is" : "are"} already on ${upstream ?? "its upstream"}. Rewriting ${single ? "it" : "them"} means the next push needs a force push.`;
 }
 
+export const PUSHED_REWRITE_NOTICE = "Pushed commits were rewritten; force push next";
+
 export function outcomeNotice(result: RebaseResult, verb: string): string | undefined {
-  if (result.outcome === "conflicts") return `${verb} stopped on conflicts. Resolve them, then continue, or abort.`;
-  if (result.outcome === "stopped_to_edit") return `${verb} stopped to edit a commit. Amend it or change files, then Continue.`;
-  if (result.dropped_all) return "Every commit was dropped. The branch is back at the base.";
-  if (result.pushed) return "Commits that are already on the upstream were rewritten. The next push needs a force push.";
+  if (result.outcome === "conflicts") return `${verb} stopped on conflicts`;
+  if (result.outcome === "stopped_to_edit") return `${verb} stopped to edit a commit`;
+  if (result.dropped_all) return "Every commit was dropped";
+  if (result.pushed) return PUSHED_REWRITE_NOTICE;
   return undefined;
 }
 

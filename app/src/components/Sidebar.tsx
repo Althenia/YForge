@@ -806,6 +806,9 @@ export function Sidebar(props: {
                     >
                       <span class="pull-main">
                         <span class="pull-line">
+                          <span class="pull-state" classList={{ ok: state().tone === "ok", info: state().tone === "info", danger: state().tone === "danger" }} role="img" {...tip(state().label, undefined, state().label)}>
+                            <Icon name={state().icon} size={14} />
+                          </span>
                           <span class="pull-number">#{pull.number}</span>
                           <span class="name">{pull.title}</span>
                           <Show when={props.jira}>{(jira) => <IssueChips keys={jira().chips.keysFor(pullText(pull))} lookup={jira().chips.lookup} />}</Show>
@@ -816,10 +819,6 @@ export function Sidebar(props: {
                             {pull.author} · <span class="ref">{pull.source_ref}</span> → <span class="ref">{pull.target_ref}</span>
                           </span>
                         </span>
-                      </span>
-                      <span class="chip pull-state" classList={{ "chip-success": state().tone === "ok", "chip-danger": state().tone === "danger" }}>
-                        <Icon name={state().icon} size={14} />
-                        {state().label}
                       </span>
                       <span class="acts">
                         <button

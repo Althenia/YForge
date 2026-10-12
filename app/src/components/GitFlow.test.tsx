@@ -157,7 +157,7 @@ describe("git flow section", () => {
     await flush();
 
     expect(app.notice()).toBe(CONFLICT_NOTICE);
-    expect(CONFLICT_NOTICE).toContain("Nothing was deleted");
+    expect(CONFLICT_NOTICE).toBe("Finish stopped on conflicts; nothing was deleted");
   });
 
   it("shows the core's refusal of a finish", async () => {

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderMarkdown, handleMarkdownClick } from "./markdown";
 
@@ -160,5 +162,13 @@ describe("shared Markdown", () => {
     article.addEventListener("click", (event) => handleMarkdownClick(event, article, open));
     article.querySelectorAll("a")[2]?.click();
     expect(open).toHaveBeenCalledWith("docs/other.md", "notes");
+  });
+
+  it("keeps table columns at their longest word and scrolls wide tables inside their frame", () => {
+    const css = readFileSync(resolve(import.meta.dirname, "../styles/markdown.css"), "utf8");
+    const rule = (selector: string) => new RegExp(`(?:^|\\n)${selector.replace(/[.[\]]/g, "\\$&")} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
+    expect(rule(".markdown-body")).toContain("overflow-wrap: break-word");
+    expect(rule(".markdown-body")).not.toContain("anywhere");
+    expect(rule(".markdown-table")).toContain("overflow-x: auto");
   });
 });

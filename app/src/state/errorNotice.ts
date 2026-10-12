@@ -12,6 +12,7 @@ const operationNames: Record<string, string> = {
 
 const causes: Partial<Record<ErrorKind, string>> = {
   not_a_repository: "not a Git repository",
+  uninitialized_folder: "not a Git repository",
   already_a_repository: "already a Git repository",
   git_missing: "Git was not found on PATH",
   git_too_old: "Git needs to be updated",
@@ -35,6 +36,18 @@ const causes: Partial<Record<ErrorKind, string>> = {
 
 const usable = (line: string): boolean => line !== "" && !/hint:|exited with status|could not run|(?:^|\s)git\s|`|:\(|^\s*(?:at |error:|fatal:)/i.test(line);
 
+const TITLE_LIMIT = 80;
+const ADDRESS = /\b[a-z][a-z0-9+.-]*:\/\//i;
+const ABSOLUTE_PATH = /(?<![\w.~/-])(?:[A-Za-z]:[\\/]|~\/|\/)(?:[^\s/\\'"`,;)]+[\\/])*[^\s/\\'"`,;)]+/g;
+
+const lastSegment = (path: string): string => path.split(/[\\/]/).filter((segment) => segment !== "").pop() ?? path;
+
+function shortCause(selected: string | undefined): string | undefined {
+  if (selected === undefined || ADDRESS.test(selected)) return undefined;
+  if (selected.includes("pathspec")) return selected.includes("did not match") ? "the selected path did not match" : undefined;
+  return selected.replace(/^\S+ answered with (?=HTTP \d)/, "").replace(ABSOLUTE_PATH, lastSegment).split(/[.!?]\s+/)[0];
+}
+
 export function failureNotice(failure: unknown, operation?: string): string {
   const error = failure instanceof IpcError ? failure : undefined;
   const command = error?.command;
@@ -48,8 +61,8 @@ export function failureNotice(failure: unknown, operation?: string): string {
   const ignoredCause = ignoredPath !== undefined && usable(ignoredPath) ? `${ignoredPath} is ignored by .gitignore` : undefined;
   const diagnostic = lines.map((line) => /(?:^|:\s*)(?:fatal|error):\s*(.+)/i.exec(line)?.[1]?.trim()).find((line) => line !== undefined && usable(line));
   const plain = lines.find((line) => usable(line))?.replace(/^Invalid request:\s*/i, "");
-  const selected = diagnostic ?? ignoredCause ?? (error === undefined ? plain : causes[error.kind] ?? plain);
-  const cause = selected?.includes("pathspec") ? selected.includes("did not match") ? "the selected path did not match" : undefined : selected?.split(/[.!?]\s+/)[0];
-  const detail = cause !== undefined && cause.length <= Math.max(40, 140 - name.length - 9) ? cause.replace(/[.!]+$/, "") : "See Activity for details";
-  return `${name} failed: ${detail}`;
+  const selected = (error === undefined ? undefined : causes[error.kind]) ?? ignoredCause ?? diagnostic ?? plain;
+  const cause = shortCause(selected)?.replace(/[.!]+$/, "");
+  const title = cause === undefined ? undefined : `${name} failed: ${cause}`;
+  return title !== undefined && title.length <= TITLE_LIMIT ? title : `${name} failed: See Activity for details`;
 }

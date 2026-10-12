@@ -99,7 +99,7 @@ describe("checkout", () => {
     expect(checkouts.map((call) => call.args.stash)).toEqual([false, true]);
     expect(checkouts.map((call) => call.args.leaveStashed)).toEqual([undefined, true]);
     expect(dialog?.copy.consequences.join(" ")).toMatch(/offered back when you return to main/);
-    expect(session.notice()).toBe("Switched to feature. Your changes are stashed and will be offered back when you return to main.");
+    expect(session.notice()).toBe("Switched to feature; changes stashed for main");
   });
 
   it("checks out a remote-only branch as a tracking branch and prefers an existing local branch", async () => {
@@ -250,10 +250,11 @@ describe("checkout", () => {
 
   it("words each auto-stash outcome", () => {
     expect(autoStashMessage("none", "x")).toBeUndefined();
-    expect(autoStashMessage("conflicts", "x")).toMatch(/kept in stash@\{0\}/);
-    expect(autoStashMessage("kept", "x")).toMatch(/remain in stash@\{0\}/);
-    expect(autoStashMessage("stashed", "x", "main")).toBe("Switched to x. Your changes are stashed and will be offered back when you return to main.");
-    expect(autoStashMessage("stashed", "x", undefined)).toBe("Switched to x. Your changes are stashed in stash@{0}.");
+    expect(autoStashMessage("restored", "x")).toBe("Switched to x; stash restored");
+    expect(autoStashMessage("conflicts", "x")).toBe("Switched to x; restoring the stash conflicted");
+    expect(autoStashMessage("kept", "x")).toBe("Switched to x; stash kept in stash@{0}");
+    expect(autoStashMessage("stashed", "x", "main")).toBe("Switched to x; changes stashed for main");
+    expect(autoStashMessage("stashed", "x", undefined)).toBe("Switched to x; changes stashed in stash@{0}");
   });
 });
 
@@ -443,7 +444,7 @@ describe("sync", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(calls.find((call) => call.cmd === "pull")?.args).toMatchObject({ path: "/r", mode: "rebase" });
-    expect(session.notice()).toMatch(/stopped on conflicts/);
+    expect(session.notice()).toBe("Pull stopped on conflicts");
   });
 
   it("says so in the result chip when a pull finds nothing new", async () => {
@@ -678,7 +679,7 @@ describe("integration actions", () => {
     await settle();
     await actions.submitMerge("merge_commit");
 
-    expect(session.notice()).toBe("Merge stopped on conflicts. Resolve them, then continue, or abort.");
+    expect(session.notice()).toBe("Merge stopped on conflicts");
     expect(names().at(-1)).toBe("repo_open");
   });
 
@@ -717,7 +718,7 @@ describe("integration actions", () => {
     actions.menu()?.run("cherry_pick");
     await settle();
     expect(calls[0]).toEqual({ cmd: "cherry_pick", args: { path: "/r", sha: "bbbbbbbbbbbbbbbb" } });
-    expect(session.notice()).toBe("Cherry-pick stopped on conflicts. Resolve them, then continue, or abort.");
+    expect(session.notice()).toBe("Cherry-pick stopped on conflicts");
 
     actions.openCommitMenu("bbbbbbbbbbbbbbbb", false, { left: 1, top: 2 });
     actions.menu()?.run("revert");
@@ -830,7 +831,7 @@ describe("integration actions", () => {
     await actions.openDropMenu({ kind: "tag", name: "v1", startPoint: "x" }, feature, { left: 1, top: 2 });
 
     expect(actions.menu()).toBeUndefined();
-    expect(session.notice()).toMatch(/no integration to offer/);
+    expect(session.notice()).toBe("That drop offers no integration");
   });
 });
 
@@ -885,7 +886,7 @@ describe("phase 3b actions", () => {
 
     await actions.autoFetch();
 
-    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: unable to access 'https://host/r.git/': Could not resolve host");
+    expect(actions.autoFetchPause()).toBe("Auto-fetch failed: See Activity for details");
     expect(session.notice()).toBeUndefined();
   });
 
@@ -1127,7 +1128,7 @@ describe("pull with a dirty working tree", () => {
 
       await actions.continueOperation(null);
 
-      expect(session.notice()).toBe("The stash applied with conflicts and was kept. Resolve them in the Changes list.");
+      expect(session.notice()).toBe("The stash applied with conflicts and was kept");
     });
   });
 
@@ -1545,13 +1546,13 @@ describe("bulk branch and stash actions", () => {
     await actions.dialog()?.run();
     await settle();
 
-    expect(session.notice()).toBe("Delete branches failed: 1 of 2: feature: feature is checked out in worktree /w/x");
+    expect(session.notice()).toBe("Delete branches failed: 1 of 2: feature: feature is checked out in worktree x");
   });
 
   it("shows the refusal when no branch could be deleted", async () => {
     const { actions, session } = setup((call) => {
       if (call.cmd === "branch_delete_preview") return noLoss;
-      if (call.cmd === "delete_branches") throw rejection("branch_in_worktree", "feature is checked out in worktree /w/x");
+      if (call.cmd === "delete_branches") throw rejection("branch_in_worktree", "feature is checked out in worktree x");
       return null;
     });
 
@@ -1716,7 +1717,7 @@ describe("file operations", () => {
 
   it("states the reason and opens no editor when the file is binary or too large", async () => {
     const { actions, session } = files((call) => {
-      if (call.cmd === "file_editable") throw rejection("invalid_request", "Invalid request: image.bin is a binary file; the editor opens text files only");
+      if (call.cmd === "file_editable") throw rejection("invalid_request", "Invalid request: image.bin is a binary file");
       return null;
     });
 
@@ -1724,7 +1725,7 @@ describe("file operations", () => {
     await settle();
 
     expect(actions.files.editing()).toBeUndefined();
-    expect(session.notice()).toBe("File editable failed: image.bin is a binary file; the editor opens text files only");
+    expect(session.notice()).toBe("File editable failed: image.bin is a binary file");
   });
 
   it("saves the editor text with its line ending and refreshes the changes", async () => {

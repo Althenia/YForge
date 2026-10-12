@@ -207,9 +207,18 @@ fn parse_worktrees(output: &str, root: &Path) -> Result<Vec<Worktree>, CoreError
     Ok(worktrees)
 }
 
+fn is_plain_folder(path: &Path) -> Result<bool, CoreError> {
+    Ok(path.is_dir() && !git::run_unchecked(path, &["rev-parse", "--git-dir"], None)?.succeeded())
+}
+
 pub fn repo_snapshot(path: &Path) -> Result<RepoSnapshot, CoreError> {
     git::ensure_supported()?;
-    let root = resolve_root(path)?;
+    let root = match resolve_root(path) {
+        Err(CoreError::NotARepository { path: folder }) if is_plain_folder(path)? => {
+            return Err(CoreError::UninitializedFolder { path: folder });
+        }
+        resolved => resolved?,
+    };
     snapshots::prune_on_open(&root);
     let ParsedStatus {
         head,

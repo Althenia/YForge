@@ -258,19 +258,20 @@ fn repo_graph_windows_by_offset_and_limit() {
 #[test]
 fn errors_serialize_as_tagged_kind_and_message() {
     let (_app, window) = app();
-    let not_a_repository = tempfile::tempdir().expect("tempdir");
+    let plain_folder = tempfile::tempdir().expect("tempdir");
+    let missing = plain_folder.path().join("missing");
 
-    let error = invoke(
-        &window,
-        "repo_open",
-        json!({ "path": not_a_repository.path() }),
-    )
-    .expect_err("repo_open fails outside a repository");
-
-    assert_eq!(error["kind"], "not_a_repository");
+    let error = invoke(&window, "repo_open", json!({ "path": plain_folder.path() }))
+        .expect_err("repo_open fails in a folder outside a repository");
+    assert_eq!(error["kind"], "uninitialized_folder");
     assert!(error["message"]
         .as_str()
         .is_some_and(|message| message.contains("is not inside a Git repository")));
+
+    let error = invoke(&window, "repo_open", json!({ "path": missing }))
+        .expect_err("repo_open fails for a missing path");
+    assert_eq!(error["kind"], "not_a_repository");
+    assert!(!missing.exists());
 }
 
 #[test]

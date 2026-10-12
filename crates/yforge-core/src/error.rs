@@ -7,6 +7,7 @@ use ts_rs::TS;
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     NotARepository,
+    UninitializedFolder,
     AlreadyARepository,
     GitMissing,
     GitTooOld,
@@ -65,6 +66,9 @@ impl ErrorPayload {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreError {
     NotARepository {
+        path: String,
+    },
+    UninitializedFolder {
         path: String,
     },
     AlreadyARepository {
@@ -199,6 +203,7 @@ impl CoreError {
     pub fn kind(&self) -> ErrorKind {
         match self {
             Self::NotARepository { .. } => ErrorKind::NotARepository,
+            Self::UninitializedFolder { .. } => ErrorKind::UninitializedFolder,
             Self::AlreadyARepository { .. } => ErrorKind::AlreadyARepository,
             Self::GitMissing => ErrorKind::GitMissing,
             Self::Unsupported { .. } => ErrorKind::Unsupported,
@@ -254,7 +259,7 @@ impl CoreError {
 impl fmt::Display for CoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NotARepository { path } => {
+            Self::NotARepository { path } | Self::UninitializedFolder { path } => {
                 write!(f, "{path} is not inside a Git repository")
             }
             Self::AlreadyARepository { path } => write!(f, "{path} is already a Git repository"),

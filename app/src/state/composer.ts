@@ -13,10 +13,10 @@ export const summaryRemaining = (summary: string): number => SUMMARY_GUIDE - Arr
 
 export type CommitButton = { label: string; disabledReason: string | undefined };
 
-export function commitButton(input: { staged: number; summary: string; amend: boolean; busy: boolean }): CommitButton {
+export function commitButton(input: { staged: number; summary: string; amend: boolean; busy: boolean; emptyFirstCommit: boolean }): CommitButton {
   if (input.busy) return { label: "Committing…", disabledReason: "Committing…" };
   const label = input.amend ? "Amend commit" : input.staged > 0 ? `Commit ${input.staged} ${input.staged === 1 ? "file" : "files"}` : "Commit";
-  if (!input.amend && input.staged === 0) return { label, disabledReason: "Stage files to commit" };
+  if (!input.amend && input.staged === 0 && !input.emptyFirstCommit) return { label, disabledReason: "Stage files to commit" };
   if (input.summary.trim() === "") return { label, disabledReason: "Write a summary to commit" };
   return { label, disabledReason: undefined };
 }
@@ -140,6 +140,7 @@ export function createCommitAction(deps: {
   session: RepoSession;
   composer: Composer;
   staged: () => number;
+  emptyFirstCommit: () => boolean;
   generating: () => boolean;
   onCommitted: (sha: string) => void;
   push: () => Promise<void>;
@@ -148,7 +149,7 @@ export function createCommitAction(deps: {
   const { session, composer } = deps;
   const button = () => deps.generating()
     ? { label: "Generating…", disabledReason: "Generating a commit message…" }
-    : commitButton({ staged: deps.staged(), summary: composer.summary(), amend: composer.amend(), busy: composer.busy() });
+    : commitButton({ staged: deps.staged(), summary: composer.summary(), amend: composer.amend(), busy: composer.busy(), emptyFirstCommit: deps.emptyFirstCommit() });
 
   async function submit(options: { push: boolean } = { push: false }): Promise<void> {
     if (button().disabledReason !== undefined) return;

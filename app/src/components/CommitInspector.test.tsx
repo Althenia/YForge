@@ -113,7 +113,7 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
     </AiSheetContext.Provider>
   ));
   dispose = mounted.dispose;
-  return { ...mounted, selected, selectedPulls, viewed, opened, actions };
+  return { ...mounted, selected, selectedPulls, viewed, opened, actions, session };
 }
 
 const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-label="Edit message"]');
@@ -355,6 +355,20 @@ describe("edit the HEAD message", () => {
     await flush(60);
 
     expect(host.querySelector(".note.attention")?.textContent).toContain("origin/main");
+  });
+
+  it("raises one concise toast after saving the message of a pushed commit", async () => {
+    const { host, session } = mount(HEAD, { pushed: true });
+    await flush(60);
+
+    editButton(host)?.click();
+    await flush(60);
+    type(field(host, "Summary") as HTMLInputElement, "Tune retry limits");
+    await flush();
+    buttonNamed(host, "Save message")?.click();
+    await flush(80);
+
+    expect(session.notice()).toBe("Pushed commits were rewritten; force push next");
   });
 
   it("keeps Save disabled without a summary and closes on Cancel without saving", async () => {

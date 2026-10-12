@@ -124,13 +124,21 @@ describe("worktree actions", () => {
       expect(calls.filter((call) => call.cmd === "worktree_remove").map((call) => call.args.force)).toEqual([false, true]);
     });
 
+    it("names a vanished worktree by its folder, not its path", async () => {
+      const { actions, notices } = setup(() => null);
+
+      await actions.remove("/w/deep/gone");
+
+      expect(notices).toEqual(["gone is no longer a worktree"]);
+    });
+
     it("refuses the main and the open worktree with the reason, asking nothing", async () => {
       const { actions, notices } = setup(() => null);
 
       await actions.remove("/w/repo");
 
       expect(actions.confirm()).toBeUndefined();
-      expect(notices).toEqual(["This worktree is open here. Switch to another worktree to remove it"]);
+      expect(notices).toEqual(["This worktree is open here; switch to another to remove it"]);
     });
   });
 
@@ -167,7 +175,7 @@ describe("worktree actions", () => {
       await actions.removeMany(["/w/repo-feature", "/w/repo"]);
 
       expect(actions.confirm()).toBeUndefined();
-      expect(notices).toEqual(["This worktree is open here. Switch to another worktree to remove it"]);
+      expect(notices).toEqual(["This worktree is open here; switch to another to remove it"]);
       expect(calls.some((call) => call.cmd === "worktree_remove")).toBe(false);
     });
 
@@ -182,7 +190,7 @@ describe("worktree actions", () => {
 
       expect(calls.filter((call) => call.cmd === "worktree_remove")).toHaveLength(1);
       expect(closed).toEqual([]);
-      expect(session.notice()).toBe("Worktree remove failed: could not remove /w/repo-feature");
+      expect(session.notice()).toBe("Worktree remove failed: could not remove repo-feature");
     });
   });
 
@@ -228,7 +236,7 @@ describe("worktree actions", () => {
       await actions.submitIntegrate("feature/x", "/w/repo-feature", "main", true);
 
       expect(opened).toEqual(["/w/repo-feature"]);
-      expect(notices.at(-1)).toBe("The rebase of feature/x onto main stopped on conflicts. Resolve them in /w/repo-feature, then continue.");
+      expect(notices.at(-1)).toBe("Rebase of feature/x onto main stopped on conflicts");
       expect(actions.dialog()).toBeUndefined();
     });
 

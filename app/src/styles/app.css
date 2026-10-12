@@ -138,7 +138,6 @@ html {
     .dline,
     .dsplit,
     .fline,
-    .cbody,
     .act-output,
     .act-line,
     .out
@@ -1662,15 +1661,6 @@ svg.lanes {
 
 .commit-body {
   display: block;
-}
-
-.cbody {
-  margin: 0 var(--spacing-2) var(--spacing-2);
-  padding: 0 var(--spacing-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--colors-text-muted);
-  font: var(--font-ui-body);
 }
 
 .cmeta {
@@ -5273,37 +5263,53 @@ button.cmd {
   white-space: nowrap;
 }
 
-.srow.pull .pull-state {
+.pull-state {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  align-self: center;
+  color: var(--colors-text-muted);
+}
+
+.pull-state.ok {
+  color: var(--colors-accent-ink);
+}
+
+.pull-state.info {
+  color: var(--colors-info-ink);
+}
+
+.pull-state.danger {
+  color: var(--colors-danger-ink);
+}
+
+.pull-body {
+  margin-inline: var(--spacing-2);
+  padding-inline: var(--spacing-2);
 }
 
 .srow.pull .acts {
-  position: absolute;
-  inset-inline-end: var(--spacing-1);
-  bottom: 2px;
-  display: flex;
+  flex: none;
+  display: none;
   align-items: center;
   gap: var(--spacing-1);
-  padding: 0 var(--spacing-1);
-  border-radius: var(--rounded-md);
-  background: var(--colors-surface-3);
-  opacity: 0;
 }
 
 .srow.pull:focus-within .acts,
 .srow.pull.current .acts {
-  opacity: 1;
+  display: flex;
 }
 
 @media (hover: hover) {
   .srow.pull:hover .acts {
-    opacity: 1;
+    display: flex;
   }
 }
 
 @media (hover: none) {
   .srow.pull .acts {
-    opacity: 1;
+    display: flex;
   }
 }
 

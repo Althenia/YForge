@@ -1,7 +1,7 @@
 .markdown-body {
   color: var(--colors-text);
   font: var(--font-ui-body);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
   cursor: var(--cursors-text);
   user-select: text;
 }
@@ -40,6 +40,7 @@
 
 .markdown-table { max-width: 100%; overflow-x: auto; }
 .markdown-body table { border-collapse: collapse; width: 100%; }
+.markdown-body :where(th, td) { overflow-wrap: normal; }
 .markdown-body :where(th, td) { border: 1px solid var(--colors-rule); padding: var(--spacing-2) var(--spacing-3); text-align: left; }
 .markdown-body th { background: var(--colors-panel-head); font: var(--font-ui-strong); }
 .markdown-body .markdown-align-center { text-align: center; }

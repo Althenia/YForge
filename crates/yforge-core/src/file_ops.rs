@@ -155,11 +155,7 @@ pub fn file_editable(path: &Path, file: &str) -> Result<EditableFile, CoreError>
     let text = (!bytes.contains(&0))
         .then(|| String::from_utf8(bytes).ok())
         .flatten()
-        .ok_or_else(|| {
-            CoreError::invalid_request(format!(
-                "{file} is a binary file; the editor opens text files only"
-            ))
-        })?;
+        .ok_or_else(|| CoreError::invalid_request(format!("{file} is a binary file")))?;
     Ok(EditableFile {
         eol: majority_eol(&text).to_owned(),
         text,

@@ -20,7 +20,7 @@ let stylesheet: HTMLStyleElement;
 
 beforeAll(() => {
   stylesheet = document.createElement("style");
-  stylesheet.textContent = ["tokens.css", "app.css"].map((name) => readFileSync(resolve(import.meta.dirname, "../styles", name), "utf8")).join("\n");
+  stylesheet.textContent = ["tokens.css", "app.css", "markdown.css"].map((name) => readFileSync(resolve(import.meta.dirname, "../styles", name), "utf8")).join("\n");
   document.head.append(stylesheet);
 });
 
@@ -167,7 +167,12 @@ describe("sidebar pull requests", () => {
     expect(first.textContent).toContain("Add retry helper");
     expect(first.textContent).toContain("chen");
     expect(first.querySelector(".pull-sub")?.textContent).toContain("feature/retry → main");
-    expect(first.querySelector(".pull-state")?.textContent).toBe("Open");
+    const glyph = first.querySelector(".pull-line > .pull-state") as HTMLElement;
+    expect(glyph.getAttribute("aria-label")).toBe("Open");
+    expect(glyph.textContent).toBe("");
+    expect(glyph.querySelector("svg")?.getAttribute("data-icon")).toBe("pullrequest");
+    expect(glyph.classList.contains("chip")).toBe(false);
+    expect(first.querySelector(".chip")).toBeNull();
     expect(first.getAttribute("aria-label")).toBe("Pull request #7: Add retry helper, by chen, feature/retry to main, Open");
     expect(section(host)?.querySelector(".count")?.textContent).toBe("2");
     expect(section(host)?.textContent).not.toContain("Showing");
@@ -194,7 +199,10 @@ describe("sidebar pull requests", () => {
     await flush(60);
 
     expect(calls.filter((call) => call.cmd === "platform_prs_list").map((call) => call.args.state)).toEqual(["open", "all"]);
-    expect(row(host, 3).querySelector(".pull-state")?.textContent).toBe("Merged");
+    const merged = row(host, 3).querySelector(".pull-line > .pull-state") as HTMLElement;
+    expect(merged.getAttribute("aria-label")).toBe("Merged");
+    expect(merged.querySelector("svg")?.getAttribute("data-icon")).toBe("merge");
+    expect(row(host, 3).querySelector(".chip")).toBeNull();
     expect(row(host, 3).querySelector('[aria-label="Merge pull request #3"]')?.getAttribute("aria-disabled")).toBe("true");
   });
 
@@ -223,7 +231,7 @@ describe("sidebar pull requests", () => {
 describe("pull request detail", () => {
   it("shows state, author, dates, mergeability, and the changed files with +/- counts", async () => {
     const detail: PrDetail = {
-      pull: pull(7, { title: "Add retry helper", body: "Retries the fetch.", mergeable: false }),
+      pull: pull(7, { title: "Add retry helper", body: "## Change\n\nRetries the **fetch** with `backoff`.\n\n<script>window.pwned = 1</script>", mergeable: false }),
       files: [
         { filename: "src/retry.ts", status: "added", additions: 20, deletions: 0 },
         { filename: "src/app.ts", status: "modified", additions: 3, deletions: 4 },
@@ -242,7 +250,16 @@ describe("pull request detail", () => {
     expect(panel.querySelector("h2")?.textContent).toContain("#7 Add retry helper");
     expect(panel.querySelector(".ihead")?.textContent).toContain("Open");
     expect(panel.querySelector(".ihead")?.textContent).toContain("yui");
-    expect(panel.textContent).toContain("Retries the fetch.");
+    const description = panel.querySelector("article.markdown-body.commit-message") as HTMLElement;
+    expect(description.querySelector("h2")?.textContent).toBe("Change");
+    expect(description.querySelector("strong")?.textContent).toBe("fetch");
+    expect(description.querySelector("code")?.textContent).toBe("backoff");
+    expect(description.querySelector("script")).toBeNull();
+    expect(panel.querySelector(".cbody")).toBeNull();
+    const stateText = panel.querySelector(".ihead .pull-state") as HTMLElement;
+    expect(stateText.textContent).toBe("Open");
+    expect(stateText.classList.contains("chip")).toBe(false);
+    expect(stateText.querySelector("svg")?.getAttribute("data-icon")).toBe("pullrequest");
     expect(panel.textContent).toContain("Cannot be merged yet");
     expect(panel.textContent).toContain("Created");
     expect(panel.textContent).toContain("Updated");
@@ -254,18 +271,11 @@ describe("pull request detail", () => {
     expect(row(host, 7).getAttribute("aria-current")).toBe("true");
     expect(panel.querySelector('section[aria-label="Files"] .lhead-title')?.textContent).toContain("Files · 3");
     expect(panel.querySelector('section[aria-label="Files"] .field-note')).toBeNull();
-    const body = panel.querySelector(".cbody")!;
-    const style = getComputedStyle(body);
-    expect(style.whiteSpace).toBe("pre-wrap");
-    expect(style.overflowWrap).toBe("anywhere");
-    expect(style.color).toBe("var(--colors-text-muted)");
+    const style = getComputedStyle(description);
     expect(style.font).toBe("var(--font-ui-body)");
-    expect(style.cursor).toBe("var(--cursors-text)");
+    expect(style.color).toBe("var(--colors-text)");
     const rules = [...stylesheet.sheet!.cssRules];
-    const bodyRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ".cbody");
     const rootRule = rules.find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ":root");
-    expect(bodyRule?.style.getPropertyValue("margin")).toBe("0 var(--spacing-2) var(--spacing-2)");
-    expect(bodyRule?.style.getPropertyValue("padding")).toBe("0 var(--spacing-2)");
     expect(rootRule?.style.getPropertyValue("--spacing-2")).toBe("8px");
   });
 

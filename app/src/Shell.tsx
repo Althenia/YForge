@@ -5,6 +5,7 @@ import { AuthDialog } from "./components/AuthDialog";
 import { CommandPalette } from "./components/CommandPalette";
 import { CloneDialog, CreateDialog } from "./components/EntryDialogs";
 import { EmptyState } from "./components/EmptyState";
+import { InitializeDialog } from "./components/InitializeDialog";
 import { LogsSheet } from "./components/LogsSheet";
 import { ShortcutsSheet } from "./components/ShortcutsSheet";
 import { TabRestoring } from "./components/TabRestoring";
@@ -64,6 +65,9 @@ export function Shell() {
         </Show>
         <Show when={app.entryDialog() === "create"}>
           <CreateDialog onClose={() => app.setEntryDialog(undefined)} />
+        </Show>
+        <Show when={app.initPrompt()}>
+          {(folder) => <InitializeDialog folder={folder()} onConfirm={() => void app.confirmInit()} onCancel={app.cancelInit} />}
         </Show>
         <Show when={app.updateDialogOpen()}>
           <UpdateDialog onClose={app.closeUpdateDialog} />

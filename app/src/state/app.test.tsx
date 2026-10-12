@@ -175,6 +175,82 @@ describe("app state", () => {
     expect(calls.filter((call) => call.cmd === "session_save").at(-1)?.args).toEqual({ session: { tabs: ["/r"], active: 0, groups: [] } });
   });
 
+  describe("a folder that is not a repository", () => {
+    const plainFolder = (folders: string[]) => (args: Record<string, unknown>) => {
+      const path = args.path as string;
+      if (folders.includes(path)) throw { kind: "uninitialized_folder", message: `${path} is not inside a Git repository`, output: null };
+      if (path === "/initialized") return { root: path, main_root: path };
+      throw { kind: "not_a_repository", message: `${path} is not inside a Git repository`, output: null };
+    };
+
+    it("asks to initialize it, and Cancel changes nothing", async () => {
+      const { app, calls } = await boot({ tabs: [], launch: null, repositories: [], handlers: { repo_open: plainFolder(["/plain"]) } });
+
+      expect(await app.openRepository("/plain")).toBe(false);
+
+      expect(app.initPrompt()).toBe("/plain");
+      expect(app.notice()).toBeUndefined();
+      app.cancelInit();
+      expect(app.initPrompt()).toBeUndefined();
+      expect(calls.map((call) => call.cmd)).not.toContain("init_repo");
+      expect(app.activeTab()).toEqual({ kind: "launcher" });
+    });
+
+    it("initializes it on confirm and opens the new repository's tab", async () => {
+      const { app, calls } = await boot({ tabs: [], launch: null, repositories: [], handlers: { repo_open: plainFolder(["/plain"]), init_repo: () => "/initialized" } });
+      await app.openRepository("/plain");
+
+      await app.confirmInit();
+
+      expect(calls.find((call) => call.cmd === "init_repo")?.args).toEqual({ path: "/plain" });
+      expect(app.initPrompt()).toBeUndefined();
+      expect(app.activePath()).toBe("/initialized");
+      expect(app.notice()).toBeUndefined();
+    });
+
+    it("reports a failed initialization briefly and opens nothing", async () => {
+      const { app } = await boot({
+        tabs: [], launch: null, repositories: [],
+        handlers: { repo_open: plainFolder(["/plain"]), init_repo: () => { throw { kind: "invalid_request", message: "Invalid request: bad branch", output: null }; } },
+      });
+      await app.openRepository("/plain");
+
+      await app.confirmInit();
+
+      expect(app.initPrompt()).toBeUndefined();
+      expect(app.activeTab()).toEqual({ kind: "launcher" });
+      expect(app.notice()).toContain("Initialize repository failed");
+    });
+
+    it("never prompts for a nonexistent path", async () => {
+      const { app, calls } = await boot({ tabs: [], launch: null, repositories: [], handlers: { repo_open: plainFolder(["/plain"]) } });
+
+      expect(await app.openRepository("/missing")).toBe(false);
+
+      expect(app.initPrompt()).toBeUndefined();
+      expect(app.notice()).toBe("Open repository failed: not a Git repository");
+      expect(calls.map((call) => call.cmd)).not.toContain("init_repo");
+    });
+
+    it("prompts for the launch path at boot but not for a restored tab", async () => {
+      const { app, calls } = await boot({ tabs: ["/restored"], launch: "/plain", repositories: [], handlers: { repo_open: plainFolder(["/plain", "/restored"]) } });
+
+      expect(app.initPrompt()).toBe("/plain");
+      expect(app.notice()).toBeUndefined();
+      expect(app.tabs().tabs).toEqual([{ kind: "repo", path: "/restored" }]);
+      expect(calls.map((call) => call.cmd)).not.toContain("init_repo");
+    });
+
+    it("prompts when a second launch hands the folder over", async () => {
+      const { app } = await boot({ tabs: [], launch: null, repositories: [], handlers: { repo_open: plainFolder(["/plain"]) } });
+
+      await emit("open-path-requested", { path: "/plain" });
+      await flush(40);
+
+      expect(app.initPrompt()).toBe("/plain");
+    });
+  });
+
   it("closing the last tab leaves the launcher", async () => {
     const { app } = await boot({ tabs: ["/a"], launch: "/", repositories: ["/a"] });
 

@@ -40,9 +40,9 @@ describe("worktree lanes", () => {
 
 describe("removing a worktree", () => {
   it("is blocked for the worktree open here, the main worktree, and a locked worktree, each with its reason", () => {
-    expect(removeBlock(feature, all)).toBe("This worktree is open here. Switch to another worktree to remove it");
+    expect(removeBlock(feature, all)).toBe("This worktree is open here; switch to another to remove it");
     expect(removeBlock(main, all)).toBe("The main worktree cannot be removed");
-    expect(removeBlock(lane({ path: "/w/repo-lock", locked: true }), all)).toBe("/w/repo-lock is locked. Unlock it first");
+    expect(removeBlock(lane({ path: "/w/repo-lock", locked: true }), all)).toBe("repo-lock is locked; unlock it first");
     expect(removeBlock(fix, all)).toBeUndefined();
   });
 
@@ -88,7 +88,7 @@ describe("integrating a worktree", () => {
   it("reports the outcome and routes a stopped rebase to the worktree that holds it", () => {
     expect(integrationNotice({ kind: "integrated", target_sha: "abcdef1234567890", cleaned_up: false }, "feature/x", "main")).toBe("Integrated feature/x into main at abcdef1.");
     expect(integrationNotice({ kind: "integrated", target_sha: "abcdef1234567890", cleaned_up: true }, "feature/x", "main")).toBe("Integrated feature/x into main at abcdef1 and removed the worktree.");
-    expect(integrationNotice({ kind: "conflicts", worktree: "/w/repo-feature" }, "feature/x", "main")).toBe("The rebase of feature/x onto main stopped on conflicts. Resolve them in /w/repo-feature, then continue.");
+    expect(integrationNotice({ kind: "conflicts", worktree: "/w/repo-feature" }, "feature/x", "main")).toBe("Rebase of feature/x onto main stopped on conflicts");
   });
 });
 

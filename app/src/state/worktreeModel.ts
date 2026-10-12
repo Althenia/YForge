@@ -1,5 +1,6 @@
 import type { WorktreeIntegration } from "../ipc/bindings/WorktreeIntegration";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
+import { basename } from "../format";
 import type { ConfirmCopy } from "./confirmCopy";
 
 export type CreateMode = "new" | "existing";
@@ -17,9 +18,9 @@ export function flagsOf(worktree: WorktreeStatus): string[] {
 }
 
 export function removeBlock(worktree: WorktreeStatus, all: readonly WorktreeStatus[]): string | undefined {
-  if (worktree.current) return "This worktree is open here. Switch to another worktree to remove it";
+  if (worktree.current) return "This worktree is open here; switch to another to remove it";
   if (all[0]?.path === worktree.path) return "The main worktree cannot be removed";
-  if (worktree.locked) return `${worktree.path} is locked. Unlock it first`;
+  if (worktree.locked) return `${basename(worktree.path)} is locked; unlock it first`;
   return undefined;
 }
 
@@ -96,7 +97,7 @@ export function integrateCopy(worktree: WorktreeStatus, target: string, cleanup:
 }
 
 export function integrationNotice(outcome: WorktreeIntegration, branch: string, target: string): string {
-  if (outcome.kind === "conflicts") return `The rebase of ${branch} onto ${target} stopped on conflicts. Resolve them in ${outcome.worktree}, then continue.`;
+  if (outcome.kind === "conflicts") return `Rebase of ${branch} onto ${target} stopped on conflicts`;
   return `Integrated ${branch} into ${target} at ${outcome.target_sha.slice(0, 7)}${outcome.cleaned_up ? " and removed the worktree" : ""}.`;
 }
 

@@ -105,7 +105,7 @@ describe("squash dialog", () => {
     const conflicts = await mount(["ccccccc3", "bbbbbbb2"], { squash: { outcome: "conflicts", pushed: false, dropped_all: false } });
     conflicts.squash()?.click();
     await flush(60);
-    expect(conflicts.session.notice()).toBe("Squash stopped on conflicts. Resolve them, then continue, or abort.");
+    expect(conflicts.session.notice()).toBe("Squash stopped on conflicts");
     expect(conflicts.closed).toEqual(["closed"]);
     dispose?.();
     document.body.innerHTML = "";

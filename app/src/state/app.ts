@@ -10,7 +10,7 @@ import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RecentRepo } from "../ipc/bindings/RecentRepo";
 import type { RepoAlias } from "../ipc/bindings/RepoAlias";
 import type { RepoSettings } from "../ipc/bindings/RepoSettings";
-import { client } from "../ipc/client";
+import { client, IpcError } from "../ipc/client";
 import { failureNotice } from "./errorNotice";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { AppRouter } from "../routes";
@@ -117,6 +117,8 @@ const asMessage = failureNotice;
 const openFailureMessage = (failure: unknown): string =>
   failureNotice(failure, "Open repository");
 
+const isUninitializedFolder = (failure: unknown): boolean => failure instanceof IpcError && failure.kind === "uninitialized_folder";
+
 export function createAppState(router: AppRouter) {
   const [settings, setSettings] = createStoreValue<AppSettings>(defaultSettings);
   const [tabList, setTabList] = createStoreValue<Tab[]>([{ kind: "launcher" }]);
@@ -139,6 +141,7 @@ export function createAppState(router: AppRouter) {
   const [toasts, setToasts] = createSignal<Toast[]>([]);
   let announced = 0;
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
+  const [initPrompt, setInitPrompt] = createSignal<string | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
   const [repoNotice, setRepoNotice] = createSignal<RepoNotice | undefined>();
   const [tabGroupSaveFailure, setTabGroupSaveFailure] = createSignal<string | undefined>();
@@ -314,8 +317,20 @@ export function createAppState(router: AppRouter) {
       queryClient.setQueryData(appKeys.recents, await client.recentAdd(snapshot.root));
       return true;
     } catch (failure) {
-      setNotice(openFailureMessage(failure));
+      if (closed === undefined && isUninitializedFolder(failure)) setInitPrompt(path);
+      else setNotice(openFailureMessage(failure));
       return false;
+    }
+  }
+
+  async function confirmInit(): Promise<void> {
+    const folder = initPrompt();
+    setInitPrompt(undefined);
+    if (folder === undefined) return;
+    try {
+      await openRepository(await client.initRepo(folder));
+    } catch (failure) {
+      setNotice(failureNotice(failure, "Initialize repository"));
     }
   }
 
@@ -329,7 +344,10 @@ export function createAppState(router: AppRouter) {
       await queryClient.fetchQuery({ queryKey: appKeys.recents, queryFn: () => client.recentsList() });
       const launchPaths = launch === null ? [] : [launch];
       const opened = await Promise.all([...launchPaths, ...session.tabs].map((path, index) => client.repoOpen(path).then((snapshot) => snapshot, (failure) => {
-        if (index < launchPaths.length) setNotice(openFailureMessage(failure));
+        if (index < launchPaths.length) {
+          if (isUninitializedFolder(failure)) setInitPrompt(path);
+          else setNotice(openFailureMessage(failure));
+        }
         return undefined;
       })));
       opened.forEach((snapshot) => snapshot !== undefined && rememberMainRoot(snapshot));
@@ -733,6 +751,9 @@ export function createAppState(router: AppRouter) {
     },
     entryDialog,
     setEntryDialog,
+    initPrompt,
+    confirmInit,
+    cancelInit: () => setInitPrompt(undefined),
     notice,
     setNotice,
     repoNotice,

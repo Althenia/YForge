@@ -80,8 +80,10 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
     return respond(cmd);
   });
   const committed: string[] = [];
+  let created: ReturnType<typeof testSession> | undefined;
   const mounted = mountWithApp(() => {
     const session = testSession("/r", current);
+    created = session;
     const composer = createComposer();
     const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined }));
     const sheet = createAiSheet(session);
@@ -100,7 +102,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
     );
   });
   dispose = mounted.dispose;
-  return { ...mounted, committed };
+  return { ...mounted, committed, notice: () => created?.notice() };
 }
 
 const summaryOf = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[aria-label="Summary"]');
@@ -130,18 +132,44 @@ describe("clean working tree", () => {
     expect(host.querySelector('.composer [role="checkbox"]')?.getAttribute("aria-checked")).toBe("true");
   });
 
-  it("disables Amend last commit with its reason on an unborn branch and during an operation", async () => {
-    const unborn = mount(clean({ head: { kind: "unborn", branch: "main" } }));
-    await flush();
-    expect(amendButton(unborn.host)?.disabled).toBe(true);
-    expect(amendButton(unborn.host)?.title).toBe("There is no commit to amend yet");
-    unborn.dispose();
-    document.body.innerHTML = "";
-
+  it("disables Amend last commit with its reason during an operation", async () => {
     const merging = mount(clean({ operation: "merge" } as Partial<RepoSnapshot>));
     await flush();
     expect(amendButton(merging.host)?.disabled).toBe(true);
     expect(amendButton(merging.host)?.title).toBe("Finish the operation in progress first");
+  });
+
+  it("keeps the full composer without Amend on an unborn branch and says the first commit has no files", async () => {
+    const { host, committed } = mount(clean({ head: { kind: "unborn", branch: "main" } }));
+    await flush();
+
+    expect(amendButton(host)).toBeUndefined();
+    expect(summaryOf(host)).not.toBeNull();
+    expect(host.querySelector('.composer [role="checkbox"]')).toBeNull();
+    expect(host.querySelector(".composer .note")?.textContent).toBe("This commit will contain no files.");
+    const commit = host.querySelector<HTMLButtonElement>(".composer .split-btn .btn.primary:not(.chev)");
+    expect(commit?.disabled).toBe(true);
+    expect(commit?.querySelector(".btn-label")?.textContent).toBe("Write a summary to commit");
+
+    type(summaryOf(host), "Initial commit");
+    await flush();
+    expect(commit?.disabled).toBe(false);
+    expect(commit?.querySelector(".btn-label")?.textContent).toBe("Commit");
+    commit?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "commit")?.args).toEqual({ path: "/r", summary: "Initial commit", description: "", amend: false });
+    expect(committed).toEqual(["c0ffee"]);
+  });
+
+  it("keeps Commit disabled on an unborn branch while files wait to be staged", async () => {
+    const { host } = mount(snapshot({ head: { kind: "unborn", branch: "main" }, files: [{ path: "a.txt", original_path: null, area: "untracked", status: "untracked" }], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 1, conflicted: 0 } }));
+    await flush();
+    type(summaryOf(host), "Initial commit");
+    await flush();
+
+    expect(host.querySelector(".composer .note")).toBeNull();
+    expect(host.querySelector(".composer .split-btn .btn-label")?.textContent).toBe("Stage files to commit");
   });
 
   it("keeps the full composer while files changed", async () => {
@@ -1454,6 +1482,18 @@ describe("multi-select in the file lists (S62)", () => {
     await flush();
 
     expect(argsOf("patch_create")).toEqual({ path: "/r", files: ["s1.ts", "s2.ts"], destination: "/tmp/two.patch" });
+  });
+
+  it("confirms a created patch by its file name, never its path", async () => {
+    const mounted = mount(manyFiles(), (cmd) => (cmd === "plugin:dialog|save" ? "/Users/viadz/Desktop/two.patch" : null));
+    await flush();
+    rightClick(rowOf(mounted.host, "unstaged", "a.ts"));
+    await flush();
+
+    itemNamed("Create patch from changes in a.ts")?.click();
+    await flush();
+
+    expect(mounted.notice()).toBe("Created two.patch");
   });
 
   it("creates no patch when the save dialog is dismissed", async () => {

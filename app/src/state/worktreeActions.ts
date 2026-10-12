@@ -1,6 +1,7 @@
 import { createSignal } from "solid-js";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import { client, IpcError } from "../ipc/client";
+import { basename } from "../format";
 import type { ConfirmCopy } from "./confirmCopy";
 import type { RepoSession } from "./repoSession";
 import {
@@ -37,7 +38,7 @@ export function createWorktreeActions(session: RepoSession, deps: WorktreeDeps) 
     try {
       const all = await fresh();
       const worktree = all.find((entry) => entry.path === target);
-      if (worktree === undefined) deps.notify(`${target} is no longer a worktree of this repository.`);
+      if (worktree === undefined) deps.notify(`${basename(target)} is no longer a worktree`);
       return worktree === undefined ? undefined : { worktree, all };
     } catch (failure) {
       session.report(failure);
@@ -110,7 +111,7 @@ export function createWorktreeActions(session: RepoSession, deps: WorktreeDeps) 
       for (const target of targets) {
         const worktree = all.find((entry) => entry.path === target);
         if (worktree === undefined) {
-          deps.notify(`${target} is no longer a worktree of this repository.`);
+          deps.notify(`${basename(target)} is no longer a worktree`);
           return;
         }
         const block = removeBlock(worktree, all);

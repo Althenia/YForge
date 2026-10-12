@@ -4,11 +4,10 @@ import { EmptyState } from "./components/EmptyState";
 import { TabBar } from "./components/TabBar";
 import { Workspace } from "./components/Workspace";
 import { readGeometry } from "./graph/geometry";
-import { IpcError } from "./ipc/client";
 import { useApp } from "./state/app";
 import { createPendingIndicator } from "./state/pending";
 import { repoKeys } from "./state/queryKeys";
-import { appInfoOptions, cachedWorktreeCount, snapshotOptions, workspaceView, type WorkspaceView } from "./state/workspace";
+import { appInfoOptions, cachedWorktreeCount, isNotARepository, snapshotOptions, workspaceView, type WorkspaceView } from "./state/workspace";
 
 const root = document.documentElement;
 
@@ -37,7 +36,7 @@ export function RepositoryTab(props: { path: string; onSettled?: () => void }) {
   const info = useQuery(appInfoOptions);
   const snapshot = useQuery(() => snapshotOptions(props.path));
   const workspace = createMemo(() => {
-    const missing = snapshot.error instanceof IpcError && snapshot.error.kind === "not_a_repository";
+    const missing = isNotARepository(snapshot.error);
     return workspaceView(props.path, { data: info.data, error: info.error }, { data: missing ? undefined : snapshot.data, error: snapshot.error });
   });
   onCleanup(() => void app.queryClient.invalidateQueries({ queryKey: repoKeys.snapshot(props.path), refetchType: "none" }));

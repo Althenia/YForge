@@ -8,7 +8,7 @@ import { IpcError } from "../ipc/client";
 
 afterEach(() => clearMocks());
 
-const ready = { staged: 2, summary: "Tune retries", amend: false, busy: false };
+const ready = { staged: 2, summary: "Tune retries", amend: false, busy: false, emptyFirstCommit: false };
 
 describe("commit button", () => {
   it("names the number of staged files and is enabled with a summary", () => {
@@ -35,6 +35,11 @@ describe("commit button", () => {
 
   it("is disabled while a commit is running", () => {
     expect(commitButton({ ...ready, busy: true })).toEqual({ label: "Committing…", disabledReason: "Committing…" });
+  });
+
+  it("lets an empty first commit proceed with nothing staged but still needs a summary", () => {
+    expect(commitButton({ ...ready, staged: 0, emptyFirstCommit: true })).toEqual({ label: "Commit", disabledReason: undefined });
+    expect(commitButton({ ...ready, staged: 0, emptyFirstCommit: true, summary: "" }).disabledReason).toBe("Write a summary to commit");
   });
 });
 
@@ -102,7 +107,7 @@ describe("amend", () => {
   });
 });
 
-function commitFixture(staged: number, push: () => Promise<void> = () => Promise.resolve(), generating: () => boolean = () => false) {
+function commitFixture(staged: number, push: () => Promise<void> = () => Promise.resolve(), generating: () => boolean = () => false, emptyFirstCommit = false) {
   const composer = createComposer();
   const session = testSession("/r", { root: "/r" } as RepoSnapshot);
   const committed: string[] = [];
@@ -112,6 +117,7 @@ function commitFixture(staged: number, push: () => Promise<void> = () => Promise
     session,
     composer,
     staged: () => staged,
+    emptyFirstCommit: () => emptyFirstCommit,
     generating,
     onCommitted: (sha) => committed.push(sha),
     push: () => {
@@ -201,6 +207,21 @@ describe("commit action", () => {
     await action.submit();
 
     expect(tracked).toEqual([{ label: "Committing", result: { outcome: "Committed “Tune retries”", next: "push" } }]);
+  });
+
+  it("commits an empty first commit with nothing staged", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => {
+      calls.push({ cmd, args });
+      return cmd === "commit" ? "c0ffee" : { root: "/r", head: { kind: "branch", name: "main", sha: "c0ffee" }, upstream: null };
+    });
+    const { composer, committed, action } = commitFixture(0, undefined, undefined, true);
+    composer.setSummary("Initial commit");
+
+    await action.submit();
+
+    expect(calls[0]).toEqual({ cmd: "commit", args: { path: "/r", summary: "Initial commit", description: "", amend: false } });
+    expect(committed).toEqual(["c0ffee"]);
   });
 
   it("does nothing while the button is disabled", async () => {

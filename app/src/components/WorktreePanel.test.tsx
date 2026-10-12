@@ -99,8 +99,8 @@ describe("worktree panel", () => {
 
     const button = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`) as HTMLButtonElement;
     expect(button("Remove /w/repo").getAttribute("aria-disabled")).toBe("true");
-    expect(button("Remove /w/repo").title).toBe("This worktree is open here. Switch to another worktree to remove it");
-    expect(button("Remove /w/repo-fix").title).toBe("/w/repo-fix is locked. Unlock it first");
+    expect(button("Remove /w/repo").title).toBe("This worktree is open here; switch to another to remove it");
+    expect(button("Remove /w/repo-fix").title).toBe("repo-fix is locked; unlock it first");
     expect(button("Integrate fix").title).toBe("Commit or stash the changes in this worktree first");
     expect(button("Integrate feature/x").hasAttribute("title")).toBe(false);
 

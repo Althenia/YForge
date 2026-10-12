@@ -255,7 +255,7 @@ describe("interactive rebase editor", () => {
     await flush(80);
 
     expect(closed).toEqual(["closed"]);
-    expect(view.notice()).toBe("Interactive rebase stopped on conflicts. Resolve them, then continue, or abort.");
+    expect(view.notice()).toBe("Interactive rebase stopped on conflicts");
   });
 
   it("reports a stop to edit", async () => {
@@ -266,7 +266,7 @@ describe("interactive rebase editor", () => {
     apply()?.click();
     await flush(80);
 
-    expect(view.notice()).toBe("Interactive rebase stopped to edit a commit. Amend it or change files, then Continue.");
+    expect(view.notice()).toBe("Interactive rebase stopped to edit a commit");
   });
 
   it("shows why the plan could not be read", async () => {

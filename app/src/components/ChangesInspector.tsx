@@ -1,4 +1,5 @@
 import { createEffect, createSignal, For, Show } from "solid-js";
+import { basename } from "../format";
 import { client } from "../ipc/client";
 import { useApp } from "../state/app";
 import type { ChangeArea } from "../ipc/bindings/ChangeArea";
@@ -95,6 +96,7 @@ export function ChangesInspector(props: {
     session: props.session,
     composer: props.composer,
     staged: () => stagedFileCount(snapshot().files),
+    emptyFirstCommit: () => snapshot().head.kind === "unborn" && total() === 0,
     generating: generate.running,
     onCommitted: props.onCommitted,
     push: async () => {
@@ -165,7 +167,7 @@ export function ChangesInspector(props: {
       const destination = await client.pickSavePath("Create patch", "changes.patch");
       if (destination === undefined) return;
       await client.patchCreate(path, selectionPaths(files), destination);
-      props.session.inform(`Saved a patch of ${files.length === 1 ? "1 file" : `${files.length} files`} to ${destination}`);
+      props.session.inform(`Created ${basename(destination)}`);
     } catch (failure) {
       props.session.report(failure);
     }

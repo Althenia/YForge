@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.9] - 2026-10-12
+
+### Changed
++ Toasts are short: they name branches, worktrees, patches, and files by their short names and never show a full path, URL, command, or Git output. Full details stay in Activity.
++ Opening a folder that is not a Git repository asks whether to initialize one there instead of showing an error.
++ An empty repository can always make its first commit: the composer stays open on a branch with no commits, and with no files it creates an empty first commit.
++ Pull request rows in the sidebar show their state as a glyph instead of a button-like chip, and row actions no longer cover the title.
++ The pull request inspector renders the description as Markdown and shows the state as plain text.
+
+### Fixed
++ Markdown tables no longer squeeze a column to one character per line; wide tables scroll inside their frame.
++ A refused pull request merge reports the platform's status and message in its toast.
+
+---
+
 ## [0.3.8] - 2026-10-12
 
 ### Changed

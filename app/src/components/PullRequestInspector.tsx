@@ -1,7 +1,8 @@
 import { keepPreviousData } from "@tanstack/solid-query";
-import { For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
 import { formatAbsolute, relativeAge, splitPath } from "../format";
 import { client, IpcError } from "../ipc/client";
+import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { useNow } from "../state/clock";
 import type { PlatformActions } from "../state/platformActions";
 import { countOf, partialFilesNote } from "../state/listCount";
@@ -41,6 +42,17 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
   const chips = createIssueChips(() => (details.data === undefined ? [] : [pullText(details.data.pull)]));
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
+  const [markdown] = createResource(
+    () => shown()?.pull.body || false,
+    async (text) => {
+      try {
+        return { html: await renderMarkdown(text), failure: undefined };
+      } catch (error) {
+        props.session.report(error);
+        return { html: "", failure: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
   const failure = () => (details.error == null ? undefined : platformFailure(details.error instanceof IpcError ? details.error : new IpcError({ kind: "internal", message: String(details.error) })));
 
   return (
@@ -84,7 +96,7 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                   </p>
                 </Show>
                 <p>
-                  <span class="chip pull-state" classList={{ "chip-success": state().tone === "ok", "chip-danger": state().tone === "danger" }}>
+                  <span class="pull-state" classList={{ ok: state().tone === "ok", info: state().tone === "info", danger: state().tone === "danger" }}>
                     <Icon name={state().icon} size={14} />
                     {state().label}
                   </span>{" "}
@@ -108,7 +120,10 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                 </div>
               </div>
               <div class="ilist commit-body">
-                <Show when={pull().body}>{(body) => <p class="cbody">{body()}</p>}</Show>
+                <Show when={markdown()?.failure}>{(failure) => <div role="alert">{failure()}</div>}</Show>
+                <Show when={pull().body}>
+                  <article class="markdown-body commit-message pull-body" innerHTML={markdown()?.html ?? ""} onClick={(event) => handleMarkdownClick(event, event.currentTarget, () => undefined)} />
+                </Show>
                 <div class="cmeta">
                   <div class="mrow">
                     <span class="k">Branches</span>

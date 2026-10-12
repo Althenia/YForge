@@ -353,19 +353,32 @@ fn repository_root_resolves_a_nested_folder_and_refuses_a_folder_outside_a_repos
 }
 
 #[test]
-fn non_repository_and_missing_paths_are_typed_errors() {
+fn an_existing_folder_without_a_repository_is_told_apart_from_a_missing_path() {
     let dir = tempfile::tempdir().unwrap();
 
-    let not_repo = repo_snapshot(dir.path()).unwrap_err();
-    assert_eq!(not_repo.kind(), ErrorKind::NotARepository);
+    let plain_folder = repo_snapshot(dir.path()).unwrap_err();
+    assert_eq!(plain_folder.kind(), ErrorKind::UninitializedFolder);
 
-    let missing = repo_snapshot(&dir.path().join("does-not-exist")).unwrap_err();
+    let missing_path = dir.path().join("does-not-exist");
+    let missing = repo_snapshot(&missing_path).unwrap_err();
     assert_eq!(missing.kind(), ErrorKind::NotARepository);
+    assert!(!missing_path.exists());
 
     let file = dir.path().join("plain.txt");
     std::fs::write(&file, "x").unwrap();
     assert_eq!(
         repo_snapshot(&file).unwrap_err().kind(),
+        ErrorKind::NotARepository
+    );
+}
+
+#[test]
+fn a_bare_repository_folder_is_not_offered_for_initialization() {
+    let repo = Fixture::init();
+    let bare = repo.add_bare_remote("bare.git");
+
+    assert_eq!(
+        repo_snapshot(&bare).unwrap_err().kind(),
         ErrorKind::NotARepository
     );
 }
@@ -378,6 +391,6 @@ fn paths_are_passed_as_arguments_not_through_a_shell() {
 
     let error = repo_snapshot(&hostile).unwrap_err();
 
-    assert_eq!(error.kind(), ErrorKind::NotARepository);
+    assert_eq!(error.kind(), ErrorKind::UninitializedFolder);
     assert!(!dir.path().join("pwned").exists());
 }
