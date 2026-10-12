@@ -11,6 +11,9 @@ import type { DiffTarget } from "../state/diffModel";
 import type { FileViewTarget } from "../state/fileView";
 import type { CommitDetails } from "../ipc/bindings/CommitDetails";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import type { GraphRef } from "../ipc/bindings/GraphRef";
+import type { PullLookup } from "../state/platformModel";
+import type { PlatformActions } from "../state/platformActions";
 import { takeFileHistoryRequest } from "../state/fileHistoryRequest";
 import { createRepoActions } from "../state/repoActions";
 import { AiSheet } from "./AiSheet";
@@ -66,8 +69,9 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { body?: string; pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
+function mount(sha: string, options: { body?: string; pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; refs?: GraphRef[]; pullLookup?: PullLookup; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
   const selected: string[] = [];
+  const selectedPulls: number[] = [];
   const opened: DiffTarget[] = [];
   const viewed: FileViewTarget[] = [];
   mockIPC((cmd, args) => {
@@ -85,7 +89,7 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
       const found = options.jira?.summary ?? null;
       return (args as { keys: string[] }).keys.map((key) => ({ key, issue: found === null ? null : { key, summary: found, status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: options.jira?.failure ?? null }));
     }
-    if (cmd === "commit_details") return { ...details(sha), body: options.body ?? "Because.", summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER] };
+    if (cmd === "commit_details") return { ...details(sha), body: options.body ?? "Because.", summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER], refs: options.refs ?? [] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
     if (cmd === "integration_preview") return { incoming: { count: 0, commits: [] }, outgoing: { count: 1, commits: [] }, fast_forward: false };
@@ -98,7 +102,7 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
   const sheet = createRoot(() => createAiSheet(session));
   const mounted = mountWithApp(() => (
     <AiSheetContext.Provider value={sheet}>
-      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} onSelectCommit={(next) => selected.push(next)} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
+      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} platform={{ pullLookup: () => options.pullLookup } as PlatformActions} onSelectPull={(number) => selectedPulls.push(number)} onSelectCommit={(next) => selected.push(next)} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
       <Show when={actions.menu()} keyed>
         {(menu) => <ContextMenu menu={menu} onClose={actions.closeMenu} />}
       </Show>
@@ -109,13 +113,39 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
     </AiSheetContext.Provider>
   ));
   dispose = mounted.dispose;
-  return { ...mounted, selected, viewed, opened, actions };
+  return { ...mounted, selected, selectedPulls, viewed, opened, actions };
 }
 
 const editButton = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('button[aria-label="Edit message"]');
 const field = (host: HTMLElement, label: string) => host.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
 
 const verb = (host: HTMLElement, name: string) => host.querySelector<HTMLButtonElement>(`.ihead button[aria-label="${name}"]`);
+
+describe("commit pull request refs (S75)", () => {
+  const pull = { number: 123, title: "Ship retry", source_ref: "feature/retry", target_ref: "main", draft: true, state: "open" as const, body: "", author: "Ada", created_at: "", updated_at: "", mergeable: null, web_url: "" };
+
+  it("shows the open branch pull badge after its ref and selects the pull when clicked", async () => {
+    const { host, selectedPulls } = mount(OLDER, {
+      refs: [{ kind: "local_branch", name: "feature/retry", is_head: false }],
+      pullLookup: { remote: "origin", byBranch: new Map([["feature/retry", pull]]) },
+    });
+    await flush(80);
+
+    const row = [...host.querySelectorAll<HTMLElement>(".mrow")].find((entry) => entry.querySelector(".k")?.textContent === "Refs");
+    expect(row?.textContent).toContain("feature/retry");
+    const badge = row?.querySelector<HTMLButtonElement>(".pr-badge");
+    expect(badge?.textContent).toBe("#123Draft");
+    badge?.click();
+    expect(selectedPulls).toEqual([123]);
+  });
+
+  it("does not badge a branch without an open pull request", async () => {
+    const { host } = mount(OLDER, { refs: [{ kind: "local_branch", name: "feature/retry", is_head: false }], pullLookup: { remote: "origin", byBranch: new Map() } });
+    await flush(80);
+    const row = [...host.querySelectorAll<HTMLElement>(".mrow")].find((entry) => entry.querySelector(".k")?.textContent === "Refs");
+    expect(row?.querySelector(".pr-badge")).toBeNull();
+  });
+});
 
 describe("commit age", () => {
   it("renders the message body as Markdown and gives only the commit summary the strong role", async () => {
@@ -606,7 +636,7 @@ describe("commit continuity (S72)", () => {
     const [sha, setSha] = createSignal(start);
     const actions = createRepoActions(session, { selectedSha: sha, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined });
     const mounted = mountWithApp(() => (
-      <CommitInspector session={session} actions={actions} sha={sha()} activeTarget={undefined} onSelectCommit={() => undefined} onOpenDiff={() => undefined} onViewFile={() => undefined} />
+      <CommitInspector session={session} actions={actions} sha={sha()} activeTarget={undefined} platform={{ pullLookup: () => undefined } as PlatformActions} onSelectCommit={() => undefined} onOpenDiff={() => undefined} onViewFile={() => undefined} />
     ));
     dispose = mounted.dispose;
     const title = () => mounted.host.querySelector(".ihead h2")?.textContent;

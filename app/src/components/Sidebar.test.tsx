@@ -161,6 +161,16 @@ describe("sidebar branch tree", () => {
     expect(calls.map((call) => call[0])).toEqual(["ref-menu", "activate"]);
   });
 
+  it("activates the checked-out branch from the sidebar", () => {
+    const { host, calls } = mount();
+    const branch = host.querySelector<HTMLElement>('[data-nav="branch:main"]');
+
+    branch?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    expect(calls.map((call) => call[0])).toEqual(["activate"]);
+    expect(calls[0]?.[1]).toMatchObject({ kind: "local_branch", name: "main" });
+  });
+
   it("activates origin/main by double-click and Enter without mutating it on a single click", () => {
     const { host, calls } = mount();
     const branch = host.querySelector<HTMLElement>('[aria-label="Remote branch origin/main"]');

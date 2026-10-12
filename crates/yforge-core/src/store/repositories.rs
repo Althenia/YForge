@@ -95,7 +95,9 @@ impl Walk {
                 return;
             }
             self.checked += 1;
-            if is_repository(&child) {
+            if is_linked_worktree(&child) {
+                continue;
+            } else if is_repository(&child) {
                 self.found.push(child.display().to_string());
             } else if level < depth {
                 self.visit(&child, level + 1, depth);
@@ -110,7 +112,54 @@ fn searchable(name: &OsStr) -> bool {
 }
 
 fn is_repository(dir: &Path) -> bool {
-    fs::symlink_metadata(dir.join(".git")).is_ok_and(|entry| entry.is_dir() || entry.is_file())
+    fs::symlink_metadata(dir.join(".git"))
+        .is_ok_and(|entry| entry.is_dir() || (entry.is_file() && !is_linked_worktree(dir)))
+}
+
+fn is_linked_worktree(dir: &Path) -> bool {
+    let Ok(git_file) = fs::read_to_string(dir.join(".git")) else {
+        return false;
+    };
+    let Some(gitdir) = git_file
+        .lines()
+        .next()
+        .and_then(|line| line.trim().strip_prefix("gitdir:"))
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    else {
+        return false;
+    };
+    let gitdir = Path::new(gitdir);
+    let gitdir = if gitdir.is_absolute() {
+        gitdir.to_path_buf()
+    } else {
+        dir.join(gitdir)
+    };
+    gitdir.join("commondir").is_file()
+}
+
+fn hidden_from_list(path: &Path) -> bool {
+    if is_linked_worktree(path) {
+        return true;
+    }
+    if path.exists() {
+        return false;
+    }
+    let Some(mut ancestor) = path.parent() else {
+        return false;
+    };
+    while !ancestor.is_dir() {
+        let Some(parent) = ancestor.parent() else {
+            return false;
+        };
+        if parent == ancestor {
+            return false;
+        }
+        ancestor = parent;
+    }
+    ancestor
+        .ancestors()
+        .any(|dir| fs::symlink_metadata(dir.join(".git")).is_ok())
 }
 
 fn walk(root: &str, depth: u32) -> Walk {
@@ -120,11 +169,13 @@ fn walk(root: &str, depth: u32) -> Walk {
         capped: false,
         found: Vec::new(),
     };
-    if is_repository(base) {
-        walk.found.push(root.to_owned());
-    } else {
-        walk.visit(base, 1, depth);
-        walk.found.sort();
+    if !is_linked_worktree(base) {
+        if is_repository(base) {
+            walk.found.push(root.to_owned());
+        } else {
+            walk.visit(base, 1, depth);
+            walk.found.sort();
+        }
     }
     walk
 }
@@ -199,7 +250,7 @@ fn read_folders(conn: &Connection) -> rusqlite::Result<Vec<ScannedFolder>> {
         if let Some(owner) = folders.iter_mut().find(|owner| owner.path == folder) {
             if skipped {
                 owner.skipped.push(path);
-            } else {
+            } else if !hidden_from_list(Path::new(&path)) {
                 owner.repos.push(path);
             }
         }
@@ -211,6 +262,7 @@ fn read_repositories(conn: &Connection) -> rusqlite::Result<Repositories> {
     let folders = read_folders(conn)?;
     let mut repos: Vec<ManagedRepo> = read_recents(conn)?
         .into_iter()
+        .filter(|recent| !hidden_from_list(Path::new(&recent.path)))
         .map(|recent| ManagedRepo {
             path: recent.path,
             folder: None,

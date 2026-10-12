@@ -2,6 +2,7 @@ mod common;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use common::Fixture;
 use yforge_core::{
@@ -57,6 +58,149 @@ fn on(branch: &str) -> String {
 
 fn found_paths(found: &[FoundRepo]) -> Vec<String> {
     found.iter().map(|repo| repo.path.clone()).collect()
+}
+
+#[test]
+fn linked_worktrees_are_hidden_from_recent_repositories_and_folder_scans() {
+    let dir = data();
+    let disk = Disk::new();
+    let main = disk.root.join("main");
+    fs::create_dir_all(&main).unwrap();
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&main)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "YForge Test"]);
+    git(&["config", "user.email", "test@example.invalid"]);
+    fs::write(main.join("tracked"), "content").unwrap();
+    git(&["add", "tracked"]);
+    git(&["commit", "-qm", "initial"]);
+    let linked = disk.root.join("linked");
+    let output = Command::new("git")
+        .args(["worktree", "add", "-q", linked.to_str().unwrap()])
+        .current_dir(&main)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let nested = linked.join("nested");
+    fs::create_dir_all(nested.join(".git")).unwrap();
+    fs::write(nested.join(".git/HEAD"), on("nested")).unwrap();
+    let linked = text(&linked);
+
+    add_recent(dir.path(), &linked).unwrap();
+    let scan = folder_scan(dir.path(), &disk.root, 2).unwrap();
+    let paths: Vec<&str> = scan.found.iter().map(|repo| repo.path.as_str()).collect();
+    scan_folder_save(dir.path(), &folder(&disk.root(), &paths, &[])).unwrap();
+
+    assert!(!repositories_list(dir.path())
+        .unwrap()
+        .repos
+        .iter()
+        .any(|repo| repo.path == linked));
+    assert!(!scan.found.iter().any(|repo| repo.path.starts_with(&linked)));
+}
+
+#[test]
+fn a_git_file_without_a_commondir_remains_a_repository() {
+    let dir = data();
+    let disk = Disk::new();
+    let repo = disk.dir("submodule-like");
+    let gitdir = disk.dir("gitdir");
+    fs::write(repo.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+
+    let scan = folder_scan(dir.path(), &disk.root, 1).unwrap();
+
+    assert_eq!(found_paths(&scan.found), [text(&repo)]);
+}
+
+#[test]
+fn a_pruned_worktree_path_under_a_repository_is_hidden_from_recents() {
+    let dir = data();
+    let root = dir.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+    let git = |args: &[&str]| {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["config", "user.name", "YForge Test"]);
+    git(&["config", "user.email", "test@example.invalid"]);
+    fs::write(root.join("tracked"), "content").unwrap();
+    git(&["add", "tracked"]);
+    git(&["commit", "-qm", "initial"]);
+    let worktree = root.join(".worktrees/gone");
+    fs::create_dir_all(worktree.parent().unwrap()).unwrap();
+    let output = Command::new("git")
+        .args([
+            "worktree",
+            "add",
+            "-q",
+            "--force",
+            worktree.to_str().unwrap(),
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let output = Command::new("git")
+        .args(["worktree", "remove", "--force", worktree.to_str().unwrap()])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    add_recent(dir.path(), &text(&worktree)).unwrap();
+
+    assert!(!repositories_list(dir.path())
+        .unwrap()
+        .repos
+        .iter()
+        .any(|repo| repo.path == text(&worktree)));
+}
+
+#[test]
+fn a_deleted_standalone_repository_remains_in_recents() {
+    let dir = data();
+    let standalone = dir.path().join("standalone");
+    fs::create_dir_all(standalone.join(".git")).unwrap();
+    fs::remove_dir_all(&standalone).unwrap();
+
+    add_recent(dir.path(), &text(&standalone)).unwrap();
+
+    assert!(repositories_list(dir.path())
+        .unwrap()
+        .repos
+        .iter()
+        .any(|repo| repo.path == text(&standalone)));
 }
 
 fn folder(path: &str, repos: &[&str], skipped: &[&str]) -> ScannedFolder {

@@ -210,13 +210,12 @@ describe("sidebar pull requests", () => {
   });
 
   it("opens the pull request in the browser from the row action without selecting the row", async () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    const { host } = await mountWorkspace({ pulls: () => [pull(7)] });
+    const { host, calls } = await mountWorkspace({ pulls: () => [pull(7)] });
 
     row(host, 7).querySelector<HTMLElement>('[aria-label="Open pull request #7 in browser"]')?.click();
     await flush();
 
-    expect(open).toHaveBeenCalledWith("https://github.com/team/app/pull/7", "_blank", "noopener,noreferrer");
+    expect(calls).toContainEqual({ cmd: "open_url", args: { url: "https://github.com/team/app/pull/7" } });
     expect(inspector(host)).toBeNull();
   });
 });
@@ -333,14 +332,14 @@ describe("pull request detail", () => {
   });
 
   it("offers Open in browser for the pull request", async () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    const { host } = await mountWorkspace({ pulls: () => [pull(7)] });
+    const { host, calls } = await mountWorkspace({ pulls: () => [pull(7)] });
     row(host, 7).click();
     await flush(60);
 
     buttonNamed(inspector(host) as HTMLElement, "Open in browser")?.click();
 
-    expect(open).toHaveBeenCalledWith("https://github.com/team/app/pull/7", "_blank", "noopener,noreferrer");
+    await flush();
+    expect(calls).toContainEqual({ cmd: "open_url", args: { url: "https://github.com/team/app/pull/7" } });
   });
 });
 

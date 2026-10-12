@@ -118,11 +118,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     chips: createIssueChips(() => [...session.snapshot().branches, ...platform.pulls().map(pullText)]),
     openSettings: () => app.openSettings("jira"),
     openInBrowser: (issue) => {
-      try {
-        client.openUrl(issue.web_url);
-      } catch (failure) {
-        session.report(failure);
-      }
+      void client.openUrl(issue.web_url).catch((failure) => session.report(failure));
     },
   };
   createEffect(() => {
@@ -506,6 +502,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               onOpenDiff={showDiff}
               onViewFile={viewFile}
               onSelectCommit={(sha) => select({ kind: "commit", sha })}
+              onSelectPull={(number) => select({ kind: "pull", number })}
               onCommitted={committed}
             />
             <Show when={!dockedInspector()}>

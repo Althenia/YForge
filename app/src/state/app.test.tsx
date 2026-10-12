@@ -1066,11 +1066,11 @@ describe("external tools and LFS from the palette (S54, S61)", () => {
   });
 
   it("opens the release notes page of the project", async () => {
-    const { app } = await boot({ tabs: [], launch: "/", repositories: [] });
-    const opened = vi.spyOn(window, "open").mockReturnValue(null);
+    const { app, calls } = await boot({ tabs: [], launch: "/", repositories: [] });
 
     app.paletteContext().app.openReleaseNotes();
+    await flush();
 
-    expect(opened).toHaveBeenCalledWith("https://github.com/Althenia/YForge/releases", "_blank", "noopener,noreferrer");
+    expect(calls.filter((call) => call.cmd === "open_url").map((call) => call.args)).toEqual([{ url: "https://github.com/Althenia/YForge/releases" }]);
   });
 });

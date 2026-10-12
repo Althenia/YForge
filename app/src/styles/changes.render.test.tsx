@@ -58,6 +58,22 @@ describe("Changes panel styles (S49, S50)", () => {
     expect(hiddenByOpacity(host.querySelector('[aria-label="Open diff"]'), row)).toBe(true);
   });
 
+  it("shows the Unstaged Discard all icon in danger ink and mutes it when disabled", () => {
+    const host = mount(() => (
+      <div class="lhead">
+        <button type="button" class="icon-btn dense danger" aria-label="Discard all"><svg /></button>
+        <button type="button" class="icon-btn dense danger" aria-label="Discard all disabled" disabled><svg /></button>
+        <span style={{ color: "var(--colors-danger)" }} />
+        <span style={{ color: "var(--colors-text-muted)" }} />
+      </div>
+    ) as Element);
+
+    const [enabled, disabled] = [...host.querySelectorAll("button")];
+    const [danger, muted] = [...host.querySelectorAll("span")];
+    expect(getComputedStyle(enabled as Element).color).toBe(getComputedStyle(danger as Element).color);
+    expect(getComputedStyle(disabled as Element).color).toBe(getComputedStyle(muted as Element).color);
+  });
+
   it("rotates a collapsed folder's chevron by transform", () => {
     const host = mount(() => (
       <div>

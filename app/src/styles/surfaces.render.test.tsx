@@ -26,6 +26,18 @@ afterEach(() => {
 });
 
 describe("solid surfaces told apart by tone (S14)", () => {
+  it("keeps branch names ahead of pull badges in narrow labels and sidebar rows (S75)", () => {
+    document.body.innerHTML = '<div class="label"><span class="name">main</span><button class="pr-badge"><svg></svg><span class="mono">#123</span><span class="pr-draft">Draft</span></button></div><div class="srow"><span class="name">main</span><button class="pr-badge"><svg></svg><span class="mono">#123</span><span class="pr-draft">Draft</span></button></div>';
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    expect(style(".label .name").flexShrink).toBe("1");
+    expect(style(".label .name").minWidth).toContain("min(max-content");
+    expect(style(".label .pr-badge").flexShrink).toBe("1000");
+    expect(style(".label .pr-badge").overflow).toBe("hidden");
+    expect(style(".label .pr-badge").minWidth).toContain("14px");
+    expect(style(".label .pr-badge > svg").flexShrink).toBe("0");
+    expect(style(".srow .pr-badge").flexShrink).toBe("1000");
+  });
+
   it("keeps Strata reading, header, badge and table geometry on shared tokens (S65)", () => {
     document.body.innerHTML = '<div class="sidebar"><div class="sidebar-body"><section><div class="sec"><span class="count">24</span></div><div class="srow"></div></section></div></div><div class="ilist"><div class="lhead"></div></div><div class="mrow"><span class="v"><span class="avatar">A</span></span></div><div class="repo-row"></div>';
     const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);

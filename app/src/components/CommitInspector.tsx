@@ -18,6 +18,8 @@ import type { MenuEntry } from "../state/refMenu";
 import { fileViewTargetOf, type FileViewTarget } from "../state/fileView";
 import { sameTarget, type DiffTarget } from "../state/diffModel";
 import type { RepoSession } from "../state/repoSession";
+import type { PlatformActions } from "../state/platformActions";
+import { pullOfLocal, pullOfRemote } from "../state/platformModel";
 import { createIssueChips } from "../state/jiraIssues";
 import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { createPendingIndicator } from "../state/pending";
@@ -35,6 +37,7 @@ import { PendingLine } from "./PendingLine";
 import { tip } from "./Tooltip";
 import { ToolButton } from "./ToolButton";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
+import { PullBadge } from "./PullBadge";
 
 const refIcon = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
 
@@ -160,6 +163,8 @@ export function CommitInspector(props: {
   actions: RepoActions;
   sha: string;
   activeTarget: DiffTarget | undefined;
+  platform: PlatformActions;
+  onSelectPull?: (number: number) => void;
   onSelectCommit: (sha: string) => void;
   onOpenDiff: (target: DiffTarget) => void;
   onViewFile: (target: FileViewTarget) => void;
@@ -352,7 +357,21 @@ export function CommitInspector(props: {
                   <span class="k">Refs</span>
                   <span class="v">
                     <Show when={commit().refs.length > 0} fallback={<span class="ago">none</span>}>
-                      <For each={commit().refs}>{(entry) => <RefChip entry={entry} />}</For>
+                      <For each={commit().refs}>
+                        {(entry) => {
+                          const pull = () => entry.kind === "local_branch"
+                            ? pullOfLocal(props.platform.pullLookup(), entry.name)
+                            : entry.kind === "remote_branch"
+                              ? pullOfRemote(props.platform.pullLookup(), entry.name)
+                              : undefined;
+                          return (
+                            <span class="ref-with-pull">
+                              <RefChip entry={entry} />
+                              <Show when={pull()}>{(found) => <PullBadge path={path} pull={found()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
+                            </span>
+                          );
+                        }}
+                      </For>
                     </Show>
                   </span>
                 </div>

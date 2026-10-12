@@ -508,9 +508,7 @@ export function Sidebar(props: {
   }
 
   const branchTarget = (name: string): RefTarget => localTarget(snapshot(), name);
-  const activateOf = (target: RefTarget) => (anchor: Anchor) => {
-    if (target.kind !== "local_branch" || target.name !== currentBranch()) props.actions.activateRef(target, anchor);
-  };
+  const activateOf = (target: RefTarget) => (anchor: Anchor) => props.actions.activateRef(target, anchor);
 
   const localRow = (row: TreeRow, virtual: VirtualRow) =>
     row.kind === "folder" ? (

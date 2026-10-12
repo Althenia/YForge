@@ -803,14 +803,15 @@ describe("platform integration commands", () => {
     await expect(client.platformConnectionTest("c1")).rejects.toMatchObject({ name: "IpcError", kind: "auth_failed", message: "Authentication failed for github.com" });
   });
 
-  it("opens only http and https addresses in a new browsing context without opener access", () => {
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
+  it("opens only http and https addresses through IPC", async () => {
+    const calls: Array<{ cmd: string; args: unknown }> = [];
+    mockIPC((cmd, args) => { calls.push({ cmd, args }); return null; });
 
-    client.openUrl("https://github.com/team/app/pull/7");
+    await client.openUrl("https://github.com/team/app/pull/7");
 
-    expect(open).toHaveBeenCalledWith("https://github.com/team/app/pull/7", "_blank", "noopener,noreferrer");
-    expect(() => client.openUrl("javascript:alert(1)")).toThrow("is not an http or https address");
-    expect(open).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([{ cmd: "open_url", args: { url: "https://github.com/team/app/pull/7" } }]);
+    await expect(client.openUrl("javascript:alert(1)")).rejects.toMatchObject({ name: "IpcError", kind: "invalid_request", message: "javascript:alert(1) is not an http or https address" });
+    expect(calls).toHaveLength(1);
   });
 });
 

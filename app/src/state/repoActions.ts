@@ -486,11 +486,71 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   function activateRef(target: RefTarget, anchor: Anchor): void {
-    if (target.kind === "remote_branch" && shortRefName(target, snapshot().remotes) === currentBranch()) {
-      openResetModes(target.startPoint, target.name, anchor);
+    if (target.kind === "remote_branch") {
+      const branch = shortRefName(target, snapshot().remotes);
+      if (!snapshot().branches.includes(branch)) {
+        checkoutRef(target);
+        return;
+      }
+      void activateRemoteBranch(target, branch, anchor);
+      return;
+    }
+    if (target.kind === "local_branch") {
+      if (target.name === currentBranch()) {
+        const upstream = snapshot().upstream;
+        const counts = upstream?.ahead_behind;
+        if (upstream?.name !== undefined && counts !== null && counts !== undefined && counts.ahead === 0 && counts.behind > 0) {
+          void fastForwardOnActivation(target.name, upstream.name);
+        }
+        return;
+      }
+      void activateLocalBranch(target);
       return;
     }
     checkoutRef(target);
+  }
+
+  async function activateRemoteBranch(target: Extract<RefTarget, { kind: "remote_branch" }>, branch: string, anchor: Anchor): Promise<void> {
+    const preview = await previewOf(branch, target.name);
+    if (preview === undefined) return;
+    if (preview.outgoing.count > 0 && branch === currentBranch()) {
+      openResetModes(target.startPoint, target.name, anchor);
+      return;
+    }
+    if (preview.incoming.count === 0 || preview.outgoing.count > 0) {
+      if (branch !== currentBranch()) checkoutRef({ kind: "local_branch", name: branch, remoteName: undefined, startPoint: target.startPoint });
+      return;
+    }
+    await fastForwardOnActivation(branch, target.name);
+  }
+
+  async function activateLocalBranch(target: Extract<RefTarget, { kind: "local_branch" }>): Promise<void> {
+    if (target.remoteName === undefined) {
+      checkoutRef(target);
+      return;
+    }
+    const preview = await previewOf(target.name, target.remoteName);
+    if (preview === undefined) return;
+    if (preview.incoming.count === 0 || preview.outgoing.count !== 0) {
+      checkoutRef(target);
+      return;
+    }
+    await fastForwardOnActivation(target.name, target.remoteName);
+  }
+
+  async function fastForwardOnActivation(branch: string, target: string): Promise<void> {
+    let succeeded = false;
+    try {
+      await runLocal(`Updating ${branch}`, async () => {
+        await client.fastForward(path, branch, target);
+        await session.refresh();
+      }, () => undefined);
+      succeeded = true;
+    } catch (failure) {
+      fail(failure);
+      await session.refresh();
+    }
+    if (succeeded && branch !== currentBranch()) checkout({ kind: "local_branch", name: branch });
   }
 
   async function deleteBranch(name: string): Promise<void> {

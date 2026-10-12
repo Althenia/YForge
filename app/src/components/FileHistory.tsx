@@ -234,7 +234,7 @@ export function FileHistory(props: { session: RepoSession; request: FileHistoryR
             {(revision) => (
               <div
                 id={optionId(revision.sha)}
-                class="hrow"
+                class="hist-row"
                 classList={{ sel: state.selected()?.sha === revision.sha }}
                 role="option"
                 aria-selected={state.selected()?.sha === revision.sha}

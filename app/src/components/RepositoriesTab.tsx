@@ -79,13 +79,22 @@ export function RepositoriesTab(props: { repos: RepositoriesState; onAddFolder: 
   const now = useNow();
   const [query, setQuery] = createSignal("");
   const [sort, setSort] = createSignal<RepoSort>("recent");
-  const [selected, setSelected] = createSignal<string | undefined>();
+  const [selected, setSelected] = createSignal<Set<string>>(new Set());
+  const [activePath, setActivePath] = createSignal<string | undefined>();
+  const [anchorPath, setAnchorPath] = createSignal<string | undefined>();
+  const [selectionTouched, setSelectionTouched] = createSignal(false);
   let list: HTMLDivElement | undefined;
 
   const rows = createMemo(() => sortRepositories(filterRepositories(repositoryRows(props.repos.repos(), props.repos.statuses(), app.aliases()), query()), sort()));
   const groups = createMemo(() => groupRepositories(rows(), props.repos.folders()));
   const ordered = createMemo(() => groups().flatMap((group) => group.rows));
-  const current = createMemo((): RepoRow | undefined => ordered().find((row) => row.path === selected()) ?? ordered()[0]);
+  const current = createMemo((): RepoRow | undefined => ordered().find((row) => row.path === activePath()) ?? ordered()[0]);
+  const selectedRows = createMemo(() => {
+    const paths = selected();
+    if (paths.size > 0) return ordered().filter((row) => paths.has(row.path));
+    if (!selectionTouched() && current() !== undefined) return [current() as RepoRow];
+    return [];
+  });
   const inTab = (path: string) => app.tabs().tabs.some((tab) => tab.kind === "repo" && tab.path === path);
   const missing = (row: RepoRow) => row.status !== undefined && !row.status.exists;
   const statusTime = () => props.repos.statusesUpdatedAt();
@@ -103,7 +112,12 @@ export function RepositoriesTab(props: { repos: RepositoriesState; onAddFolder: 
     if (next !== undefined) {
       event.preventDefault();
       const row = all[Math.max(0, Math.min(all.length - 1, next))];
-      setSelected(row?.path);
+      if (row !== undefined) {
+        setSelected(new Set([row.path]));
+        setActivePath(row.path);
+        setAnchorPath(row.path);
+        setSelectionTouched(true);
+      }
       if (row !== undefined) list?.querySelector(`#${rowId(row.path)}`)?.scrollIntoView({ block: "nearest" });
     } else if (event.key === "Enter") {
       event.preventDefault();
@@ -130,6 +144,16 @@ export function RepositoriesTab(props: { repos: RepositoriesState; onAddFolder: 
         <button type="button" class="btn sm" onClick={props.onAddFolder}>
           <Icon name="plus" size={14} />
           Add folder…
+        </button>
+        <button
+          type="button"
+          class="btn sm"
+          disabled={props.repos.folders().length === 0}
+          {...tip(props.repos.folders().length === 0 ? "Rescan folders is unavailable because no folder is scanned" : "Rescan every scanned folder", undefined, props.repos.folders().length === 0 ? "No folders are scanned" : "Rescan folders")}
+          onClick={() => void props.repos.rescanAll()}
+        >
+          <Icon name="sync" size={14} />
+          Rescan folders
         </button>
       </div>
       <div class="lp-tools">
@@ -224,12 +248,31 @@ export function RepositoriesTab(props: { repos: RepositoriesState; onAddFolder: 
                       <div
                         id={rowId(row.path)}
                         class="repo-row"
-                        classList={{ sel: current()?.path === row.path, missing: missing(row) }}
+                        classList={{ sel: selected().size > 0 ? selected().has(row.path) : !selectionTouched() && current()?.path === row.path, missing: missing(row) }}
                         role="option"
-                        aria-selected={current()?.path === row.path}
+                        aria-selected={selected().size > 0 ? selected().has(row.path) : !selectionTouched() && current()?.path === row.path}
                         aria-label={`${row.name}, ${branchText(row.status) || "no branch"}, ${repoStateText(row.status)}, ${openedText(row.openedAt, now())}`}
-                        onClick={() => {
-                          setSelected(row.path);
+                        onClick={(event) => {
+                          const all = ordered();
+                          const implicitPath = !selectionTouched() ? current()?.path : undefined;
+                          const anchor = all.findIndex((item) => item.path === (anchorPath() ?? implicitPath));
+                          const index = all.findIndex((item) => item.path === row.path);
+                          setSelectionTouched(true);
+                          setActivePath(row.path);
+                          if (event.shiftKey && anchor >= 0) {
+                            setSelected(new Set(all.slice(Math.min(anchor, index), Math.max(anchor, index) + 1).map((item) => item.path)));
+                          } else if (event.metaKey || event.ctrlKey) {
+                            setSelected((selection) => {
+                              const next = new Set(selection.size === 0 && implicitPath !== undefined ? [implicitPath] : selection);
+                              if (next.has(row.path)) next.delete(row.path);
+                              else next.add(row.path);
+                              return next;
+                            });
+                            if (anchor < 0) setAnchorPath(row.path);
+                          } else {
+                            setSelected(new Set([row.path]));
+                            setAnchorPath(row.path);
+                          }
                           list?.focus();
                         }}
                         onDblClick={() => open(row)}
@@ -264,7 +307,22 @@ export function RepositoriesTab(props: { repos: RepositoriesState; onAddFolder: 
             </For>
           </div>
         </div>
-        <Show when={current()}>
+        <Show when={selectedRows().length > 1}>
+          <div class="repo-actbar" role="toolbar" aria-label={`Actions for ${selectedRows().length} selected repositories`}>
+            <span class="repo-actname">{selectedRows().length} repositories selected</span>
+            <span class="spacer" />
+            <button type="button" class="btn sm" onClick={() => {
+              const paths = selectedRows().map((row) => row.path);
+              setSelected(new Set<string>());
+              setSelectionTouched(true);
+              void props.repos.removeMany(paths);
+            }}>
+              <Icon name="close" size={14} />
+              Remove {selectedRows().length} from list
+            </button>
+          </div>
+        </Show>
+        <Show when={selectedRows()[0]}>
           {(row) => (
             <div class="repo-actbar" role="toolbar" aria-label={`Actions for ${row().name}`}>
               <span class="repo-actname">

@@ -33,13 +33,14 @@ export const statusWord: Record<FileStatus, string> = {
 export const areaOrder: ReadonlyArray<{ area: ChangeArea; title: string; empty: string | undefined }> = [
   { area: "conflicted", title: "Conflicted", empty: undefined },
   { area: "unstaged", title: "Unstaged", empty: "No unstaged changes." },
-  { area: "untracked", title: "Untracked", empty: undefined },
   { area: "staged", title: "Staged", empty: "Nothing staged. Stage files, hunks, or lines to commit them." },
 ];
 
-export const filesIn = (files: readonly FileChange[], area: ChangeArea): FileChange[] => files.filter((file) => file.area === area);
+export const listArea = (area: ChangeArea): ChangeArea => (area === "untracked" ? "unstaged" : area);
 
-export const rowKey = (file: Pick<FileChange, "area" | "path">): string => `${file.area}:${file.path}`;
+export const filesIn = (files: readonly FileChange[], area: ChangeArea): FileChange[] => files.filter((file) => listArea(file.area) === area);
+
+export const rowKey = (file: Pick<FileChange, "area" | "path">): string => `${listArea(file.area)}:${file.path}`;
 
 export const stagedFileCount = (files: readonly FileChange[]): number => new Set(filesIn(files, "staged").map((file) => file.path)).size;
 
@@ -72,15 +73,17 @@ export const folderMenuEntries = (staged: boolean, discardable: number): MenuEnt
 
 export type FileSelection = { area: ChangeArea; paths: readonly string[]; anchor: string };
 
-export const selectOnly = (area: ChangeArea, path: string): FileSelection => ({ area, paths: [path], anchor: path });
+export const selectOnly = (area: ChangeArea, path: string): FileSelection => ({ area: listArea(area), paths: [path], anchor: path });
 
 export function toggleSelected(current: FileSelection | undefined, area: ChangeArea, path: string): FileSelection | undefined {
+  area = listArea(area);
   if (current === undefined || current.area !== area) return selectOnly(area, path);
   const paths = current.paths.includes(path) ? current.paths.filter((candidate) => candidate !== path) : [...current.paths, path];
   return paths.length === 0 ? undefined : { area, paths, anchor: path };
 }
 
 export function extendSelection(current: FileSelection | undefined, area: ChangeArea, order: readonly string[], target: string, start: string | undefined): FileSelection {
+  area = listArea(area);
   const anchor = current?.area === area ? current.anchor : start;
   const from = anchor === undefined ? -1 : order.indexOf(anchor);
   const to = order.indexOf(target);
@@ -89,19 +92,20 @@ export function extendSelection(current: FileSelection | undefined, area: Change
 }
 
 export const selectAll = (area: ChangeArea, order: readonly string[]): FileSelection | undefined =>
-  order[0] === undefined ? undefined : { area, paths: order, anchor: order[0] };
+  order[0] === undefined ? undefined : { area: listArea(area), paths: order, anchor: order[0] };
 
 export function pruneSelection(current: FileSelection | undefined, files: readonly FileChange[]): FileSelection | undefined {
   if (current === undefined) return undefined;
-  const present = new Set(filesIn(files, current.area).map((file) => file.path));
+  const area = listArea(current.area);
+  const present = new Set(filesIn(files, area).map((file) => file.path));
   const paths = current.paths.filter((path) => present.has(path));
-  if (paths.length === current.paths.length) return current;
+  if (paths.length === current.paths.length && area === current.area) return current;
   const [first] = paths;
-  return first === undefined ? undefined : { area: current.area, paths, anchor: paths.includes(current.anchor) ? current.anchor : first };
+  return first === undefined ? undefined : { area, paths, anchor: paths.includes(current.anchor) ? current.anchor : first };
 }
 
 export const selectedFiles = (selection: FileSelection | undefined, files: readonly FileChange[]): FileChange[] =>
-  selection === undefined ? [] : filesIn(files, selection.area).filter((file) => selection.paths.includes(file.path));
+  selection === undefined ? [] : filesIn(files, listArea(selection.area)).filter((file) => selection.paths.includes(file.path));
 
 const baseName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 

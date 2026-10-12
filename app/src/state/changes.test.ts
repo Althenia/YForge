@@ -44,13 +44,14 @@ describe("changes helpers", () => {
     expect(changes).not.toHaveProperty("statusLetter");
   });
 
-  it("filters files by area", () => {
+  it("filters files by presentation list while preserving each IPC area", () => {
     const files: FileChange[] = [
       { path: "a", original_path: null, area: "staged", status: "added" },
       { path: "b", original_path: null, area: "unstaged", status: "modified" },
       { path: "a", original_path: null, area: "unstaged", status: "modified" },
     ];
-    expect(filesIn(files, "unstaged").map((file) => file.path)).toEqual(["b", "a"]);
+    expect(filesIn(files, "unstaged").map((file) => [file.path, file.area])).toEqual([["b", "unstaged"], ["a", "unstaged"]]);
+    expect(filesIn([file("new", "untracked")], "unstaged").map((entry) => [entry.path, entry.area])).toEqual([["new", "untracked"]]);
     expect(filesIn(files, "conflicted")).toEqual([]);
   });
 });
@@ -64,12 +65,13 @@ const change = (path: string, area: FileChange["area"], original_path: string | 
 
 describe("staging helpers", () => {
   it("lists the sections in the S03 order", () => {
-    expect(areaOrder.map((section) => section.area)).toEqual(["conflicted", "unstaged", "untracked", "staged"]);
+    expect(areaOrder.map((section) => section.area)).toEqual(["conflicted", "unstaged", "staged"]);
   });
 
   it("keys rows by area and path so a file changed on both sides has two rows", () => {
     expect(rowKey(change("a", "staged"))).toBe("staged:a");
     expect(rowKey(change("a", "unstaged"))).not.toBe(rowKey(change("a", "staged")));
+    expect(rowKey(change("new", "untracked"))).toBe("unstaged:new");
   });
 
   it("counts staged paths once", () => {
@@ -153,13 +155,14 @@ describe("file multi-select (S62)", () => {
     expect(two).toEqual({ area: "unstaged", paths: ["b", "d"], anchor: "d" });
     expect(toggleSelected(two, "unstaged", "b")).toEqual({ area: "unstaged", paths: ["d"], anchor: "b" });
     expect(toggleSelected(selectOnly("unstaged", "b"), "unstaged", "b")).toBeUndefined();
+    expect(selectOnly("untracked", "new")).toEqual({ area: "unstaged", paths: ["new"], anchor: "new" });
   });
 
   it("never spans two lists: toggling or extending in another list starts over there", () => {
     const staged = selectOnly("staged", "a");
 
     expect(toggleSelected(staged, "unstaged", "b")).toEqual(selectOnly("unstaged", "b"));
-    expect(extendSelection(staged, "untracked", order, "c", undefined)).toEqual(selectOnly("untracked", "c"));
+    expect(extendSelection(staged, "untracked", order, "c", undefined)).toEqual(selectOnly("unstaged", "c"));
   });
 
   it("extends a range from the anchor in either direction and keeps the anchor", () => {
@@ -186,7 +189,7 @@ describe("file multi-select (S62)", () => {
   });
 
   it("lists the selected files in list order", () => {
-    const files = [file("a", "unstaged"), file("b", "unstaged"), file("b", "staged"), file("c", "unstaged")];
+    const files = [file("a", "unstaged"), file("b", "untracked"), file("b", "staged"), file("c", "unstaged")];
 
     expect(selectedFiles({ area: "unstaged", paths: ["c", "b"], anchor: "c" }, files).map(rowKey)).toEqual(["unstaged:b", "unstaged:c"]);
   });

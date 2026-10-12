@@ -466,9 +466,9 @@ export const client = {
   signingRead: (scope: SigningScope, path: string | null) => call<SigningConfig>("signing_read", { scope, path }),
   signingWrite: (scope: SigningScope, path: string | null, config: SigningConfig) => call<null>("signing_write", { scope, path, config }),
   signingKeys: (program: string) => call<SigningKey[]>("signing_keys", { program }),
-  openUrl: (url: string): void => {
+  openUrl: async (url: string): Promise<null> => {
     if (!/^https?:\/\//i.test(url)) throw new IpcError({ kind: "invalid_request", message: `${url} is not an http or https address` });
-    window.open(url, "_blank", "noopener,noreferrer");
+    return await call<null>("open_url", { url });
   },
   activityList: () => call<ActivityEntry[]>("activity_list"),
   activityClear: (repo: string | null) => call<null>("activity_clear", { repo }),

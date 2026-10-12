@@ -13,6 +13,7 @@ import {
   folderMenuEntries,
   folderStashPaths,
   isPartiallyStaged,
+  listArea,
   neighborKey,
   pathsToMove,
   pruneSelection,
@@ -54,7 +55,7 @@ import { tip } from "./Tooltip";
 
 const sectionIcon = { conflicted: "warning", unstaged: "changes", untracked: "plus", staged: "check" } as const;
 
-const treeAreas: readonly ChangeArea[] = ["unstaged", "untracked", "staged"];
+const treeAreas: readonly ChangeArea[] = ["unstaged", "staged"];
 
 const focusRow = (key: string) => document.querySelector<HTMLElement>(`[data-row="${CSS.escape(key)}"]`)?.focus();
 
@@ -133,7 +134,7 @@ export function ChangesInspector(props: {
   };
 
   const moveFile = (file: FileChange) =>
-    move(file.area === "staged", pathsToMove(file), neighborKey(rowsOf(file.area).map((row) => keyOf(file.area, row)), rowKey(file)));
+    move(file.area === "staged", pathsToMove(file), neighborKey(rowsOf(listArea(file.area)).map((row) => keyOf(listArea(file.area), row)), rowKey(file)));
 
   const moveFolder = (area: ChangeArea, folder: FolderEntry<FileChange>) =>
     move(area === "staged", folder.items.flatMap(pathsToMove), neighborKey(rowsOf(area).map((row) => keyOf(area, row)), folderKey(area, folder.path)));
@@ -177,23 +178,24 @@ export function ChangesInspector(props: {
 
   const orderOf = (area: ChangeArea): string[] => rowsOf(area).flatMap((row) => (row.kind === "folder" ? [] : [row.item.path]));
 
-  const isPicked = (file: FileChange): boolean => selection()?.area === file.area && selection()?.paths.includes(file.path) === true;
+  const isPicked = (file: FileChange): boolean => selection()?.area === listArea(file.area) && selection()?.paths.includes(file.path) === true;
 
   const pick = (file: FileChange, mode: PickMode) =>
     setSelection((current) =>
       mode === "one"
-        ? selectOnly(file.area, file.path)
+        ? selectOnly(listArea(file.area), file.path)
         : mode === "toggle"
-          ? toggleSelected(current, file.area, file.path)
-          : extendSelection(current, file.area, orderOf(file.area), file.path, undefined),
+          ? toggleSelected(current, listArea(file.area), file.path)
+          : extendSelection(current, listArea(file.area), orderOf(listArea(file.area)), file.path, undefined),
     );
 
   const extend = (file: FileChange, step: 1 | -1) => {
-    const order = orderOf(file.area);
+    const area = listArea(file.area);
+    const order = orderOf(area);
     const next = order[order.indexOf(file.path) + step];
     if (next === undefined) return;
-    setSelection((current) => extendSelection(current, file.area, order, next, file.path));
-    focusRow(rowKey({ area: file.area, path: next }));
+    setSelection((current) => extendSelection(current, area, order, next, file.path));
+    focusRow(rowKey({ area, path: next }));
   };
 
   const runSelection = (id: string, files: FileChange[]) => {
@@ -208,7 +210,7 @@ export function ChangesInspector(props: {
   };
 
   const openFileMenu = (file: FileChange, anchor: Anchor) => {
-    const current = isPicked(file) ? selection() : selectOnly(file.area, file.path);
+    const current = isPicked(file) ? selection() : selectOnly(listArea(file.area), file.path);
     setSelection(current);
     const files = selectedFiles(current, snapshot().files);
     setRowMenu({
@@ -401,7 +403,7 @@ export function ChangesInspector(props: {
     const selectable = section.area !== "conflicted";
     const chosen = () => (selection()?.area === section.area ? selectedFiles(selection(), snapshot().files) : []);
     const bulk = () => {
-      if (section.area === "unstaged" && files().length + filesIn(snapshot().files, "untracked").length > 0) {
+      if (section.area === "unstaged" && files().length > 0) {
         return { label: "Stage all", icon: "plus" as const, run: stageEverything };
       }
       if (section.area === "staged" && files().length > 0) {
@@ -417,23 +419,36 @@ export function ChangesInspector(props: {
               <Icon name={sectionIcon[section.area]} />
               {section.title} <span class="count">{files().length}</span>
             </span>
-            <Show
-              when={chosen().length > 1}
-              fallback={
-                <Show when={bulk()}>
-                  {(entry) => (
-                    <button type="button" class="icon-btn dense" {...tip(entry().label)} onClick={() => void entry().run()}>
-                      <Icon name={entry().icon} size={14} />
-                    </button>
-                  )}
-                </Show>
-              }
-            >
-              <button type="button" class="btn sm" onClick={() => void moveFiles(chosen())}>
-                <Icon name={section.area === "staged" ? "minus" : "plus"} size={14} />
-                {section.area === "staged" ? "Unstage" : "Stage"} {chosen().length} files
-              </button>
-            </Show>
+            <span class="lhead-tools">
+              <Show
+                when={chosen().length > 1}
+                fallback={
+                  <Show when={bulk()}>
+                    {(entry) => (
+                      <button type="button" class="icon-btn dense" {...tip(entry().label)} onClick={() => void entry().run()}>
+                        <Icon name={entry().icon} size={14} />
+                      </button>
+                    )}
+                  </Show>
+                }
+              >
+                <button type="button" class="btn sm" onClick={() => void moveFiles(chosen())}>
+                  <Icon name={section.area === "staged" ? "minus" : "plus"} size={14} />
+                  {section.area === "staged" ? "Unstage" : "Stage"} {chosen().length} files
+                </button>
+              </Show>
+              <Show when={section.area === "unstaged"}>
+                <button
+                  type="button"
+                  class="icon-btn dense danger"
+                  disabled={files().length === 0}
+                  {...tip("Discard all")}
+                  onClick={() => setPendingDiscard({ files: files().filter(canDiscard), folder: undefined })}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </Show>
+            </span>
           </div>
           <Show when={files().length > 0} fallback={<div class="empty">{section.empty}</div>}>
             <VirtualRows

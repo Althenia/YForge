@@ -118,7 +118,7 @@ describe("checkout", () => {
   });
 
   it("keeps ordinary checkout paths when activating a ref other than the checked-out branch's remote counterpart", async () => {
-    const { actions, calls } = setup(() => ({ auto_stash: "none" }));
+    const { actions, calls } = setup((call) => (call.cmd === "integration_preview" ? previewOf(0, 0) : { auto_stash: "none" }));
     const anchor = { left: 10, top: 20 };
     actions.activateRef({ kind: "local_branch", name: "feature", remoteName: undefined, startPoint: "abc1234" }, anchor);
     actions.activateRef({ kind: "remote_branch", name: "origin/feature", startPoint: "abc1234" }, anchor);
@@ -127,11 +127,114 @@ describe("checkout", () => {
 
     expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.target)).toEqual([
       { kind: "local_branch", name: "feature" },
-      { kind: "local_branch", name: "feature" },
       { kind: "remote_branch", name: "origin/remote-only" },
+      { kind: "local_branch", name: "feature" },
     ]);
     expect(actions.menu()).toBeUndefined();
     expect(calls.some((call) => call.cmd === "reset")).toBe(false);
+  });
+
+  it("fast-forwards a remote counterpart before checking it out, but only fast-forwards it when current", async () => {
+    for (const current of [false, true]) {
+      const initial = snapshot({
+        head: { kind: "branch", name: current ? "feature" : "main", sha: "a" },
+        upstream: current ? { name: "origin/feature", ahead_behind: { ahead: 0, behind: 1 } } : null,
+        branches: ["main", "feature"],
+        remote_branches: ["origin/main", "origin/feature"],
+      });
+      const { actions, calls } = setup((call) => {
+        if (call.cmd === "integration_preview") return { ...previewOf(2, 0), fast_forward: true };
+        if (call.cmd === "checkout") return { auto_stash: "none" };
+        return null;
+      }, initial);
+
+      actions.activateRef({ kind: "remote_branch", name: "origin/feature", startPoint: "remote" }, { left: 1, top: 2 });
+      await settle();
+
+      const mutations = calls.filter((call) => call.cmd === "fast_forward" || call.cmd === "checkout");
+      expect(mutations.map((call) => call.cmd)).toEqual(current ? ["fast_forward"] : ["fast_forward", "checkout"]);
+      expect(mutations[0]?.args).toEqual({ path: "/r", branch: "feature", target: "origin/feature" });
+      if (!current) expect(mutations[1]?.args).toMatchObject({ target: { kind: "local_branch", name: "feature" } });
+    }
+  });
+
+  it("opens reset modes for a current diverged remote and mutates nothing", async () => {
+    const initial = snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 1, behind: 1 } } });
+    const { actions, calls } = setup((call) => (call.cmd === "integration_preview" ? previewOf(1, 1) : null), initial);
+
+    actions.activateRef({ kind: "remote_branch", name: "origin/main", startPoint: "remote" }, { left: 1, top: 2 });
+    await settle();
+
+    expect(actions.menu()?.entries.filter((entry) => entry.kind === "item").map((entry) => entry.label.join(""))).toEqual(["Soft", "Mixed", "Hard"]);
+    expect(calls.filter((call) => ["fast_forward", "checkout", "reset"].includes(call.cmd))).toEqual([]);
+  });
+
+  it("fast-forwards a local branch from its remote counterpart on activation, including the current branch", async () => {
+    for (const current of [false, true]) {
+      const initial = snapshot({
+        head: { kind: "branch", name: current ? "feature" : "main", sha: "a" },
+        upstream: current ? { name: "origin/feature", ahead_behind: { ahead: 0, behind: 1 } } : null,
+      });
+      const { actions, calls } = setup((call) => {
+        if (call.cmd === "integration_preview") return previewOf(1, 0);
+        if (call.cmd === "checkout") return { auto_stash: "none" };
+        return null;
+      }, initial);
+
+      actions.activateRef({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "local" }, { left: 1, top: 2 });
+      await settle();
+
+      const mutations = calls.filter((call) => call.cmd === "fast_forward" || call.cmd === "checkout");
+      expect(mutations.map((call) => call.cmd)).toEqual(current ? ["fast_forward"] : ["fast_forward", "checkout"]);
+      expect(mutations[0]?.args).toEqual({ path: "/r", branch: "feature", target: "origin/feature" });
+      if (!current) expect(mutations[1]?.args).toMatchObject({ target: { kind: "local_branch", name: "feature" } });
+    }
+  });
+
+  it("uses the normal stash-and-switch confirmation after activation fast-forward", async () => {
+    let checkoutCount = 0;
+    const { actions, calls } = setup((call) => {
+      if (call.cmd === "integration_preview") return previewOf(1, 0);
+      if (call.cmd === "fast_forward") return null;
+      if (call.cmd === "checkout") {
+        checkoutCount += 1;
+        if (checkoutCount === 1) throw rejection("local_changes", "Local changes would be overwritten");
+        return { auto_stash: "stashed" };
+      }
+      return null;
+    });
+
+    actions.activateRef({ kind: "local_branch", name: "feature", remoteName: "origin/feature", startPoint: "local" }, { left: 1, top: 2 });
+    await settle();
+
+    expect(calls.filter((call) => call.cmd === "fast_forward" || call.cmd === "checkout").map((call) => call.cmd)).toEqual(["fast_forward", "checkout"]);
+    expect(actions.dialog()?.copy.confirmLabel).toBe("Stash and switch");
+    await actions.dialog()?.run();
+    expect(calls.filter((call) => call.cmd === "checkout").map((call) => call.args.stash)).toEqual([false, true]);
+    expect(calls.filter((call) => call.cmd === "fast_forward")).toHaveLength(1);
+  });
+
+  it("does nothing activating the current local branch when its upstream is not ahead", async () => {
+    const { actions, calls } = setup(() => null, snapshot({ upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } } }));
+
+    actions.activateRef({ kind: "local_branch", name: "main", remoteName: "origin/main", startPoint: "local" }, { left: 1, top: 2 });
+    await settle();
+
+    expect(calls.filter((call) => ["integration_preview", "fast_forward", "checkout"].includes(call.cmd))).toEqual([]);
+  });
+
+  it("reports a refused activation fast-forward and does not check out the branch", async () => {
+    const { actions, calls, session } = setup((call) => {
+      if (call.cmd === "integration_preview") return previewOf(1, 0);
+      if (call.cmd === "fast_forward") throw rejection("local_changes", "Local changes would be overwritten");
+      return { auto_stash: "none" };
+    });
+
+    actions.activateRef({ kind: "remote_branch", name: "origin/feature", startPoint: "remote" }, { left: 1, top: 2 });
+    await settle();
+
+    expect(calls.some((call) => call.cmd === "checkout")).toBe(false);
+    expect(session.notice()).toContain("Fast forward failed");
   });
 
   it("reports a failed switch and its git output", async () => {

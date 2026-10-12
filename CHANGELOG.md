@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.8] - 2026-10-12
+
+### Changed
++ The Launchpad no longer lists linked worktrees, including deleted ones still remembered from being opened; open a worktree from its repository's Worktrees panel.
++ The Launchpad's Repositories table supports multi-select, with Remove from list (and Undo) for every selected row, and a Rescan folders button rescans every scanned folder.
++ The Changes panel shows only Unstaged and Staged lists: untracked files are listed in Unstaged with their Untracked icon, and the Unstaged header has a Discard all control that keeps staged changes.
++ Activating a branch fast-forwards it when that is safe: a remote branch fast-forwards its local branch and checks it out, and a local branch checks out and fast-forwards to its upstream.
++ The commit inspector's Refs show the pull request badge of a branch that has one.
+
+### Fixed
++ Pull request, issue, and release-notes links open in the default browser.
++ The connect cards on the My pull requests and My issues tabs lay out their Connect buttons in one row instead of stretched list rows.
++ A pull request badge no longer squeezes the branch name in the graph or the sidebar; the badge narrows to its glyph first.
+
+---
+
 ## [0.3.7] - 2026-10-11
 
 ### Changed

@@ -100,9 +100,9 @@ export function Launchpad() {
     if (picked !== undefined) await app.openRepository(picked);
   };
 
-  const browse = (url: string) => {
+  const browse = async (url: string) => {
     try {
-      client.openUrl(url);
+      await client.openUrl(url);
     } catch (failure) {
       app.setNotice(failureNotice(failure, "Open link"));
     }

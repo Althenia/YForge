@@ -189,12 +189,11 @@ describe("Launchpad pull requests", () => {
   });
 
   it("opens the repository tab and then the pull request when the repository is cloned here, and the browser otherwise", async () => {
-    const { host, app } = await mount({
+    const { host, app, calls } = await mount({
       platform: [gitlab],
       pulls: { c1: [pull("c1", 418, "Retry login", { local_path: "/w/api" }), pull("c1", 7, "Elsewhere")] },
     });
     const open = vi.spyOn(app, "openRepository").mockResolvedValue(true);
-    const browser = vi.spyOn(window, "open").mockReturnValue(null);
     const opener = (label: string) => [...host.querySelectorAll<HTMLElement>(".lp-open")].find((row) => row.getAttribute("aria-label")?.includes(label)) as HTMLElement;
 
     opener("#418").click();
@@ -204,7 +203,7 @@ describe("Launchpad pull requests", () => {
 
     expect(open).toHaveBeenCalledWith("/w/api");
     expect(takePullInspector("/w/api")).toBe(418);
-    expect(browser).toHaveBeenCalledWith("https://host/pr/7", "_blank", "noopener,noreferrer");
+    expect(calls.find((call) => call.cmd === "open_url")?.args).toEqual({ url: "https://host/pr/7" });
   });
 });
 
@@ -322,8 +321,7 @@ describe("Launchpad issues and WIPs", () => {
   });
 
   it("lists assigned issues with the status word and opens one in the browser", async () => {
-    const { host } = await mount({ jira: [site], issues: [issue("ABC-155", "Show the switcher")] });
-    const browser = vi.spyOn(window, "open").mockReturnValue(null);
+    const { host, calls } = await mount({ jira: [site], issues: [issue("ABC-155", "Show the switcher")] });
 
     tab(host, "My issues").click();
     await flush();
@@ -331,7 +329,7 @@ describe("Launchpad issues and WIPs", () => {
     expect(rows(host)).toEqual(["ABC-155 Show the switcher, In Progress"]);
     expect(sourceLine(host, "your-site.atlassian.net")).toMatch(/^your-site\.atlassian\.net · updated \w+ ago · 1 issue$/);
     (host.querySelector(".lp-open") as HTMLElement).click();
-    expect(browser).toHaveBeenCalledWith("https://your-site.atlassian.net/browse/ABC-155", "_blank", "noopener,noreferrer");
+    expect(calls.find((call) => call.cmd === "open_url")?.args).toEqual({ url: "https://your-site.atlassian.net/browse/ABC-155" });
   });
 
   it("says no open issues are assigned when the site has none", async () => {
@@ -495,6 +493,56 @@ describe("Launchpad repositories (S41, S46)", () => {
     expect(calls.find((call) => call.cmd === "repository_restore")?.args).toEqual({ repo: managed.repos[0] });
     expect(repoRows(host)).toHaveLength(4);
     expect(host.querySelector(".list-change")).toBeNull();
+  });
+
+  it("supports toggle and range selection, removes all selected rows, and undoes each removal", async () => {
+    const removed = new Set<string>();
+    const { host, calls } = await mount({
+      repositories: managed,
+      statuses: managedStatuses,
+      tab: "Repositories",
+      answer: (call) => {
+        if (call.cmd === "repository_remove") {
+          const path = call.args.path as string;
+          removed.add(path);
+          return { removed: managed.repos.find((repo) => repo.path === path), repositories: { ...managed, repos: managed.repos.filter((repo) => !removed.has(repo.path)) } };
+        }
+        if (call.cmd === "repository_restore") return managed;
+        return undefined;
+      },
+    });
+    const rows = repoRows(host);
+    rows[0]?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    rows[2]?.dispatchEvent(new MouseEvent("click", { bubbles: true, metaKey: true }));
+    rows[2]?.dispatchEvent(new MouseEvent("click", { bubbles: true, shiftKey: true }));
+    await flush();
+    expect(actions(host)?.textContent).toContain("3 repositories selected");
+    expect(buttonNamed(actions(host) as HTMLElement, "Remove 3 from list")).toBeDefined();
+    buttonNamed(actions(host) as HTMLElement, "Remove 3 from list")?.click();
+    await flush(40);
+    expect(calls.filter((call) => call.cmd === "repository_remove").map((call) => call.args.path)).toEqual(["/u/Code/web", "/u/Code/api", "/u/Code/old"]);
+    expect(host.querySelector(".list-change")?.textContent).toContain("Removed 3 repositories from the list");
+    buttonNamed(host.querySelector(".list-change") as HTMLElement, "Undo")?.click();
+    await flush(40);
+    expect(calls.filter((call) => call.cmd === "repository_restore")).toHaveLength(3);
+  });
+
+  it("rescans every folder and disables Rescan folders when none are scanned", async () => {
+    const extraFolder = { path: "/u/Other", depth: 1, scanned_at: 1, repos: [], skipped: [] };
+    const { host, calls } = await mount({
+      repositories: { ...managed, folders: [...managed.folders, extraFolder] },
+      statuses: managedStatuses,
+      tab: "Repositories",
+      answer: (call) => call.cmd === "scan_folder_rescan" ? { added: call.args.root === "/u/Code" ? ["/u/Code/cli"] : ["/u/Other/tool", "/u/Other/web"], repositories: managed } : undefined,
+    });
+
+    buttonNamed(host, "Rescan folders")?.click();
+    await flush(40);
+    expect(calls.filter((call) => call.cmd === "scan_folder_rescan").map((call) => call.args.root)).toEqual(["/u/Code", "/u/Other"]);
+    expect(host.querySelector(".list-change")?.textContent).toContain("Rescanned all 2 folders. Added 3 repositories.");
+    const empty = await mount({ tab: "Repositories" });
+    expect(empty.host.querySelector<HTMLButtonElement>('button[aria-label="No folders are scanned"]')?.disabled).toBe(true);
+    empty.dispose();
   });
 
   it("rescans and stops scanning a folder from its chip, with Undo for Stop scanning", async () => {

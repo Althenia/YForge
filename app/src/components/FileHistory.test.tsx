@@ -111,6 +111,7 @@ describe("file history list", () => {
     expect(listbox(host)?.getAttribute("aria-label")).toBe("Commits that changed src/util.js");
     const options = [...host.querySelectorAll('[role="option"]')];
     expect(options).toHaveLength(3);
+    expect(options[0]?.classList.contains("hist-row")).toBe(true);
     expect(options[0]?.querySelector(".mono")?.textContent).toBe("ccccccc");
     expect(options[0]?.textContent).toContain("Tune retries and clamp helper");
     expect(options[0]?.textContent).toContain("Yui Lin");

@@ -92,6 +92,9 @@ export const stoppedText = (folder: string, taken: number, kept: number): string
 export const rescanText = (folder: string, added: readonly string[]): string =>
   added.length === 0 ? `No new repositories in ${folder}.` : `Found ${plural(added.length, "new repository", "new repositories")} in ${folder}: ${added.map(basename).join(", ")}.`;
 
+export const rescanAllText = (folders: number, added: number): string =>
+  `Rescanned all ${plural(folders, "folder", "folders")}. Added ${added === 0 ? "no repositories" : plural(added, "repository", "repositories")}.`;
+
 export const addedText = (folder: string, added: number): string => `Added ${plural(added, "repository", "repositories")} from ${folder}.`;
 
 export const scanSummary = (found: number, folder: string, checked: number, depth: number, capped: boolean): string =>

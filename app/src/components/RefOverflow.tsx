@@ -29,7 +29,7 @@ export function RefOverflow(props: {
       setActive(event.key === "Home" ? 0 : last);
     } else if (event.key === "Enter") {
       const target = targetOf(active());
-      if (target === undefined || props.groups[active()]?.head === true || props.groups[active()]?.tag === true) return;
+      if (target === undefined || props.groups[active()]?.tag === true) return;
       event.preventDefault();
       const anchor = props.anchor;
       const activate = props.actions.activateRef;

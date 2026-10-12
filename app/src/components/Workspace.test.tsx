@@ -211,13 +211,11 @@ describe("Jira issue inspector", () => {
   const found = { key: "ABC-155", summary: "Show the account switcher", status: "Done", status_category: "done", issue_type: "Story", project: "ABC", assignee: "Sam Lee", updated_at: "2026-10-01T09:30:00.000+0000", web_url: "https://your-site.atlassian.net/browse/ABC-155", connection_id: "j1" };
 
   it("opens when an issue row in the sidebar is activated and opens the issue in the browser", async () => {
-    const { host } = await mountWorkspace((call) => {
+    const { host, calls } = await mountWorkspace((call) => {
       if (call.cmd === "jira_connections_list") return [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "Sam Lee", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
       if (call.cmd === "jira_my_issues") return { issues: [found], total: 1, capped: false };
       return undefined;
     });
-    const browser = vi.spyOn(window, "open").mockReturnValue(null);
-
     host.querySelector<HTMLElement>('[data-nav="issue:ABC-155"]')?.click();
     await flush(60);
 
@@ -227,7 +225,8 @@ describe("Jira issue inspector", () => {
     expect(panel.querySelector(".chip")?.classList.contains("chip-success")).toBe(true);
     expect(host.querySelector('[data-nav="issue:ABC-155"]')?.getAttribute("aria-current")).toBe("true");
     buttonNamed(panel, "Open in browser")?.click();
-    expect(browser).toHaveBeenCalledWith("https://your-site.atlassian.net/browse/ABC-155", "_blank", "noopener,noreferrer");
+    await flush();
+    expect(calls.filter((call) => call.cmd === "open_url").map((call) => call.args)).toEqual([{ url: "https://your-site.atlassian.net/browse/ABC-155" }]);
   });
 });
 

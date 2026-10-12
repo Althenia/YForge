@@ -1078,9 +1078,11 @@ button[aria-busy="true"]:not(:has(.busy-spinner))::after {
 
 .pr-badge {
   display: inline-flex;
-  flex: none;
+  flex: 0 1000 auto;
   align-items: center;
   gap: var(--spacing-0-5);
+  min-width: calc(14px + var(--spacing-2));
+  overflow: hidden;
   height: 18px;
   padding: 0 var(--spacing-1);
   border: 0;
@@ -1092,6 +1094,20 @@ button[aria-busy="true"]:not(:has(.busy-spinner))::after {
 
 .pr-badge .mono {
   font: var(--font-ref);
+}
+
+.pr-badge > svg {
+  flex: none;
+}
+
+.pr-badge > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-badge .pr-draft {
+  flex-shrink: 1000;
 }
 
 .compose {
@@ -1336,7 +1352,7 @@ button[aria-busy="true"]:not(:has(.busy-spinner))::after {
 .label .name {
   overflow: hidden;
   text-overflow: ellipsis;
-  min-width: 0;
+  min-width: min(max-content, 8ch);
 }
 
 .label.active {

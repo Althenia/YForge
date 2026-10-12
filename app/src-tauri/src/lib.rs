@@ -3056,6 +3056,34 @@ async fn open_path(
         .map_err(|error| ErrorPayload::internal(format!("could not start {program}: {error}")))
 }
 
+fn validate_open_url(url: &str) -> Result<(), ErrorPayload> {
+    if url
+        .get(..7)
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://"))
+        || url
+            .get(..8)
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("https://"))
+    {
+        Ok(())
+    } else {
+        Err(ErrorPayload {
+            kind: ErrorKind::InvalidRequest,
+            message: format!("{url} is not an http or https address"),
+            output: None,
+        })
+    }
+}
+
+#[tauri::command]
+async fn open_url(url: String) -> Result<(), ErrorPayload> {
+    validate_open_url(&url)?;
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map(drop)
+        .map_err(|error| ErrorPayload::internal(format!("could not start open: {error}")))
+}
+
 #[tauri::command]
 async fn external_tools_load(
     data: State<'_, DataDir>,
@@ -5755,6 +5783,7 @@ pub fn register_with_passphrases<R: Runtime>(
             update::update_install,
             menu::menu_update,
             open_path,
+            open_url,
             external_tools_load,
             external_tools_save,
             external_tools_detected,
@@ -5878,6 +5907,20 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_url_accepts_only_http_and_https_schemes_case_insensitively() {
+        assert!(validate_open_url("https://example.com").is_ok());
+        assert!(validate_open_url("HTTP://example.com").is_ok());
+        assert_eq!(
+            validate_open_url("javascript:alert(1)").unwrap_err().kind,
+            ErrorKind::InvalidRequest
+        );
+        assert_eq!(
+            validate_open_url("file:///etc/passwd").unwrap_err().kind,
+            ErrorKind::InvalidRequest
+        );
+    }
 
     fn cwd() -> std::io::Result<PathBuf> {
         Ok(PathBuf::from("/work"))

@@ -32,7 +32,7 @@ export function RefLabel(props: { group: LabelGroup; sha: string | null; actions
       }}
       onDblClick={(event) => {
         const current = target();
-        if (current === undefined || props.group.head) return;
+        if (current === undefined) return;
         event.stopPropagation();
         props.actions.activateRef(current, anchorBelow(event.currentTarget));
         props.onDone?.();

@@ -457,6 +457,16 @@ describe("branch and tag column overflow", () => {
     ]);
   });
 
+  it("activates the checked-out branch when its graph label is double-clicked", async () => {
+    overrides = crowded;
+    const activated: unknown[] = [];
+    const { host } = await mountGraph({ actions: { activateRef: (target: unknown) => activated.push(target) } });
+
+    rowElement(host, 1).querySelector<HTMLElement>(".refcell > [data-ref-label]")?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+
+    expect(activated).toEqual([{ kind: "local_branch", name: "main", remoteName: undefined, startPoint: "sha1" }]);
+  });
+
   it("opens from the keyboard with Enter on the selected row, moves with the arrows, and checks the chosen branch out", async () => {
     overrides = crowded;
     const checked: unknown[] = [];

@@ -20,7 +20,7 @@
   outline-offset: calc(var(--controls-focus-ring) * -1);
 }
 
-.hrow {
+.hist-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
@@ -32,16 +32,16 @@
   cursor: var(--cursors-action);
 }
 
-.hrow:hover {
+.hist-row:hover {
   background: var(--fill-hover);
 }
 
-.hrow.sel {
+.hist-row.sel {
   border-left-color: var(--colors-selection-edge);
   background: var(--colors-selection);
 }
 
-.hlist:focus-visible .hrow.sel {
+.hlist:focus-visible .hist-row.sel {
   box-shadow: inset 0 0 0 1px var(--colors-focus);
 }
 

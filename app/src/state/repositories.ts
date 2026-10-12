@@ -7,7 +7,7 @@ import { client } from "../ipc/client";
 import { basename } from "../format";
 import { useQuery } from "./query";
 import { appKeys, launchpadKeys } from "./queryKeys";
-import { removedText, rescanText, stoppedText } from "./repositoriesModel";
+import { removedText, rescanAllText, rescanText, stoppedText } from "./repositoriesModel";
 
 const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -95,12 +95,53 @@ export function createRepositories() {
           },
         };
       }),
+    removeMany: async (paths: readonly string[]): Promise<void> => {
+      setFailure(undefined);
+      const removed: ManagedRepo[] = [];
+      const failures: string[] = [];
+      for (const path of paths) {
+        try {
+          const result = await client.repositoryRemove(path);
+          removed.push(result.removed);
+          accept(result.repositories);
+        } catch (error) {
+          failures.push(`${path}: ${message(error)}`);
+        }
+      }
+      if (removed.length > 0) {
+        setChange({
+          text: `Removed ${removed.length} ${removed.length === 1 ? "repository" : "repositories"} from the list. Nothing on disk changed.`,
+          undo: async () => {
+            for (const repo of removed) accept(await client.repositoryRestore(repo));
+            setChange(undefined);
+          },
+        });
+      }
+      if (failures.length > 0) setFailure(`Could not remove ${failures.join("; ")}`);
+    },
     rescan: (root: string) =>
       run(async () => {
         const result = await client.scanFolderRescan(root);
         accept(result.repositories);
         return { text: rescanText(root, result.added) };
       }),
+    rescanAll: async (): Promise<void> => {
+      setFailure(undefined);
+      const folders = list.data?.folders ?? [];
+      let added = 0;
+      const failures: string[] = [];
+      for (const folder of folders) {
+        try {
+          const result = await client.scanFolderRescan(folder.path);
+          added += result.added.length;
+          accept(result.repositories);
+        } catch (error) {
+          failures.push(`${folder.path}: ${message(error)}`);
+        }
+      }
+      setChange({ text: rescanAllText(folders.length, added) });
+      if (failures.length > 0) setFailure(`Could not rescan ${failures.join("; ")}`);
+    },
     stopScanning: (root: string) =>
       run(async () => {
         const result = await client.scanFolderRemove(root);

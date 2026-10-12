@@ -107,11 +107,7 @@ export function createPlatformActions(session: RepoSession, deps: PlatformDeps) 
       setConfirm({ copy: mergeCopy(pull, platformTitle()), run: () => runMerge(pull) });
     },
     openInBrowser(pull: Pick<PullRequest, "web_url">): void {
-      try {
-        client.openUrl(pull.web_url);
-      } catch (failure) {
-        session.report(failure);
-      }
+      void client.openUrl(pull.web_url).catch((failure) => session.report(failure));
     },
   };
 }

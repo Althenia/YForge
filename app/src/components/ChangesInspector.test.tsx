@@ -2,6 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import type { DiffTarget } from "../state/diffModel";
 import { createAiSheet, AiSheetContext } from "../state/aiSheet";
 import { createComposer } from "../state/composer";
 import type { AppUiPrefs } from "../ipc/bindings/AppUiPrefs";
@@ -64,7 +65,7 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as RepoSnapshot;
 
-function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null, features = aiFeatureList()) {
+function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null, features = aiFeatureList(), onOpenDiff: (target: DiffTarget) => void = () => undefined) {
   mockIPC((cmd, args) => {
     if (cmd === "ai_feature_config_list") return features;
     if (cmd === "app_ui_prefs_load") return storedPrefs;
@@ -91,7 +92,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
           actions={actions}
           composer={composer}
           activeTarget={undefined}
-          onOpenDiff={() => undefined}
+          onOpenDiff={onOpenDiff}
           onCommitted={(sha) => committed.push(sha)}
         />
         <AiSheet sheet={sheet} onOpenAiSettings={() => undefined} />
@@ -484,7 +485,7 @@ describe("icon-driven Changes header and lists (S50)", () => {
     const { host } = mount(changed());
     await flush();
 
-    expect(sectionOf(host, "Unstaged").querySelector(".lhead-title")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Unstaged 3");
+    expect(sectionOf(host, "Unstaged").querySelector(".lhead-title")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Unstaged 4");
     expect(sectionOf(host, "Staged").querySelector(".lhead-title")?.textContent?.replace(/\s+/g, " ").trim()).toBe("Staged 1");
     const stageAll = named(sectionOf(host, "Unstaged"), "Stage all");
     const unstageAll = named(sectionOf(host, "Staged"), "Unstage all");
@@ -496,6 +497,36 @@ describe("icon-driven Changes header and lists (S50)", () => {
     unstageAll?.click();
     await flush();
     expect(commands()).toEqual(["stage_all", "unstage_all"]);
+  });
+
+  it("confirms Discard all by count and discards only unstaged and untracked files", async () => {
+    const { host } = mount(changed());
+    await flush();
+
+    const discardAll = named(sectionOf(host, "Unstaged"), "Discard all");
+    expectIconControl(discardAll);
+    expect(discardAll?.classList.contains("danger")).toBe(true);
+    discardAll?.click();
+    await flush();
+
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    expect(dialog?.querySelector("h3")?.textContent).toBe("Discard changes to 4 files?");
+    expect([...(dialog?.querySelectorAll(".dialog-names li") ?? [])].map((entry) => entry.textContent)).toEqual(["README.md", "src/app.ts", "src/ui/button.ts", "notes.txt"]);
+    expect(commands()).toEqual([]);
+    [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent?.trim() === "Discard changes")?.click();
+    await flush();
+
+    expect(calls.find((call) => call.cmd === "discard_files")?.args).toEqual({ path: "/r", files: ["README.md", "src/app.ts", "src/ui/button.ts", "notes.txt"] });
+    expect(commands()).not.toContain("discard_staged_files");
+  });
+
+  it("disables Discard all when Unstaged is empty", async () => {
+    const { host } = mount(snapshot({ counts: { modified: 0, added: 1, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 }, files: [{ path: "staged.ts", original_path: null, area: "staged", status: "added" }] }));
+    await flush();
+
+    const discardAll = named(sectionOf(host, "Unstaged"), "Discard all");
+    expect(discardAll).toBeDefined();
+    expect(discardAll?.disabled).toBe(true);
   });
 
   it("keeps each row's Stage or Unstage icon outside the actions revealed on hover", async () => {
@@ -534,6 +565,7 @@ describe("file list tree (S49)", () => {
       ["button.ts", "3", null],
       ["app.ts", "2", null],
       ["README.md", "1", null],
+      ["notes.txt", "1", null],
     ]);
     expect(item(host, "Unstaged", "src")?.querySelector(".dcount")?.textContent).toBe("2");
     expect(item(host, "Unstaged", "ui")?.querySelectorAll(".guide")).toHaveLength(1);
@@ -550,6 +582,7 @@ describe("file list tree (S49)", () => {
     expect(levels(host, "Unstaged")).toEqual([
       ["src", "1", "false"],
       ["README.md", "1", null],
+      ["notes.txt", "1", null],
     ]);
     expect(item(host, "Unstaged", "src")?.querySelector(".tree-chev")?.classList.contains("closed")).toBe(true);
 
@@ -738,12 +771,13 @@ describe("file list tree (S49)", () => {
     expect(levels(host, "Unstaged")).toEqual([
       ["src", "1", "false"],
       ["README.md", "1", null],
+      ["notes.txt", "1", null],
     ]);
     expect(item(host, "Staged", "src")?.getAttribute("aria-expanded")).toBe("false");
 
     named(host, "Expand all folders")?.click();
     await flush();
-    expect(levels(host, "Unstaged")).toHaveLength(5);
+    expect(levels(host, "Unstaged")).toHaveLength(6);
     expect(named(host, "Collapse all folders")).not.toBeNull();
   });
 
@@ -1066,14 +1100,16 @@ describe("multi-select in the file lists (S62)", () => {
     return mounted.host;
   };
 
-  it("marks each list as multi-selectable and every row as not selected until chosen", async () => {
+  it("shows tracked and untracked files together in the multi-selectable Unstaged list", async () => {
     const host = await open();
 
-    for (const title of ["Unstaged", "Untracked", "Staged"]) {
+    expect(host.querySelector('section[aria-label="Untracked"]')).toBeNull();
+    for (const title of ["Unstaged", "Staged"]) {
       const list = sectionOf(host, title).querySelector(".flist");
       expect(list?.getAttribute("aria-multiselectable")).toBe("true");
       expect([...(list?.querySelectorAll(".frow") ?? [])].every((row) => row.getAttribute("aria-selected") === "false")).toBe(true);
     }
+    expect(rowOf(host, "unstaged", "u1.txt").querySelector('[role="img"][aria-label="Untracked"] svg')?.getAttribute("data-icon")).toBe("untracked");
   });
 
   it("selects one file on click, toggles with ⌘-click, and extends the range with ⇧-click", async () => {
@@ -1097,13 +1133,13 @@ describe("multi-select in the file lists (S62)", () => {
     expect(chosen(host)).toEqual(["unstaged:a.ts", "unstaged:b.ts", "unstaged:c.ts"]);
   });
 
-  it("never spans two lists: choosing in another list replaces the selection", async () => {
+  it("never spans two lists: choosing in Staged replaces the combined Unstaged selection", async () => {
     const host = await open();
 
     click(rowOf(host, "unstaged", "a.ts"));
-    click(rowOf(host, "untracked", "u1.txt"), { metaKey: true });
+    click(rowOf(host, "unstaged", "u1.txt"), { metaKey: true });
     await flush();
-    expect(chosen(host)).toEqual(["untracked:u1.txt"]);
+    expect(chosen(host)).toEqual(["unstaged:a.ts", "unstaged:u1.txt"]);
 
     click(rowOf(host, "staged", "s2.ts"), { shiftKey: true });
     await flush();
@@ -1130,14 +1166,14 @@ describe("multi-select in the file lists (S62)", () => {
 
   it("selects the whole list with ⌘A, only the list that holds focus, and clears with Escape", async () => {
     const host = await open();
-    rowOf(host, "untracked", "u1.txt").focus();
+    rowOf(host, "unstaged", "u1.txt").focus();
 
-    keyOn(rowOf(host, "untracked", "u1.txt"), "a", { metaKey: true });
+    keyOn(rowOf(host, "unstaged", "u1.txt"), "a", { metaKey: true });
     await flush();
-    expect(chosen(host)).toEqual(["untracked:u1.txt", "untracked:u2.txt"]);
+    expect(chosen(host)).toEqual(["unstaged:a.ts", "unstaged:b.ts", "unstaged:c.ts", "unstaged:d.ts", "unstaged:u1.txt", "unstaged:u2.txt"]);
 
     const escape = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
-    rowOf(host, "untracked", "u1.txt").dispatchEvent(escape);
+    rowOf(host, "unstaged", "u1.txt").dispatchEvent(escape);
     await flush();
     expect(chosen(host)).toEqual([]);
     expect(escape.defaultPrevented).toBe(true);
@@ -1195,15 +1231,28 @@ describe("multi-select in the file lists (S62)", () => {
     expect(argsOf("unstage_files")).toEqual({ path: "/r", files: ["s1.ts", "s2.ts"] });
   });
 
-  it("stages the selected untracked files from the Untracked header", async () => {
+  it("extends a range across tracked and untracked files and stages both", async () => {
     const host = await open();
 
-    keyOn(rowOf(host, "untracked", "u1.txt"), "a", { metaKey: true });
+    click(rowOf(host, "unstaged", "d.ts"));
+    click(rowOf(host, "unstaged", "u1.txt"), { shiftKey: true });
     await flush();
-    buttonNamed(sectionOf(host, "Untracked"), "Stage 2 files")?.click();
+    expect(chosen(host)).toEqual(["unstaged:d.ts", "unstaged:u1.txt"]);
+    buttonNamed(sectionOf(host, "Unstaged"), "Stage 2 files")?.click();
     await flush();
 
-    expect(argsOf("stage_files")).toEqual({ path: "/r", files: ["u1.txt", "u2.txt"] });
+    expect(argsOf("stage_files")).toEqual({ path: "/r", files: ["d.ts", "u1.txt"] });
+  });
+
+  it("opens an untracked file's diff with its original IPC area", async () => {
+    const targets: DiffTarget[] = [];
+    const { host } = mount(changed(), () => null, aiFeatureList(), (target) => targets.push(target));
+    await flush();
+
+    named(rowOf(host, "unstaged", "notes.txt"), "Open diff of notes.txt")?.click();
+    await flush();
+
+    expect(targets).toEqual([{ source: "working", area: "untracked", file: "notes.txt" }]);
   });
 
   it("opens the owned menu on a selected row with every item acting on the whole selection, in order", async () => {
@@ -1230,10 +1279,10 @@ describe("multi-select in the file lists (S62)", () => {
     click(rowOf(host, "unstaged", "b.ts"), { metaKey: true });
     await flush();
 
-    rightClick(rowOf(host, "untracked", "u2.txt"));
+    rightClick(rowOf(host, "unstaged", "u2.txt"));
     await flush();
 
-    expect(chosen(host)).toEqual(["untracked:u2.txt"]);
+    expect(chosen(host)).toEqual(["unstaged:u2.txt"]);
     expect(menuItems().map(labelOf)).toEqual(["Stage u2.txt", "Discard u2.txt", "Ignore u2.txt", "Stash u2.txt", "Create patch from changes in u2.txt"]);
   });
 
@@ -1263,10 +1312,10 @@ describe("multi-select in the file lists (S62)", () => {
 
     rightClick(rowOf(host, "unstaged", "b.ts"));
     await flush();
-    itemNamed("Stage 4 files")?.click();
+    itemNamed("Stage 6 files")?.click();
     await flush();
 
-    expect(argsOf("stage_files")).toEqual({ path: "/r", files: ["a.ts", "b.ts", "c.ts", "d.ts"] });
+    expect(argsOf("stage_files")).toEqual({ path: "/r", files: ["a.ts", "b.ts", "c.ts", "d.ts", "u1.txt", "u2.txt"] });
   });
 
   it("confirms Discard <n> files by count and name with a text-labelled danger button, then discards unstaged and untracked files", async () => {
@@ -1326,16 +1375,15 @@ describe("multi-select in the file lists (S62)", () => {
 
   it("ignores untracked files straight away, leaving .gitignore to the core and untracking nothing", async () => {
     const host = await open();
-    keyOn(rowOf(host, "untracked", "u1.txt"), "a", { metaKey: true });
-    await flush();
-    rightClick(rowOf(host, "untracked", "u1.txt"));
+    click(rowOf(host, "unstaged", "u1.txt"));
+    rightClick(rowOf(host, "unstaged", "u1.txt"));
     await flush();
 
-    itemNamed("Ignore 2 files")?.click();
+    itemNamed("Ignore u1.txt")?.click();
     await flush();
 
     expect(dialog()).toBeNull();
-    expect(argsOf("ignore_paths")).toEqual({ path: "/r", files: ["u1.txt", "u2.txt"], untrack: false });
+    expect(argsOf("ignore_paths")).toEqual({ path: "/r", files: ["u1.txt"], untrack: false });
   });
 
   it("untracks a tracked file only after confirmation", async () => {
@@ -1386,7 +1434,7 @@ describe("multi-select in the file lists (S62)", () => {
 
   it("includes untracked files when the selection is of untracked files", async () => {
     const host = await open();
-    rightClick(rowOf(host, "untracked", "u1.txt"));
+    rightClick(rowOf(host, "unstaged", "u1.txt"));
     await flush();
 
     itemNamed("Stash u1.txt")?.click();

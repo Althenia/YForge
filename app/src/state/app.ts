@@ -448,11 +448,7 @@ export function createAppState(router: AppRouter) {
   }
 
   function openReleaseNotes(): void {
-    try {
-      client.openUrl(RELEASE_NOTES_URL);
-    } catch (failure) {
-      setNotice(asMessage(failure));
-    }
+    void client.openUrl(RELEASE_NOTES_URL).catch((failure) => setNotice(asMessage(failure)));
   }
 
   async function loadProfiles(): Promise<ProfileList | undefined> {
@@ -630,7 +626,7 @@ export function createAppState(router: AppRouter) {
       },
       openPalette: () => setPaletteOpen(true),
       openShortcuts: () => setShortcutsOpen(true),
-      openUrl: (url) => client.openUrl(url),
+      openUrl: (url) => { void client.openUrl(url).catch((failure) => setNotice(asMessage(failure))); },
       editableFocused: () => isEditable(document.activeElement),
       editCommand: (name) => void document.execCommand(name),
     };

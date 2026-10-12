@@ -25,6 +25,7 @@ export function Inspector(props: {
   onOpenDiff: (target: DiffTarget) => void;
   onViewFile: (target: FileViewTarget) => void;
   onSelectCommit: (sha: string) => void;
+  onSelectPull?: (number: number) => void;
   onCommitted: (sha: string) => void;
 }) {
   const commitSha = () => (props.selection?.kind === "commit" ? props.selection.sha : undefined);
@@ -68,7 +69,7 @@ export function Inspector(props: {
       </Match>
       <Match when={commitSha()}>
         {(sha) => (
-          <CommitInspector session={props.session} actions={props.actions} sha={sha()} activeTarget={props.activeTarget} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
+          <CommitInspector session={props.session} actions={props.actions} platform={props.platform} sha={sha()} activeTarget={props.activeTarget} onSelectPull={props.onSelectPull} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
         )}
       </Match>
     </Switch>

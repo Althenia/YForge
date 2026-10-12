@@ -12,6 +12,7 @@ import {
   repoStateText,
   repositoryRows,
   rescanText,
+  rescanAllText,
   sortRepositories,
   stoppedText,
 } from "./repositoriesModel";
@@ -88,5 +89,7 @@ describe("folder and list texts", () => {
     expect(rescanText("/u/Code", [])).toBe("No new repositories in /u/Code.");
     expect(rescanText("/u/Code", ["/u/Code/cli"])).toBe("Found 1 new repository in /u/Code: cli.");
     expect(stoppedText("/u/Code", 2, 1)).toBe("Stopped scanning /u/Code. Took 2 repositories off the list; kept 1 repository you opened. Nothing on disk changed.");
+    expect(rescanAllText(2, 3)).toBe("Rescanned all 2 folders. Added 3 repositories.");
+    expect(rescanAllText(2, 0)).toBe("Rescanned all 2 folders. Added no repositories.");
   });
 });

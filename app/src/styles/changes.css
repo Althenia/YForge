@@ -53,6 +53,14 @@
   flex: none;
 }
 
+.lhead .icon-btn.danger {
+  color: var(--colors-danger);
+}
+
+.lhead .icon-btn.danger:disabled {
+  color: var(--colors-text-muted);
+}
+
 .frow.picked,
 .frow.picked:hover {
   background: var(--colors-selection);
