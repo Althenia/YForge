@@ -11,10 +11,6 @@
 <p align="center"><b>A fast, local-first desktop Git client for macOS.</b><br>
 Commit graph, staging, branches, stashes, conflict resolution, worktrees, and undo. No account, no cloud service.</p>
 
-<p align="center">
-  <img src="docs/screenshots/graph.png" alt="YForge in dark theme: a sidebar of branches, tags, and worktrees; a commit graph with two merged branches; and a Changes panel listing two modified files and one untracked file" width="900">
-</p>
-
 YForge drives the `git` already on your Mac, so your hooks, config, signing, and credential helpers behave exactly as they do in the terminal. The core is Rust, the shell is Tauri 2, and the interface is SolidJS.
 
 ## Why YForge
@@ -34,8 +30,10 @@ YForge drives the `git` already on your Mac, so your hooks, config, signing, and
 - Command palette (⌘K) that covers repository actions, file history, zoom, themes, and logs; ⇧⌘O searches repositories.
 
 **Everyday work**
+- Short toasts that name branches, worktrees, and files by their short names; full details stay in Activity.
 - Staging by file, hunk, and line; multi-select with Stage, Discard, Ignore, and Stash; Path or Tree file lists.
-- Commit, amend, and edit the HEAD message; stashes; tags; clone, open, and create from the Launchpad.
+- Commit, amend, and edit the HEAD message; stashes; tags; clone, open, and create from the Launchpad. Opening a folder that is not a Git repository offers to initialize one there.
+- An empty repository can make its first commit, including an empty first commit when there are no files.
 - Fetch, Pull, and Push as separate controls, with Push and Publish target pickers.
 - Undo and Redo (⇧⌘Z) for the last operation.
 
@@ -50,7 +48,7 @@ YForge drives the `git` already on your Mac, so your hooks, config, signing, and
 
 **Hosting platforms**
 - Pull request and merge request lists, detail, creation, and merge for GitHub, GitLab, and Bitbucket, using personal access tokens. Self-hosted servers are supported.
-- A pull request compose view with branch comparison, incoming commits, and PR checks.
+- A pull request compose view with branch comparison, incoming commits, and PR checks. Pull request rows in the sidebar show their state as a glyph, and the inspector renders the description as Markdown.
 - Jira connections.
 
 **Optional AI assistance**
@@ -131,7 +129,7 @@ pnpm tauri build
 Outputs: `target/release/bundle/macos/YForge.app` and `target/release/bundle/dmg/YForge_<version>_<arch>.dmg`. To sign a local build with a stable identity so Keychain "Always Allow" survives rebuilds:
 
 ```bash
-APPLE_SIGNING_IDENTITY="YForge Local Signing" pnpm tauri build
+APPLE_SIGNING_IDENTITY="<signing identity>" pnpm tauri build
 ```
 
 Try a build against a repository without touching your real settings:
@@ -182,7 +180,7 @@ pnpm build
 ```
 
 - After changing a type in `crates/yforge-core/src/model.rs` or `error.rs`, run `pnpm bindings` in `app/` to regenerate the TypeScript bindings.
-- UI changes follow [DESIGN.md](DESIGN.md) and [app/DESIGN.md](app/DESIGN.md). Change a rule before the work that depends on it, then run the strict design lints listed in [AGENTS.md](AGENTS.md). `pnpm test` also checks that `app/DESIGN.md` and `app/src/styles/tokens.css` agree, that the bindings are current, and that text and graphic color pairs meet WCAG contrast in both themes.
+- UI changes follow [DESIGN.md](DESIGN.md) and [app/DESIGN.md](app/DESIGN.md). Change a rule before the work that depends on it. `pnpm test` also checks that `app/DESIGN.md` and `app/src/styles/tokens.css` agree, that the bindings are current, and that text and graphic color pairs meet WCAG contrast in both themes.
 - Large-data UI flow checks (they use an installed Google Chrome and ports 1421 and 1422), from `app/`:
 
   ```bash
