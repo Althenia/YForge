@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10] - 2026-10-13
+
+### Changed
++ Rotated the updater trust key; existing installations must manually install 0.3.10 before automatic updates resume.
+
+---
+
 ## [0.3.9] - 2026-10-12
 
 ### Changed
