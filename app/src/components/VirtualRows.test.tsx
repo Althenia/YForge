@@ -10,13 +10,27 @@ const items = Array.from({ length: 2000 }, (_, index) => `row ${index}`);
 
 let dispose: (() => void) | undefined;
 
+type ObserverRecord = { callback: ResizeObserverCallback; targets: Set<Element> };
+
+let observers: ObserverRecord[] = [];
+
+const fireResize = (target: Element) => {
+  for (const record of observers) if (record.targets.has(target)) record.callback([], record as unknown as ResizeObserver);
+};
+
 beforeEach(() => {
+  observers = [];
   vi.stubGlobal(
     "ResizeObserver",
     class {
-      observe = () => undefined;
-      unobserve = () => undefined;
-      disconnect = () => undefined;
+      record: ObserverRecord;
+      constructor(callback: ResizeObserverCallback) {
+        this.record = { callback, targets: new Set() };
+        observers.push(this.record);
+      }
+      observe = (target: Element) => this.record.targets.add(target);
+      unobserve = (target: Element) => this.record.targets.delete(target);
+      disconnect = () => this.record.targets.clear();
     },
   );
   for (const [name, value] of Object.entries({ offsetHeight: VIEWPORT, clientHeight: VIEWPORT, offsetWidth: 800, clientWidth: 800, scrollHeight: items.length * ROW })) {
@@ -53,7 +67,7 @@ afterEach(async () => {
   }
 });
 
-async function mountRows() {
+async function mountRows(withHeader = false) {
   const host = document.createElement("div");
   document.body.append(host);
   const [keep, setKeep] = createSignal<number | undefined>();
@@ -62,6 +76,7 @@ async function mountRows() {
   dispose = render(
     () => (
       <div class="scroller" ref={scroller}>
+        {withHeader ? <div class="header" /> : null}
         <VirtualRows items={items} scroller={() => scroller} estimate={ROW} keepIndex={keep()} reveal={reveal()}>
           {(item, row) => (
             <li ref={row.measure} data-index={row.index} style={row.style} tabindex="0">
@@ -120,6 +135,69 @@ describe("virtual rows", () => {
     expect(scroller?.scrollTop).toBe(0);
     expect(rendered()).toContain("row 0");
     expect(rendered()).not.toContain("row 1500");
+  });
+
+  it("reconciles the rendered window when the scroller's content resizes after its offset changed without a scroll event", async () => {
+    const { host, rendered, scrollTo } = await mountRows();
+    await scrollTo(1500 * ROW);
+    expect(rendered()).toContain("row 1500");
+    const scroller = host.querySelector<HTMLElement>(".scroller") as HTMLElement;
+    let offset = 0;
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => offset,
+      set: (value: number) => { offset = value; },
+    });
+
+    fireResize(scroller);
+    await flush(60);
+
+    expect(rendered()).toContain("row 0");
+    expect(rendered()).not.toContain("row 1500");
+  });
+
+  describe("with content above the list in the scroller", () => {
+    const HEADER_ROWS = 50;
+    const SCROLLED_ROWS = 150;
+    let headerHeight = HEADER_ROWS * ROW;
+
+    const mountWithHeader = async () => {
+      headerHeight = HEADER_ROWS * ROW;
+      const mounted = await mountRows(true);
+      const rect = HTMLElement.prototype.getBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+        const measured = rect.call(this);
+        if (this.tagName !== "UL") return measured;
+        const top = headerHeight - (this.parentElement?.scrollTop ?? 0);
+        return { ...measured, top, y: top };
+      };
+      await mounted.scrollTo(SCROLLED_ROWS * ROW);
+      expect(mounted.rendered()).toContain(`row ${SCROLLED_ROWS - HEADER_ROWS}`);
+      const header = mounted.host.querySelector<HTMLElement>(".header") as HTMLElement;
+      return { ...mounted, header };
+    };
+
+    it("follows the list when content above it in the scroller shrinks without a scroll event", async () => {
+      const { rendered, header } = await mountWithHeader();
+
+      headerHeight = 0;
+      fireResize(header);
+      await flush(60);
+
+      expect(rendered()).toContain(`row ${SCROLLED_ROWS}`);
+      expect(rendered()).not.toContain(`row ${SCROLLED_ROWS - HEADER_ROWS}`);
+    });
+
+    it("follows the list when an element above it is removed from the scroller", async () => {
+      const { rendered, header } = await mountWithHeader();
+
+      headerHeight = 0;
+      header.remove();
+      await flush(60);
+
+      expect(rendered()).toContain(`row ${SCROLLED_ROWS}`);
+      expect(rendered()).not.toContain(`row ${SCROLLED_ROWS - HEADER_ROWS}`);
+    });
   });
 
   it("keeps the kept row mounted while it is scrolled far out of view", async () => {

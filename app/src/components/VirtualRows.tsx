@@ -66,8 +66,23 @@ export function VirtualRows<T>(props: {
         if (instance.scrollOffset !== element.scrollTop) notify(element.scrollTop, instance.isScrolling);
       });
       element.ownerDocument.addEventListener("focusin", reconcile);
+      const view = instance.targetWindow;
+      const resizes = view !== null && "ResizeObserver" in view ? new view.ResizeObserver(reconcile) : undefined;
+      const observeContent = () => {
+        resizes?.disconnect();
+        resizes?.observe(element);
+        for (const child of element.children) resizes?.observe(child);
+      };
+      const mutations = view === null ? undefined : new view.MutationObserver(() => {
+        observeContent();
+        reconcile();
+      });
+      observeContent();
+      mutations?.observe(element, { childList: true });
       return () => {
         active = false;
+        resizes?.disconnect();
+        mutations?.disconnect();
         element.ownerDocument.removeEventListener("focusin", reconcile);
         stop?.();
       };

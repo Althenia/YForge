@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.11] - 2026-10-15
+
+### Fixed
++ Virtual file lists (Changes, commit files, stashes) re-check their scroll position and place in the panel when the panel or the content above them changes size, so the list no longer opens with a blank band above its first visible rows.
++ Long branch names in the commit inspector's Refs stay inside the row: the pull request badge narrows to its glyph and the name truncates instead of covering the Refs label.
+
+---
+
 ## [0.3.10] - 2026-10-13
 
 ### Changed

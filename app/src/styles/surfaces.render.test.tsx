@@ -38,6 +38,17 @@ describe("solid surfaces told apart by tone (S14)", () => {
     expect(style(".srow .pr-badge").flexShrink).toBe("1000");
   });
 
+  it("keeps a commit inspector ref and its pull badge inside the Refs row (S75)", () => {
+    document.body.innerHTML = '<div class="mrow"><span class="k">Refs</span><span class="v"><span class="ref-with-pull"><span class="chip"><svg></svg><span class="ref">origin/fix/long-branch-name</span></span><button class="pr-badge"><svg></svg><span class="mono">#1833</span></button></span></span></div>';
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);
+    expect(style(".ref-with-pull").display).toBe("inline-flex");
+    expect(style(".ref-with-pull").minWidth).toMatch(/^0(px)?$/);
+    expect(style(".ref-with-pull").maxWidth).toBe("100%");
+    expect(style(".ref-with-pull .chip").minWidth).toMatch(/^0(px)?$/);
+    expect(style(".ref-with-pull .chip").flexShrink).toBe("1");
+    expect(style(".ref-with-pull .pr-badge").flexShrink).toBe("1000");
+  });
+
   it("keeps Strata reading, header, badge and table geometry on shared tokens (S65)", () => {
     document.body.innerHTML = '<div class="sidebar"><div class="sidebar-body"><section><div class="sec"><span class="count">24</span></div><div class="srow"></div></section></div></div><div class="ilist"><div class="lhead"></div></div><div class="mrow"><span class="v"><span class="avatar">A</span></span></div><div class="repo-row"></div>';
     const style = (selector: string) => getComputedStyle(document.querySelector(selector)!);

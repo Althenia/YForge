@@ -1109,6 +1109,14 @@ button[aria-busy="true"]:not(:has(.busy-spinner))::after {
   flex-shrink: 1000;
 }
 
+.ref-with-pull {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-width: 0;
+  max-width: 100%;
+}
+
 .compose {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
