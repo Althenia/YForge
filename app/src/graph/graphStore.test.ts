@@ -52,6 +52,54 @@ describe("graph store", () => {
     });
   });
 
+  it("is not settled before the first page, and settled once it is applied, including an empty history", async () => {
+    let finishPage!: (value: GraphPage) => void;
+    const first = new Promise<GraphPage>((resolve) => { finishPage = resolve; });
+    mockIPC(() => first);
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 1);
+        expect(store.settled()).toBe(false);
+        finishPage({ rows: [], carried: [], total: 0 });
+        await vi.waitFor(() => expect(store.settled()).toBe(true));
+        expect(store.total()).toBe(0);
+      } finally {
+        dispose();
+      }
+    });
+  });
+
+  it("is settled once a cached first page is applied, before any fetch answers", () => {
+    mockIPC(() => new Promise(() => undefined));
+    const queryClient = createQueryClient();
+    queryClient.setQueryData(repoKeys.graph("/r", 0, visibilityKey({ kind: "all" })), page(row("cached")));
+    createRoot((dispose) => {
+      const store = createGraphStore("/r", queryClient);
+      expect(store.settled()).toBe(false);
+      store.ensure(0, 1);
+      expect(store.settled()).toBe(true);
+      dispose();
+    });
+  });
+
+  it("is settled after the first page fails", async () => {
+    mockIPC(() => {
+      throw { kind: "git_failed", message: "boom", output: null };
+    });
+    await createRoot(async (dispose) => {
+      try {
+        const store = createGraphStore("/r", createQueryClient());
+        store.show(0, 1);
+        expect(store.settled()).toBe(false);
+        await vi.waitFor(() => expect(store.settled()).toBe(true));
+        expect(store.error()?.message).toBe("boom");
+      } finally {
+        dispose();
+      }
+    });
+  });
+
   it("loads a requested page once and keeps its rows by index", async () => {
     const calls = install(() => page(row("a"), row("b")));
     await createRoot(async (dispose) => {

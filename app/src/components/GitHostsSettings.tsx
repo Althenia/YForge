@@ -1,11 +1,12 @@
 import { useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, Show } from "solid-js";
 import type { GitHost } from "../ipc/bindings/GitHost";
 import { client } from "../ipc/client";
 import { removeGitHostCopy } from "../state/confirmCopy";
 import { IDENTITY_ORDER, keyLine, SSH_AGENT_TEXT, tildePath } from "../state/gitHostsModel";
 import { appKeys, gitHostKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
+import { createSettled } from "../state/settled";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -38,23 +39,23 @@ function HostForm(props: { editor: Editor; onClose: () => void; onSaved: () => v
   const [saving, setSaving] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
   const [failure, setFailure] = createSignal<string | undefined>();
-  const [problems] = createResource(
+  const problems = createSettled(
     () => ({ host: host(), key: key() }),
     async (draft) => ({ host: await client.gitHostFieldProblem("host", draft.host), key: await client.gitHostFieldProblem("ssh_key", draft.key) }),
   );
-  const hostProblem = () => problems.latest?.host ?? undefined;
-  const keyProblem = () => problems.latest?.key ?? undefined;
-  const hostReady = () => (!problems.loading && hostProblem() === undefined ? host().trim() : undefined);
-  const [defaultKey] = createResource(hostReady, (ready) => client.gitHostDefaultKeyPath(ready));
+  const hostProblem = () => problems()?.host ?? undefined;
+  const keyProblem = () => problems()?.key ?? undefined;
+  const hostReady = () => (!problems.pending() && hostProblem() === undefined ? host().trim() : undefined);
+  const defaultKey = createSettled(hostReady, (ready) => client.gitHostDefaultKeyPath(ready));
   createEffect(() => {
-    const suggested = defaultKey.latest;
+    const suggested = defaultKey();
     if (suggested !== undefined && !newKeyTouched()) setNewKey(suggested);
   });
-  const [newKeyProblems] = createResource(newKey, (path) => client.gitHostFieldProblem("new_key", path));
-  const newKeyProblem = () => (newKey().trim() === "" ? undefined : (newKeyProblems.latest ?? undefined));
-  const blocked = () => problems.loading || hostProblem() !== undefined || keyProblem() !== undefined || saving() || generating();
+  const newKeyProblems = createSettled(newKey, (path) => client.gitHostFieldProblem("new_key", path));
+  const newKeyProblem = () => (newKey().trim() === "" ? undefined : (newKeyProblems() ?? undefined));
+  const blocked = () => problems.pending() || hostProblem() !== undefined || keyProblem() !== undefined || saving() || generating();
   const canGenerate = () =>
-    !problems.loading && hostProblem() === undefined && !newKeyProblems.loading && newKey().trim() !== "" && newKeyProblem() === undefined && generatedFrom() !== newKey() && !generating() && !saving();
+    !problems.pending() && hostProblem() === undefined && !newKeyProblems.pending() && newKey().trim() !== "" && newKeyProblem() === undefined && generatedFrom() !== newKey() && !generating() && !saving();
   const shortPath = (path: string) => tildePath(path, home.data);
 
   async function chooseKey(): Promise<void> {

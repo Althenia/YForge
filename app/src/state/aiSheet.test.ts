@@ -179,7 +179,7 @@ describe("compose commits", () => {
 
     expect(sheet.target()).toEqual({ kind: "compose_commits" });
     expect(sheet.groups()?.[0]?.message).toBe("Refuse this");
-    expect(session.notice()).toBe("The commit-msg hook refused the message");
+    expect(session.notice()).toBe("Compose apply failed: The commit-msg hook refused the message");
     expect(sheet.applying()).toBe(false);
   });
 });

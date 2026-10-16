@@ -371,7 +371,7 @@ describe("profile pictures setting", () => {
     await flush();
     await loadAvatar("ada@example.test");
 
-    expect(section.querySelector('[role="alert"]')?.textContent).toBe("Settings could not be written: disk full");
+    expect(section.querySelector('[role="alert"]')?.textContent).toBe("Settings save failed: Settings could not be written: disk full");
     expect(pictureSwitch(host)?.getAttribute("aria-checked")).toBe("true");
     expect(calls.filter((call) => call.cmd === "avatar_url")).toHaveLength(1);
   });

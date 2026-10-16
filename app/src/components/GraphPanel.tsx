@@ -44,7 +44,7 @@ import { RefLabel } from "./RefLabel";
 import { RefOverflow } from "./RefOverflow";
 import { tip } from "./Tooltip";
 import { useApp } from "../state/app";
-import { ensureGraphAvatar, graphAvatarRevision } from "../state/avatar";
+import { avatarAddress } from "../state/avatar";
 
 const OVERSCAN = 8;
 const SHORT_AUTHOR_WIDTH = 40;
@@ -263,7 +263,7 @@ function LaneArt(props: {
               const x = () => nodeX(row().column, geometry());
               const y = () => rowY(index - props.firstRow, geometry());
               const radius = () => (geometry().node - geometry().line) / 2;
-              const avatarOf = () => (props.avatarsOn() ? ensureGraphAvatar(row().author?.email) : undefined);
+              const avatarOf = () => (props.avatarsOn() ? avatarAddress(row().author?.email) : undefined);
               return (
                 <g class={laneClass(row().column, geometry())} classList={{ faded: props.faded(index) }}>
                   <Show when={row().kind === "changes" || row().kind === "clean_changes"}>
@@ -340,13 +340,12 @@ export function GraphPanel(props: {
   uiPrefs: RepoUiPrefsStore;
   onSelect: (selection: Selection) => void;
   onRevealHead: () => void;
+  onSettled?: () => void;
 }) {
   const app = useApp();
   const avatarsOn = () => app.ready() && app.settings().gravatar_avatars;
   const visibility = () => props.uiPrefs.prefs().branch_visibility;
   const store = createGraphStore(props.path, useQueryClient(), visibility, () => props.selection);
-  // Re-render the nodes once a picture has loaded.
-  createEffect(() => void graphAvatarRevision());
   const wide = createMinWidth(GRAPH_COLUMNS_MIN_WIDTH);
   const now = useNow();
   let panel!: HTMLElement;
@@ -439,6 +438,9 @@ export function GraphPanel(props: {
     coveredSelection = undefined;
   }, { defer: true }));
   const waiting = createPendingIndicator(store.loading);
+  createEffect(() => {
+    if (store.settled() || waiting()) props.onSettled?.();
+  });
   const conflictOfGroup = (group: LabelGroup) => (group.tag ? undefined : group.local ? props.conflictOf(group.name) : group.remoteRef === undefined ? undefined : props.conflictOf(group.remoteRef));
   const noteOf = (group: LabelGroup) => {
     const conflict = conflictOfGroup(group);

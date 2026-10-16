@@ -28,6 +28,10 @@ const paths=['/synthetic/alpha','/synthetic/beta'];
 const sha=(index)=>index.toString(16).padStart(40,'0');
 const person={name:'Synthetic Author',email:'author@example.test',time:1700000000};
 const author={name:person.name,email:person.email,initials:'SA'};
+const people=[person,{name:'Grace Hopper',email:'grace@example.test',time:1700000000}];
+const fence=String.fromCharCode(96).repeat(3);
+const commitBody=(index)=>index%3===0?'Synthetic commit body':'Explains commit '+index+'.\\n\\n'+fence+'ts\\nconst value = '+index+';\\n'+fence+'\\n';
+const avatarImage='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 const remoteBranches=['origin/main',...Array.from({length:643},(_,i)=>'origin/feature-'+i)];
 const tags=Array.from({length:577},(_,i)=>'v0.'+i);
 const refs=new Map();
@@ -53,7 +57,7 @@ mockWindows('main');
 mockIPC((cmd,args={})=>{
   window.fixture.calls[cmd]=(window.fixture.calls[cmd]??0)+1;
   switch(cmd){
-    case 'settings_load':return {...defaultSettings,theme:'dark',gravatar_avatars:false};
+    case 'settings_load':return {...defaultSettings,theme:'dark',gravatar_avatars:true};
     case 'app_ui_prefs_load':return defaultAppUiPrefs;
     case 'repo_ui_prefs_load':return defaultUiPrefs;
     case 'session_load':return {tabs:paths,active:0,groups:[]};
@@ -62,10 +66,10 @@ mockIPC((cmd,args={})=>{
     case 'app_info':return {app_version:'0.2.0',git_version:'2.50.0'};
     case 'repo_settings_load':return {pull_mode:null,ssh_key_path:null,submodule_update_on_fetch:false};
     case 'profiles_list':return delayed({active:'default',profiles:[{id:'default',name:'Default',author_name:person.name,author_email:person.email}]},400);
-    case 'external_tools_status':return {editor:null,diff:null,merge:null};
+    case 'external_tools_status':return delayed({editor:null,diff:null,merge:null},30);
     case 'lfs_status':return {installed:false,version:null,initialized:false,patterns:[]};
     case 'repo_graph':return delayed({total:6723,carried:[],rows:Array.from({length:Math.max(0,Math.min(args.limit,6723-args.offset))},(_,i)=>graphRow(args.offset+i))});
-    case 'commit_details':return delayed({sha:args.sha,summary:(Number.parseInt(args.sha,16)%2===0?'Small':'Large')+' commit '+Number.parseInt(args.sha,16),body:'Synthetic commit body',author:person,committer:person,parents:[sha(Number.parseInt(args.sha,16)+1)],refs:refs.get(Number.parseInt(args.sha,16))??[],files:commitFiles(args.sha)},260);
+    case 'commit_details':return delayed({sha:args.sha,summary:(Number.parseInt(args.sha,16)%2===0?'Small':'Large')+' commit '+Number.parseInt(args.sha,16),body:commitBody(Number.parseInt(args.sha,16)),author:people[Number.parseInt(args.sha,16)%2],committer:person,parents:[sha(Number.parseInt(args.sha,16)+1)],refs:refs.get(Number.parseInt(args.sha,16))??[],files:commitFiles(args.sha)},260);
     case 'commit_file_diff':case 'diff_file':return delayed(diff(args.file));
     case 'integration_preview':return {incoming:{count:1,commits:[]},outgoing:{count:1,commits:[]},fast_forward:false};
     case 'reset':window.fixture.resets.push(args);return null;
@@ -76,12 +80,13 @@ mockIPC((cmd,args={})=>{
     case 'jira_issue_keys':return args.texts.map(()=>[]);
     case 'avatar_initial':return 'SA';
     case 'activity_list':case 'recents_list':case 'recent_add':case 'repo_aliases_list':case 'switch_stashes':case 'platform_connections_list':case 'jira_connections_list':case 'ai_feature_config_list':case 'submodule_list':return [];
-    case 'platform_repo_match':case 'avatar_url':case 'repo_watch':case 'menu_update':case 'session_save':case 'app_ui_prefs_save':case 'repo_ui_prefs_save':return null;
+    case 'avatar_url':return delayed(avatarImage,60);
+    case 'platform_repo_match':case 'repo_watch':case 'menu_update':case 'session_save':case 'app_ui_prefs_save':case 'repo_ui_prefs_save':return null;
     case 'crash_report':window.fixture.crashes.push(args.report);return null;
     default:window.fixture.unknown.push(cmd);throw {kind:'internal',message:'Fixture has no verified response for '+cmd,output:null};
   }
 },{shouldMockEvents:true});
-const probes={frames:0,blankFrames:0,maxBlankRun:0,maxMainHeight:0,maxGraphViewport:0,maxFileViewport:0,maxCommitMargin:0,busyFrames:0,indicatorShows:0,indicatorFlashes:[],headlessInspectorFrames:0,spinnerFrames:0,heldTabFrames:0,heldClipMisses:[],graphTransitions:[],anomalies:[]};
+const probes={appDetaches:0,blankGraphFrames:0,excludedJumpFrames:0,frames:0,blankFrames:0,maxBlankRun:0,maxMainHeight:0,maxGraphViewport:0,maxFileViewport:0,maxCommitMargin:0,busyFrames:0,indicatorShows:0,indicatorFlashes:[],headlessInspectorFrames:0,spinnerFrames:0,heldTabFrames:0,heldClipMisses:[],graphTransitions:[],anomalies:[]};
 const indicators=new Map();
 const indicatorsIn=(node)=>node.nodeType===1?[...(node.matches('[data-indicator]')?[node]:[]),...node.querySelectorAll('[data-indicator]')]:[];
 const settle=(element,removedAt)=>{const seen=indicators.get(element);if(!seen||element.isConnected)return;indicators.delete(element);const shown=removedAt-seen.start;if(seen.parent?.isConnected&&shown<380&&probes.indicatorFlashes.length<12)probes.indicatorFlashes.push(Math.round(shown));};
@@ -92,6 +97,31 @@ new MutationObserver((records)=>{
     for(const node of record.removedNodes)for(const element of indicatorsIn(node))if(indicators.has(element))setTimeout(()=>settle(element,now),0);
   }
 }).observe(document,{childList:true,subtree:true});
+const removedApps=new Set();
+const appsIn=(node)=>node.nodeType===1?[...(node.matches('.app')?[node]:[]),...node.querySelectorAll('.app')]:[];
+new MutationObserver((records)=>{
+  for(const record of records){
+    for(const node of record.removedNodes)for(const element of appsIn(node))removedApps.add(element);
+    for(const node of record.addedNodes)for(const element of appsIn(node))if(removedApps.delete(element))probes.appDetaches++;
+  }
+}).observe(document.getElementById('root'),{childList:true,subtree:true});
+let graphShown=false;
+let jumpUntil=0;
+window.fixture.markJump=()=>{jumpUntil=performance.now()+150;};
+const checkGraph=()=>{
+  const scroller=document.querySelector('#root .gscroll:not([data-swap-held])');
+  if(!scroller||!document.querySelector('#root .commandbar'))return;
+  const box=scroller.getBoundingClientRect();
+  if(box.width===0||box.height===0)return;
+  const visible=(element)=>{const rect=element.getBoundingClientRect();return rect.height>0&&rect.bottom>box.top&&rect.top<box.bottom;};
+  if([...scroller.querySelectorAll('.grow:not(.placeholder)')].some(visible)){graphShown=true;return;}
+  if(!graphShown)return;
+  if([...scroller.querySelectorAll('.graph-skeleton-bar')].some(visible))return;
+  const held=document.querySelector('body > .app[data-swap-held]');
+  if(held){const rect=held.getBoundingClientRect();if(rect.left<=box.left+1&&rect.right>=box.right-1&&rect.top<=box.top+1&&rect.bottom>=box.bottom-1)return;}
+  if(performance.now()<jumpUntil){probes.excludedJumpFrames++;return;}
+  probes.blankGraphFrames++;
+};
 let blankRun=0;
 let graphState='';
 let navigationReady=false;
@@ -128,6 +158,7 @@ const probe=()=>{
   if(files)probes.maxFileViewport=Math.max(probes.maxFileViewport,files.clientHeight);
   if(commitList&&files)probes.maxCommitMargin=Math.max(probes.maxCommitMargin,Math.abs(commitList.getBoundingClientRect().top-files.getBoundingClientRect().top+files.scrollTop));
   if((main?.clientHeight>innerHeight+2||files?.clientHeight>innerHeight+2||graph?.clientHeight>innerHeight+2)&&probes.anomalies.length<12)probes.anomalies.push({hash:location.hash,busy:!!busy,viewport:innerHeight,main:main?.clientHeight,graph:graph?.clientHeight,files:files?.clientHeight});
+  setTimeout(checkGraph,0);
   requestAnimationFrame(probe);
 };
 window.fixture.probes=probes;
@@ -246,7 +277,7 @@ try {
     stage = `cycle ${cycle + 1} ${width}x${height} ${theme}`;
     await tab(cycle % 2 === 0 ? "alpha" : "beta");
     await graph(`${stage}: cached tab graph`);
-    await page.locator(liveGraph).evaluate((element) => { element.scrollTop = 4000 * 28; });
+    await page.locator(liveGraph).evaluate((element) => { window.fixture.markJump(); element.scrollTop = 4000 * 28; });
     await page.waitForSelector('#graph-row-4000');
     await graph(`${stage}: graph scroll 4000`);
     await selectCommit(4001, 'Large commit 4001');
@@ -263,7 +294,7 @@ try {
     await clickVisibleFile();
     await closeDiff();
     await closeInspector();
-    await page.locator(liveGraph).evaluate((element) => { element.scrollTop = 0; });
+    await page.locator(liveGraph).evaluate((element) => { window.fixture.markJump(); element.scrollTop = 0; });
     await page.waitForSelector('#graph-row-0');
     await page.locator('#graph-row-0 .msg').click();
     await page.waitForSelector('#root .inspector.changes .frow');
@@ -299,7 +330,7 @@ try {
   }
   stage = "remote main activation";
   await closeInspector();
-  await page.locator(liveGraph).evaluate((element) => { element.scrollTop = 0; });
+  await page.locator(liveGraph).evaluate((element) => { window.fixture.markJump(); element.scrollTop = 0; });
   const remoteMain = page.locator('#graph-row-2 .refcell > [data-ref-label][title="origin/main"]');
   await remoteMain.dblclick();
   await page.getByRole('menuitem', { name: /^Hard/ }).click();
@@ -317,6 +348,8 @@ try {
   assert.deepEqual(fixture.resets, [{ path: '/synthetic/beta', target: '2'.padStart(40, '0'), mode: 'hard' }], "confirmed activation must reset the chosen remote tip, not check out the existing local branch again");
   assert.deepEqual(fixture.crashes, [], "app crash reports must stay empty");
   assert.equal(fixture.probes.blankFrames, 0, "repository tab transitions must never detach the workspace to a blank frame");
+  assert.equal(fixture.probes.appDetaches, 0, "a routed .app must never be removed and re-inserted while pictures, Markdown, or tool status load (S72)");
+  assert.equal(fixture.probes.blankGraphFrames, 0, "every painted frame must show graph rows, skeleton rows, or the held view over the graph (S72)");
   assert(fixture.probes.indicatorShows > 0, "slow reads must show the pending indicator (S72)");
   assert.deepEqual(fixture.probes.indicatorFlashes, [], "a shown pending indicator must stay at least 400ms (S72)");
   assert.equal(fixture.probes.headlessInspectorFrames, 0, "the commit inspector must name the selected commit in every frame (S72)");

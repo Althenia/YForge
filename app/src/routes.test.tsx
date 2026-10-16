@@ -709,3 +709,228 @@ describe("worktree count on the active tab", () => {
     expect(count(host)).toBe("2 worktrees");
   });
 });
+
+describe("routed views never detach while their data loads (S72)", () => {
+  const settleLater = <T,>(value: T, ms: number) => new Promise<T>((resolve) => setTimeout(() => resolve(value), ms));
+  const pictureDelay = 40;
+  const imageDelay = 30;
+  const toolsDelay = 40;
+  const body = ["Explains the change.", "", "```ts", "const value = 1;", "```"].join("\n");
+  const people = (tag: string) => [
+    { name: "Ada Lovelace", email: `ada-${tag}@example.test`, initials: "AL" },
+    { name: "Grace Hopper", email: `grace-${tag}@example.test`, initials: "GH" },
+  ];
+
+  class DelayedImage {
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    referrerPolicy = "";
+    decoding = "";
+    set src(_address: string) {
+      setTimeout(() => this.onload?.(), imageDelay);
+    }
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("Image", DelayedImage);
+  });
+
+  const richGraph = (path: string, tag: string): GraphPage => ({
+    total: 30,
+    carried: [],
+    rows: Array.from({ length: 30 }, (_, position) => ({
+      sha: `${path === "/a" ? "a" : "b"}${position.toString(16).padStart(39, "0")}`,
+      parents: [],
+      summary: `${path} commit ${position}`,
+      body,
+      author: people(tag)[position % 2]!,
+      time: 1700000000 - position,
+      refs: position === 0 ? [{ kind: "local_branch" as const, name: "main", is_head: true }] : [],
+      kind: "commit" as const,
+      column: 0,
+      edges: [],
+    })),
+  });
+
+  const loadingHandlers = (tag: string): Record<string, (args: Record<string, unknown>) => unknown> => ({
+    avatar_url: (args) => settleLater(`https://avatars.example.test/${encodeURIComponent(String(args.email))}.png`, pictureDelay),
+    external_tools_status: () => settleLater({ editor: null, diff: null, merge: null }, toolsDelay),
+    commit_details: (args) => {
+      const sha = String(args.sha);
+      const position = Number.parseInt(sha.slice(1), 16);
+      const person = people(tag)[position % 2]!;
+      const signature = { name: person.name, email: person.email, time: 1700000000 - position };
+      return settleLater(
+        {
+          sha,
+          summary: `${String(args.path)} commit ${position}`,
+          body,
+          author: signature,
+          committer: signature,
+          parents: [],
+          refs: [],
+          files: [
+            { path: "src/one.ts", original_path: null, status: "modified", additions: 3, deletions: 1 },
+            { path: "src/two.ts", original_path: null, status: "modified", additions: 2, deletions: 0 },
+          ],
+        },
+        10,
+      );
+    },
+    commit_file_diff: (args) =>
+      settleLater(
+        {
+          path: String(args.file),
+          original_path: null,
+          binary: false,
+          old_size: 10,
+          new_size: 12,
+          hunks: [
+            {
+              old_start: 1,
+              old_lines: 1,
+              new_start: 1,
+              new_lines: 2,
+              heading: "",
+              lines: [
+                { kind: "context", old_number: 1, new_number: 1, text: "const a = 1;", no_newline: false },
+                { kind: "added", old_number: null, new_number: 2, text: "const b = 2;", no_newline: false },
+              ],
+            },
+          ],
+        },
+        10,
+      ),
+  });
+
+  const watchRoutedView = (host: HTMLElement) => {
+    const selector = ".app, .commandbar";
+    const before = new Set<Element>(host.querySelectorAll(selector));
+    const removed: Element[] = [];
+    let absent = 0;
+    const within = (node: Node): Element[] => (node instanceof Element ? [...(node.matches(selector) ? [node] : []), ...node.querySelectorAll(selector)] : []);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) for (const node of record.removedNodes) removed.push(...within(node));
+    });
+    observer.observe(host, { childList: true, subtree: true });
+    const sampler = setInterval(() => {
+      if (host.querySelector(".app") === null) absent++;
+    }, 1);
+    return {
+      removedAny: () => removed.map((element) => element.className),
+      removedAfterStart: () => removed.filter((element) => !before.has(element)).map((element) => element.className),
+      absentSamples: () => absent,
+      stop: () => {
+        observer.disconnect();
+        clearInterval(sampler);
+      },
+    };
+  };
+
+  const selectCommit = async (host: HTMLElement, index: number) => {
+    host.querySelector<HTMLElement>(`#graph-row-${index} .msg`)?.click();
+    await flush(300);
+  };
+  const inspectorTitle = (host: HTMLElement) => host.querySelector('.inspector[aria-label="Commit"] .ihead h2')?.textContent;
+
+  it("keeps the workspace attached through commit selection and diff open while pictures, Markdown and tool status load", async () => {
+    restoreLayout = stubLayout();
+    const tag = "selection";
+    const { host, calls } = await mountApp({ tabs: ["/a"], active: 0 }, undefined, (path) => richGraph(path, tag), loadingHandlers(tag));
+    const commandbar = host.querySelector(".commandbar");
+    expect(commandbar).not.toBeNull();
+    const watch = watchRoutedView(host);
+
+    await selectCommit(host, 1);
+    expect(inspectorTitle(host)).toBe("/a commit 1");
+    await selectCommit(host, 2);
+    expect(inspectorTitle(host)).toBe("/a commit 2");
+    host.querySelector<HTMLElement>('.inspector[aria-label="Commit"] [data-row="src/one.ts"]')?.click();
+    await flush(300);
+    watch.stop();
+
+    expect(host.querySelector(".dpanel")?.textContent).toContain("const b = 2;");
+    expect(calls.some((call) => call.cmd === "avatar_url")).toBe(true);
+    expect(calls.some((call) => call.cmd === "external_tools_status")).toBe(true);
+    expect(watch.removedAny()).toEqual([]);
+    expect(watch.absentSamples()).toBe(0);
+    expect(host.querySelector(".commandbar")).toBe(commandbar);
+    expect(commandbar?.isConnected).toBe(true);
+  });
+
+  it("keeps the new workspace attached when Settings, the Launchpad, or a tab switch hands back to a workspace whose tool status, pictures and Markdown still load", async () => {
+    restoreLayout = stubLayout();
+    const tag = "returns";
+    const dirty = (path: string): RepoSnapshot => ({
+      ...snapshotAt(path),
+      counts: { ...snapshotAt(path).counts, modified: 1 },
+      files: [{ path: "src/work.ts", area: "unstaged", status: "modified", original_path: null }],
+    });
+    const { app, host } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, dirty, (path) => richGraph(path, tag), loadingHandlers(tag));
+    await selectCommit(host, 1);
+    expect(inspectorTitle(host)).toBe("/a commit 1");
+
+    const returns: Array<[string, () => void, () => void]> = [
+      ["settings", () => app.openSettings("repository"), () => app.closeSettings()],
+      ["launchpad", () => app.openLaunchpad(), () => app.closeSettings()],
+      ["tab switch", () => app.activate(1), () => app.activate(0)],
+    ];
+    for (const [name, leave, back] of returns) {
+      leave();
+      await flush(300);
+      const watch = watchRoutedView(host);
+      back();
+      await flush(300);
+      expect(host.querySelector(".commandbar"), `${name}: workspace is back`).not.toBeNull();
+      expect(watch.removedAfterStart(), `${name}: returned workspace stays attached`).toEqual([]);
+      if (name !== "tab switch") expect(watch.absentSamples(), `${name}: no frame without a routed view on return`).toBe(0);
+      await selectCommit(host, 2);
+      watch.stop();
+      expect(inspectorTitle(host), `${name}: selected commit is shown`).toBe("/a commit 2");
+      expect(watch.removedAfterStart(), `${name}: new workspace stays attached`).toEqual([]);
+      if (name !== "tab switch") expect(watch.absentSamples(), `${name}: no frame without a routed view`).toBe(0);
+    }
+  });
+
+  describe("repository tab whose graph is not cached", () => {
+    const tabHold = () => document.querySelector<HTMLElement>("body > .app[data-swap-held]");
+
+    it("holds the previous tab, inert, until the first graph page answers, then shows the rows", async () => {
+      restoreLayout = stubLayout();
+      let answer!: (page: GraphPage) => void;
+      const firstPage = new Promise<GraphPage>((resolve) => { answer = resolve; });
+      const { app, host } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, undefined, (path, offset, limit) => (path === "/b" && offset === 0 ? firstPage : graphAt(path, offset, limit)));
+      expect(host.querySelector(".grow .sum")?.textContent).toBe("/a commit 0");
+
+      app.activate(1);
+      await flush(60);
+
+      expect(app.activePath()).toBe("/b");
+      expect(tabHold()).not.toBeNull();
+      expect(tabHold()?.textContent).toContain("/a commit 0");
+      expect(tabHold()?.inert).toBe(true);
+      expect(tabHold()?.getAttribute("aria-hidden")).toBe("true");
+      expect(host.textContent).not.toContain("/b commit 0");
+
+      answer(graphAt("/b", 0, 200));
+      await flush(60);
+
+      expect(tabHold()).toBeNull();
+      expect(host.querySelector(".grow .sum")?.textContent).toBe("/b commit 0");
+      expect(host.textContent).not.toContain("/a commit 0");
+    });
+
+    it("releases the hold after 150ms and shows the static skeleton rows when the first graph page does not answer", async () => {
+      restoreLayout = stubLayout();
+      const { app, host } = await mountApp({ tabs: ["/a", "/b"], active: 0 }, undefined, (path, offset, limit) => (path === "/b" && offset === 0 ? new Promise<GraphPage>(() => undefined) : graphAt(path, offset, limit)));
+
+      app.activate(1);
+      await flush(260);
+
+      expect(app.activePath()).toBe("/b");
+      expect(tabHold()).toBeNull();
+      expect(host.querySelectorAll(".gscroll .graph-skeleton .skeleton").length).toBeGreaterThan(0);
+      expect(host.textContent).not.toContain("/a commit 0");
+    });
+  });
+});

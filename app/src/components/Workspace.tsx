@@ -64,7 +64,7 @@ type Panel = { kind: "worktrees" } | { kind: "recovery"; tab: RecoveryTab };
 
 const MINUTE_MS = 60_000;
 
-export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready" }>; geometry: Geometry }) {
+export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready" }>; geometry: Geometry; onSettled?: () => void }) {
   const app = useApp();
   const dockedInspector = createMinWidth(1024);
   const [inspectorOpen, setInspectorOpen] = createSignal(false);
@@ -253,6 +253,9 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   }
 
   const unborn = () => session.snapshot().head.kind === "unborn";
+  createEffect(() => {
+    if (unborn()) props.onSettled?.();
+  });
 
   async function revealSha(sha: string, select = true): Promise<void> {
     try {
@@ -444,6 +447,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
                 uiPrefs={uiPrefs}
                 onSelect={select}
                 onRevealHead={() => revealHead(true)}
+                onSettled={props.onSettled}
               />
             </Show>
             <Show when={search.open()}>

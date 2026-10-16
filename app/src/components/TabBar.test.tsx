@@ -44,7 +44,7 @@ async function mountBar({ tabs = ["/work/sample"], mains = {}, groups = [], acti
       }
       if (cmd === "activity_list" || cmd === "recents_list") return [];
       if (cmd === "profiles_list") return profiles ?? null;
-      if (cmd === "launch_path") return "/nowhere";
+      if (cmd === "launch_path") return null;
       if (cmd === "repo_open") {
         const path = (args as { path: string }).path;
         if (!tabs.includes(path)) throw { kind: "not_a_repository", message: "no", output: null };
@@ -752,7 +752,7 @@ describe("theme toggle", () => {
     toggle(host)?.click();
     await flush();
 
-    expect(app.notice()).toBe("Settings could not be written: disk full");
+    expect(app.notice()).toBe("Settings save failed: Settings could not be written: disk full");
   });
 });
 

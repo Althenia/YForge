@@ -66,7 +66,7 @@ const snapshot: RepoSnapshot = {
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mountWorkspace(respond: (call: Call) => unknown = () => undefined, shape: RepoSnapshot = snapshot) {
+async function mountWorkspace(respond: (call: Call) => unknown = () => undefined, shape: RepoSnapshot = snapshot, onSettled?: () => void) {
   const calls: Call[] = [];
   mockIPC(
     (cmd, args) => {
@@ -88,7 +88,7 @@ async function mountWorkspace(respond: (call: Call) => unknown = () => undefined
   );
   const mounted = mountWithApp(() => (
     <>
-      <Workspace view={{ status: "ready", path: "/r", snapshot: shape, info }} geometry={geometry} />
+      <Workspace view={{ status: "ready", path: "/r", snapshot: shape, info }} geometry={geometry} onSettled={onSettled} />
       <Toasts onUndo={() => undefined} />
     </>
   ));
@@ -118,6 +118,28 @@ describe("minimum inspector presentation (S65)", () => {
     expect(escape.defaultPrevented).toBe(true);
     expect(main.classList.contains("inspector-open")).toBe(false);
     expect(document.activeElement).toBe(host.querySelector('[aria-label="Show inspector"]'));
+  });
+});
+
+describe("settling for a tab switch (S72)", () => {
+  it("reports an unborn repository as settled at once, with no graph to wait for", async () => {
+    const onSettled = vi.fn();
+    const unborn: RepoSnapshot = { ...snapshot, head: { kind: "unborn", branch: "main" }, branches: [] };
+    await mountWorkspace(() => undefined, unborn, onSettled);
+    expect(onSettled).toHaveBeenCalled();
+  });
+
+  it("holds a repository with history until its graph has rows or its skeleton appears", async () => {
+    let finish!: (page: unknown) => void;
+    const first = new Promise((resolve) => { finish = resolve; });
+    const onSettled = vi.fn();
+    await mountWorkspace((call) => (call.cmd === "repo_graph" ? first : undefined), snapshot, onSettled);
+    expect(onSettled).not.toHaveBeenCalled();
+
+    await flush(150);
+    expect(onSettled).toHaveBeenCalled();
+    finish({ rows: [], carried: [], total: 0 });
+    await flush(20);
   });
 });
 

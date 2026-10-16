@@ -1,5 +1,7 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { Suspense } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { forgetAvatars } from "../state/avatar";
 import { AuthorBadge } from "./AuthorBadge";
 import { flush, mountWithApp } from "./testkit";
 
@@ -20,13 +22,14 @@ class FakeImage {
 
 let view: { host: HTMLElement; app: { boot: () => Promise<void> }; dispose: () => void } | undefined;
 
-const mount = async (name: string, email?: string | null, avatars = true) => {
+const mount = async (name: string, email?: string | null, avatars = true, options: { answerAfter?: number; suspense?: boolean } = {}) => {
   asked = [];
   mockIPC(
     (cmd, args) => {
       if (cmd === "avatar_url") {
         const address = String((args as { email: string }).email);
         asked.push(address);
+        if (options.answerAfter !== undefined) return new Promise((resolve) => setTimeout(() => resolve(ADDRESS), options.answerAfter));
         return address.includes("missing") ? null : ADDRESS;
       }
       if (cmd === "settings_load") {
@@ -69,7 +72,15 @@ const mount = async (name: string, email?: string | null, avatars = true) => {
     },
     { shouldMockEvents: true },
   );
-  view = mountWithApp(() => <AuthorBadge name={name} email={email} />);
+  view = mountWithApp(() =>
+    options.suspense === true ? (
+      <Suspense fallback={<p>fallback</p>}>
+        <AuthorBadge name={name} email={email} />
+      </Suspense>
+    ) : (
+      <AuthorBadge name={name} email={email} />
+    ),
+  );
   await view.app.boot();
 };
 
@@ -79,6 +90,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  forgetAvatars();
   view?.dispose();
   view = undefined;
   document.body.innerHTML = "";
@@ -116,6 +128,20 @@ describe("author badge", () => {
 
     expect(badge().querySelector("img")).toBeNull();
     expect(badge().textContent).toBe("M");
+  });
+
+  it("never shows an enclosing Suspense fallback while the picture loads", async () => {
+    await mount("Yui", "yui@example.com", true, { answerAfter: 60, suspense: true });
+    expect(view?.host.textContent).not.toContain("fallback");
+    expect(badge().textContent).toBe("Y");
+
+    await flush(20);
+    expect(view?.host.textContent).not.toContain("fallback");
+    expect(badge().querySelector("img")).toBeNull();
+
+    await flush(150);
+    expect(view?.host.textContent).not.toContain("fallback");
+    expect(badge().querySelector("img")?.getAttribute("src")).toBe(ADDRESS);
   });
 
   it("shows the initial when only the name is known", async () => {

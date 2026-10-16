@@ -1,7 +1,8 @@
-import { createResource } from "solid-js";
+import type { QueryClient } from "@tanstack/solid-query";
 import type { DiffToolSource } from "../ipc/bindings/DiffToolSource";
 import { client } from "../ipc/client";
 import type { DiffTarget } from "./diffModel";
+import { useQuery } from "./query";
 
 export const EDITOR_REASON = "Choose an external editor in Settings → External tools";
 export const DIFF_TOOL_REASON = "Choose an external diff tool in Settings → External tools";
@@ -14,9 +15,15 @@ export function diffToolSource(target: Exclude<DiffTarget, { source: "range" }>)
   return { kind: "commit", sha: target.sha };
 }
 
-export function createExternalTools(session: { path: string; report: (failure: unknown) => void; refresh: () => Promise<unknown> }) {
-  const [status] = createResource(() => client.externalToolsStatus(session.path).catch(() => undefined));
-  const reasonOf = (tool: "editor" | "diff" | "merge", reason: string) => (status()?.[tool] === null ? reason : undefined);
+export const externalToolsOptions = (path: string) => ({
+  queryKey: ["external-tools", path] as const,
+  queryFn: () => client.externalToolsStatus(path),
+  staleTime: Infinity,
+});
+
+export function createExternalTools(session: { path: string; queryClient: QueryClient; report: (failure: unknown) => void; refresh: () => Promise<unknown> }) {
+  const status = useQuery(() => externalToolsOptions(session.path), () => session.queryClient);
+  const reasonOf = (tool: "editor" | "diff" | "merge", reason: string) => (status.data?.[tool] === null ? reason : undefined);
 
   const run = (action: () => Promise<unknown>) => action().catch(session.report);
 

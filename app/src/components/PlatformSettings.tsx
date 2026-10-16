@@ -1,6 +1,6 @@
 import { createForm } from "@tanstack/solid-form";
 import { useQueryClient } from "@tanstack/solid-query";
-import { createSignal, createResource, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
 import { client } from "../ipc/client";
@@ -11,6 +11,7 @@ import { cardOfPlatform, CONNECTION_FIELDS, connectionFieldProblem, PLATFORM_CAR
 import { platformConnectionsOptions } from "../state/platformQueries";
 import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
+import { createSettled } from "../state/settled";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
@@ -67,7 +68,7 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
     },
   }));
   const values = form.useSelector((state) => state.values);
-  const [problems] = createResource(
+  const problems = createSettled(
     () => ({ host: values().host, name: values().name, token: values().token }),
     async (draft) => {
       const entries = await Promise.all(
@@ -78,7 +79,7 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
   );
   const shown = (field: ConnectionProblem) => (touched() ? problems()?.[field] : undefined);
   const latestProblems = () => problems() ?? {};
-  const blocked = () => problems.loading === true || Object.keys(latestProblems()).length > 0;
+  const blocked = () => problems.pending() || Object.keys(latestProblems()).length > 0;
   const choose = (kind: PlatformKind) => {
     form.setFieldValue("kind", kind);
     if (!nameEdited()) form.setFieldValue("name", cardOfPlatform(kind).title);

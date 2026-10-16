@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.12] - 2026-10-16
+
+### Fixed
++ Commit nodes in the graph show the author's profile picture as soon as it loads, instead of keeping the initials.
++ The window no longer flashes blank while a profile picture, a commit message, a pull request description, a Markdown file preview, or the external tool status loads: selecting a commit, opening a diff, switching repository tabs, and returning from Settings or the Launchpad keep the view on screen.
++ Switching to a repository tab that has not loaded yet keeps the previous tab on screen until the new graph shows its commits or its placeholder rows, instead of fading to an empty graph.
++ Typing in the Jira and platform connection forms after a first connect attempt keeps the field focused and Settings on screen, and opening a Git host no longer flashes the page.
+
+---
+
 ## [0.3.11] - 2026-10-15
 
 ### Fixed

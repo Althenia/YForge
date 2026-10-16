@@ -1,4 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { Suspense } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { JiraConnection } from "../ipc/bindings/JiraConnection";
 import { JiraSettings } from "./JiraSettings";
@@ -34,7 +35,7 @@ const server = (overrides: Partial<JiraConnection> = {}): JiraConnection =>
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mount(initial: JiraConnection[], respond: (call: Call) => unknown = () => undefined) {
+async function mount(initial: JiraConnection[], respond: (call: Call) => unknown = () => undefined, problemDelayMs = 0) {
   const calls: Call[] = [];
   let list = initial;
   mockIPC(
@@ -44,10 +45,15 @@ async function mount(initial: JiraConnection[], respond: (call: Call) => unknown
       if (cmd === "jira_connections_list") return list;
       if (cmd === "jira_field_problem") {
         const { field, value } = call.args as { field: string; value: string };
-        if (field === "site" && value.trim() === "") return "enter the site address, such as https://your-site.atlassian.net";
-        if (field === "email" && !value.includes("@")) return "enter the email address of the Atlassian account that owns the API token";
-        if (field === "token" && value.trim() === "") return "the access token is required";
-        return null;
+        const problem =
+          field === "site" && value.trim() === ""
+            ? "enter the site address, such as https://your-site.atlassian.net"
+            : field === "email" && !value.includes("@")
+              ? "enter the email address of the Atlassian account that owns the API token"
+              : field === "token" && value.trim() === ""
+                ? "the access token is required"
+                : null;
+        return problemDelayMs === 0 ? problem : new Promise((resolve) => setTimeout(() => resolve(problem), problemDelayMs));
       }
       const custom = respond(call);
       if (cmd === "jira_connection_add" && custom !== undefined) list = [...list, custom as JiraConnection];
@@ -56,7 +62,11 @@ async function mount(initial: JiraConnection[], respond: (call: Call) => unknown
     },
     { shouldMockEvents: true },
   );
-  const view = mountWithApp(() => <JiraSettings />);
+  const view = mountWithApp(() => (
+    <Suspense fallback={<p>Loading the page…</p>}>
+      <JiraSettings />
+    </Suspense>
+  ));
   dispose = view.dispose;
   await flush(40);
   return { ...view, calls };
@@ -127,6 +137,32 @@ describe("Settings → Jira", () => {
 
     expect(host.textContent).toContain("enter the site address");
     expect(calls.some((call) => call.cmd === "jira_connection_add")).toBe(false);
+  });
+
+  it("keeps the dialog and the focused field while field problems are checked after a submit attempt", async () => {
+    const { host } = await mount([], () => undefined, 15);
+    await flush(60);
+    buttonNamed(host, "Connect")?.click();
+    await flush(60);
+    expect(host.textContent).toContain("enter the site address");
+    const site = input(host, "Site address");
+    site?.focus();
+    const sawFallback: boolean[] = [];
+
+    for (const text of ["h", "ht", "htt"]) {
+      type(site, text);
+      sawFallback.push(host.textContent?.includes("Loading the page…") === true);
+      await flush(5);
+      sawFallback.push(host.textContent?.includes("Loading the page…") === true);
+      expect(input(host, "Site address")).toBe(site);
+      expect(site?.isConnected).toBe(true);
+      expect(document.activeElement).toBe(site);
+    }
+    await flush(60);
+
+    expect(sawFallback).not.toContain(true);
+    expect(host.textContent).not.toContain("Loading the page…");
+    expect(document.activeElement).toBe(site);
   });
 
   it("shows a refused token as text on the form", async () => {

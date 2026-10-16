@@ -8,6 +8,7 @@ import type { GraphPage } from "../ipc/bindings/GraphPage";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { RepoActions } from "../state/repoActions";
 import type { Selection } from "../state/selection";
+import { forgetAvatars } from "../state/avatar";
 import { GraphPanel } from "./GraphPanel";
 import { flush, mountWithApp, testUiPrefs } from "./testkit";
 
@@ -52,6 +53,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  forgetAvatars();
   overrides = {};
   total = TOTAL;
   dispose?.();
@@ -87,12 +89,24 @@ const baseRow = (index: number): GraphRow => ({
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: "sha0" }, upstream: null, remotes: [], counts: { modified: 0, added: 0, deleted: 0, renamed: 0, untracked: 0, conflicted: 0 } } as unknown as RepoSnapshot;
 
-type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; jira?: boolean; heldPage?: { offset: number; result: Promise<GraphPage> }; incoming?: ReadonlySet<string> };
+type MountOptions = { snapshot?: Partial<RepoSnapshot>; actions?: Record<string, unknown>; onRevealHead?: () => void; onSettled?: () => void; jira?: boolean; avatars?: boolean; heldPage?: { offset: number; result: Promise<GraphPage> }; incoming?: ReadonlySet<string> };
+
+const AVATAR_ADDRESS = "https://www.gravatar.com/avatar/2befe04c9ff31d77bff2c10f99ffaa3b?s=48&d=identicon";
 
 async function mountGraph(config: MountOptions = {}) {
   const offsets: number[] = [];
   const visibilities: unknown[] = [];
+  const avatarLookups: string[] = [];
   mockIPC((cmd, args) => {
+    if (config.avatars !== undefined) {
+      if (cmd === "avatar_url") {
+        avatarLookups.push(String((args as { email: string }).email));
+        return AVATAR_ADDRESS;
+      }
+      if (cmd === "settings_load") return { theme: "system", density: "default", default_branch: "main", pull_mode: "fast_forward_or_merge", auto_fetch_minutes: 0, editor_command: "", terminal_command: "", telemetry_opt_in: false, gravatar_avatars: config.avatars };
+      if (cmd === "repo_aliases_list" || cmd === "activity_list" || cmd === "recents_list") return [];
+      if (cmd === "session_load") return { tabs: [], active: null, groups: [] };
+    }
     if (config.jira === true && cmd === "jira_connections_list") return [{ id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 }];
     if (cmd === "jira_issue_keys") return (args as { texts: string[] }).texts.map((text) => text.match(/ABC-\d+/g) ?? []);
     if (cmd === "jira_issues_lookup") return (args as { keys: string[] }).keys.map((key) => ({ key, issue: { key, summary: "Retry login", status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: null }));
@@ -126,9 +140,11 @@ async function mountGraph(config: MountOptions = {}) {
       onSelect={setSelection}
       uiPrefs={uiPrefs}
       onRevealHead={config.onRevealHead ?? (() => undefined)}
+      onSettled={config.onSettled}
     />
   ));
   dispose = mounted.dispose;
+  if (config.avatars !== undefined) await mounted.app.boot();
   await flush(60);
   const list = () => mounted.host.querySelector<HTMLElement>(".gscroll") as HTMLElement;
   const options = () => [...mounted.host.querySelectorAll<HTMLElement>('.grow[role="option"]')];
@@ -138,10 +154,78 @@ async function mountGraph(config: MountOptions = {}) {
     list().scrollTop = top;
     await flush(60);
   };
-  return { host: mounted.host, offsets, visibilities, selection, setSelection, setFocus, list, options, positions, key, scrollTo, setRevision, setCovered, uiPrefs };
+  return { host: mounted.host, offsets, visibilities, avatarLookups, selection, setSelection, setFocus, list, options, positions, key, scrollTo, setRevision, setCovered, uiPrefs };
+}
+
+const loadingImages: Array<{ onload: (() => void) | null; src: string }> = [];
+
+class HeldImage {
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  referrerPolicy = "";
+  private address = "";
+  set src(address: string) {
+    this.address = address;
+    loadingImages.push({ onload: () => this.onload?.(), src: address });
+  }
+  get src() {
+    return this.address;
+  }
 }
 
 describe("graph panel", () => {
+  it("draws the author's picture on commit nodes once it has loaded, with no other state change (S36)", async () => {
+    loadingImages.length = 0;
+    vi.stubGlobal("Image", HeldImage);
+    const { host, avatarLookups } = await mountGraph({ avatars: true });
+    await flush(60);
+    expect(host.querySelectorAll("image.node-avatar")).toHaveLength(0);
+    expect(host.querySelectorAll("text.initials").length).toBeGreaterThan(0);
+    expect(avatarLookups).toEqual(["a@example.test"]);
+
+    loadingImages.forEach((image) => image.onload?.());
+    await flush(20);
+
+    const pictures = host.querySelectorAll("image.node-avatar");
+    expect(pictures.length).toBeGreaterThan(0);
+    expect(pictures[0]?.getAttribute("href")).toBe(AVATAR_ADDRESS);
+    expect(host.querySelectorAll("text.initials")).toHaveLength(0);
+    expect(avatarLookups).toEqual(["a@example.test"]);
+  });
+
+  it("keeps the initials and makes no lookup while profile pictures are off (S36)", async () => {
+    loadingImages.length = 0;
+    vi.stubGlobal("Image", HeldImage);
+    const { host, avatarLookups } = await mountGraph({ avatars: false });
+    await flush(60);
+
+    expect(avatarLookups).toEqual([]);
+    expect(loadingImages).toEqual([]);
+    expect(host.querySelectorAll("image.node-avatar")).toHaveLength(0);
+    expect(host.querySelectorAll("text.initials").length).toBeGreaterThan(0);
+  });
+
+  it("reports settled once the first page is in", async () => {
+    const onSettled = vi.fn();
+    await mountGraph({ onSettled });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports settled when the skeleton appears for a first page slower than 150ms, before the page arrives", async () => {
+    let finish!: (page: GraphPage) => void;
+    const result = new Promise<GraphPage>((resolve) => { finish = resolve; });
+    const onSettled = vi.fn();
+    const { host } = await mountGraph({ heldPage: { offset: 0, result }, onSettled });
+    expect(onSettled).not.toHaveBeenCalled();
+
+    await flush(150);
+    expect(host.querySelector(".gscroll .graph-skeleton")).not.toBeNull();
+    expect(onSettled).toHaveBeenCalled();
+
+    finish({ rows: [rowAt(0)], carried: [], total: 1 });
+    await flush(60);
+  });
+
   it("holds an uncached first page for 150ms, then shows static skeleton rows and the pending line (S72)", async () => {
     let finish!: (page: GraphPage) => void;
     const result = new Promise<GraphPage>((resolve) => { finish = resolve; });

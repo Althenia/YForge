@@ -117,6 +117,24 @@ describe("Settings → Git hosts", () => {
     expect(status?.getAttribute("aria-busy")).toBe("true");
   });
 
+  it("opens the host editor without the page fallback while the host is checked", async () => {
+    const { host } = await mount([], (call) =>
+      call.cmd === "git_host_field_problem" ? new Promise((resolve) => setTimeout(() => resolve(null), 30)) : undefined,
+    );
+    const sawFallback: boolean[] = [];
+
+    buttonNamed(host, "Add host")?.click();
+    for (let step = 0; step < 8; step += 1) {
+      sawFallback.push(host.textContent?.includes("Loading the page…") === true);
+      await flush(10);
+    }
+    await flush(60);
+
+    expect(host.querySelector("form")).not.toBeNull();
+    expect(sawFallback).not.toContain(true);
+    expect(host.textContent).not.toContain("Loading the page…");
+  });
+
   it("explains the empty state and how an identity is chosen", async () => {
     const { host } = await mount([]);
 

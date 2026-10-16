@@ -1,5 +1,5 @@
 import { keepPreviousData } from "@tanstack/solid-query";
-import { createResource, For, Show } from "solid-js";
+import { createEffect, For, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge, splitPath } from "../format";
 import { client, IpcError } from "../ipc/client";
 import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
@@ -10,6 +10,7 @@ import { changeTotals, epochSeconds, fileBadgeClass, fileStatus, fileWord, merge
 import { statusIcon } from "../state/changes";
 import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
+import { createSettled } from "../state/settled";
 import type { RepoSession } from "../state/repoSession";
 import { createIssueChips } from "../state/jiraIssues";
 import { pullText } from "../state/jiraModel";
@@ -42,7 +43,7 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
   const chips = createIssueChips(() => (details.data === undefined ? [] : [pullText(details.data.pull)]));
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
-  const [markdown] = createResource(
+  const markdown = createSettled(
     () => shown()?.pull.body || false,
     async (text) => {
       try {
@@ -52,6 +53,15 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
         return { html: "", failure: error instanceof Error ? error.message : String(error) };
       }
     },
+  );
+  let scroller: HTMLDivElement | undefined;
+  createEffect(
+    on(
+      () => shown()?.pull.number,
+      (number, previous) => {
+        if (number !== undefined && previous !== undefined && number !== previous && scroller !== undefined) scroller.scrollTop = 0;
+      },
+    ),
   );
   const failure = () => (details.error == null ? undefined : platformFailure(details.error instanceof IpcError ? details.error : new IpcError({ kind: "internal", message: String(details.error) })));
 
@@ -119,7 +129,7 @@ export function PullRequestInspector(props: { session: RepoSession; platform: Pl
                   </button>
                 </div>
               </div>
-              <div class="ilist commit-body">
+              <div class="ilist commit-body" ref={scroller}>
                 <Show when={markdown()?.failure}>{(failure) => <div role="alert">{failure()}</div>}</Show>
                 <Show when={pull().body}>
                   <article class="markdown-body commit-message pull-body" innerHTML={markdown()?.html ?? ""} onClick={(event) => handleMarkdownClick(event, event.currentTarget, () => undefined)} />

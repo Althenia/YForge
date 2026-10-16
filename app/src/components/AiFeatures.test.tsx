@@ -30,7 +30,7 @@ const saved = (feature: AiFeatureSummary["feature"], overrides: Partial<AiFeatur
 });
 
 const features = (overrides: Partial<AiFeatureSummary> = {}): AiFeatureSummary[] =>
-  (["generate_commit", "recompose", "conflict_fix", "explain_changes", "explain_commit", "compose_commits", "stash_message"] as const).map((feature) => ({
+  (["generate_commit", "recompose", "conflict_fix", "explain_changes", "explain_commit", "compose_commits", "compose_pull_request", "stash_message"] as const).map((feature) => ({
     feature,
     config: null,
     enabled: false,
@@ -69,7 +69,8 @@ describe("per-feature AI settings", () => {
     const { host, calls } = await mount(features());
 
     const cards = [...host.querySelectorAll(".feature-card")];
-    expect(cards).toHaveLength(7);
+    expect(cards).toHaveLength(8);
+    expect(card("Pull request descriptions")).toBeDefined();
     const toggle = card("Generate commit message")?.querySelector<HTMLButtonElement>('[role="switch"]');
     expect(toggle?.getAttribute("aria-label")).toBe("Use AI for Generate commit message");
     expect(toggle?.getAttribute("aria-checked")).toBe("false");

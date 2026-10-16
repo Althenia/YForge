@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/solid-query";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { JiraConnection } from "../ipc/bindings/JiraConnection";
 import type { JiraKind } from "../ipc/bindings/JiraKind";
 import { client } from "../ipc/client";
@@ -9,6 +9,7 @@ import { jiraConnectionsOptions } from "../state/jiraQueries";
 import { platformFailure, type PlatformFailure } from "../state/platformModel";
 import { jiraKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
+import { createSettled } from "../state/settled";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -33,12 +34,12 @@ function ConnectCard(props: { editor: Editor; first: boolean; onClose: () => voi
   const [busy, setBusy] = createSignal(false);
   const [failure, setFailure] = createSignal<string | undefined>();
   const card = () => jiraKindCard(kind());
-  const [problems] = createResource(
+  const problems = createSettled(
     () => ({ kind: kind(), site: site(), email: email(), token: token() }),
     (draft) => jiraProblems(draft),
   );
   const shown = (field: JiraField) => (touched() ? problems()?.[field] : undefined);
-  const blocked = () => problems.loading || Object.keys(problems() ?? {}).length > 0;
+  const blocked = () => problems.pending() || Object.keys(problems() ?? {}).length > 0;
   const reason = () => (kind() === "cloud" ? "Enter the site address, the email, and the API token to connect" : "Enter the site address and the token to connect");
 
   async function submit(): Promise<void> {

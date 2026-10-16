@@ -697,6 +697,37 @@ describe("commit continuity (S72)", () => {
     expect(view.body()).toBe("Third body");
   });
 
+  it("shows a newly selected commit from the top of its details", async () => {
+    const view = mountSwitching(HEAD);
+    await settledOn(view);
+    const list = () => view.host.querySelector<HTMLElement>(".ilist.commit-body");
+    const held = list();
+    held!.scrollTop = 240;
+
+    view.setSha(NEXT);
+    await flush();
+    expect(list()?.scrollTop).toBe(240);
+    view.finish(NEXT, loaded(NEXT, "Next summary", "Next body"));
+    await flush();
+
+    expect(view.body()).toBe("Next body");
+    expect(list()).toBe(held);
+    expect(list()?.scrollTop).toBe(0);
+  });
+
+  it("keeps the scroll offset when the same commit is read again", async () => {
+    const view = mountSwitching(HEAD);
+    await settledOn(view);
+    const list = () => view.host.querySelector<HTMLElement>(".ilist.commit-body");
+    list()!.scrollTop = 240;
+
+    await view.app.queryClient.invalidateQueries({ queryKey: repoKeys.commit("/r", HEAD) });
+    await flush();
+
+    expect(view.title()).toBe("Head summary");
+    expect(list()?.scrollTop).toBe(240);
+  });
+
   it("shows the pending line only once a read has taken 150ms", async () => {
     const view = mountSwitching(HEAD);
     await settledOn(view);

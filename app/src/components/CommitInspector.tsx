@@ -1,6 +1,7 @@
 import { keepPreviousData } from "@tanstack/solid-query";
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createResource, createSignal, For, Index, on, Show } from "solid-js";
+import { createSettled } from "../state/settled";
+import { createEffect, createMemo, createSignal, For, Index, on, Show } from "solid-js";
 import { formatAbsolute, relativeAge } from "../format";
 import { cachedGraphRow } from "../graph/graphStore";
 import type { CommitFile } from "../ipc/bindings/CommitFile";
@@ -195,7 +196,7 @@ export function CommitInspector(props: {
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
-  const [markdown] = createResource(
+  const markdown = createSettled(
     () => shown()?.body ? { text: shown()!.body, sha: shown()!.sha } : false,
     async (source) => {
       try { return { html: await renderMarkdown(source.text), sha: source.sha, failure: undefined }; }
@@ -213,6 +214,14 @@ export function CommitInspector(props: {
   const waiting = createPendingIndicator(() => shown() === undefined && failure() === undefined);
   let panel: HTMLElement | undefined;
   createViewSwap(() => panel, () => shown()?.sha ?? (waiting() ? "skeleton" : undefined));
+  createEffect(
+    on(
+      () => shown()?.sha,
+      (sha, previous) => {
+        if (sha !== undefined && previous !== undefined && sha !== previous && scroller !== undefined) scroller.scrollTop = 0;
+      },
+    ),
+  );
   const headBlock = (head: () => CommitHeader) => (
     <div class="ihead">
       <h2 class="commit-summary">{head().summary || "(no message)"}</h2>

@@ -1,5 +1,6 @@
 import { createHotkeys } from "@tanstack/solid-hotkeys";
 import { useQuery } from "./query";
+import { externalToolsOptions } from "./externalTools";
 import { useRouterState } from "@tanstack/solid-router";
 import { createContext, createEffect, createMemo, createSignal, on, onCleanup, useContext } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
@@ -185,10 +186,8 @@ export function createAppState(router: AppRouter) {
 
   const externalTools = useQuery(
     () => ({
-      queryKey: ["external-tools", activePath() ?? ""] as const,
-      queryFn: () => client.externalToolsStatus(activePath() as string),
+      ...externalToolsOptions(activePath() ?? ""),
       enabled: activePath() !== undefined,
-      staleTime: Infinity,
     }),
     () => queryClient,
   );

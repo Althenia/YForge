@@ -45,12 +45,12 @@ export function RepositoryTab(props: { path: string; onSettled?: () => void }) {
     return readGeometry(getComputedStyle(root));
   });
   const waiting = createPendingIndicator(() => workspace() === undefined);
-  createEffect(() => {
-    if (workspace() !== undefined) props.onSettled?.();
-  });
   const ready = () => only(workspace(), "ready");
   const missing = () => only(workspace(), "not_a_repository");
   const failed = () => only(workspace(), "failed");
+  createEffect(() => {
+    if (missing() !== undefined || failed() !== undefined) props.onSettled?.();
+  });
   return (
     <>
       <Show when={workspace() === undefined}>
@@ -77,7 +77,7 @@ export function RepositoryTab(props: { path: string; onSettled?: () => void }) {
           </div>
         )}
       </Show>
-      <Show when={ready()}>{(view) => <Workspace view={view()} geometry={geometry()} />}</Show>
+      <Show when={ready()}>{(view) => <Workspace view={view()} geometry={geometry()} onSettled={props.onSettled} />}</Show>
     </>
   );
 }

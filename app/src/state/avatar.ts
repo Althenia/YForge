@@ -4,6 +4,7 @@ import { client } from "../ipc/client";
 
 const SESSION_LIMIT = 200;
 const loaded = new Map<string, Promise<string | undefined>>();
+const addresses = new Map<string, () => string | undefined>();
 
 export function avatarsEnabled(settings: AppSettings | undefined): boolean {
   return settings?.gravatar_avatars !== false;
@@ -39,37 +40,18 @@ export function loadAvatar(email: string): Promise<string | undefined> {
 
 export function forgetAvatars(): void {
   loaded.clear();
-  inGraph.clear();
-  setReady(0);
+  addresses.clear();
 }
 
-/// The addresses already fetched, and whether each image has finished loading.
-const inGraph = new Map<string, { url: string; loaded: boolean }>();
-const [ready, setReady] = createSignal(0);
-
-/// The address to draw for an email, kicking off the lookup on first call.
-///
-/// Returns undefined until the image has loaded, so the caller can keep drawing
-/// the initials until the picture is really available.
-export function ensureGraphAvatar(email: string | undefined): string | undefined {
-  if (email === undefined || email === "") return undefined;
-  const known = inGraph.get(email);
-  if (known !== undefined) return known.loaded ? known.url : undefined;
-  inGraph.set(email, { url: "", loaded: false });
-  void avatarUrl(email).then(
-    (url) => {
-      if (url === undefined) return;
-      const image = new Image();
-      image.referrerPolicy = "no-referrer";
-      image.onload = () => {
-        inGraph.set(email, { url, loaded: true });
-        setReady((value: number) => value + 1);
-      };
-      image.src = url;
-    },
-    () => undefined,
-  );
-  return undefined;
+export function avatarAddress(email: string | null | undefined): string | undefined {
+  if (email === null || email === undefined || email === "") return undefined;
+  let address = addresses.get(email);
+  if (address === undefined) {
+    const [read, write] = createSignal<string | undefined>();
+    void loadAvatar(email).then(write, () => undefined);
+    if (addresses.size >= SESSION_LIMIT) addresses.clear();
+    addresses.set(email, read);
+    address = read;
+  }
+  return address();
 }
-
-export const graphAvatarRevision = ready;

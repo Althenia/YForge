@@ -229,6 +229,22 @@ describe("sidebar pull requests", () => {
 });
 
 describe("pull request detail", () => {
+  it("shows a newly selected pull request from the top of its details", async () => {
+    const { host } = await mountWorkspace({ pulls: () => [pull(7), pull(8)] });
+    row(host, 7).click();
+    await flush(60);
+    const list = () => inspector(host)?.querySelector<HTMLElement>(".ilist.commit-body");
+    const held = list();
+    held!.scrollTop = 240;
+
+    row(host, 8).click();
+    await flush(60);
+
+    expect(inspector(host)?.querySelector("h2")?.textContent).toContain("#8");
+    expect(list()).toBe(held);
+    expect(list()?.scrollTop).toBe(0);
+  });
+
   it("shows state, author, dates, mergeability, and the changed files with +/- counts", async () => {
     const detail: PrDetail = {
       pull: pull(7, { title: "Add retry helper", body: "## Change\n\nRetries the **fetch** with `backoff`.\n\n<script>window.pwned = 1</script>", mergeable: false }),

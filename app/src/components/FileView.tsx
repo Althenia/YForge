@@ -1,5 +1,6 @@
 import { useQuery } from "../state/query";
-import { createEffect, createMemo, createResource, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
+import { createSettled } from "../state/settled";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
 import { client } from "../ipc/client";
 import { fileLines, fileViewError, formatBytes, previewKind, type FileViewTarget } from "../state/fileView";
 import { repoKeys } from "../state/queryKeys";
@@ -89,7 +90,7 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
       if (id !== undefined) void client.previewStop(id).catch(props.session.report);
     });
   });
-  const [markdown] = createResource(
+  const markdown = createSettled(
     () => kind() === "markdown" && preview() !== undefined ? { text: content.text()?.text ?? "", file: props.file, previewBase: preview()!.url } : false,
     async (source) => {
       try { return { html: await renderMarkdown(source.text, source), failure: undefined }; }
@@ -99,7 +100,7 @@ export function FileBody(props: { session: RepoSession; file: string; rev: strin
   let body: HTMLDivElement | undefined;
   createEffect(() => {
     const hash = props.fragment;
-    if (markdown.loading || markdown()?.html === undefined || hash === undefined) return;
+    if (markdown.pending() || markdown()?.html === undefined || hash === undefined) return;
     try {
       const id = decodeURIComponent(hash);
       [...(body?.querySelectorAll<HTMLElement>("article [id]") ?? [])].find((element) => element.id === id)?.scrollIntoView({ block: "start" });

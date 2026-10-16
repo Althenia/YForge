@@ -223,6 +223,7 @@ export function createGraphStore(
     rows: () => layout().rows,
     edges: () => layout().edges,
     error,
+    settled: () => layout().pages.size > 0 || error() !== undefined,
     loading: () => pending() > 0,
     ensure,
     show,

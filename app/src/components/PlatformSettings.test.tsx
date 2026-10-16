@@ -1,5 +1,5 @@
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { untrack } from "solid-js";
+import { Suspense, untrack } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import { PlatformSettings } from "./PlatformSettings";
@@ -27,7 +27,7 @@ const connection = (id: string, overrides: Partial<PlatformConnection> = {}): Pl
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mount(initial: PlatformConnection[], respond: (call: Call) => unknown = () => undefined) {
+async function mount(initial: PlatformConnection[], respond: (call: Call) => unknown = () => undefined, problemDelayMs = 0) {
   const calls: Call[] = [];
   let list = initial;
   mockIPC(
@@ -37,12 +37,15 @@ async function mount(initial: PlatformConnection[], respond: (call: Call) => unk
       if (cmd === "platform_connections_list") return list;
       if (cmd === "connection_field_problem") {
         const { field, value } = call.args as { field: string; value: string };
-        if (field === "host" && (value.trim() === "" || value.includes("://") || value.includes("/"))) {
-          return "enter the host only, such as github.com or git.example.com:8443, without https:// or a path";
-        }
-        if (field === "name" && value.trim() === "") return "the connection name must be 1 to 80 characters";
-        if (field === "token" && value.trim() === "") return "the access token is required";
-        return null;
+        const problem =
+          field === "host" && (value.trim() === "" || value.includes("://") || value.includes("/"))
+            ? "enter the host only, such as github.com or git.example.com:8443, without https:// or a path"
+            : field === "name" && value.trim() === ""
+              ? "the connection name must be 1 to 80 characters"
+              : field === "token" && value.trim() === ""
+                ? "the access token is required"
+                : null;
+        return problemDelayMs === 0 ? problem : new Promise((resolve) => setTimeout(() => resolve(problem), problemDelayMs));
       }
       const custom = respond(call);
       if (cmd === "platform_connection_add" && custom !== undefined) list = [...list, custom as PlatformConnection];
@@ -51,7 +54,11 @@ async function mount(initial: PlatformConnection[], respond: (call: Call) => unk
     },
     { shouldMockEvents: true },
   );
-  const view = mountWithApp(() => <PlatformSettings />);
+  const view = mountWithApp(() => (
+    <Suspense fallback={<p>Loading the page…</p>}>
+      <PlatformSettings />
+    </Suspense>
+  ));
   dispose = view.dispose;
   await flush(40);
   return { ...view, calls };
@@ -98,6 +105,33 @@ describe("Settings → Platforms", () => {
     expect(dialog()?.textContent).toContain("the connection name must be 1 to 80 characters");
     expect(dialog()?.textContent).toContain("the access token is required");
     expect(calls.some((call) => call.cmd === "platform_connection_add")).toBe(false);
+  });
+
+  it("keeps the dialog and the focused field while field problems are checked after a submit attempt", async () => {
+    const { host } = await mount([], () => undefined, 15);
+    buttonNamed(host, "Add connection")?.click();
+    await flush(60);
+    buttonNamed(dialog() as HTMLElement, "Add and test connection")?.click();
+    await flush(60);
+    expect(dialog()?.textContent).toContain("the access token is required");
+    const hostField = field("Host");
+    hostField?.focus();
+    const sawFallback: boolean[] = [];
+
+    for (const text of ["g", "gi", "git"]) {
+      type(hostField, text);
+      sawFallback.push(document.body.textContent?.includes("Loading the page…") === true);
+      await flush(5);
+      sawFallback.push(document.body.textContent?.includes("Loading the page…") === true);
+      expect(field("Host")).toBe(hostField);
+      expect(hostField?.isConnected).toBe(true);
+      expect(document.activeElement).toBe(hostField);
+    }
+    await flush(60);
+
+    expect(sawFallback).not.toContain(true);
+    expect(document.body.textContent).not.toContain("Loading the page…");
+    expect(document.activeElement).toBe(hostField);
   });
 
   it("states the risk of an untrusted certificate in plain language", async () => {
