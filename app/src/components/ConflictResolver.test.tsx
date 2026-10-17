@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ConflictFile } from "../ipc/bindings/ConflictFile";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { QueryClientProvider } from "@tanstack/solid-query";
-import { createRoot } from "solid-js";
+import { createRoot, createSignal, type Accessor } from "solid-js";
 import { createQueryClient } from "../state/queryClient";
 import { createRepoActions } from "../state/repoActions";
 import { createRepoSession } from "../state/repoSession";
@@ -81,13 +81,19 @@ const marked = [
   ">>>>>>> origin/main",
 ].join("\n");
 
-async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = snapshot(), proposal: () => unknown = () => ({ regions: [] }), features = aiFeatureList()) {
+async function mountResolver(
+  conflict: ConflictFile | ((file: string) => unknown),
+  initial: RepoSnapshot = snapshot(),
+  proposal: () => unknown = () => ({ regions: [] }),
+  features = aiFeatureList(),
+  file: Accessor<string> = () => "README.md",
+) {
   const calls: { cmd: string; args: Record<string, unknown> }[] = [];
   mockIPC((cmd, args) => {
     if (cmd === "ai_feature_config_list") return features;
     if (cmd === "external_tools_status") return toolsStatus;
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "conflict_file") return conflict;
+    if (cmd === "conflict_file") return typeof conflict === "function" ? conflict((args as { file: string }).file) : conflict;
     if (cmd === "ai_propose_conflict") return proposal();
     if (cmd === "repo_open") return initial;
     if (cmd === "operation_continue") return "completed";
@@ -113,7 +119,7 @@ async function mountResolver(conflict: ConflictFile, initial: RepoSnapshot = sna
   dispose = render(
     () => (
       <QueryClientProvider client={queryClient}>
-        <ConflictResolver session={session} actions={actions} file="README.md" onClose={() => undefined} onOpenAiSettings={() => opened.push("ai")} />
+        <ConflictResolver session={session} actions={actions} file={file()} onClose={() => undefined} onOpenAiSettings={() => opened.push("ai")} />
       </QueryClientProvider>
     ),
     host,
@@ -266,6 +272,29 @@ describe("conflict resolver", () => {
     await tick();
 
     expect(calls.find((call) => call.cmd === "conflict_resolve")?.args).toEqual({ path: "/r", file: "README.md", content: "# sample\r\nby hand\r\n## License\r\nMIT\r\n" });
+  });
+
+  it("keeps hand edits and choices when the file is read again with the same content, and reloads when the content changed", async () => {
+    let served: ConflictFile = twoRegions;
+    const { output, box, tick, session } = await mountResolver(() => structuredClone(served));
+    const refetch = async () => {
+      await session.queryClient.invalidateQueries({ queryKey: ["conflict", "/r", "README.md"] });
+      await tick();
+    };
+
+    box("Yours", 0)?.click();
+    await tick();
+    type(output(), "kept by hand");
+    await tick();
+    await refetch();
+
+    expect(output()?.value).toBe("kept by hand");
+    expect(box("Yours", 0)?.getAttribute("aria-checked")).toBe("true");
+
+    served = { ...twoRegions, segments: [{ kind: "text", lines: ["# changed"] }, { kind: "conflict", current: ["a"], incoming: ["b"], base: null }] };
+    await refetch();
+
+    expect(output()?.value).toBe(["# changed", "<<<<<<< main", "a", "=======", "b", ">>>>>>> origin/main"].join("\n"));
   });
 
   it("rebuilds the Output from the choices when a side is picked after a hand edit, and offers Undo in place", async () => {
@@ -490,6 +519,57 @@ describe("conflict resolver", () => {
       expect(output()?.value).toBe(marked);
       buttonNamed(host, "Open AI settings")?.click();
       expect(opened).toEqual(["ai"]);
+    });
+  });
+
+  describe("moving to another conflicted file", () => {
+    const notes: ConflictFile = { ...twoRegions, file: "NOTES.md", segments: [{ kind: "conflict", current: ["ours"], incoming: ["theirs"], base: null }] };
+    const notesMarked = ["<<<<<<< main", "ours", "=======", "theirs", ">>>>>>> origin/main"].join("\n");
+    const later = <T,>() => {
+      let settle: (value: T) => void = () => undefined;
+      const promise = new Promise<T>((done) => (settle = done));
+      return { promise, settle: (value: T) => settle(value) };
+    };
+
+    it("never saves the previous file's Output into the next file while the next file loads", async () => {
+      const [file, setFile] = createSignal("README.md");
+      const pending = later<ConflictFile>();
+      const { press, output, markButton, calls, tick } = await mountResolver((name) => (name === "README.md" ? twoRegions : pending.promise), snapshot(), undefined, undefined, file);
+
+      setFile("NOTES.md");
+      await tick();
+      press("1");
+      press("n");
+      press("1");
+      await tick();
+      press("s", { metaKey: true });
+      markButton()?.click();
+      await tick();
+      expect(calls.some((call) => call.cmd === "conflict_resolve")).toBe(false);
+      expect(markButton()?.disabled).toBe(true);
+
+      pending.settle(notes);
+      await tick();
+      expect(output()?.value).toBe(notesMarked);
+    });
+
+    it("drops and cancels a proposal for the previous file", async () => {
+      const [file, setFile] = createSignal("README.md");
+      const proposal = later<unknown>();
+      const proposals = { regions: [{ index: 0, text: "npm start", rationale: "Keep yours." }] };
+      const { host, output, calls, tick } = await mountResolver((name) => (name === "README.md" ? twoRegions : notes), snapshot(), () => proposal.promise, undefined, file);
+      [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.getAttribute("aria-label") === "Propose a resolution for every conflict in this file")?.click();
+      await tick();
+
+      setFile("NOTES.md");
+      await tick();
+      expect(calls.some((call) => call.cmd === "operation_cancel")).toBe(true);
+      proposal.settle(proposals);
+      await tick();
+      await tick();
+
+      expect(output()?.value).toBe(notesMarked);
+      expect(buttonNamed(host, "Restore my text")).toBeUndefined();
     });
   });
 

@@ -160,22 +160,50 @@ pub fn fast_forward(path: &Path, branch: &str, target: &str) -> Result<(), CoreE
     }
 }
 
-fn apply_commit(path: &Path, command: &str, sha: &str) -> Result<OperationOutcome, CoreError> {
+fn mainline_arg(
+    root: &Path,
+    sha: &str,
+    mainline: Option<u32>,
+) -> Result<Option<String>, CoreError> {
+    let listing = git::run(root, &["rev-list", "--parents", "--max-count=1", sha])?;
+    let parents = listing.split_whitespace().count().saturating_sub(1);
+    let short = sha.chars().take(7).collect::<String>();
+    match mainline {
+        None if parents > 1 => Err(CoreError::invalid_request(format!(
+            "{short} is a merge commit; choose the parent (mainline) whose changes to keep"
+        ))),
+        None => Ok(None),
+        Some(_) if parents < 2 => Err(CoreError::invalid_request(format!(
+            "{short} is not a merge commit; only a merge commit takes a mainline parent"
+        ))),
+        Some(number) if number == 0 || number as usize > parents => {
+            Err(CoreError::invalid_request(format!(
+                "{short} has {parents} parents; there is no parent {number}"
+            )))
+        }
+        Some(number) => Ok(Some(number.to_string())),
+    }
+}
+
+fn apply_commit(
+    path: &Path,
+    command: &str,
+    sha: &str,
+    mainline: Option<u32>,
+) -> Result<OperationOutcome, CoreError> {
     let root = repo::open(path)?;
     validate_sha(sha)?;
     require_no_operation(&root)?;
     branch::require_commit(&root, sha)?;
-    let parents = git::run(&root, &["rev-list", "--parents", "--max-count=1", sha])?;
-    if parents.split_whitespace().count() > 2 {
-        return Err(CoreError::invalid_request(format!(
-            "{} is a merge commit; choosing which parent to follow is not supported",
-            sha.chars().take(7).collect::<String>()
-        )));
-    }
-    let args: Vec<&str> = match command {
-        "revert" => vec!["revert", "--no-edit", sha],
-        _ => vec![command, sha],
+    let mainline = mainline_arg(&root, sha, mainline)?;
+    let mut args: Vec<&str> = match command {
+        "revert" => vec!["revert", "--no-edit"],
+        _ => vec![command],
     };
+    if let Some(number) = &mainline {
+        args.extend(["-m", number]);
+    }
+    args.push(sha);
     let completed = git::run_unchecked(&root, &args, None)?;
     if !completed.succeeded()
         && repo::read_operation(&root)?.0.is_some()
@@ -190,12 +218,20 @@ fn apply_commit(path: &Path, command: &str, sha: &str) -> Result<OperationOutcom
     settle(&root, &args, completed)
 }
 
-pub fn cherry_pick(path: &Path, sha: &str) -> Result<OperationOutcome, CoreError> {
-    apply_commit(path, "cherry-pick", sha)
+pub fn cherry_pick(
+    path: &Path,
+    sha: &str,
+    mainline: Option<u32>,
+) -> Result<OperationOutcome, CoreError> {
+    apply_commit(path, "cherry-pick", sha, mainline)
 }
 
-pub fn revert(path: &Path, sha: &str) -> Result<OperationOutcome, CoreError> {
-    apply_commit(path, "revert", sha)
+pub fn revert(
+    path: &Path,
+    sha: &str,
+    mainline: Option<u32>,
+) -> Result<OperationOutcome, CoreError> {
+    apply_commit(path, "revert", sha, mainline)
 }
 
 pub fn reset(path: &Path, target: &str, mode: ResetMode) -> Result<(), CoreError> {

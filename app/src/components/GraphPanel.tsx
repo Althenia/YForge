@@ -507,6 +507,12 @@ export function GraphPanel(props: {
     else props.onSelect(next);
   };
 
+  const afterLoad = (index: number, run: (index: number) => void) => {
+    if (index < 0) return;
+    if (store.rows().get(index) !== undefined) run(index);
+    else void store.load(index, index + 1).then(() => run(index));
+  };
+
   const choose = (index: number, event: MouseEvent) => {
     if (event.metaKey || event.ctrlKey) {
       const next = toggleSelection(store.rows(), props.selection, index);
@@ -607,14 +613,13 @@ export function GraphPanel(props: {
       event.preventDefault();
       const target = stepIndex(selected(), step, last);
       if (target === undefined) return;
-      if (event.shiftKey) extend(target);
-      else select(target);
+      afterLoad(target, event.shiftKey ? extend : select);
     } else if (event.key === "Home") {
       event.preventDefault();
-      select(0);
+      afterLoad(0, select);
     } else if (event.key === "End") {
       event.preventDefault();
-      select(last);
+      afterLoad(last, select);
     } else if (event.key === " ") {
       const index = selected();
       const next = index === undefined ? undefined : toggleSelection(store.rows(), props.selection, index);

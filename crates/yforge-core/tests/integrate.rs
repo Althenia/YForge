@@ -177,8 +177,8 @@ fn integration_verbs_refuse_while_an_operation_is_in_progress() {
     for error in [
         merge(&repo.path, "topic", MergeMode::MergeCommit).unwrap_err(),
         rebase(&repo.path, "topic").unwrap_err(),
-        cherry_pick(&repo.path, &head).unwrap_err(),
-        revert(&repo.path, &head).unwrap_err(),
+        cherry_pick(&repo.path, &head, None).unwrap_err(),
+        revert(&repo.path, &head, None).unwrap_err(),
         reset(&repo.path, &head, ResetMode::Hard).unwrap_err(),
         fast_forward(&repo.path, "main", "topic").unwrap_err(),
     ] {
@@ -284,7 +284,7 @@ fn a_clean_cherry_pick_adds_the_commit_to_the_current_branch() {
     let repo = diverged();
     let picked = repo.git(&["rev-parse", "topic"]);
 
-    let outcome = cherry_pick(&repo.path, &picked).unwrap();
+    let outcome = cherry_pick(&repo.path, &picked, None).unwrap();
 
     assert_eq!(outcome, OperationOutcome::Completed);
     assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Topic work");
@@ -297,7 +297,7 @@ fn a_conflicting_cherry_pick_enters_the_operation_state_and_continues() {
     let repo = conflicting();
     let picked = repo.git(&["rev-parse", "topic"]);
 
-    let outcome = cherry_pick(&repo.path, &picked).unwrap();
+    let outcome = cherry_pick(&repo.path, &picked, None).unwrap();
 
     assert_eq!(outcome, OperationOutcome::Conflicts);
     let snapshot = repo_snapshot(&repo.path).unwrap();
@@ -317,26 +317,78 @@ fn a_cherry_pick_that_changes_nothing_is_reported_and_leaves_no_operation() {
     repo.git(&["merge", "-q", "--ff-only", "topic"]);
     let picked = repo.git(&["rev-parse", "HEAD"]);
 
-    let error = cherry_pick(&repo.path, &picked).unwrap_err();
+    let error = cherry_pick(&repo.path, &picked, None).unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::InvalidRequest);
     assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
 }
 
-#[test]
-fn merge_commits_cannot_be_picked_or_reverted() {
+fn merged() -> (Fixture, String) {
     let repo = diverged();
     repo.git(&["merge", "-q", "--no-ff", "topic"]);
-    let merged = repo.git(&["rev-parse", "HEAD"]);
+    let merge = repo.git(&["rev-parse", "HEAD"]);
+    (repo, merge)
+}
 
-    assert_eq!(
-        cherry_pick(&repo.path, &merged).unwrap_err().kind(),
-        ErrorKind::InvalidRequest
-    );
-    assert_eq!(
-        revert(&repo.path, &merged).unwrap_err().kind(),
-        ErrorKind::InvalidRequest
-    );
+#[test]
+fn a_merge_commit_is_picked_relative_to_the_chosen_mainline_parent() {
+    for (mainline, kept, absent) in [(1, "b.txt", "c.txt"), (2, "c.txt", "b.txt")] {
+        let (repo, merge) = merged();
+        repo.git(&["switch", "-q", "-c", "other", "main~1~1"]);
+
+        let outcome = cherry_pick(&repo.path, &merge, Some(mainline)).unwrap();
+
+        assert_eq!(outcome, OperationOutcome::Completed);
+        assert!(repo.path.join(kept).exists());
+        assert!(!repo.path.join(absent).exists());
+        assert_eq!(parents(&repo), 1);
+        assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    }
+}
+
+#[test]
+fn a_merge_commit_is_reverted_relative_to_the_chosen_mainline_parent() {
+    for (mainline, removed, kept) in [(1, "b.txt", "c.txt"), (2, "c.txt", "b.txt")] {
+        let (repo, merge) = merged();
+
+        let outcome = revert(&repo.path, &merge, Some(mainline)).unwrap();
+
+        assert_eq!(outcome, OperationOutcome::Completed);
+        assert!(!repo.path.join(removed).exists());
+        assert!(repo.path.join(kept).exists());
+        assert!(repo
+            .git(&["log", "-1", "--format=%s"])
+            .starts_with("Revert \"Merge branch"));
+        assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
+    }
+}
+
+#[test]
+fn a_missing_or_out_of_range_mainline_and_a_mainline_for_a_plain_commit_are_refused() {
+    let (repo, merge) = merged();
+    let plain = repo.git(&["rev-parse", "topic"]);
+    let head = repo.git(&["rev-parse", "HEAD"]);
+
+    for (sha, mainline) in [
+        (&merge, None),
+        (&merge, Some(0)),
+        (&merge, Some(3)),
+        (&plain, Some(1)),
+    ] {
+        for error in [
+            cherry_pick(&repo.path, sha, mainline).unwrap_err(),
+            revert(&repo.path, sha, mainline).unwrap_err(),
+        ] {
+            assert_eq!(
+                error.kind(),
+                ErrorKind::InvalidRequest,
+                "{sha} {mainline:?}"
+            );
+        }
+    }
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), head);
+    assert_eq!(repo.git(&["status", "--porcelain"]), "");
+    assert_eq!(repo_snapshot(&repo.path).unwrap().operation, None);
 }
 
 #[test]
@@ -345,7 +397,7 @@ fn a_clean_revert_adds_an_inverse_commit() {
     repo.git(&["merge", "-q", "--ff-only", "topic"]);
     let target = repo.git(&["rev-parse", "HEAD"]);
 
-    let outcome = revert(&repo.path, &target).unwrap();
+    let outcome = revert(&repo.path, &target, None).unwrap();
 
     assert_eq!(outcome, OperationOutcome::Completed);
     assert_eq!(repo.read("b.txt"), "one\n");
@@ -362,7 +414,7 @@ fn a_conflicting_revert_enters_the_operation_state_and_continues() {
     let middle = repo.commit("a.txt", "two\n", "Two");
     repo.commit("a.txt", "three\n", "Three");
 
-    let outcome = revert(&repo.path, &middle).unwrap();
+    let outcome = revert(&repo.path, &middle, None).unwrap();
 
     assert_eq!(outcome, OperationOutcome::Conflicts);
     let snapshot = repo_snapshot(&repo.path).unwrap();

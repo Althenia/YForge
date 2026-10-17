@@ -33,7 +33,7 @@ const bodies: Record<string, string> = { aaaaaaa1: "Why first", bbbbbbb2: "", cc
 
 type Call = { cmd: string; args: Record<string, unknown> };
 
-async function mount(config: { plan?: RebasePlan; snapshot?: RepoSnapshot; apply?: unknown | (() => unknown) } = {}) {
+async function mount(config: { plan?: RebasePlan; snapshot?: RepoSnapshot; apply?: unknown | (() => unknown); from?: string } = {}) {
   const calls: Call[] = [];
   const current = config.snapshot ?? snapshot();
   mockIPC((cmd, args) => {
@@ -51,7 +51,7 @@ async function mount(config: { plan?: RebasePlan; snapshot?: RepoSnapshot; apply
   });
   const closed: string[] = [];
   const view = createRoot(() => testSession("/r", current));
-  const mounted = mountWithApp(() => <RebaseEditor session={view} base="base0000" from="aaaaaaa1" onClose={() => closed.push("closed")} />);
+  const mounted = mountWithApp(() => <RebaseEditor session={view} base="base0000" from={config.from ?? "aaaaaaa1"} onClose={() => closed.push("closed")} />);
   dispose = mounted.dispose;
   await flush(60);
   const rows = () => [...mounted.host.querySelectorAll<HTMLElement>(".rrow")];
@@ -288,15 +288,15 @@ describe("interactive rebase editor keyboard", () => {
     const { host } = await mount();
     const rowOf = (sha: string) => host.querySelector<HTMLElement>(`.rrow[data-sha="${sha}"]`) as HTMLElement;
     const press = (sha: string, key: string) => rowOf(sha).dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
-    expect(document.activeElement).toBe(rowOf("ccccccc3"));
+    expect(document.activeElement).toBe(rowOf("aaaaaaa1"));
 
-    press("ccccccc3", "ArrowDown");
+    press("aaaaaaa1", "ArrowUp");
     await flush();
     expect(document.activeElement).toBe(rowOf("bbbbbbb2"));
-    press("bbbbbbb2", "ArrowUp");
+    press("bbbbbbb2", "ArrowDown");
     await flush();
 
-    expect(document.activeElement).toBe(rowOf("ccccccc3"));
+    expect(document.activeElement).toBe(rowOf("aaaaaaa1"));
     expect([...host.querySelectorAll<HTMLElement>(".rrow")].filter((row) => row.tabIndex === 0)).toHaveLength(1);
   });
 });
@@ -343,6 +343,15 @@ describe("interactive rebase editor with 5,000 commits", () => {
     expect(previewRows.length).toBeGreaterThan(0);
     expect(previewRows.length).toBeLessThan(60);
     expect(host.querySelector('[aria-label="Resulting history"]')?.textContent).toContain(`Resulting history · ${TOTAL} commits`);
+  });
+
+  it("opens with the commit chosen to edit history from focused and revealed", async () => {
+    const { host, rows } = await mount({ plan: plan({ commits }), from: oldest });
+    await flush(80);
+
+    expect(document.activeElement?.getAttribute("data-sha")).toBe(oldest);
+    expect(host.querySelector(`.rrow[data-sha="${oldest}"]`)).toBe(document.activeElement);
+    expect(rows().length).toBeLessThan(60);
   });
 
   it("reaches the oldest commit with ↓ and keeps the focus on the row it reached", async () => {

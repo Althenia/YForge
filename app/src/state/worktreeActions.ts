@@ -11,9 +11,10 @@ import {
   removeCopy,
   removeManyCopy,
   type CreateMode,
+  type CreatePrefill,
 } from "./worktreeModel";
 
-export type WorktreeDialog = { kind: "create" } | { kind: "integrate"; worktree: WorktreeStatus; all: readonly WorktreeStatus[] };
+export type WorktreeDialog = { kind: "create"; prefill?: CreatePrefill } | { kind: "integrate"; worktree: WorktreeStatus; all: readonly WorktreeStatus[] };
 
 export type WorktreeConfirm = { copy: ConfirmCopy; run: () => Promise<void> };
 
@@ -74,7 +75,7 @@ export function createWorktreeActions(session: RepoSession, deps: WorktreeDeps) 
     closeDialog: () => setDialog(undefined),
     confirm,
     closeConfirm: () => setConfirm(undefined),
-    openCreate: () => setDialog({ kind: "create" }),
+    openCreate: (prefill?: CreatePrefill) => setDialog(prefill === undefined ? { kind: "create" } : { kind: "create", prefill }),
     open: (target: string) => deps.openRepository(target),
     openTerminal: (target: string) => client.openPath(target, "terminal").catch(session.report),
     suggest: (branch: string) => client.worktreeSuggestPath(path, branch),

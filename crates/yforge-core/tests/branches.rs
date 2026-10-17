@@ -3,8 +3,8 @@ mod common;
 use common::Fixture;
 use yforge_core::{
     branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
-    delete_branch, dismiss_switch_stash, rename_branch, repo_snapshot, set_upstream, stash_drop,
-    switch_stashes, AutoStash, CheckoutTarget, ErrorKind, Head,
+    delete_branch, dismiss_switch_stash, rename_branch, repo_snapshot, resolve_start_point,
+    set_upstream, stash_drop, switch_stashes, AutoStash, CheckoutTarget, ErrorKind, Head,
 };
 
 fn local(name: &str) -> CheckoutTarget {
@@ -609,4 +609,37 @@ fn checks_out_a_branch_that_another_worktree_also_has_checked_out() {
         repo.run_in(&worktree, &["symbolic-ref", "--short", "HEAD"]),
         "feature/wt"
     );
+}
+
+#[test]
+fn resolves_a_start_point_to_the_full_commit_sha_of_its_tip() {
+    let repo = ready();
+    let first = repo.git(&["rev-parse", "HEAD"]);
+    repo.git(&["tag", "-a", "v1", "-m", "release"]);
+    repo.git(&["branch", "feature"]);
+    let second = repo.commit("b.txt", "two\n", "Second");
+
+    assert_eq!(
+        resolve_start_point(&repo.path, "refs/heads/feature").unwrap(),
+        first
+    );
+    assert_eq!(
+        resolve_start_point(&repo.path, "refs/tags/v1").unwrap(),
+        first
+    );
+    assert_eq!(
+        resolve_start_point(&repo.path, "refs/heads/main").unwrap(),
+        second
+    );
+    assert_eq!(
+        resolve_start_point(&repo.path, &second[..7]).unwrap(),
+        second
+    );
+    for refused in ["refs/heads/gone", "--all", "HEAD~1", ""] {
+        assert_eq!(
+            resolve_start_point(&repo.path, refused).unwrap_err().kind(),
+            ErrorKind::InvalidRequest,
+            "{refused}"
+        );
+    }
 }

@@ -134,9 +134,11 @@ fn validate(prefs: &RepoUiPrefs) -> Result<(), CoreError> {
             return Err(invalid(format!("folder {folder} is listed twice")));
         }
     }
-    if let GraphVisibility::Refs { refs } = &prefs.branch_visibility {
+    if let GraphVisibility::Refs { refs } | GraphVisibility::Hidden { refs } =
+        &prefs.branch_visibility
+    {
         if refs.len() > MAX_REFS {
-            return Err(invalid(format!("at most {MAX_REFS} refs can be shown")));
+            return Err(invalid(format!("at most {MAX_REFS} refs can be listed")));
         }
         let mut names = HashSet::new();
         for selector in refs {

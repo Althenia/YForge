@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.13] - 2026-10-17
+
+### Added
++ ⌘F finds in the view in front of the graph (diff, file, file history, blame, editor, worktrees, recovery, rebase, recompose, pull request, conflict resolver): every line counts, including lines not yet scrolled into view, matches are marked, and Enter or ⌘G steps through them.
++ Branch and tag menus offer Create worktree from <ref>…, Copy branch or tag name, Copy commit SHA, Edit commit message (for the checked-out branch), and Hide in graph / Show in graph; graph settings list hidden refs with Show and Show all.
++ Cherry-pick and Revert work on merge commits: a menu asks which parent is the mainline.
+
+### Fixed
++ The diff's Previous and Next hunk buttons move one hunk at a time from the current or visible hunk, instead of jumping to the first or last hunk.
++ ⌘F no longer opens the commit search over a view that covers the graph.
++ The commit search runs again after the graph refreshes, so its marks and Next/Previous keep pointing at the matching commits.
++ Revealing HEAD, a branch, or a commit from the palette, the menu, or the state strip closes a covering diff, file, history, worktrees, or recovery view so the graph shows it.
++ Palette Skip step and Continue operation are disabled with the reason when the operation cannot skip or still has conflicts, matching the operation banner.
++ Unsaved edits in the file editor survive switching tabs and opening Settings; closing the tab or opening another file with Edit file… asks before discarding them.
++ The conflict resolver no longer lets Mark resolved or ⌘S write the previous file's result into the next file while it loads, and drops an AI proposal that returns after the file changed.
++ Amend turns off when HEAD moves, so the next commit no longer amends a different commit with a stale message.
++ Next and Previous change in a diff start from the top of a newly shown file instead of the previous file's position.
++ End and ↑ in a long graph load, select, and scroll to the last commit.
++ The file view's Open in editor uses the chosen editor and is disabled with its reason for a commit, stash, or staged revision.
++ Edit history from a commit opens with that commit focused.
++ The conflict resolver keeps your choices and hand edits when it reads the file again unchanged; it reloads only when the file itself changed.
+
+---
+
 ## [0.3.12] - 2026-10-16
 
 ### Fixed

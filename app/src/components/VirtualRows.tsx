@@ -1,6 +1,7 @@
 import { createVirtualizer, defaultRangeExtractor, observeElementOffset } from "@tanstack/solid-virtual";
-import { createEffect, createMemo, createSignal, For, on, onMount, type JSX } from "solid-js";
+import { createEffect, createMemo, createSignal, For, on, onCleanup, onMount, type JSX } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { useFindRegistry } from "../state/find";
 
 export type VirtualRow = {
   index: number;
@@ -31,11 +32,13 @@ export function VirtualRows<T>(props: {
   measured?: boolean;
   as?: "ul" | "ol" | "div";
   class?: string;
+  findText?: (item: T) => string;
   children: (item: T, row: VirtualRow) => JSX.Element;
 }) {
   let list: HTMLElement | undefined;
   const [margin, setMargin] = createSignal(0);
   const [mounted, setMounted] = createSignal(false);
+  const finder = useFindRegistry();
   onMount(() => setMounted(true));
 
   const updateMargin = () => {
@@ -116,6 +119,24 @@ export function VirtualRows<T>(props: {
     queueMicrotask(updateMargin);
   });
 
+  onMount(() => {
+    const text = props.findText;
+    const element = list;
+    if (finder === undefined || text === undefined || element === undefined) return;
+    onCleanup(
+      finder.register({
+        element,
+        texts: () => props.items.map(text),
+        reveal: (index) => virtualizer.scrollToIndex(index, { align: "center" }),
+        rows: () =>
+          [...element.querySelectorAll<HTMLElement>("[data-find-row]")].flatMap((row) => {
+            const index = Number(row.dataset.findRow);
+            return Number.isInteger(index) ? [[index, row] as const] : [];
+          }),
+      }),
+    );
+  });
+
   return (
     <Dynamic
       component={props.as ?? "ul"}
@@ -138,6 +159,7 @@ export function VirtualRows<T>(props: {
                     },
                     measure: (element) => {
                       if (props.measured === true) element?.setAttribute("data-index", String(index));
+                      if (props.findText !== undefined) element?.setAttribute("data-find-row", String(index));
                       virtualizer.measureElement(element);
                     },
                   })}

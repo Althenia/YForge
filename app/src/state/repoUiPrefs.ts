@@ -3,6 +3,7 @@ import { useQuery } from "./query";
 import { OPTIONAL_COLUMNS, type OptionalColumn, type ResizableColumn } from "../graph/columns";
 import type { GraphColumn } from "../ipc/bindings/GraphColumn";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
+import type { RefSelector } from "../ipc/bindings/RefSelector";
 import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
 import { client } from "../ipc/client";
 import { repoKeys } from "./queryKeys";
@@ -33,6 +34,25 @@ export const toggleFolder = (prefs: RepoUiPrefs, id: string): RepoUiPrefs => ({
 });
 
 export const withVisibility = (prefs: RepoUiPrefs, branch_visibility: GraphVisibility): RepoUiPrefs => ({ ...prefs, branch_visibility });
+
+const sameRef = (left: RefSelector, right: RefSelector): boolean => left.name === right.name && left.kind === right.kind;
+
+export const hiddenRefs = (visibility: GraphVisibility): RefSelector[] => (visibility.kind === "hidden" ? visibility.refs : []);
+
+export const isHidden = (visibility: GraphVisibility, ref: RefSelector): boolean => hiddenRefs(visibility).some((entry) => sameRef(entry, ref));
+
+export function withHidden(prefs: RepoUiPrefs, ref: RefSelector): RepoUiPrefs {
+  const visibility = prefs.branch_visibility;
+  if (visibility.kind !== "all" && visibility.kind !== "hidden") return prefs;
+  if (isHidden(visibility, ref)) return prefs;
+  return withVisibility(prefs, { kind: "hidden", refs: [...hiddenRefs(visibility), { name: ref.name, kind: ref.kind }] });
+}
+
+export function withShown(prefs: RepoUiPrefs, ref: RefSelector): RepoUiPrefs {
+  if (!isHidden(prefs.branch_visibility, ref)) return prefs;
+  const rest = hiddenRefs(prefs.branch_visibility).filter((entry) => !sameRef(entry, ref));
+  return withVisibility(prefs, rest.length === 0 ? { kind: "all" } : { kind: "hidden", refs: rest });
+}
 
 export function createRepoUiPrefs(path: string, queryClient: QueryClient, report: (failure: unknown) => void) {
   const key = repoKeys.uiPrefs(path);

@@ -3,18 +3,18 @@ import { createEffect, createSignal, For, on, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import type { WorktreeActions } from "../state/worktreeActions";
-import { createBlock, defaultIntegrationTarget, existingBranchChoices, integrateCopy, integrationTargets, newBranchProblem, startPointChoices, type CreateMode } from "../state/worktreeModel";
+import { createBlock, defaultIntegrationTarget, existingBranchChoices, integrateCopy, integrationTargets, newBranchProblem, startPointChoices, type CreateMode, type CreatePrefill } from "../state/worktreeModel";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
 import { Select } from "./Select";
 
-export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: WorktreeActions }) {
+export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: WorktreeActions; prefill?: CreatePrefill }) {
   const existing = () => existingBranchChoices(props.snapshot.branches, props.snapshot.worktrees);
   const [edited, setEdited] = createSignal(false);
   const [failure, setFailure] = createSignal<string | undefined>();
   const [busy, setBusy] = createSignal(false);
   const form = createForm(() => ({
-    defaultValues: { mode: "new" as CreateMode, branch: "", start: "", destination: "" },
+    defaultValues: { mode: props.prefill?.mode ?? ("new" as CreateMode), branch: props.prefill?.branch ?? "", start: props.prefill?.start ?? "", destination: "" },
     onSubmit: async ({ value }) => {
       setBusy(true);
       setFailure(undefined);
@@ -105,7 +105,7 @@ export function CreateWorktreeDialog(props: { snapshot: RepoSnapshot; actions: W
                 <Select
                   label="Start from"
                   value={field().state.value}
-                  options={startPointChoices(props.snapshot.branches, props.snapshot.remote_branches).map((choice) => ({ value: choice.value, label: choice.label }))}
+                  options={startPointChoices(props.snapshot.branches, props.snapshot.remote_branches, props.snapshot.tags).map((choice) => ({ value: choice.value, label: choice.label }))}
                   placeholder="Choose a start point…"
                   disabled={busy()}
                   onChange={(value) => field().handleChange(value)}

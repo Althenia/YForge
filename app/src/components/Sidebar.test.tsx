@@ -77,6 +77,28 @@ function mount(selection: Selection | undefined = undefined, shape: RepoSnapshot
 const names = (host: ParentNode) => [...host.querySelectorAll('[data-nav]')].map((row) => row.getAttribute("aria-label"));
 const folder = (host: ParentNode, label: string) => host.querySelector<HTMLElement>(`[aria-label^="${label}"]`) as HTMLElement;
 
+describe("refs hidden in the graph", () => {
+  it("marks each hidden branch, remote branch, and tag with the text flag hidden and leaves the others unmarked", async () => {
+    const hidden = testUiPrefs({
+      columns: [],
+      collapsed_folders: [],
+      branch_visibility: { kind: "hidden", refs: [{ name: "feature/a", kind: "local_branch" }, { name: "origin/main", kind: "remote_branch" }, { name: "v1", kind: "tag" }] },
+    });
+    const { host } = mount(undefined, snapshot, hidden);
+    await flush();
+    const row = (id: string) => host.querySelector<HTMLElement>(`[data-nav="${id}"]`) as HTMLElement;
+    const flag = (id: string) => [...row(id).querySelectorAll(".meta")].map((element) => element.textContent).filter((text) => text === "hidden");
+
+    expect(flag("branch:feature/a")).toEqual(["hidden"]);
+    expect(row("branch:feature/a").getAttribute("aria-label")).toBe("Branch feature/a, hidden in the graph");
+    expect(flag("remote:origin/main")).toEqual(["hidden"]);
+    expect(flag("tag:v1")).toEqual(["hidden"]);
+    expect(row("tag:v1").getAttribute("aria-label")).toBe("Tag v1, hidden in the graph");
+    expect(flag("branch:main")).toEqual([]);
+    expect(flag("remote:origin/feature/a")).toEqual([]);
+  });
+});
+
 describe("sidebar branch tree", () => {
   it("uses named object glyphs in the compact rail and opens and closes the same sidebar", async () => {
     vi.stubGlobal("innerWidth", 960);

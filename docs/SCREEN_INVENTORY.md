@@ -434,6 +434,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 - **Error state:** —
 - **Destructive actions:** —
 - **Keyboard:** Enter or ⌘G next · ⇧⌘G previous · Esc close.
+- **Scope:** the graph only. While a view covers the graph, ⌘F and the Search button open "Find in <view>" instead (app/DESIGN.md S80): every line of that view, including undrawn virtual rows, with "k of n" or "No matches", Enter or ⌘G next, ⇧Enter or ⇧⌘G previous, and Esc returning focus to the view.
 
 ### S23 · Activity drawer and Undo (MVP)
 - **Purpose:** Transparency and recovery.

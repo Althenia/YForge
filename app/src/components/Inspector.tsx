@@ -6,7 +6,7 @@ import type { RepoActions } from "../state/repoActions";
 import type { RepoSession } from "../state/repoSession";
 import type { Selection } from "../state/selection";
 import { ChangesInspector } from "./ChangesInspector";
-import { CommitInspector } from "./CommitInspector";
+import { CommitInspector, type MessageEditRequest } from "./CommitInspector";
 import { OperationInspector } from "./OperationInspector";
 import { JiraIssueInspector } from "./JiraIssueInspector";
 import { PullRequestInspector } from "./PullRequestInspector";
@@ -21,6 +21,7 @@ export function Inspector(props: {
   jira?: JiraSidebar;
   composer: Composer;
   selection: Selection | undefined;
+  editRequest?: MessageEditRequest;
   activeTarget: DiffTarget | undefined;
   onOpenDiff: (target: DiffTarget) => void;
   onViewFile: (target: FileViewTarget) => void;
@@ -69,7 +70,7 @@ export function Inspector(props: {
       </Match>
       <Match when={commitSha()}>
         {(sha) => (
-          <CommitInspector session={props.session} actions={props.actions} platform={props.platform} sha={sha()} activeTarget={props.activeTarget} onSelectPull={props.onSelectPull} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
+          <CommitInspector session={props.session} actions={props.actions} platform={props.platform} sha={sha()} editRequest={props.editRequest} activeTarget={props.activeTarget} onSelectPull={props.onSelectPull} onSelectCommit={props.onSelectCommit} onOpenDiff={props.onOpenDiff} onViewFile={props.onViewFile} />
         )}
       </Match>
     </Switch>

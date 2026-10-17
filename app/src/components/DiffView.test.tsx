@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { createSignal } from "solid-js";
+import { createRoot, createSignal } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
@@ -13,6 +13,7 @@ import { buttonNamed, flush, mountWithApp, stubLayout, testSession } from "./tes
 import type { FileViewTarget } from "../state/fileView";
 import { takeFileHistoryRequest, type FileHistoryRequest } from "../state/fileHistoryRequest";
 import { DiffView } from "./DiffView";
+import { createFindRegistry, createPageFind, FindContext, type PageFind } from "../state/find";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
@@ -353,6 +354,32 @@ describe("change navigation", () => {
     expect(document.activeElement).toBe(named(host, "Select removed line 4"));
   });
 
+  it("starts change stepping from the top again once another file's diff is shown", async () => {
+    mockIPC((cmd) => (cmd === "external_tools_status" ? toolsStatus : cmd === "diff_file" ? diff : null));
+    const [file, setFile] = createSignal("src/app.ts");
+    const prefs = createDiffPrefs();
+    const mounted = mountWithApp(() => (
+      <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={{ source: "working", area: "unstaged", file: file() }} prefs={prefs} onClose={() => undefined} onViewFile={() => undefined} />
+    ));
+    dispose = mounted.dispose;
+    const { host } = mounted;
+    await flush(60);
+    click(buttonNamed(host, "Inline"));
+    await flush(60);
+    click(named(host, "Next change"));
+    await flush(30);
+    click(named(host, "Next change"));
+    await flush(30);
+    expect(document.activeElement).toBe(named(host, "Select removed line 41"));
+
+    setFile("src/other.ts");
+    await flush(60);
+    click(named(host, "Next change"));
+    await flush(30);
+
+    expect(document.activeElement).toBe(named(host, "Select removed line 4"));
+  });
+
   it("keeps hunk stepping in hunk mode", async () => {
     const { host } = mount(working());
     await flush(60);
@@ -361,6 +388,48 @@ describe("change navigation", () => {
     await flush();
 
     expect(document.activeElement).toBe(host.querySelectorAll("section.hunk")[0]);
+  });
+
+  it("steps one hunk at a time from the toolbar buttons, which take focus when clicked", async () => {
+    const third: DiffHunk = { old_start: 80, old_lines: 1, new_start: 80, new_lines: 1, heading: "", lines: [line("removed", "gone();", 80, null), line("added", "kept();", null, 80)] };
+    const { host } = mount(working(), { ...diff, hunks: [first, second, third] });
+    await flush(60);
+    const hunks = () => [...host.querySelectorAll("section.hunk")];
+    const step = async (label: string) => {
+      const button = named(host, label);
+      button?.focus();
+      click(button);
+      await flush();
+      return hunks().indexOf(document.activeElement as Element);
+    };
+
+    expect(await step("Next hunk")).toBe(0);
+    expect(await step("Next hunk")).toBe(1);
+    expect(await step("Next hunk")).toBe(2);
+    expect(await step("Next hunk")).toBe(2);
+    expect(await step("Previous hunk")).toBe(1);
+    expect(await step("Previous hunk")).toBe(0);
+    expect(await step("Previous hunk")).toBe(0);
+  });
+
+  it("steps from the hunks in view after scrolling, with no hunk focused", async () => {
+    const third: DiffHunk = { old_start: 80, old_lines: 1, new_start: 80, new_lines: 1, heading: "", lines: [line("removed", "gone();", 80, null), line("added", "kept();", null, 80)] };
+    const { host } = mount(working(), { ...diff, hunks: [first, second, third] });
+    await flush(60);
+    const hunks = [...host.querySelectorAll<HTMLElement>("section.hunk")];
+    const box = (top: number, height: number) => () => ({ x: 0, y: top, top, left: 0, right: 800, bottom: top + height, width: 800, height, toJSON: () => ({}) });
+    host.querySelector<HTMLElement>(".dbody")!.getBoundingClientRect = box(0, 400);
+    hunks.forEach((hunk, index) => (hunk.getBoundingClientRect = box([-600, -120, 240][index]!, 300)));
+
+    click(named(host, "Next hunk"));
+    await flush();
+    expect(document.activeElement).toBe(hunks[2]);
+
+    named(host, "Previous hunk")?.focus();
+    hunks[2]!.getBoundingClientRect = box(900, 300);
+    click(named(host, "Previous hunk"));
+    await flush();
+    expect(document.activeElement).toBe(hunks[1]);
   });
 });
 
@@ -487,6 +556,27 @@ describe("large diffs", () => {
     expect(rows[0]?.textContent).toContain("line 0");
     expect(host.querySelectorAll("section.hunk")).toHaveLength(1);
     expect(host.querySelector("section.hunk")?.getAttribute("aria-label")).toBe(`Hunk 1 of 1, lines 1–${LINES}`);
+  });
+
+  it("lets find count lines the window has not drawn (S80)", async () => {
+    const registry = createFindRegistry();
+    let find: PageFind | undefined;
+    mockIPC((cmd) => (cmd === "diff_file" ? big : cmd === "external_tools_status" ? toolsStatus : null));
+    const mounted = mountWithApp(() => (
+      <FindContext.Provider value={registry.registry}>
+        <DiffView session={testSession("/r", { root: "/r" } as RepoSnapshot)} target={bigTarget} prefs={createDiffPrefs()} onClose={() => undefined} onViewFile={() => undefined} />
+      </FindContext.Provider>
+    ));
+    dispose = mounted.dispose;
+    await flush(80);
+    createRoot(() => (find = createPageFind(() => mounted.host.querySelector<HTMLElement>("section.dpanel") ?? undefined, registry.lists)));
+
+    find!.show();
+    find!.setQuery("line 2999");
+    expect(find!.state()).toMatchObject({ query: "line 2999", count: 1, position: 0 });
+    expect(mounted.host.querySelector(".dline[data-find-row='2999']")).toBeNull();
+    find!.setQuery("line 1");
+    expect(find!.state().count).toBe(1111);
   });
 
   it.each(["Inline", "Split"])("windows the rows of a very large diff in %s mode", async (mode) => {

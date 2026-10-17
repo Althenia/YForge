@@ -106,7 +106,7 @@ function CommitVerbs(props: { actions: RepoActions; sha: string; merge: boolean;
               class="icon-btn dense"
               {...tip(reason() ?? plain(item() as MenuItem), undefined, verb.label)}
               aria-disabled={reason() === undefined ? undefined : "true"}
-              onClick={(event) => reason() === undefined && props.actions.runCommitItem(verb.id, props.sha, anchorBelow(event.currentTarget))}
+              onClick={(event) => reason() === undefined && props.actions.runCommitItem(verb.id, props.sha, anchorBelow(event.currentTarget), [props.sha], props.merge)}
             >
               <Icon name={verb.icon} />
             </button>
@@ -159,10 +159,13 @@ function CommitSkeleton() {
   );
 }
 
+export type MessageEditRequest = { nonce: number; sha: string };
+
 export function CommitInspector(props: {
   session: RepoSession;
   actions: RepoActions;
   sha: string;
+  editRequest?: MessageEditRequest;
   activeTarget: DiffTarget | undefined;
   platform: PlatformActions;
   onSelectPull?: (number: number) => void;
@@ -194,6 +197,14 @@ export function CommitInspector(props: {
     return head.kind === "branch" ? head.name : "HEAD";
   };
   const editReason = () => (props.session.snapshot().operation === null ? undefined : OPERATION_REASON);
+  let handledEdit: number | undefined;
+  createEffect(() => {
+    const request = props.editRequest;
+    const head = props.session.snapshot().head;
+    if (request === undefined || request.nonce === handledEdit || request.sha !== props.sha) return;
+    handledEdit = request.nonce;
+    if (head.kind !== "unborn" && head.sha === request.sha && editReason() === undefined) setEditing(true);
+  });
   const now = useNow();
   const shown = () => (details.error == null ? details.data : undefined);
   const markdown = createSettled(

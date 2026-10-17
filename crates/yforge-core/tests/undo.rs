@@ -343,10 +343,10 @@ fn undoing_merge_rebase_reset_cherry_pick_and_revert_returns_to_the_recorded_hea
                 merge(&repo.path, "topic", MergeMode::MergeCommit).unwrap();
             }
             "cherry-pick" => {
-                cherry_pick(&repo.path, &topic).unwrap();
+                cherry_pick(&repo.path, &topic, None).unwrap();
             }
             "revert" => {
-                revert(&repo.path, &start).unwrap();
+                revert(&repo.path, &start, None).unwrap();
             }
             _ => {
                 let parent = repo.git(&["rev-parse", "HEAD~1"]);

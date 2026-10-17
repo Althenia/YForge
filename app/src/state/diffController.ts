@@ -79,7 +79,17 @@ export function createDiffController(deps: { session: RepoSession; target: () =>
   const [pendingDiscard, setPendingDiscard] = createSignal<PendingDiscard | undefined>();
   let nonce = 0;
 
-  createEffect(on([shown, () => deps.target(), ignoreWhitespace], () => setSelection(undefined), { defer: true }));
+  createEffect(
+    on(
+      [shown, () => deps.target(), ignoreWhitespace],
+      () => {
+        setSelection(undefined);
+        setCursor(undefined);
+        setFocusRequest(undefined);
+      },
+      { defer: true },
+    ),
+  );
   createEffect(on(prefs.mode, () => setFocusRequest(undefined), { defer: true }));
 
   const firstKey = createMemo(() => {

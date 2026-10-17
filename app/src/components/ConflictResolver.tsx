@@ -69,10 +69,11 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
 
   const sides = () => conflictSides(props.session.snapshot());
   const labels = () => ({ current: sides().current.name, incoming: sides().incoming.name });
-  const loaded = () => (conflict.error == null ? conflict.data : undefined);
+  const held = () => (conflict.error == null ? conflict.data : undefined);
+  const loaded = () => (conflict.isPlaceholderData ? undefined : held());
   const failure = () => (conflict.error instanceof IpcError ? conflict.error.message : conflict.error == null ? undefined : String(conflict.error));
   const regions = () => {
-    const file = loaded();
+    const file = held();
     return file === undefined ? [] : regionsOf(file);
   };
   const active = () => regions()[state().active];
@@ -107,7 +108,26 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
     setRationales([]);
   };
 
-  createEffect(on(loaded, (file) => file !== undefined && load(file)));
+  const loadedContent = createMemo(() => {
+    const file = loaded();
+    return file === undefined ? undefined : JSON.stringify([props.file, file]);
+  });
+  createEffect(
+    on(loadedContent, (content) => {
+      const file = loaded();
+      if (content !== undefined && file !== undefined) load(file);
+    }),
+  );
+  createEffect(
+    on(
+      () => props.file,
+      () => {
+        proposer.cancel();
+        proposer.dismiss();
+      },
+      { defer: true },
+    ),
+  );
 
   const rebuild = (next: ResolverState) => {
     const file = loaded();
@@ -136,7 +156,7 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
   const propose = async () => {
     const file = loaded();
     const result = await proposer.start();
-    if (file === undefined || result === undefined || result.regions.length === 0) return;
+    if (file === undefined || loaded() !== file || result === undefined || result.regions.length === 0) return;
     const built = assemble(file, state(), labels(), Object.fromEntries(result.regions.map((region) => [region.index, region.text])));
     setRestore(output());
     setOutput({ text: built.text, starts: built.starts, edited: true });
@@ -179,7 +199,9 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
     void props.session.mutate(() => (content === undefined ? client.markResolved(path, [props.file]) : client.conflictResolve(path, props.file, content)));
   };
 
-  const useSide = (side: ConflictSide) => void props.session.mutate(() => client.conflictTakeSide(path, props.file, side));
+  const useSide = (side: ConflictSide) => {
+    if (loaded() !== undefined) void props.session.mutate(() => client.conflictTakeSide(path, props.file, side));
+  };
 
   const resetFile = async () => {
     if (!(await props.session.mutate(() => client.conflictReset(path, props.file)))) return;
@@ -200,7 +222,7 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
   };
 
   const wholeFileNote = () => {
-    const file = loaded();
+    const file = held();
     if (file === undefined) return undefined;
     if (file.binary) return "This is a binary file. Choose which version to keep.";
     if (!file.sides.current) return `${sides().current.name} deleted this file while the other side changed it. Keep the change or accept the deletion.`;
@@ -337,7 +359,7 @@ export function ConflictResolver(props: { session: RepoSession; actions: RepoAct
       </div>
       <div class="rbody">
         <Show when={failure()}>{(message) => <div class="graph-error" role="alert">{message()}</div>}</Show>
-        <Show when={loaded()}>
+        <Show when={held()}>
           {(file) => (
             <Show
               when={regions().length > 0}

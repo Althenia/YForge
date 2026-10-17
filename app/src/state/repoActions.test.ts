@@ -4,7 +4,11 @@ import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
 import { autoStashMessage, createRepoActions, restoreMessage } from "./repoActions";
-import { testSession } from "../components/testkit";
+import { testSession, testUiPrefs } from "../components/testkit";
+import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
+import { CURRENT_AND_UPSTREAM_HIDE_REASON } from "./refMenu";
+import { defaultUiPrefs } from "./repoUiPrefs";
+import type { CreatePrefill } from "./worktreeModel";
 
 let offline = false;
 const inspected: string[] = [];
@@ -724,6 +728,50 @@ describe("integration actions", () => {
     actions.menu()?.run("revert");
     await settle();
     expect(calls.some((call) => call.cmd === "revert" && call.args.sha === "bbbbbbbbbbbbbbbb")).toBe(true);
+  });
+
+  const MERGE = "d".repeat(40);
+  const FIRST = "1".repeat(40);
+  const SECOND = "2".repeat(40);
+  const drain = async () => {
+    for (let tick = 0; tick < 5; tick += 1) await settle();
+  };
+  const mergeHandler = (call: Call) => {
+    if (call.cmd !== "commit_details") return "completed";
+    const sha = call.args.sha as string;
+    const summary = { [MERGE]: "Merge topic", [FIRST]: "Main work", [SECOND]: "Topic work" }[sha];
+    return { sha, summary, body: "", parents: sha === MERGE ? [FIRST, SECOND] : [], refs: [], files: [] };
+  };
+
+  it("offers a merge commit's parents as the mainline before cherry-picking or reverting it", async () => {
+    for (const [id, cmd, choice] of [["cherry_pick", "cherry_pick", "2"], ["revert", "revert", "1"]] as const) {
+      const { actions, calls } = setup(mergeHandler);
+      const anchor = { left: 1, top: 2 };
+
+      actions.openCommitMenu(MERGE, true, anchor);
+      actions.menu()?.run(id);
+      await drain();
+
+      expect(calls.some((call) => call.cmd === cmd)).toBe(false);
+      expect(actions.menu()?.anchor).toEqual(anchor);
+      expect(actions.menu()?.entries.map((entry) => (entry.kind === "item" ? entry.label.map((part) => (typeof part === "string" ? part : part.ref)).join("") : "-"))).toEqual([
+        "Parent 1: 1111111 Main work",
+        "Parent 2: 2222222 Topic work",
+      ]);
+      actions.menu()?.run(choice);
+      await drain();
+      expect(calls.filter((call) => call.cmd === cmd)).toEqual([{ cmd, args: { path: "/r", sha: MERGE, mainline: Number(choice) } }]);
+    }
+  });
+
+  it("applies a single-parent commit directly when asked to choose its parent first", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "commit_details" ? { sha: FIRST, summary: "Main work", body: "", parents: [SECOND], refs: [], files: [] } : "completed"));
+
+    await actions.openApplyCommit(FIRST, "Revert", { left: 1, top: 2 });
+    await drain();
+
+    expect(actions.menu()).toBeUndefined();
+    expect(calls.filter((call) => call.cmd === "revert")).toEqual([{ cmd: "revert", args: { path: "/r", sha: FIRST } }]);
   });
 
   it("offers the three reset modes and confirms a hard reset with a danger dialog naming the lost changes", async () => {
@@ -1715,6 +1763,38 @@ describe("file operations", () => {
     expect(actions.files.editing()).toBeUndefined();
   });
 
+  it("asks before another file replaces unsaved editor edits, and replaces them once confirmed", async () => {
+    const { actions, calls } = files((call) => (call.cmd === "file_editable" ? { text: `${String(call.args.file)}\n`, eol: "\n", size: 6 } : null));
+    actions.editFile("a.txt");
+    await settle();
+    actions.files.keepDraft({ text: "a.txt\n", saved: "a.txt\n" });
+    actions.editFile("b.txt");
+    await settle();
+    expect(actions.dialog()).toBeUndefined();
+    expect(actions.files.editing()?.file).toBe("b.txt");
+
+    actions.files.keepDraft({ text: "edited\n", saved: "b.txt\n" });
+    actions.editFile("c.txt");
+    await settle();
+
+    expect(actions.files.editing()?.file).toBe("b.txt");
+    expect(calls.some((call) => call.cmd === "file_editable" && call.args.file === "c.txt")).toBe(false);
+    expect(actions.dialog()?.copy).toEqual({
+      title: "Discard unsaved edits to b.txt?",
+      names: [],
+      confirmLabel: "Discard edits",
+      consequences: ["Your edits have not been saved. Closing the editor discards them; the file on disk stays as it was."],
+    });
+    const run = actions.dialog()?.run;
+    actions.closeDialog();
+    await run?.();
+    await settle();
+
+    expect(actions.files.editing()?.file).toBe("c.txt");
+    expect(actions.files.draft()).toBeUndefined();
+    actions.files.closeEditor();
+  });
+
   it("states the reason and opens no editor when the file is binary or too large", async () => {
     const { actions, session } = files((call) => {
       if (call.cmd === "file_editable") throw rejection("invalid_request", "Invalid request: image.bin is a binary file");
@@ -2052,5 +2132,132 @@ describe("incoming markers (S74)", () => {
     become(tracking(0, 2, { head: { kind: "branch", name: "feature", sha: "f" } }));
     await session.refresh();
     await vi.waitFor(() => expect([...actions.incoming()]).toEqual(["c2"]));
+  });
+});
+
+describe("ref menu worktree, copy, message, and graph visibility items", () => {
+  function setupWith(handler: (call: Call) => unknown = () => null, initial: RepoSnapshot = snapshot(), prefs: RepoUiPrefs = defaultUiPrefs) {
+    const calls: Call[] = [];
+    mockIPC((cmd, args) => {
+      const call = { cmd, args: (args ?? {}) as Record<string, unknown> };
+      calls.push(call);
+      if (cmd === "repo_open") return initial;
+      return handler(call);
+    });
+    const session = testSession("/r", initial);
+    const uiPrefs = testUiPrefs(prefs);
+    const prefills: CreatePrefill[] = [];
+    const edits: string[] = [];
+    const actions = createRepoActions(session, {
+      selectedSha: () => undefined,
+      onSelectionGone: () => undefined,
+      pullMode: () => "fast_forward_or_merge",
+      offline: () => false,
+      inspectStash: () => undefined,
+      undoEntry: () => undefined,
+      openCreateWorktree: (prefill) => prefills.push(prefill),
+      editHeadMessage: () => edits.push("head"),
+      uiPrefs,
+    });
+    return { calls, session, actions, uiPrefs, prefills, edits };
+  }
+  const written: string[] = [];
+  const stubClipboard = (writeText: (text: string) => Promise<void> = async (text) => void written.push(text)) => vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+  afterEach(() => {
+    written.length = 0;
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the Create worktree dialog prefilled from the ref", () => {
+    const { actions, prefills } = setupWith(undefined, snapshot({ worktrees: [{ path: "/r", head: "a", branch: "main", bare: false, locked: false, prunable: false, current: true }] }));
+
+    actions.openRefMenu(feature, { left: 1, top: 2 });
+    actions.menu()?.run("create_worktree");
+    actions.openRefMenu({ kind: "local_branch", name: "main", remoteName: "origin/main", startPoint: "refs/heads/main" }, { left: 1, top: 2 });
+    actions.menu()?.run("create_worktree");
+    actions.openRefMenu({ kind: "remote_branch", name: "origin/remote-only", startPoint: "abc1234" }, { left: 1, top: 2 });
+    actions.menu()?.run("create_worktree");
+
+    expect(prefills).toEqual([
+      { mode: "existing", branch: "feature", start: "" },
+      { mode: "new", branch: "", start: "refs/heads/main" },
+      { mode: "new", branch: "remote-only", start: "refs/remotes/origin/remote-only" },
+    ]);
+  });
+
+  it("asks the workspace to edit the HEAD message from the checked-out branch", () => {
+    const { actions, edits } = setupWith();
+
+    actions.openRefMenu({ kind: "local_branch", name: "main", remoteName: "origin/main", startPoint: "refs/heads/main" }, { left: 1, top: 2 });
+    actions.menu()?.run("edit_message");
+
+    expect(edits).toEqual(["head"]);
+  });
+
+  it("copies the branch name, a remote branch's full name, and the tip SHA, and confirms each", async () => {
+    stubClipboard();
+    const sha = "f".repeat(40);
+    const { actions, calls, session } = setupWith((call) => (call.cmd === "resolve_start_point" ? sha : null));
+
+    actions.openRefMenu(feature, { left: 1, top: 2 });
+    actions.menu()?.run("copy_name");
+    await settle();
+    expect(written).toEqual(["feature"]);
+    expect(session.notice()).toBe("Copied feature");
+
+    actions.openRefMenu({ kind: "remote_branch", name: "origin/remote-only", startPoint: "refs/remotes/origin/remote-only" }, { left: 1, top: 2 });
+    actions.menu()?.run("copy_name");
+    await settle();
+    actions.menu()?.run("copy_sha");
+    await settle();
+
+    expect(written).toEqual(["feature", "origin/remote-only", sha]);
+    expect(calls.find((call) => call.cmd === "resolve_start_point")?.args).toEqual({ path: "/r", start: "refs/remotes/origin/remote-only" });
+    expect(session.notice()).toBe(`Copied ${sha}`);
+  });
+
+  it("reports a clipboard refusal and an unresolved ref through the session notice", async () => {
+    stubClipboard(async () => {
+      throw new Error("Clipboard write was blocked");
+    });
+    const { actions, session } = setupWith((call) => {
+      if (call.cmd === "resolve_start_point") throw rejection("invalid_request", "refs/tags/gone is not a commit in this repository");
+      return null;
+    });
+
+    actions.copyRefName({ kind: "tag", name: "v1", startPoint: "refs/tags/v1" });
+    await settle();
+    expect(session.notice()).toBe("Copy tag name failed: Clipboard write was blocked");
+
+    await actions.copyCommitSha({ kind: "tag", name: "gone", startPoint: "refs/tags/gone" });
+    expect(session.notice()).toBe("Copy commit SHA failed: refs/tags/gone is not a commit in this repository");
+    expect(written).toEqual([]);
+  });
+
+  it("hides a ref by switching All to the hidden list, adds more, and shows them again until All is back", () => {
+    const { actions, uiPrefs } = setupWith();
+
+    actions.openRefMenu(feature, { left: 1, top: 2 });
+    actions.menu()?.run("hide");
+    expect(uiPrefs.prefs().branch_visibility).toEqual({ kind: "hidden", refs: [{ name: "feature", kind: "local_branch" }] });
+    actions.openRefMenu({ kind: "tag", name: "v1", startPoint: "refs/tags/v1" }, { left: 1, top: 2 });
+    actions.menu()?.run("hide");
+    expect(uiPrefs.prefs().branch_visibility).toEqual({ kind: "hidden", refs: [{ name: "feature", kind: "local_branch" }, { name: "v1", kind: "tag" }] });
+
+    actions.openRefMenu(feature, { left: 1, top: 2 });
+    expect(actions.menu()?.entries.some((entry) => entry.kind === "item" && entry.id === "show")).toBe(true);
+    actions.menu()?.run("show");
+    expect(uiPrefs.prefs().branch_visibility).toEqual({ kind: "hidden", refs: [{ name: "v1", kind: "tag" }] });
+    actions.showRef({ kind: "tag", name: "v1", startPoint: "refs/tags/v1" });
+    expect(uiPrefs.prefs().branch_visibility).toEqual({ kind: "all" });
+  });
+
+  it("disables Hide in graph under Current + upstream with its reason", () => {
+    const { actions } = setupWith(undefined, snapshot(), { ...defaultUiPrefs, branch_visibility: { kind: "current_and_upstream" } });
+
+    actions.openRefMenu(feature, { left: 1, top: 2 });
+    const hide = actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "hide");
+
+    expect(hide?.kind === "item" ? hide.disabledReason : undefined).toBe(CURRENT_AND_UPSTREAM_HIDE_REASON);
   });
 });

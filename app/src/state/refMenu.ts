@@ -1,8 +1,10 @@
 import type { IconName } from "../iconNames";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import type { Operation } from "../ipc/bindings/Operation";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { StashEntry } from "../ipc/bindings/StashEntry";
+import { isHidden } from "./repoUiPrefs";
 import { SHORTCUTS } from "./shortcuts";
 
 export type MenuPart = string | { ref: string };
@@ -16,14 +18,13 @@ export type RefTarget =
   | { kind: "remote_branch"; name: string; startPoint: string }
   | { kind: "tag"; name: string; startPoint: string };
 
-export const NOT_AVAILABLE = "Not available yet";
-
 export type MenuContext = {
   current: string | undefined;
   remotes: readonly string[];
   operation: Operation | null;
   upstream?: string | null;
   selection?: readonly string[];
+  visibility?: GraphVisibility;
 };
 
 const operationBlockReason: Record<Operation, string> = {
@@ -39,9 +40,10 @@ const operationBlockReason: Record<Operation, string> = {
 export const operationBlock = (operation: Operation | null): string | undefined => (operation === null ? undefined : operationBlockReason[operation]);
 
 export const SINGLE_COMMIT_REASON = "Select a single commit";
-export const MERGE_COMMIT_REASON = "A merge commit needs a parent choice, which is not available yet";
 export const MERGE_REWRITE_REASON = "A merge commit cannot be rewritten";
 export const NO_REMOTE = "This repository has no remote";
+export const CHECKED_OUT_SHOWN_REASON = "The checked-out branch is always shown";
+export const CURRENT_AND_UPSTREAM_HIDE_REASON = "Choose All branches in the graph settings to hide refs";
 
 export function pushRemote(remotes: readonly string[]): string | undefined {
   return remotes.includes("origin") ? "origin" : remotes[0];
@@ -69,7 +71,8 @@ const menuIcons: Partial<Record<string, IconName>> = {
   drop: "trash",
   revert: "undo",
   reset: "reset",
-  copy: "copy",
+  copy_name: "copy",
+  copy_sha: "copy",
   edit_history: "rebase",
   squash: "squash",
   recompose: "recompose",
@@ -79,8 +82,6 @@ const item = (id: string, label: MenuPart[], extra: Partial<Extract<MenuEntry, {
   const icon = menuIcons[id];
   return { kind: "item", id, label, ...(icon === undefined ? {} : { icon }), ...extra };
 };
-
-const unavailable = (id: string, label: MenuPart[]): MenuEntry => item(id, label, { disabledReason: NOT_AVAILABLE });
 
 export function shortRefName(target: Pick<RefTarget, "kind" | "name">, remotes: readonly string[]): string {
   if (target.kind !== "remote_branch") return target.name;
@@ -104,6 +105,15 @@ function integrationEntries(other: string, context: MenuContext, sameBranch: boo
   ];
 }
 
+const reasoned = (reason: string | undefined): Partial<Extract<MenuEntry, { kind: "item" }>> => (reason === undefined ? {} : { disabledReason: reason });
+
+function visibilityEntry(target: RefTarget, context: MenuContext, isCurrent: boolean): MenuEntry {
+  const visibility = context.visibility ?? { kind: "all" };
+  if (isHidden(visibility, target)) return item("show", ["Show in graph"]);
+  const reason = isCurrent ? CHECKED_OUT_SHOWN_REASON : visibility.kind === "all" || visibility.kind === "hidden" ? undefined : CURRENT_AND_UPSTREAM_HIDE_REASON;
+  return item("hide", ["Hide in graph"], reasoned(reason));
+}
+
 export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
   const { current: currentBranch, remotes } = context;
   const shown = shortRefName(target, remotes);
@@ -122,7 +132,7 @@ export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
   entries.push(
     separator,
     item("create_branch", ["Create branch here…"]),
-    unavailable("create_worktree", ["Create worktree from ", ref, "…"]),
+    item("create_worktree", ["Create worktree from ", ref, "…"]),
     item("create_tag", ["Create tag here…"]),
   );
   if (target.kind === "tag") {
@@ -134,7 +144,7 @@ export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
     entries.push(
       separator,
       item("reset", ["Reset ", current, " to ", ref], operationBlock(context.operation) === undefined ? {} : { disabledReason: operationBlock(context.operation) }),
-      unavailable("edit_message", ["Edit commit message"]),
+      item("edit_message", ["Edit commit message"], reasoned(operationBlock(context.operation) ?? (isCurrent ? undefined : `Check out ${shown} to edit its latest commit message`))),
     );
   }
   entries.push(separator);
@@ -166,7 +176,13 @@ export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
       item("delete_remote_tag", ["Delete ", ref, " from ", { ref: remote ?? "remote" }, "…"], remote === undefined ? { danger: true, disabledReason: NO_REMOTE } : { danger: true }),
     );
   }
-  entries.push(separator, unavailable("copy", ["Copy"]), separator, unavailable("hide", ["Hide in graph"]));
+  entries.push(
+    separator,
+    item("copy_name", [target.kind === "tag" ? "Copy tag name" : "Copy branch name"]),
+    item("copy_sha", ["Copy commit SHA"]),
+    separator,
+    visibilityEntry(target, context, isCurrent),
+  );
   return entries;
 }
 
@@ -188,6 +204,14 @@ export function resetModeMenu(): MenuEntry[] {
     separator,
     item("hard", ["Hard"], { danger: true, note: "discard changes" }),
   ];
+}
+
+export type CommitParent = { sha: string; summary: string };
+
+export function mainlineMenu(parents: readonly CommitParent[]): MenuEntry[] {
+  return parents.map((parent, index) =>
+    item(String(index + 1), [`Parent ${index + 1}: `, { ref: parent.sha.slice(0, 7) }, ` ${parent.summary === "" ? "(no message)" : parent.summary}`], { note: "mainline: changes relative to this parent" }),
+  );
 }
 
 export type DropPlan = { title: MenuPart[]; entries: MenuEntry[]; into: string; other: string };
@@ -254,8 +278,7 @@ export function commitMenu(context: CommitMenuContext): MenuEntry[] {
   const blocked = operationBlock(context.operation);
   const several = (context.selection?.length ?? 0) > 1;
   const single = (reason: string | undefined) => (several ? SINGLE_COMMIT_REASON : reason);
-  const reasoned = (reason: string | undefined) => (reason === undefined ? {} : { disabledReason: reason });
-  const applyReason = single(blocked ?? (context.merge ? MERGE_COMMIT_REASON : undefined));
+  const applyReason = single(blocked);
   return [
     item("cherry_pick", ["Cherry-pick ", short, " onto ", current], reasoned(applyReason)),
     item("revert", ["Revert ", short], reasoned(applyReason)),

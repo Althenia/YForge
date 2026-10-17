@@ -3,6 +3,7 @@ import { createSignal } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AutoStash } from "../ipc/bindings/AutoStash";
 import type { CheckoutTarget } from "../ipc/bindings/CheckoutTarget";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { BatchOutcome } from "../ipc/bindings/BatchOutcome";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
@@ -47,6 +48,7 @@ import {
   dropBase,
   dropPlan,
   localTarget,
+  mainlineMenu,
   pushRemote,
   refMenu,
   remoteOf,
@@ -54,12 +56,15 @@ import {
   shortRefName,
   startLabel,
   stashMenu,
+  type CommitParent,
   type MenuContext,
   type MenuEntry,
   type MenuPart,
   type RefTarget,
 } from "./refMenu";
 import type { RepoSession } from "./repoSession";
+import { withHidden, withShown, type RepoUiPrefsStore } from "./repoUiPrefs";
+import { createPrefill, type CreatePrefill } from "./worktreeModel";
 import { announceOperation } from "./operationLabels";
 import { createFileOps } from "./fileOps";
 import { failureNotice } from "./errorNotice";
@@ -92,6 +97,8 @@ export type HistoryView =
   | { kind: "rebase"; base: string; from: string }
   | { kind: "squash"; shas: readonly string[] }
   | { kind: "recompose"; base: string | undefined };
+
+export type ApplyVerb = "Cherry-pick" | "Revert";
 
 export type HistoryRow = { root?: boolean; squashReason?: string };
 
@@ -161,6 +168,9 @@ export type RepoActionDeps = {
   undoEntry: (id: number) => ActivityEntry | undefined;
   submoduleUpdateOnFetch?: () => boolean;
   showFile?: (target: FileViewTarget) => void;
+  openCreateWorktree?: (prefill: CreatePrefill) => void;
+  editHeadMessage?: () => void;
+  uiPrefs?: RepoUiPrefsStore;
 };
 
 export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
@@ -704,12 +714,41 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     }
   }
 
+  const graphVisibility = (): GraphVisibility => deps.uiPrefs?.prefs().branch_visibility ?? { kind: "all" };
   const menuContext = (): MenuContext => ({
     current: currentBranch(),
     remotes: snapshot().remotes,
     operation: snapshot().operation,
     upstream: snapshot().upstream?.name ?? null,
+    visibility: graphVisibility(),
   });
+
+  const openCreateWorktree = (target: RefTarget) => deps.openCreateWorktree?.(createPrefill(target, snapshot()));
+  const editHeadMessage = () => deps.editHeadMessage?.();
+  const hideRef = (target: RefTarget) => deps.uiPrefs?.update((current) => withHidden(current, target));
+  const showRef = (target: RefTarget) => deps.uiPrefs?.update((current) => withShown(current, target));
+
+  async function copyText(text: string, operation: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      session.inform(`Copied ${text}`);
+    } catch (failure) {
+      session.report(failure, operation);
+    }
+  }
+
+  const copyRefName = (target: RefTarget) => copyText(target.name, target.kind === "tag" ? "Copy tag name" : "Copy branch name");
+
+  async function copyCommitSha(target: RefTarget): Promise<void> {
+    let sha: string;
+    try {
+      sha = await client.resolveStartPoint(path, target.startPoint);
+    } catch (failure) {
+      session.report(failure, "Copy commit SHA");
+      return;
+    }
+    await copyText(sha, "Copy commit SHA");
+  }
   const currentLabel = () => currentBranch() ?? "HEAD";
 
   async function integrate(verb: string, step: () => Promise<OperationOutcome>): Promise<void> {
@@ -761,8 +800,22 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     await session.refresh();
   }
 
-  const applyCommit = (sha: string, verb: "Cherry-pick" | "Revert") =>
-    integrate(verb, () => (verb === "Revert" ? client.revert(path, sha) : client.cherryPick(path, sha)));
+  const applyCommit = (sha: string, verb: ApplyVerb, mainline?: number) =>
+    integrate(verb, () => (verb === "Revert" ? client.revert(path, sha, mainline) : client.cherryPick(path, sha, mainline)));
+
+  async function openApplyCommit(sha: string, verb: ApplyVerb, anchor: Anchor): Promise<void> {
+    const details = (shown: string) => session.read(["details", shown], () => client.commitDetails(path, shown));
+    let parents: CommitParent[];
+    try {
+      const commit = await details(sha);
+      parents = commit.parents.length < 2 ? [] : await Promise.all(commit.parents.map(async (parent) => ({ sha: parent, summary: (await details(parent)).summary })));
+    } catch (failure) {
+      fail(failure);
+      return;
+    }
+    if (parents.length === 0) return applyCommit(sha, verb);
+    setMenu({ anchor, entries: mainlineMenu(parents), run: (id) => void applyCommit(sha, verb, Number(id)) });
+  }
 
   async function startReset(target: string, label: string, mode: ResetMode): Promise<void> {
     const preview = await previewOf(null, target);
@@ -822,6 +875,12 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
         else if (id === "set_upstream") openSetUpstream(target.name, anchor);
         else if (id === "unset_upstream") void unsetUpstream();
         else if (id === "push_to") openPushTo(anchor);
+        else if (id === "create_worktree") openCreateWorktree(target);
+        else if (id === "edit_message") editHeadMessage();
+        else if (id === "copy_name") void copyRefName(target);
+        else if (id === "copy_sha") void copyCommitSha(target);
+        else if (id === "hide") hideRef(target);
+        else if (id === "show") showRef(target);
       },
     });
   }
@@ -863,11 +922,12 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   const commitEntries = (sha: string, merge: boolean, selection: readonly string[] = [sha], row: HistoryRow = {}): MenuEntry[] =>
     commitMenu({ ...menuContext(), sha, merge, selection, ...row });
 
-  function runCommitItem(id: string, sha: string, anchor: Anchor, selection: readonly string[] = [sha]): void {
+  function runCommitItem(id: string, sha: string, anchor: Anchor, selection: readonly string[] = [sha], merge = false): void {
+    const apply = (verb: ApplyVerb) => void (merge ? openApplyCommit(sha, verb, anchor) : applyCommit(sha, verb));
     if (id === "create_branch") openCreateBranchAt(sha, anchor);
     else if (id === "create_tag") openCreateTag(sha, anchor);
-    else if (id === "cherry_pick") void applyCommit(sha, "Cherry-pick");
-    else if (id === "revert") void applyCommit(sha, "Revert");
+    else if (id === "cherry_pick") apply("Cherry-pick");
+    else if (id === "revert") apply("Revert");
     else if (id === "reset") openResetModes(sha, sha.slice(0, 7), anchor);
     else if (id === "edit_history") void openRebaseEditor(sha);
     else if (id === "squash") setHistory({ kind: "squash", shas: selection });
@@ -879,7 +939,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
       anchor,
       entries: commitEntries(sha, merge, selection, row),
       ...(selection.length > 1 ? { title: [`${selection.length} commits selected`] } : {}),
-      run: (id) => runCommitItem(id, sha, anchor, selection),
+      run: (id) => runCommitItem(id, sha, anchor, selection, merge),
     });
   }
 
@@ -1081,6 +1141,13 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     checkoutRef,
     activateRef,
     openRefMenu,
+    graphVisibility,
+    openCreateWorktree,
+    editHeadMessage,
+    copyRefName,
+    copyCommitSha,
+    hideRef,
+    showRef,
     openCreateBranch,
     submitCreateBranch,
     openCommitMenu,
@@ -1118,7 +1185,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     openMerge,
     startRebase,
     fastForward,
-    applyCommit,
+    openApplyCommit,
     startReset,
     openCreateTag,
     pushTag,

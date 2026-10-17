@@ -3,6 +3,7 @@ import type { AmendInfo } from "../ipc/bindings/AmendInfo";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { createEffect, createMemo, on, type Accessor } from "solid-js";
 import { client, IpcError } from "../ipc/client";
 import { createStoreFields } from "./clientStore";
 import type { RepoSession } from "./repoSession";
@@ -74,6 +75,7 @@ export function createComposer() {
     description: string;
     amend: boolean;
     pushed: boolean;
+    prefill: Draft | undefined;
     busy: boolean;
     failure: IpcError | undefined;
     tab: ComposerTab;
@@ -86,6 +88,7 @@ export function createComposer() {
     description: "",
     amend: false,
     pushed: false,
+    prefill: undefined,
     busy: false,
     failure: undefined,
     tab: "commit",
@@ -98,6 +101,7 @@ export function createComposer() {
   const [description, setDescription] = field("description");
   const [amend, setAmend] = field("amend");
   const [pushed, setPushed] = field("pushed");
+  const [prefill, setPrefill] = field("prefill");
   const [busy, setBusy] = field("busy");
   const [failure, setFailure] = field("failure");
   const [tab, setTab] = field("tab");
@@ -114,6 +118,8 @@ export function createComposer() {
     setAmend,
     pushed,
     setPushed,
+    prefill,
+    setPrefill,
     busy,
     setBusy,
     failure,
@@ -132,6 +138,27 @@ export function createComposer() {
 }
 
 export type Composer = ReturnType<typeof createComposer>;
+
+export function followHead(composer: Composer, headSha: Accessor<string | undefined>): void {
+  const sha = createMemo(headSha);
+  createEffect(
+    on(
+      sha,
+      () => {
+        if (!composer.amend()) return;
+        const prefill = composer.prefill();
+        if (prefill !== undefined && composer.summary() === prefill.summary && composer.description() === prefill.description) {
+          composer.setSummary("");
+          composer.setDescription("");
+        }
+        composer.setPrefill(undefined);
+        composer.setAmend(false);
+        composer.setPushed(false);
+      },
+      { defer: true },
+    ),
+  );
+}
 
 const asIpcError = (failure: unknown): IpcError =>
   failure instanceof IpcError ? failure : new IpcError({ kind: "internal", message: String(failure) });
@@ -178,6 +205,7 @@ export function createCommitAction(deps: {
     composer.setDescription("");
     composer.setAmend(false);
     composer.setPushed(false);
+    composer.setPrefill(undefined);
     deps.onCommitted(sha);
     if (!options.push) return;
     try {
@@ -192,13 +220,16 @@ export function createCommitAction(deps: {
     if (!on) {
       composer.setAmend(false);
       composer.setPushed(false);
+      composer.setPrefill(undefined);
       return;
     }
     try {
       const info = await session.read(["amend"], () => client.amendInfo(session.path));
-      const draft = amendDraft({ summary: composer.summary(), description: composer.description() }, info);
+      const current = { summary: composer.summary(), description: composer.description() };
+      const draft = amendDraft(current, info);
       composer.setSummary(draft.summary);
       composer.setDescription(draft.description);
+      composer.setPrefill(draft === current ? undefined : draft);
       composer.setPushed(info.pushed);
       composer.setAmend(true);
     } catch (failure) {

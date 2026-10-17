@@ -128,6 +128,7 @@ export function CommandBar(props: {
   onRedo: () => void;
   onPalette: () => void;
   onSearch: () => void;
+  searchLabel?: string;
 }) {
   const labelled = createToolbarLabels();
   const linkedWorktree = () => {
@@ -193,7 +194,7 @@ export function CommandBar(props: {
         <span class="cmd-text">Search commits, branches, or run a command</span>
         <span class="kbd">{SHORTCUTS.palette}</span>
       </button>
-      <button type="button" class="icon-btn" {...tip("Search commits", SHORTCUTS.search)} onClick={props.onSearch}>
+      <button type="button" class="icon-btn" {...tip(props.searchLabel ?? "Search commits", SHORTCUTS.search)} onClick={props.onSearch}>
         <Icon name="search" />
       </button>
       <Split

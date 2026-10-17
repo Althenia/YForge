@@ -8,6 +8,8 @@ export const EDITOR_REASON = "Choose an external editor in Settings → External
 export const DIFF_TOOL_REASON = "Choose an external diff tool in Settings → External tools";
 export const MERGE_TOOL_REASON = "Choose an external merge tool in Settings → External tools";
 
+export const WORKTREE_EDITOR_REASON = "Only the working tree copy opens in an editor";
+
 export const COMPARISON_TOOL_REASON = "An external diff tool opens one commit or your changes, not a comparison";
 
 export function diffToolSource(target: Exclude<DiffTarget, { source: "range" }>): DiffToolSource {

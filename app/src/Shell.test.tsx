@@ -1,9 +1,15 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { render } from "solid-js/web";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EditorView } from "@codemirror/view";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { createRoot } from "solid-js";
 import { App } from "./App";
-import { flush } from "./components/testkit";
+import { flush, testSession } from "./components/testkit";
+import type { RepoSnapshot } from "./ipc/bindings/RepoSnapshot";
+import { createFileOps, unsavedEditorFile } from "./state/fileOps";
 import { stubScrollLayout } from "./components/virtualTestkit";
 import { defaultSettings } from "./state/settingsModel";
 
@@ -104,6 +110,38 @@ describe("shell sheets and the repository search palette", () => {
 
     expect(initialized).toEqual(["/plain"]);
     expect(host.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("asks with the editor's discard copy before File → Close Tab closes a repository with unsaved edits", async () => {
+    const plain = { root: "/plain", main_root: "/plain", head: { kind: "unborn", branch: "main" }, files: [], counts: {}, remotes: [], branches: [], tags: [], stashes: [], worktrees: [], operation: null, upstream: null };
+    const tokens = document.createElement("style");
+    tokens.textContent = readFileSync(resolve(import.meta.dirname, "styles/tokens.css"), "utf8");
+    document.head.append(tokens);
+    onTestFinished(() => tokens.remove());
+    const host = mountApp({ launch_path: "/plain", repo_open: plain, app_info: { app_version: "0.1.0", git_version: "2.50.0" }, file_editable: { text: "one\n", eol: "\n", size: 4 } });
+    await flush(120);
+    const files = createRoot(() => createFileOps(testSession("/plain", plain as unknown as RepoSnapshot), { confirm: () => undefined, fail: () => undefined }));
+    await files.editFile("a.txt");
+    await flush(40);
+    const editor = EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor") as HTMLElement) as EditorView;
+    editor.dispatch({ changes: { from: 0, to: 0, insert: "zero\n" } });
+    await flush();
+    const repoTab = () => [...host.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("title") === "/plain");
+    expect(repoTab()?.getAttribute("aria-selected")).toBe("true");
+
+    await emit("menu-action", "tab.close");
+    await flush(40);
+
+    const dialog = host.querySelector('[role="alertdialog"]');
+    expect(dialog?.querySelector("h3")?.textContent).toBe("Discard unsaved edits to a.txt?");
+    expect(repoTab()).not.toBeUndefined();
+    [...(dialog?.querySelectorAll<HTMLButtonElement>("button") ?? [])].find((button) => button.textContent === "Discard edits")?.click();
+    await flush(40);
+
+    expect(host.querySelector('[role="alertdialog"]')).toBeNull();
+    expect(repoTab()).toBeUndefined();
+    expect(unsavedEditorFile("/plain")).toBeUndefined();
+    expect(files.editing()).toBeUndefined();
   });
 
   it("shows the keyboard shortcuts sheet for Help → Keyboard Shortcuts and closes it with Escape", async () => {

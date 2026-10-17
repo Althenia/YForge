@@ -1,8 +1,9 @@
 import type { OperationResult } from "./syncModel";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { createRoot, createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
-import { amendDraft, amendWarning, commitButton, commitIdentityLabel, commitPushReason, createCommitAction, createComposer, stashButton, stashMessage, summaryRemaining } from "./composer";
+import { amendDraft, amendWarning, commitButton, commitIdentityLabel, commitPushReason, createCommitAction, createComposer, followHead, stashButton, stashMessage, summaryRemaining } from "./composer";
 import { testSession } from "../components/testkit";
 import { IpcError } from "../ipc/client";
 
@@ -262,6 +263,41 @@ describe("commit action", () => {
     expect([composer.amend(), composer.summary(), composer.description(), composer.pushed()]).toEqual([true, "Old subject", "Old body", true]);
     await action.toggleAmend(false);
     expect([composer.amend(), composer.pushed()]).toEqual([false, false]);
+  });
+
+  it("turns amend off and drops the pushed flag and the untouched HEAD message once HEAD moves", async () => {
+    mockIPC(() => ({ sha: "abc", summary: "Old subject", description: "Old body", pushed: true }));
+    const { composer, action } = commitFixture(0);
+    const [head, setHead] = createSignal<string | undefined>("abc");
+    const dispose = createRoot((done) => {
+      followHead(composer, head);
+      return done;
+    });
+    await action.toggleAmend(true);
+
+    setHead("abc");
+    expect([composer.amend(), composer.pushed(), composer.summary()]).toEqual([true, true, "Old subject"]);
+    setHead("def");
+
+    expect([composer.amend(), composer.pushed(), composer.summary(), composer.description()]).toEqual([false, false, "", ""]);
+    dispose();
+  });
+
+  it("keeps a message the user typed or edited when HEAD moves during an amend", async () => {
+    mockIPC(() => ({ sha: "abc", summary: "Old subject", description: "Old body", pushed: false }));
+    const { composer, action } = commitFixture(0);
+    const [head, setHead] = createSignal<string | undefined>("abc");
+    const dispose = createRoot((done) => {
+      followHead(composer, head);
+      return done;
+    });
+    await action.toggleAmend(true);
+    composer.setSummary("Edited subject");
+
+    setHead("def");
+
+    expect([composer.amend(), composer.summary(), composer.description()]).toEqual([false, "Edited subject", "Old body"]);
+    dispose();
   });
 
   it("leaves amend off and reports the error when there is no commit to amend", async () => {

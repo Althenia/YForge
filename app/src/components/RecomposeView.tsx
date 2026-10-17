@@ -425,7 +425,7 @@ export function RecomposeView(props: { session: RepoSession; base: string | unde
             <h4>Changes</h4>
             <div role="list">
               <Show when={catalog().length > 0} fallback={<p class="setting-note">{baseRef() === undefined ? "There is no upstream. Choose a base commit to recompose from." : "Nothing to assign yet."}</p>}>
-                <VirtualRows as="div" class="clist" measured items={catalog()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={catalog().findIndex((file) => file.path === focusedFile())}>
+                <VirtualRows as="div" class="clist" measured items={catalog()} scroller={() => scroller} estimate={fileRowHeight()} keepIndex={catalog().findIndex((file) => file.path === focusedFile())} findText={(file) => file.path}>
                   {(file, virtual) => (
                     <div role="listitem" ref={virtual.measure} style={virtual.style} onFocusIn={() => setFocusedFile(file.path)}>
                       <FileRows file={file} />

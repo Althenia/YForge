@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import {
   createBlock,
+  createPrefill,
   defaultIntegrationTarget,
   destinationProblem,
   existingBranchChoices,
@@ -101,16 +102,26 @@ describe("creating a worktree", () => {
     expect(newBranchProblem("fresh", branches)).toBeUndefined();
   });
 
-  it("offers only the local branches no worktree holds, and HEAD then the branches as start points", () => {
+  it("offers only the local branches no worktree holds, and HEAD then the branches and tags as start points", () => {
     expect(existingBranchChoices(branches, all)).toEqual(["spare"]);
-    expect(startPointChoices(branches, ["origin/main"])).toEqual([
+    expect(startPointChoices(branches, ["origin/main"], ["v1"])).toEqual([
       { value: "", label: "Current HEAD" },
       { value: "refs/heads/main", label: "main" },
       { value: "refs/heads/feature/x", label: "feature/x" },
       { value: "refs/heads/fix", label: "fix" },
       { value: "refs/heads/spare", label: "spare" },
       { value: "refs/remotes/origin/main", label: "origin/main" },
+      { value: "refs/tags/v1", label: "v1" },
     ]);
+  });
+
+  it("prefills an existing branch no worktree holds, and otherwise a new branch started from the ref", () => {
+    const repository = { branches, remotes: ["origin"], worktrees: all };
+
+    expect(createPrefill({ kind: "local_branch", name: "spare", remoteName: undefined, startPoint: "abc1234" }, repository)).toEqual({ mode: "existing", branch: "spare", start: "" });
+    expect(createPrefill({ kind: "local_branch", name: "feature/x", remoteName: undefined, startPoint: "refs/heads/feature/x" }, repository)).toEqual({ mode: "new", branch: "", start: "refs/heads/feature/x" });
+    expect(createPrefill({ kind: "remote_branch", name: "origin/topic/y", startPoint: "abc1234" }, repository)).toEqual({ mode: "new", branch: "topic/y", start: "refs/remotes/origin/topic/y" });
+    expect(createPrefill({ kind: "tag", name: "v1", startPoint: "abc1234" }, repository)).toEqual({ mode: "new", branch: "", start: "refs/tags/v1" });
   });
 
   it("needs a full path for the folder", () => {

@@ -12,7 +12,7 @@ import { createPendingIndicator } from "../state/pending";
 import type { RepoSession } from "../state/repoSession";
 import { createViewSwap } from "../state/viewSwap";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { GapRow, HunkHead, NoteRow, SplitRow, UnifiedLine } from "./DiffLines";
+import { diffRowText, GapRow, HunkHead, NoteRow, SplitRow, UnifiedLine } from "./DiffLines";
 import { Icon } from "./Icon";
 import { PendingLine } from "./PendingLine";
 import { Switch } from "./Switch";
@@ -74,14 +74,30 @@ function FlatRow(props: { diff: DiffController; row: DiffRow; split: boolean; vi
 }
 
 export function createDiffStep(diff: DiffController, mode: () => DiffMode, container: () => HTMLElement | undefined) {
+  let visited: HTMLElement | undefined;
+  const track = (event: FocusEvent) => {
+    const hunk = event.target instanceof Element ? event.target.closest<HTMLElement>(".hunk") : null;
+    if (hunk !== null) visited = hunk;
+  };
   const stepHunk = (delta: 1 | -1) => {
     const hunks = [...(container()?.querySelectorAll<HTMLElement>(".hunk") ?? [])];
-    const at = hunks.indexOf(document.activeElement?.closest<HTMLElement>(".hunk") ?? document.body);
-    hunks[at === -1 ? (delta === 1 ? 0 : hunks.length - 1) : at + delta]?.focus();
+    const view = container()?.querySelector(".dbody")?.getBoundingClientRect();
+    if (hunks.length === 0 || view === undefined) return;
+    const shown = (hunk: HTMLElement) => {
+      const box = hunk.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom;
+    };
+    const current = document.activeElement?.closest<HTMLElement>(".hunk") ?? visited;
+    const at = current === undefined || !shown(current) ? -1 : hunks.indexOf(current);
+    const below = hunks.findIndex((hunk) => hunk.getBoundingClientRect().top >= view.top - 1);
+    const above = below === -1 ? hunks.length - 1 : below - 1;
+    const target = at !== -1 ? Math.min(Math.max(at + delta, 0), hunks.length - 1) : delta === 1 ? (below === -1 ? hunks.length - 1 : below) : Math.max(above, 0);
+    hunks[target]?.focus();
   };
   return {
     step: (delta: 1 | -1) => (mode() === "hunk" ? stepHunk(delta) : diff.stepChange(delta)),
     unit: () => (mode() === "hunk" ? "hunk" : "change"),
+    track,
   };
 }
 
@@ -153,6 +169,7 @@ export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode
                   estimate={LINE_ESTIMATE}
                   keepIndex={diff.keepIndex(undefined)}
                   reveal={diff.reveal()}
+                  findText={(row) => diffRowText(row, diff.hunks())}
                 >
                   {(row, virtual) => <FlatRow diff={diff} row={row} split={props.mode === "split"} virtual={virtual} actions={props.hunkActions} />}
                 </VirtualRows>
@@ -177,6 +194,7 @@ export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode
                       estimate={LINE_ESTIMATE}
                       keepIndex={diff.keepIndex(index())}
                       reveal={diff.reveal()?.hunk === index() ? diff.reveal() : undefined}
+                      findText={(row) => diffRowText(row, diff.hunks())}
                     >
                       {(row, virtual) => (
                         <FlatRow diff={diff} row={row} split={false} virtual={virtual} actions={props.hunkActions} />
@@ -201,7 +219,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
   const mode = () => props.prefs.mode();
 
   let panel: HTMLElement | undefined;
-  const { step, unit } = createDiffStep(diff, mode, () => panel);
+  const { step, unit, track } = createDiffStep(diff, mode, () => panel);
 
   const tools = createExternalTools(props.session);
 
@@ -209,7 +227,7 @@ export function DiffView(props: { session: RepoSession; target: DiffTarget; pref
     requestFileHistory(props.target.source === "commit" ? { file: props.target.file, sha: props.target.sha, view } : { file: props.target.file, view });
 
   return (
-    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.diff.isFetching} ref={panel}>
+    <section class="panel dpanel" aria-label="Diff" aria-busy={diff.diff.isFetching} ref={panel} onFocusIn={track}>
       <PendingLine pending={diff.diff.isFetching} label="Loading diff" />
       <div class="dhead">
         <nav class="crumbs" aria-label="Breadcrumb">

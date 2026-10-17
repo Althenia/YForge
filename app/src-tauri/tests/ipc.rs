@@ -1087,6 +1087,51 @@ fn integration_commands_preview_merge_rebase_pick_revert_and_fast_forward() {
 }
 
 #[test]
+fn cherry_pick_and_revert_take_the_mainline_parent_of_a_merge_commit() {
+    let (_app, window) = app();
+    let repo = committed_repository();
+    let path = repo.path();
+    git(path, &["switch", "-q", "-c", "topic"]);
+    std::fs::write(path.join("b.txt"), "b\n").expect("write");
+    git(path, &["add", "b.txt"]);
+    git(path, &["commit", "-q", "-m", "Add b"]);
+    git(path, &["switch", "-q", "main"]);
+    std::fs::write(path.join("c.txt"), "c\n").expect("write");
+    git(path, &["add", "c.txt"]);
+    git(path, &["commit", "-q", "-m", "Add c"]);
+    git(
+        path,
+        &["merge", "-q", "--no-ff", "-m", "Merge topic", "topic"],
+    );
+    let merge = git_output(path, &["rev-parse", "HEAD"]);
+
+    let refused = invoke(&window, "revert", json!({ "path": path, "sha": merge }))
+        .expect_err("needs a mainline");
+    assert_eq!(refused["kind"], "invalid_request");
+
+    let reverted = invoke(
+        &window,
+        "revert",
+        json!({ "path": path, "sha": merge, "mainline": 1 }),
+    )
+    .expect("revert");
+    assert_eq!(reverted, "completed");
+    assert!(!path.join("b.txt").exists());
+    assert!(path.join("c.txt").exists());
+
+    git(path, &["switch", "-q", "-c", "other", "HEAD~1~1~1"]);
+    let picked = invoke(
+        &window,
+        "cherry_pick",
+        json!({ "path": path, "sha": merge, "mainline": 2 }),
+    )
+    .expect("pick");
+    assert_eq!(picked, "completed");
+    assert!(path.join("c.txt").exists());
+    assert!(!path.join("b.txt").exists());
+}
+
+#[test]
 fn reset_accepts_each_mode_and_rejects_unknown_ones() {
     let (_app, window) = app();
     let repo = committed_repository();

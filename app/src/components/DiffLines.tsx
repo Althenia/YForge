@@ -2,7 +2,8 @@ import { createEffect, For, Show } from "solid-js";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { DiffController } from "../state/diffController";
 import { hunkHeader, lineMarker, type HunkAction } from "../state/diffModel";
-import type { Cell, NoteSide } from "../state/diffRows";
+import type { Cell, DiffRow, NoteSide } from "../state/diffRows";
+import { displayText } from "../state/diffHighlight";
 import { lineKey } from "../state/diffRows";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -156,6 +157,24 @@ export function SplitRow(props: { diff: DiffController; left: Cell | undefined; 
       <Half diff={props.diff} cell={props.right} side="new" />
     </div>
   );
+}
+
+export function diffRowText(row: DiffRow, hunks: readonly DiffHunk[]): string {
+  const cellText = (cell: Cell | undefined) => (cell === undefined ? "" : displayText(cell.line.text));
+  switch (row.kind) {
+    case "head": {
+      const hunk = hunks[row.hunk];
+      return hunk === undefined ? "" : hunkHeader(hunk);
+    }
+    case "gap":
+      return `${row.hidden} unchanged ${row.hidden === 1 ? "line" : "lines"}`;
+    case "line":
+      return cellText(row.cell);
+    case "pair":
+      return cellText(row.left) + cellText(row.right);
+    case "note":
+      return NEWLINE_NOTE;
+  }
 }
 
 export function GapRow(props: { hidden: number; virtual: VirtualRow }) {

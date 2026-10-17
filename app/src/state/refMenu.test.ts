@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
 import {
-  MERGE_COMMIT_REASON,
-  NOT_AVAILABLE,
+  CURRENT_AND_UPSTREAM_HIDE_REASON,
   NO_REMOTE,
   SINGLE_COMMIT_REASON,
   commitMenu,
   dropPlan,
+  mainlineMenu,
   operationBlock,
   pushRemote,
   refMenu,
@@ -68,21 +68,21 @@ describe("branch context menu", () => {
       "Delete origin/feature/greeting…",
       "Delete feature/greeting and origin/feature/greeting…",
       "-",
-      "Copy",
+      "Copy branch name",
+      "Copy commit SHA",
       "-",
       "Hide in graph",
     ]);
   });
 
-  it("enables the integration, create, reset, rename, and delete actions and disables only the out-of-scope ones with the reason", () => {
+  it("enables the integration, create, worktree, reset, rename, delete, copy, and hide actions of a branch that is not checked out", () => {
     const entries = refMenu(local, context("main"));
 
-    for (const id of ["checkout", "merge", "rebase", "fast_forward", "create_branch", "create_tag", "reset", "rename", "delete"]) {
+    for (const id of ["checkout", "merge", "rebase", "fast_forward", "create_branch", "create_worktree", "create_tag", "reset", "rename", "delete", "copy_name", "copy_sha", "hide"]) {
       expect(item(entries, id).disabledReason).toBeUndefined();
     }
-    for (const id of ["create_worktree", "edit_message", "copy", "hide"]) {
-      expect(item(entries, id).disabledReason).toBe(NOT_AVAILABLE);
-    }
+    expect(item(entries, "edit_message").disabledReason).toBe("Check out feature/greeting to edit its latest commit message");
+    expect(entries.some((entry) => entry.kind === "item" && entry.disabledReason === "Not available yet")).toBe(false);
     expect(item(entries, "delete").danger).toBe(true);
     expect(item(entries, "delete_remote").danger).toBe(true);
     expect(item(entries, "delete_remote").disabledReason).toBeUndefined();
@@ -176,7 +176,8 @@ describe("branch context menu", () => {
       "Delete v1.0…",
       "Delete v1.0 from origin…",
       "-",
-      "Copy",
+      "Copy tag name",
+      "Copy commit SHA",
       "-",
       "Hide in graph",
     ]);
@@ -190,6 +191,59 @@ describe("branch context menu", () => {
 
     expect(item(entries, "push_tag").disabledReason).toBe(NO_REMOTE);
     expect(item(entries, "delete_remote_tag").disabledReason).toBe(NO_REMOTE);
+  });
+
+  it("edits the latest commit message only from the checked-out branch, and not while an operation is in progress", () => {
+    const own = { ...local, name: "main", remoteName: undefined };
+    expect(item(refMenu(own, context("main")), "edit_message").disabledReason).toBeUndefined();
+    expect(item(refMenu(own, context("main", [], "merge")), "edit_message").disabledReason).toBe("Finish or abort the merge first");
+    const remote: RefTarget = { kind: "remote_branch", name: "origin/feature/x", startPoint: "refs/remotes/origin/feature/x" };
+    expect(item(refMenu(remote, context("main", ["origin"])), "edit_message").disabledReason).toBe("Check out feature/x to edit its latest commit message");
+    expect(item(refMenu(local, context(undefined)), "edit_message").disabledReason).toBe("Check out feature/greeting to edit its latest commit message");
+  });
+
+  it("creates a worktree from any branch or tag, the checked-out branch included", () => {
+    const targets: RefTarget[] = [
+      { ...local, name: "main", remoteName: undefined },
+      { kind: "remote_branch", name: "origin/feature/x", startPoint: "refs/remotes/origin/feature/x" },
+      { kind: "tag", name: "v1.0", startPoint: "refs/tags/v1.0" },
+    ];
+    for (const target of targets) {
+      const entry = item(refMenu(target, context("main", ["origin"], "rebase")), "create_worktree");
+      expect(entry.disabledReason).toBeUndefined();
+      expect(entry.icon).toBe("worktree");
+    }
+  });
+
+  it("copies the full remote branch name and the tip commit SHA with the copy glyph", () => {
+    const remote: RefTarget = { kind: "remote_branch", name: "origin/feature/x", startPoint: "refs/remotes/origin/feature/x" };
+    const entries = refMenu(remote, context("main", ["origin"]));
+
+    expect(text(item(entries, "copy_name").label)).toBe("Copy branch name");
+    expect(text(item(entries, "copy_sha").label)).toBe("Copy commit SHA");
+    expect(item(entries, "copy_name").icon).toBe("copy");
+    expect(item(entries, "copy_sha").icon).toBe("copy");
+  });
+
+  it("hides any ref but the checked-out branch, and nothing while the graph shows only the current branch and its upstream", () => {
+    const own = { ...local, name: "main", remoteName: undefined };
+    expect(item(refMenu(own, context("main")), "hide").disabledReason).toBe("The checked-out branch is always shown");
+    const narrowed = { ...context("main"), visibility: { kind: "current_and_upstream" as const } };
+    expect(item(refMenu(local, narrowed), "hide").disabledReason).toBe(CURRENT_AND_UPSTREAM_HIDE_REASON);
+    expect(item(refMenu({ kind: "tag", name: "v1.0", startPoint: "refs/tags/v1.0" }, narrowed), "hide").disabledReason).toBe(CURRENT_AND_UPSTREAM_HIDE_REASON);
+    const hiding = { ...context("main"), visibility: { kind: "hidden" as const, refs: [{ name: "v1.0", kind: "tag" as const }] } };
+    expect(item(refMenu(local, hiding), "hide").disabledReason).toBeUndefined();
+  });
+
+  it("offers Show in graph instead of Hide in graph on a hidden ref", () => {
+    const hiding = { ...context("main"), visibility: { kind: "hidden" as const, refs: [{ name: "feature/greeting", kind: "local_branch" as const }] } };
+    const entries = refMenu(local, hiding);
+
+    expect(text(item(entries, "show").label)).toBe("Show in graph");
+    expect(item(entries, "show").disabledReason).toBeUndefined();
+    expect(entries.some((entry) => entry.kind === "item" && entry.id === "hide")).toBe(false);
+    const sameNameTag = refMenu({ kind: "tag", name: "feature/greeting", startPoint: "refs/tags/feature/greeting" }, hiding);
+    expect(sameNameTag.some((entry) => entry.kind === "item" && entry.id === "show")).toBe(false);
   });
 
   it("pushes to origin when it exists and to the first remote otherwise", () => {
@@ -267,11 +321,13 @@ describe("commit row context menu", () => {
     expect(item(busy, "recompose").disabledReason).toBe("Finish or abort the rebase first");
   });
 
-  it("disables pick and revert for a merge commit and everything integrating during an operation", () => {
+  it("enables pick and revert for a merge commit and disables everything integrating during an operation", () => {
     const merge = menu({ merge: true });
-    expect(item(merge, "cherry_pick").disabledReason).toBe(MERGE_COMMIT_REASON);
-    expect(item(merge, "revert").disabledReason).toBe(MERGE_COMMIT_REASON);
-    expect(item(merge, "reset").disabledReason).toBeUndefined();
+    for (const id of ["cherry_pick", "revert", "reset"]) expect(item(merge, id).disabledReason).toBeUndefined();
+    for (const id of ["cherry_pick", "revert"]) {
+      expect(item(menu({ merge: true, operation: "revert" }), id).disabledReason).toBe("Finish or abort the revert first");
+      expect(item(commitMenu({ ...context("main"), sha: "abcdef0123456", merge: true, selection: ["abcdef0123456", "1234567abcdef"] }), id).disabledReason).toBe(SINGLE_COMMIT_REASON);
+    }
 
     const busy = menu({ operation: "merge" });
     for (const id of ["cherry_pick", "revert", "reset"]) expect(item(busy, id).disabledReason).toBe("Finish or abort the merge first");
@@ -315,6 +371,23 @@ describe("commit menu with a multi-selection", () => {
 describe("menu shortcut hints", () => {
   it("shows the branch shortcut on Create branch here in the commit menu", () => {
     expect(item(commitMenu({ ...context("main"), sha: "abcdef0123456", merge: false }), "create_branch").shortcut).toBe("⌘B");
+  });
+});
+
+describe("mainline parent menu", () => {
+  it("lists each parent by number, short sha, and summary, noting that changes are taken relative to it", () => {
+    const entries = mainlineMenu([
+      { sha: "1111111aaaaaaa", summary: "Main work" },
+      { sha: "2222222bbbbbbb", summary: "" },
+    ]);
+
+    expect(layout(entries)).toEqual(["Parent 1: 1111111 Main work", "Parent 2: 2222222 (no message)"]);
+    expect(entries.map((entry) => entry.kind === "item" && entry.id)).toEqual(["1", "2"]);
+    expect(item(entries, "1").label).toEqual(["Parent 1: ", { ref: "1111111" }, " Main work"]);
+    for (const id of ["1", "2"]) {
+      expect(item(entries, id).note).toBe("mainline: changes relative to this parent");
+      expect(item(entries, id).disabledReason).toBeUndefined();
+    }
   });
 });
 

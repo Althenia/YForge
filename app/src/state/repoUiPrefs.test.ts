@@ -3,7 +3,7 @@ import { createRoot } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RepoUiPrefs } from "../ipc/bindings/RepoUiPrefs";
 import { createQueryClient } from "./queryClient";
-import { columnVisibility, columnWidths, createRepoUiPrefs, defaultUiPrefs, resetColumns, toggleFolder, withColumn, withVisibility } from "./repoUiPrefs";
+import { columnVisibility, columnWidths, createRepoUiPrefs, defaultUiPrefs, hiddenRefs, isHidden, resetColumns, toggleFolder, withColumn, withHidden, withShown, withVisibility } from "./repoUiPrefs";
 
 afterEach(() => clearMocks());
 
@@ -44,6 +44,38 @@ describe("repository interface preferences", () => {
     expect(collapsed.collapsed_folders).toEqual(["local:feature"]);
     expect(toggleFolder(collapsed, "local:feature").collapsed_folders).toEqual([]);
     expect(withVisibility(defaultUiPrefs, { kind: "current_and_upstream" }).branch_visibility).toEqual({ kind: "current_and_upstream" });
+  });
+});
+
+describe("refs hidden in the graph", () => {
+  const feature = { name: "feature", kind: "local_branch" as const };
+  const tag = { name: "feature", kind: "tag" as const };
+
+  it("switches All to a hidden list, adds each ref once, and tells refs of different kinds apart", () => {
+    const one = withHidden(defaultUiPrefs, feature);
+    const two = withHidden(withHidden(one, tag), feature);
+
+    expect(one.branch_visibility).toEqual({ kind: "hidden", refs: [feature] });
+    expect(two.branch_visibility).toEqual({ kind: "hidden", refs: [feature, tag] });
+    expect(hiddenRefs(two.branch_visibility)).toEqual([feature, tag]);
+    expect(isHidden(one.branch_visibility, feature)).toBe(true);
+    expect(isHidden(one.branch_visibility, tag)).toBe(false);
+    expect(hiddenRefs(defaultUiPrefs.branch_visibility)).toEqual([]);
+  });
+
+  it("shows a ref again and returns to All when nothing stays hidden", () => {
+    const two = withHidden(withHidden(defaultUiPrefs, feature), tag);
+
+    expect(withShown(two, feature).branch_visibility).toEqual({ kind: "hidden", refs: [tag] });
+    expect(withShown(withShown(two, feature), tag).branch_visibility).toEqual({ kind: "all" });
+  });
+
+  it("drops the hidden list when Current + upstream is chosen and hides nothing under it", () => {
+    const narrowed = withVisibility(withHidden(defaultUiPrefs, feature), { kind: "current_and_upstream" });
+
+    expect(narrowed.branch_visibility).toEqual({ kind: "current_and_upstream" });
+    expect(withHidden(narrowed, feature).branch_visibility).toEqual({ kind: "current_and_upstream" });
+    expect(hiddenRefs(narrowed.branch_visibility)).toEqual([]);
   });
 });
 

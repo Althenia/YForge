@@ -11,6 +11,31 @@ export type FileDialog = { kind: "create" } | { kind: "pick"; purpose: FilePurpo
 
 export type EditingFile = { file: string; text: string; eol: string; size: number };
 
+export type EditorDraft = { text: string; saved: string };
+
+const [editors, setEditors] = createSignal<Readonly<Record<string, EditingFile>>>({});
+const drafts = new Map<string, EditorDraft>();
+
+export function discardEditsCopy(file: string): ConfirmCopy {
+  return {
+    title: `Discard unsaved edits to ${file}?`,
+    names: [],
+    confirmLabel: "Discard edits",
+    consequences: ["Your edits have not been saved. Closing the editor discards them; the file on disk stays as it was."],
+  };
+}
+
+export function unsavedEditorFile(path: string): string | undefined {
+  const target = editors()[path];
+  const draft = drafts.get(path);
+  return target !== undefined && draft !== undefined && draft.text !== draft.saved ? target.file : undefined;
+}
+
+export function forgetEditors(paths: readonly string[]): void {
+  paths.forEach((path) => drafts.delete(path));
+  setEditors((current) => Object.fromEntries(Object.entries(current).filter(([path]) => !paths.includes(path))));
+}
+
 export type FileOpsDeps = {
   confirm: (copy: ConfirmCopy, run: () => void | Promise<void>) => void;
   fail: (failure: unknown) => void;
@@ -53,7 +78,15 @@ export const discardAllReason = (snapshot: RepoSnapshot): string | undefined => 
 export function createFileOps(session: RepoSession, deps: FileOpsDeps) {
   const path = session.path;
   const [dialog, setDialog] = createSignal<FileDialog | undefined>();
-  const [editing, setEditing] = createSignal<EditingFile | undefined>();
+  const editing = (): EditingFile | undefined => editors()[path];
+  const setEditing = (target: EditingFile | undefined) => {
+    if (target === undefined) {
+      forgetEditors([path]);
+      return;
+    }
+    drafts.delete(path);
+    setEditors((current) => ({ ...current, [path]: target }));
+  };
 
   const message = (failure: unknown): string => (failure instanceof Error ? failure.message : String(failure));
 
@@ -100,6 +133,15 @@ export function createFileOps(session: RepoSession, deps: FileOpsDeps) {
       await pick("edit");
       return;
     }
+    const unsaved = unsavedEditorFile(path);
+    if (unsaved !== undefined) {
+      deps.confirm(discardEditsCopy(unsaved), () => openEditor(file));
+      return;
+    }
+    await openEditor(file);
+  }
+
+  async function openEditor(file: string): Promise<void> {
     try {
       const content = await client.fileEditable(path, file);
       setEditing({ file, ...content });
@@ -151,6 +193,8 @@ export function createFileOps(session: RepoSession, deps: FileOpsDeps) {
     closeDialog: () => setDialog(undefined),
     editing,
     closeEditor: () => setEditing(undefined),
+    draft: (): EditorDraft | undefined => drafts.get(path),
+    keepDraft: (draft: EditorDraft) => void drafts.set(path, draft),
     createFile: () => setDialog({ kind: "create" }),
     submitCreate,
     deleteFile,

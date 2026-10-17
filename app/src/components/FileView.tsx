@@ -2,6 +2,7 @@ import { useQuery } from "../state/query";
 import { createSettled } from "../state/settled";
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show, type JSX } from "solid-js";
 import { client } from "../ipc/client";
+import { createExternalTools, WORKTREE_EDITOR_REASON } from "../state/externalTools";
 import { fileLines, fileViewError, formatBytes, previewKind, type FileViewTarget } from "../state/fileView";
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
@@ -9,6 +10,7 @@ import { displayText } from "../state/diffHighlight";
 import { highlightLines, languageOf, loadLanguage, type LanguageId } from "../state/syntax";
 import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { Icon } from "./Icon";
+import { ToolButton } from "./ToolButton";
 import { tip } from "./Tooltip";
 import { VirtualRows } from "./VirtualRows";
 
@@ -33,7 +35,7 @@ export function FileLines(props: { file: string; lines: readonly string[]; repor
   const highlighted = createMemo(() => highlightLines(language(), lines()));
 
   return (
-    <VirtualRows as="div" class="dflat" items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE}>
+    <VirtualRows as="div" class="dflat" items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE} findText={(line) => line}>
       {(_, virtual) => (
         <div class="fline" classList={{ "blame-selected": props.highlight?.(virtual.index) === true }} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
           {props.gutter?.(virtual.index)}
@@ -154,6 +156,7 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
   createEffect(on(() => props.target, (next) => { setTarget(next); setFragment(next.fragment); }));
   const content = createFileAt(props.session, target);
   const lines = content.lines;
+  const tools = createExternalTools(props.session);
 
   return (
     <section
@@ -191,9 +194,7 @@ export function FileView(props: { session: RepoSession; target: FileViewTarget; 
             </>
           )}
         </Show>
-        <button type="button" class="icon-btn dense" {...tip("Open in editor")} onClick={() => void client.openPath(`${props.session.snapshot().root}/${target().file}`, "editor").catch(props.session.report)}>
-          <Icon name="edit" />
-        </button>
+        <ToolButton action="Open in editor" icon="edit" reason={target().rev === ":worktree" ? tools.editorReason() : WORKTREE_EDITOR_REASON} onRun={() => void tools.openEditor(target().file)} />
         <button type="button" class="icon-btn dense" {...tip("Close file view", "Esc")} onClick={props.onClose}>
           <Icon name="close" />
         </button>

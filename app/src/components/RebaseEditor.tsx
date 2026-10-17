@@ -84,8 +84,8 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
             }),
         ),
       ).then((loadedMessages) => setMessages((known) => ({ ...known, ...Object.fromEntries(loadedMessages.filter((entry) => entry !== undefined)) })));
-      const first = order()[0];
-      if (first !== undefined) focusRow(first);
+      const start = positions().has(props.from) ? props.from : order()[0];
+      if (start !== undefined) focusRow(start);
     }),
   );
 
@@ -243,7 +243,7 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
             if (sha !== undefined) setTabStop(sha);
           }}
         >
-          <VirtualRows as="ol" class="rlist" attrs={{ "aria-label": "Commits, newest first" }} items={order()} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} keepIndex={stopIndex()} reveal={reveal()} measured>
+          <VirtualRows as="ol" class="rlist" attrs={{ "aria-label": "Commits, newest first" }} items={order()} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} keepIndex={stopIndex()} reveal={reveal()} measured findText={(sha) => `${short(sha)}${byId().get(sha)?.summary ?? ""}`}>
             {(sha, virtual) => {
               const row = () => byId().get(sha) as RebaseRow;
               return (
@@ -301,7 +301,7 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
         </div>
         <section class="rpreview" aria-label="Resulting history">
           <h4>Resulting history · {preview().commits.length} {preview().commits.length === 1 ? "commit" : "commits"}</h4>
-          <VirtualRows as="ol" items={preview().commits} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured>
+          <VirtualRows as="ol" items={preview().commits} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured findText={(commit) => `${commit.subject}${commit.from.map(short).join(" + ")}`}>
             {(commit, virtual) => (
               <li ref={virtual.measure} style={virtual.style}>
                 <Icon name={commit.kind === "combined" ? "squash" : commit.kind === "reworded" ? "edit" : "commit"} />
@@ -321,7 +321,7 @@ export function RebaseEditor(props: { session: RepoSession; base: string; from: 
           </VirtualRows>
           <Show when={preview().dropped.length > 0}>
             <h4>Dropped ({preview().dropped.length})</h4>
-            <VirtualRows as="ul" class="rdropped" items={preview().dropped} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured>
+            <VirtualRows as="ul" class="rdropped" items={preview().dropped} scroller={() => body} estimate={fileRowHeight()} gap={spacingPx("1")} measured findText={(row) => `${row.summary}${short(row.sha)}`}>
               {(row, virtual) => (
                 <li ref={virtual.measure} style={virtual.style}>
                   <Icon name="trash" />

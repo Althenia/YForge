@@ -30,7 +30,7 @@ function mount(overrides: { save?: (file: string, text: string, eol: string) => 
   const onClose = overrides.onClose ?? vi.fn();
   const host = document.createElement("div");
   document.body.append(host);
-  dispose = render(() => <FileEditor target={target} repoPath="/r" servers={overrides.servers ?? {}} save={save} onClose={onClose} />, host);
+  dispose = render(() => <FileEditor target={target} draft={undefined} onDraft={() => undefined} repoPath="/r" servers={overrides.servers ?? {}} save={save} onClose={onClose} />, host);
   return { host, save, onClose };
 }
 

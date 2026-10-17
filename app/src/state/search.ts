@@ -15,13 +15,14 @@ export function createSearch(find: (query: string) => Promise<SearchResult>, onF
     if (index !== undefined) onReveal(index);
   };
 
-  async function run(query: string): Promise<void> {
+  async function run(query: string, keep = false): Promise<void> {
     const mine = (latest += 1);
     try {
       const found = await find(query);
       if (mine !== latest) return;
-      setState({ query, rows: found.rows, total: found.total, position: 0, status: "done" });
-      reveal();
+      const position = keep ? Math.min(state().position, Math.max(found.rows.length - 1, 0)) : 0;
+      setState({ query, rows: found.rows, total: found.total, position, status: "done" });
+      if (!keep) reveal();
     } catch (failure) {
       if (mine === latest) setState({ ...idleSearch, query });
       onFailure(failure);
@@ -48,6 +49,13 @@ export function createSearch(find: (query: string) => Promise<SearchResult>, onF
     reveal();
   }
 
+  function refresh(): void {
+    const current = state();
+    if (!open() || current.query.trim() === "" || current.status === "searching") return;
+    pause.cancel();
+    void run(current.query, true);
+  }
+
   function close(): void {
     pause.cancel();
     latest += 1;
@@ -55,7 +63,7 @@ export function createSearch(find: (query: string) => Promise<SearchResult>, onF
     setOpen(false);
   }
 
-  return { state, open, show: () => setOpen(true), setQuery, next: () => move(1), previous: () => move(-1), close };
+  return { state, open, show: () => setOpen(true), setQuery, next: () => move(1), previous: () => move(-1), refresh, close };
 }
 
 export type Search = ReturnType<typeof createSearch>;

@@ -43,7 +43,7 @@ function HistoryDiff(props: { session: RepoSession; state: FileHistoryState; rev
   const diff = createDiffController({ session: props.session, target, prefs: props.prefs, commitWhitespace: true });
   const mode = () => props.prefs.mode();
   let pane: HTMLDivElement | undefined;
-  const { step, unit } = createDiffStep(diff, mode, () => pane);
+  const { step, unit, track } = createDiffStep(diff, mode, () => pane);
   const reason = () => revertReason(props.prefs.ignoreWhitespace());
 
   const revert = (index: number) => {
@@ -68,7 +68,7 @@ function HistoryDiff(props: { session: RepoSession; state: FileHistoryState; rev
   );
 
   return (
-    <div class="hpane" ref={pane} aria-busy={diff.diff.isFetching}>
+    <div class="hpane" ref={pane} aria-busy={diff.diff.isFetching} onFocusIn={track}>
       <PendingLine pending={diff.diff.isFetching} label="Loading diff" />
       <div class="dtool" role="toolbar" aria-label="History options">
         <ViewSwitch state={props.state} />
@@ -127,7 +127,7 @@ function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; re
     const row = rows()[index];
     const run = row === undefined ? undefined : runs()[row.run];
     return (
-      <span class="bgut" classList={{ alt: (row?.run ?? 0) % 2 === 1 }}>
+      <span class="bgut" classList={{ alt: (row?.run ?? 0) % 2 === 1 }} data-find-skip>
         <Show when={row?.first === true && run}>
           {(entry) => (
             <button type="button" {...tip(`${entry().summary} · ${entry().short}`, undefined, `Select ${entry().short} by ${entry().author}`)} onClick={() => props.onPick(entry().sha)}>

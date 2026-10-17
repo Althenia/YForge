@@ -2,12 +2,15 @@ import type { WorktreeIntegration } from "../ipc/bindings/WorktreeIntegration";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import { basename } from "../format";
 import type { ConfirmCopy } from "./confirmCopy";
+import { shortRefName, type RefTarget } from "./refMenu";
 
 export type CreateMode = "new" | "existing";
 
 export type IntegrationTarget = { branch: string; path: string };
 
 export type StartPoint = { value: string; label: string };
+
+export type CreatePrefill = { mode: CreateMode; branch: string; start: string };
 
 export function laneLabel(worktree: WorktreeStatus): string {
   return worktree.branch ?? (worktree.bare ? "bare" : "detached");
@@ -111,12 +114,20 @@ export function existingBranchChoices(branches: readonly string[], all: Readonly
   return branches.filter((branch) => !held.has(branch));
 }
 
-export function startPointChoices(branches: readonly string[], remoteBranches: readonly string[]): StartPoint[] {
+export function startPointChoices(branches: readonly string[], remoteBranches: readonly string[], tags: readonly string[]): StartPoint[] {
   return [
     { value: "", label: "Current HEAD" },
     ...branches.map((name) => ({ value: `refs/heads/${name}`, label: name })),
     ...remoteBranches.map((name) => ({ value: `refs/remotes/${name}`, label: name })),
+    ...tags.map((name) => ({ value: `refs/tags/${name}`, label: name })),
   ];
+}
+
+const refPrefix: Record<RefTarget["kind"], string> = { local_branch: "refs/heads/", remote_branch: "refs/remotes/", tag: "refs/tags/" };
+
+export function createPrefill(target: RefTarget, repository: { branches: readonly string[]; remotes: readonly string[]; worktrees: ReadonlyArray<{ branch: string | null }> }): CreatePrefill {
+  if (target.kind === "local_branch" && existingBranchChoices(repository.branches, repository.worktrees).includes(target.name)) return { mode: "existing", branch: target.name, start: "" };
+  return { mode: "new", branch: target.kind === "remote_branch" ? shortRefName(target, repository.remotes) : "", start: `${refPrefix[target.kind]}${target.name}` };
 }
 
 export function destinationProblem(destination: string): string | undefined {

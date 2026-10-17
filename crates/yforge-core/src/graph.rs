@@ -120,12 +120,22 @@ fn scope_of(
             .iter()
             .filter_map(|selector| entry_named(&selector.name, &[selector.kind]))
             .collect(),
+        GraphVisibility::Hidden { refs: selectors } => refs
+            .iter()
+            .filter(|entry| {
+                !selectors
+                    .iter()
+                    .any(|selector| selector.kind == entry.kind && selector.name == entry.name)
+            })
+            .collect(),
     };
     let mut tips: Vec<String> = chosen.iter().map(|entry| entry.target.clone()).collect();
-    if let (GraphVisibility::CurrentAndUpstream, Head::Detached { sha }) =
-        (visibility, &status.head)
-    {
-        tips.push(sha.clone());
+    match (visibility, &status.head) {
+        (GraphVisibility::CurrentAndUpstream, Head::Detached { sha })
+        | (GraphVisibility::Hidden { .. }, Head::Branch { sha, .. } | Head::Detached { sha }) => {
+            tips.push(sha.clone());
+        }
+        _ => {}
     }
     tips.sort();
     tips.dedup();

@@ -1,7 +1,7 @@
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import { columnLabels, OPTIONAL_COLUMNS } from "../graph/columns";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
-import { columnVisibility, resetColumns, withColumn, withVisibility, type RepoUiPrefsStore } from "../state/repoUiPrefs";
+import { columnVisibility, hiddenRefs, resetColumns, withColumn, withShown, withVisibility, type RepoUiPrefsStore } from "../state/repoUiPrefs";
 import type { Anchor } from "../state/repoActions";
 import { Popover } from "./Popover";
 
@@ -10,9 +10,15 @@ const BRANCH_CHOICES: ReadonlyArray<{ visibility: GraphVisibility; label: string
   { visibility: { kind: "current_and_upstream" }, label: "Current + upstream", note: "only the checked-out branch and its upstream" },
 ];
 
+const kindNote = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
+
 export function GraphSettings(props: { anchor: Anchor; prefs: RepoUiPrefsStore; onClose: () => void }) {
   const shown = () => columnVisibility(props.prefs.prefs());
-  const visibility = () => props.prefs.prefs().branch_visibility.kind;
+  const visibility = () => {
+    const kind = props.prefs.prefs().branch_visibility.kind;
+    return kind === "hidden" ? "all" : kind;
+  };
+  const hidden = () => hiddenRefs(props.prefs.prefs().branch_visibility);
   return (
     <Popover anchor={props.anchor} label="Graph columns and branches" onClose={props.onClose}>
       <div class="popform">
@@ -49,6 +55,27 @@ export function GraphSettings(props: { anchor: Anchor; prefs: RepoUiPrefsStore; 
             )}
           </For>
         </div>
+        <Show when={hidden().length > 0}>
+          <h3>Hidden in the graph</h3>
+          <ul class="graph-hidden" aria-label="Hidden in the graph">
+            <For each={hidden()}>
+              {(ref) => (
+                <li class="hrow">
+                  <span class="ref">{ref.name}</span>
+                  <span class="setting-note">{kindNote[ref.kind]}</span>
+                  <button type="button" class="btn" aria-label={`Show ${ref.name} in the graph`} onClick={() => props.prefs.update((current) => withShown(current, ref))}>
+                    Show
+                  </button>
+                </li>
+              )}
+            </For>
+          </ul>
+          <div class="hrow">
+            <button type="button" class="btn" onClick={() => props.prefs.update((current) => withVisibility(current, { kind: "all" }))}>
+              Show all
+            </button>
+          </div>
+        </Show>
       </div>
     </Popover>
   );

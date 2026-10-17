@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { WorktreeStatus } from "../ipc/bindings/WorktreeStatus";
 import { createWorktreeActions, type WorktreeActions } from "../state/worktreeActions";
+import type { CreatePrefill } from "../state/worktreeModel";
 import { CreateWorktreeDialog, IntegrateWorktreeDialog } from "./WorktreeDialogs";
 import { WorktreePanel } from "./WorktreePanel";
 import { buttonNamed, choose, flush, mountWithApp, type, testSession } from "./testkit";
@@ -24,7 +25,7 @@ const lane = (overrides: Partial<WorktreeStatus>): WorktreeStatus => ({ path: "/
 const main = lane({});
 const feature = lane({ path: "/w/repo-feature", branch: "feature/x", current: false });
 const fix = lane({ path: "/w/repo-fix", branch: "fix", current: false, dirty: true, locked: true });
-const snapshot = { root: "/w/repo", branches: ["main", "feature/x", "fix", "spare"], remote_branches: ["origin/main"], worktrees: [main, feature, fix] } as unknown as RepoSnapshot;
+const snapshot = { root: "/w/repo", branches: ["main", "feature/x", "fix", "spare"], remote_branches: ["origin/main"], tags: ["v1"], worktrees: [main, feature, fix] } as unknown as RepoSnapshot;
 
 function setup(worktrees: WorktreeStatus[], handler: (call: Call) => unknown = () => null) {
   const calls: Call[] = [];
@@ -114,9 +115,9 @@ describe("worktree panel", () => {
 });
 
 describe("create worktree dialog", () => {
-  async function mountCreate(handler?: (call: Call) => unknown) {
+  async function mountCreate(handler?: (call: Call) => unknown, prefill?: CreatePrefill) {
     const context = setup([main, feature], handler);
-    const mounted = mountWithApp(() => <CreateWorktreeDialog snapshot={snapshot} actions={context.actions} />);
+    const mounted = mountWithApp(() => <CreateWorktreeDialog snapshot={snapshot} actions={context.actions} prefill={prefill} />);
     dispose = mounted.dispose;
     await flush(40);
     return { ...mounted, ...context };
@@ -162,6 +163,33 @@ describe("create worktree dialog", () => {
     expect(document.body.textContent).toContain("Use a full path, starting with /");
     expect((buttonNamed(document, "Create worktree") as HTMLButtonElement).disabled).toBe(true);
     expect(calls.some((call) => call.cmd === "worktree_suggest_path")).toBe(false);
+  });
+
+  it("opens prefilled with an existing branch and its suggested folder", async () => {
+    const { calls } = await mountCreate((call) => (call.cmd === "worktree_create" ? "/w/repo-spare" : null), { mode: "existing", branch: "spare", start: "" });
+    await flush(40);
+
+    expect(document.querySelector('[role="radio"][aria-checked="true"]')?.textContent?.trim()).toBe("Existing branch");
+    expect(document.querySelector('button[aria-label="Branch"]')?.textContent).toContain("spare");
+    expect(field("Folder").value).toBe("/w/repo-spare");
+    buttonNamed(document, "Create worktree")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "worktree_create")?.args).toEqual({ path: "/w/repo", branch: "spare", create: false, start: null, destination: "/w/repo-spare" });
+  });
+
+  it("opens prefilled with a new branch started from a tag, and suggests the folder for a suggested name", async () => {
+    const { calls } = await mountCreate((call) => (call.cmd === "worktree_create" ? "/w/repo-topic" : null), { mode: "new", branch: "topic", start: "refs/tags/v1" });
+    await flush(40);
+
+    expect(document.querySelector('[role="radio"][aria-checked="true"]')?.textContent?.trim()).toBe("New branch");
+    expect(field("Branch name").value).toBe("topic");
+    expect(document.querySelector('button[aria-label="Start from"]')?.textContent).toContain("v1");
+    expect(field("Folder").value).toBe("/w/repo-topic");
+    buttonNamed(document, "Create worktree")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "worktree_create")?.args).toEqual({ path: "/w/repo", branch: "topic", create: true, start: "refs/tags/v1", destination: "/w/repo-topic" });
   });
 
   it("offers only branches no worktree holds for an existing branch, and shows the core's refusal", async () => {

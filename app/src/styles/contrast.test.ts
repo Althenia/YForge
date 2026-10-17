@@ -84,6 +84,8 @@ const pairs: Pair[] = [
   { foreground: "status-added", backgrounds: ["canvas", "surface-2"], minimum: TEXT },
   { foreground: "accent-ink", backgrounds: ["canvas", "surface-1", "selection"], minimum: TEXT },
   { foreground: "info-ink", backgrounds: ["info-tint"], minimum: TEXT },
+  { foreground: "text", backgrounds: ["attention-tint"], minimum: TEXT },
+  { foreground: "text-inverse", backgrounds: ["attention-ink"], minimum: TEXT },
   { foreground: "on-accent", backgrounds: ["accent"], minimum: TEXT },
   { foreground: "text-inverse", backgrounds: ["text"], minimum: TEXT },
   { foreground: "focus", backgrounds: ["backdrop", ...readingSurfaces], minimum: GRAPHIC },

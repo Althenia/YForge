@@ -55,6 +55,29 @@ describe("search store", () => {
     expect([search.state().position, revealed.at(-1)]).toEqual([2, 21]);
   });
 
+  it("runs the open query again after the graph changes, keeping the position and moving nothing", async () => {
+    let rows = [3, 8, 21];
+    const queries: string[] = [];
+    const search = createSearch(async (query) => (queries.push(query), { rows, total: 40 }), () => undefined, (row) => revealed.push(row));
+    search.show();
+    search.setQuery("fix");
+    await vi.advanceTimersByTimeAsync(SEARCH_DELAY_MS);
+    search.next();
+    const shown = revealed.length;
+
+    rows = [4, 9];
+    search.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(queries).toEqual(["fix", "fix"]);
+    expect(search.state()).toMatchObject({ status: "done", rows: [4, 9], position: 1 });
+    expect(revealed).toHaveLength(shown);
+    search.close();
+    search.refresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(queries).toHaveLength(2);
+  });
+
   it("ignores stepping while nothing matches and clears the state when the query is emptied", async () => {
     install([]);
     const search = createSearch((query) => client.searchCommits("/r", query), () => undefined, (row) => revealed.push(row));

@@ -141,6 +141,26 @@ fn invalid_preferences_are_refused_and_leave_the_stored_value_untouched() {
             },
             ..RepoUiPrefs::default()
         },
+        RepoUiPrefs {
+            branch_visibility: GraphVisibility::Hidden {
+                refs: vec![selector(" ")],
+            },
+            ..RepoUiPrefs::default()
+        },
+        RepoUiPrefs {
+            branch_visibility: GraphVisibility::Hidden {
+                refs: vec![selector("v1"), selector("v1")],
+            },
+            ..RepoUiPrefs::default()
+        },
+        RepoUiPrefs {
+            branch_visibility: GraphVisibility::Hidden {
+                refs: (0..501)
+                    .map(|number| selector(&format!("v{number}")))
+                    .collect(),
+            },
+            ..RepoUiPrefs::default()
+        },
     ];
 
     for prefs in invalid {
@@ -193,5 +213,33 @@ fn a_blob_with_missing_fields_takes_the_defaults_for_them() {
     assert_eq!(
         repo_ui_prefs_load(dir.path(), REPO).unwrap(),
         RepoUiPrefs::default()
+    );
+}
+
+#[test]
+fn a_hidden_ref_list_round_trips_in_repository_preferences() {
+    let dir = tempfile::tempdir().unwrap();
+    let prefs: RepoUiPrefs = serde_json::from_str(
+        r#"{"branch_visibility":{"kind":"hidden","refs":[{"name":"feature","kind":"local_branch"},{"name":"v1","kind":"tag"}]}}"#,
+    )
+    .unwrap();
+
+    repo_ui_prefs_save(dir.path(), REPO, &prefs).unwrap();
+
+    assert_eq!(repo_ui_prefs_load(dir.path(), REPO).unwrap(), prefs);
+    assert_eq!(
+        prefs.branch_visibility,
+        GraphVisibility::Hidden {
+            refs: vec![
+                RefSelector {
+                    name: "feature".to_owned(),
+                    kind: RefKind::LocalBranch,
+                },
+                RefSelector {
+                    name: "v1".to_owned(),
+                    kind: RefKind::Tag,
+                },
+            ],
+        }
     );
 }

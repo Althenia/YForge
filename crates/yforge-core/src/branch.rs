@@ -111,6 +111,17 @@ pub(crate) fn require_start_point(root: &Path, start: &str) -> Result<(), CoreEr
     }
 }
 
+pub fn resolve_start_point(path: &Path, start: &str) -> Result<String, CoreError> {
+    let root = repo::open(path)?;
+    require_start_point(&root, start)?;
+    Ok(git::run(
+        &root,
+        &["rev-parse", "--verify", &format!("{start}^{{commit}}")],
+    )?
+    .trim()
+    .to_owned())
+}
+
 fn require_revision(root: &Path, sha: &str) -> Result<(), CoreError> {
     let spec = format!("{sha}^{{commit}}");
     if git::run_unchecked(root, &["rev-parse", "--verify", "--quiet", &spec], None)?.succeeded() {

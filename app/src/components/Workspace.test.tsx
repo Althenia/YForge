@@ -4,7 +4,9 @@ import { EditorView } from "@codemirror/view";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppInfo } from "../ipc/bindings/AppInfo";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { createSignal, Show } from "solid-js";
 import { requestFileHistory } from "../state/fileHistoryRequest";
+import { forgetEditors } from "../state/fileOps";
 import type { RepoActions } from "../state/repoActions";
 import { defaultSettings } from "../state/settingsModel";
 import { Toasts } from "./Toasts";
@@ -279,6 +281,63 @@ describe("file history", () => {
   });
 });
 
+describe("find in the front view (S80)", () => {
+  const history = [{ sha: "c".repeat(40), short: "ccccccc", summary: "Tune retries", author: "Yui Lin", email: "yui@example.com", time: 1_700_000_000, path: "src/util.js", status: "modified" }];
+
+  it("finds in the view covering the graph instead of searching commits, and Escape closes only the find", async () => {
+    const { host } = await mountWorkspace((call) => {
+      if (call.cmd === "file_history") return history;
+      if (call.cmd === "commit_file_diff") return { path: "src/util.js", original_path: null, binary: false, old_size: null, new_size: null, hunks: [] };
+      if (call.cmd === "commit_details") return null;
+      return undefined;
+    });
+
+    host.querySelector<HTMLButtonElement>('.commandbar button[aria-label="Search commits"]')?.click();
+    await flush(20);
+    expect(host.querySelector('[role="search"][aria-label="Search commits"]')).not.toBeNull();
+    host.querySelector<HTMLButtonElement>('[role="search"] button[aria-label="Close search"]')?.click();
+    await flush(20);
+
+    requestFileHistory({ file: "src/util.js", view: "diff" });
+    await flush(80);
+    host.querySelector<HTMLButtonElement>('.commandbar button[aria-label="Find in file history"]')?.click();
+    await flush(20);
+
+    const bar = host.querySelector<HTMLElement>('[role="search"][aria-label="Find in file history"]');
+    expect(bar).not.toBeNull();
+    expect(host.querySelector('[role="search"][aria-label="Search commits"]')).toBeNull();
+    const input = bar!.querySelector<HTMLInputElement>("input")!;
+    expect(document.activeElement).toBe(input);
+    input.value = "tune retries";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    await flush(20);
+    expect(bar!.querySelector('[role="status"]')?.textContent).toBe("1 of 1");
+
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    await flush(40);
+    expect(host.querySelector('[role="search"]')).toBeNull();
+    expect(host.querySelector('.center section[aria-label="File history"]')).not.toBeNull();
+  });
+});
+
+describe("revealing HEAD while a view covers the graph", () => {
+  it("closes the covering view so the graph shows HEAD", async () => {
+    const { host } = await mountWorkspace((call) => {
+      if (call.cmd === "file_history") return [];
+      return undefined;
+    });
+    requestFileHistory({ file: "src/util.js", view: "diff" });
+    await flush(80);
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(true);
+
+    host.querySelector<HTMLButtonElement>('button[aria-label^="Reveal HEAD in the graph"]')?.click();
+    await flush(40);
+
+    expect(host.querySelector('section[aria-label="File history"]')).toBeNull();
+    expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(false);
+  });
+});
+
 describe("AI sheet", () => {
   const changed: RepoSnapshot = {
     ...snapshot,
@@ -350,6 +409,7 @@ describe("file operations in the center", () => {
       { shouldMockEvents: true },
     );
     let bridge: Bridge | undefined;
+    const [visible, setVisible] = createSignal(true);
     const mounted = mountWithApp((app) => {
       const set = app.setBridge;
       app.setBridge = ((next: Bridge | undefined) => {
@@ -358,7 +418,9 @@ describe("file operations in the center", () => {
       }) as typeof app.setBridge;
       return (
         <>
-          <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />
+          <Show when={visible()}>
+            <Workspace view={{ status: "ready", path: "/r", snapshot, info }} geometry={geometry} />
+          </Show>
           <Toasts onUndo={() => undefined} />
         </>
       );
@@ -370,10 +432,68 @@ describe("file operations in the center", () => {
       if (bridge === undefined) throw new Error("the workspace did not publish its actions");
       return bridge.actions;
     };
-    return { ...mounted, calls, actions };
+    return { ...mounted, calls, actions, setVisible };
   }
 
   const editable = { text: "one\ntwo\n", eol: "\n", size: 8 };
+  const editorOf = (host: ParentNode) => EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor") as HTMLElement) as EditorView;
+
+  afterEach(() => forgetEditors(["/r"]));
+
+  it("keeps the open file and its unsaved edits when the repository view mounts again", async () => {
+    const { host, actions, setVisible } = await mountCapturing((call) => (call.cmd === "file_editable" ? editable : undefined));
+    actions().editFile("a.txt");
+    await flush(60);
+    editorOf(host).dispatch({ changes: { from: 0, to: editorOf(host).state.doc.length, insert: "one\nTWO\n" } });
+    await flush();
+
+    setVisible(false);
+    await flush(40);
+    expect(host.querySelector('section[aria-label="Edit file"]')).toBeNull();
+    setVisible(true);
+    await flush(60);
+
+    expect(host.querySelector('.center section[aria-label="Edit file"]')).not.toBeNull();
+    expect(editorOf(host).state.doc.toString()).toBe("one\nTWO\n");
+    expect(host.querySelector('section[aria-label="Edit file"] .chip[role="status"]')?.textContent?.trim()).toBe("Unsaved changes");
+  });
+
+  it("asks with the editor's discard copy before closing the repository tab over unsaved edits", async () => {
+    const { host, actions, app } = await mountCapturing((call) => (call.cmd === "file_editable" ? editable : undefined));
+    await app.openRepository("/r");
+    const repoOpen = () => app.tabs().tabs.some((tab) => tab.kind === "repo" && tab.path === "/r");
+    actions().editFile("a.txt");
+    await flush(60);
+    editorOf(host).dispatch({ changes: { from: 0, to: 0, insert: "zero\n" } });
+    await flush();
+
+    app.closeActiveTab();
+    expect(repoOpen()).toBe(true);
+    expect(app.closePrompt()?.title).toBe("Discard unsaved edits to a.txt?");
+    app.cancelClose();
+    expect(app.closePrompt()).toBeUndefined();
+    expect(repoOpen()).toBe(true);
+
+    app.closeActiveTab();
+    app.confirmClose();
+    await flush();
+
+    expect(app.closePrompt()).toBeUndefined();
+    expect(repoOpen()).toBe(false);
+    expect(actions().files.editing()).toBeUndefined();
+  });
+
+  it("closes the repository tab without asking when the editor holds no unsaved edits", async () => {
+    const { actions, app } = await mountCapturing((call) => (call.cmd === "file_editable" ? editable : undefined));
+    await app.openRepository("/r");
+    actions().editFile("a.txt");
+    await flush(60);
+
+    app.closeActiveTab();
+
+    expect(app.closePrompt()).toBeUndefined();
+    expect(app.tabs().tabs.some((tab) => tab.kind === "repo")).toBe(false);
+  });
 
   it("opens the editor over the graph, saves with the line ending, refreshes, and closes back to the graph", async () => {
     const { host, calls, actions } = await mountCapturing((call) => (call.cmd === "file_editable" ? editable : undefined));

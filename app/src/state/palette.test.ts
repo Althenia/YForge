@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { IntegrationPreview } from "../ipc/bindings/IntegrationPreview";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { NOTHING_TO_REDO, NOTHING_TO_UNDO } from "./activityModel";
 import {
@@ -89,9 +90,9 @@ const fakeActions = () => {
     (...args: unknown[]) => {
       calls.push([name, ...args]);
     };
-  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "applyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash", "openSquash", "openRecompose", "openRebaseEditor", "maintain", "createFile", "deleteFile", "viewFile", "editFile", "discardAll", "createPatch", "applyPatch"];
-  const reasons = { discardAllReason: () => undefined as string | undefined, createPatchReason: () => undefined as string | undefined, maintainReason: () => undefined as string | undefined };
-  const actions = { sync: () => ({ kind: "idle" as const }), ...reasons, ...Object.fromEntries(names.map((name) => [name, record(name)])) };
+  const names = ["checkoutRef", "openMerge", "startRebase", "fastForward", "startReset", "openCreateBranchAt", "openCreateTag", "pushTag", "deleteBranch", "openRenameBranch", "deleteLocalTag", "deleteTagOnRemote", "dropStash", "restoreStash", "openApplyCommit", "fetchAll", "pull", "pullDefault", "push", "undo", "openStashForm", "continueOperation", "skipOperation", "abortOperation", "cancelSync", "stageAll", "unstageAll", "openSetUpstream", "unsetUpstream", "deleteRemoteBranch", "deleteBranchAndRemote", "openPushTo", "openRenameStash", "inspectStash", "openSquash", "openRecompose", "openRebaseEditor", "maintain", "createFile", "deleteFile", "viewFile", "editFile", "discardAll", "createPatch", "applyPatch", "openCreateWorktree", "editHeadMessage", "copyRefName", "copyCommitSha", "hideRef", "showRef"];
+  const reasons = { discardAllReason: () => undefined as string | undefined, createPatchReason: () => undefined as string | undefined, maintainReason: () => undefined as string | undefined, graphVisibility: (): GraphVisibility => ({ kind: "all" }) };
+  const actions = { sync: () => ({ kind: "idle" as const }), operationBusy: () => false, ...reasons, ...Object.fromEntries(names.map((name) => [name, record(name)])) };
   return { actions: actions as unknown as RepoActions, calls };
 };
 
@@ -149,6 +150,7 @@ function everyMenuActionId(): Set<string> {
     { current: "feature", remotes: ["origin"], operation: null },
     { current: undefined, remotes: [], operation: null },
     { current: "main", remotes: ["origin", "backup"], operation: "rebase" as const },
+    { current: "feature", remotes: ["origin"], operation: null, visibility: { kind: "hidden" as const, refs: [{ name: "main", kind: "local_branch" as const }] } },
   ];
   const targets: RefTarget[] = [localTarget(base, "main"), localTarget(base, "feature"), remoteTarget("origin/main"), tagTarget("v1")];
   for (const menu of contexts) {
@@ -200,7 +202,7 @@ describe("command palette registry", () => {
     expect(find(unborn, "operation.continue").disabledReason).toBe("No operation is in progress");
     expect(find(unborn, "sync.fetch").disabledReason).toBe("This repository has no remotes");
     expect(find(unborn, "undo").disabledReason).toBe(NOTHING_TO_UNDO);
-    expect(find(unborn, "unavailable.create_worktree").disabledReason).toBe("Not available yet");
+    expect(find(unborn, "commit.edit_message").disabledReason).toBe("Make a first commit before editing its message");
     const busy = buildCommands(context({}, snapshot({ operation: "merge" })));
     expect(find(busy, "operation.abort").disabledReason).toBeUndefined();
     expect(find(busy, "sync.push").disabledReason).toBe("Finish the operation in progress first");
@@ -227,16 +229,24 @@ describe("command palette registry", () => {
     expect(run.calls).toEqual([["startRebase", "main"]]);
   });
 
-  it("offers commits for cherry-pick with the merge-commit reason and runs the chosen one", async () => {
+  it("offers every commit, merges included, for cherry-pick and revert and runs the chosen one at the palette anchor", async () => {
     const run = context();
-    const pick = find(buildCommands(run), "commit.cherry_pick");
+    const commands = buildCommands(run);
+    const pick = find(commands, "commit.cherry_pick");
+    const revert = find(commands, "commit.revert");
 
     const options = await pick.args[0]?.options();
 
     expect(options?.[0]).toMatchObject({ value: "abcdef1234567", label: "Add greeting", note: "abcdef1" });
-    expect(options?.[1]?.disabledReason).toContain("parent choice");
+    expect(options?.[1]).toMatchObject({ value: "1234567abcdef", label: "Merge topic" });
+    expect(options?.[1]?.disabledReason).toBeUndefined();
+    expect((await revert.args[0]?.options())?.[1]?.disabledReason).toBeUndefined();
     pick.run(["abcdef1234567"]);
-    expect(run.calls).toEqual([["applyCommit", "abcdef1234567", "Cherry-pick"]]);
+    revert.run(["1234567abcdef"]);
+    expect(run.calls).toEqual([
+      ["openApplyCommit", "abcdef1234567", "Cherry-pick", { left: 10, top: 20 }],
+      ["openApplyCommit", "1234567abcdef", "Revert", { left: 10, top: 20 }],
+    ]);
   });
 
   it("resets to a ref in the chosen mode and to a commit with the commit's short label", () => {
@@ -412,7 +422,6 @@ describe("worktree and recovery commands", () => {
 
     for (const [id, panel] of [
       ["worktrees.show", "worktrees"],
-      ["worktrees.create", "create_worktree"],
       ["recovery.reflog", "reflog"],
       ["recovery.lost", "lost"],
       ["recovery.snapshots", "snapshots"],
@@ -431,6 +440,72 @@ describe("worktree and recovery commands", () => {
       expect(find(commands, id).disabledReason).toBe("Open a repository first");
       expect(commandIcon(id)).toBeDefined();
     }
+  });
+});
+
+describe("ref commands that complete the branch and tag menu", () => {
+  const optionValues = async (command: ReturnType<typeof buildCommands>[number]) => (await command.args[0]!.options()).map((option) => option.value);
+
+  it("leaves no command marked as not available yet", () => {
+    expect(buildCommands(context()).filter((command) => command.disabledReason === "Not available yet")).toEqual([]);
+  });
+
+  it("creates a worktree from a chosen ref", async () => {
+    const run = context();
+    const create = find(buildCommands(run), "worktrees.create");
+
+    expect(create.title).toBe("Create worktree…");
+    expect(create.covers).toEqual(["create_worktree"]);
+    expect(await optionValues(create)).toEqual(expect.arrayContaining(["local_branch:main", "remote_branch:origin/remote-only", "tag:v1"]));
+    create.run(["remote_branch:origin/remote-only"]);
+    expect(run.calls).toEqual([["openCreateWorktree", { kind: "remote_branch", name: "origin/remote-only", startPoint: "refs/remotes/origin/remote-only" }]]);
+  });
+
+  it("edits the HEAD commit message, and says why not while an operation runs", () => {
+    const run = context();
+    const edit = find(buildCommands(run), "commit.edit_message");
+
+    expect(edit.title).toBe("Edit commit message…");
+    expect(edit.covers).toEqual(["edit_message"]);
+    expect(edit.disabledReason).toBeUndefined();
+    edit.run([]);
+    expect(run.calls).toEqual([["editHeadMessage"]]);
+    expect(find(buildCommands(context({}, snapshot({ operation: "rebase" }))), "commit.edit_message").disabledReason).toBe("Finish or abort the rebase first");
+  });
+
+  it("copies the name or the commit SHA of a chosen ref", () => {
+    const run = context();
+    const commands = buildCommands(run);
+
+    find(commands, "ref.copy_name").run(["tag:v1"]);
+    find(commands, "ref.copy_sha").run(["local_branch:main"]);
+
+    expect(find(commands, "ref.copy_name").covers).toEqual(["copy_name"]);
+    expect(find(commands, "ref.copy_sha").covers).toEqual(["copy_sha"]);
+    expect(run.calls.map((call) => call[0])).toEqual(["copyRefName", "copyCommitSha"]);
+    expect(run.calls[0]?.[1]).toMatchObject({ kind: "tag", name: "v1" });
+    expect(run.calls[1]?.[1]).toMatchObject({ kind: "local_branch", name: "main" });
+  });
+
+  it("hides a shown ref and shows a hidden one, and has nothing to show while nothing is hidden", async () => {
+    const plain = buildCommands(context());
+    expect(find(plain, "graph.show_ref").disabledReason).toBe("No refs are hidden in the graph");
+
+    const run = context();
+    const actions = { ...run.actions, graphVisibility: (): GraphVisibility => ({ kind: "hidden", refs: [{ name: "v1", kind: "tag" }] }) } as unknown as RepoActions;
+    const commands = buildCommands({ ...run, actions });
+    const hide = find(commands, "graph.hide_ref");
+    const show = find(commands, "graph.show_ref");
+
+    expect(hide.covers).toEqual(["hide"]);
+    expect(show.covers).toEqual(["show"]);
+    expect(show.disabledReason).toBeUndefined();
+    expect(await optionValues(hide)).not.toContain("tag:v1");
+    expect(await optionValues(show)).toEqual(["tag:v1"]);
+    expect((await hide.args[0]!.options()).find((option) => option.value === "local_branch:feature")?.disabledReason).toBe("The checked-out branch is always shown");
+    show.run(["tag:v1"]);
+    hide.run(["local_branch:main"]);
+    expect(run.calls.map((call) => call[0])).toEqual(["showRef", "hideRef"]);
   });
 });
 
@@ -917,5 +992,24 @@ describe("file, patch, maintenance, and log commands (S61)", () => {
       "Stash changes…", "Apply stash…", "Pop stash…", "Create tag…", "Create annotated tag…", "Fetch all", "Rename branch…", "Create pull request…", "View working directory changes", "Checkout…",
       "Create patch from working directory changes", "Apply patch…", "Activity log", "Error log", "Performance log", "Release notes", "Perform repository maintenance",
     ]) expect(titles.has(title), title).toBe(true);
+  });
+});
+
+describe("operation commands", () => {
+  const conflicted = { ...counts, conflicted: 2 };
+
+  it("offers Skip step only for a rebase or a multi-commit sequence, like the operation banner", () => {
+    for (const operation of ["merge", "cherry_pick", "revert", "bisect"] as const) {
+      expect(find(buildCommands(context({}, snapshot({ operation }))), "operation.skip").disabledReason, operation).toBe("Only a rebase or a multi-commit cherry-pick or revert can skip a step");
+    }
+    for (const operation of ["rebase", "cherry_pick_sequence", "revert_sequence"] as const) {
+      expect(find(buildCommands(context({}, snapshot({ operation }))), "operation.skip").disabledReason, operation).toBeUndefined();
+    }
+  });
+
+  it("keeps Continue disabled while conflicts remain and during a bisect", () => {
+    expect(find(buildCommands(context({}, snapshot({ operation: "merge", counts: conflicted }))), "operation.continue").disabledReason).toBe("Resolve 2 conflicts first");
+    expect(find(buildCommands(context({}, snapshot({ operation: "bisect" }))), "operation.continue").disabledReason).toBe("A bisect moves on when you mark commits good or bad");
+    expect(find(buildCommands(context({}, snapshot({ operation: "rebase" }))), "operation.continue").disabledReason).toBeUndefined();
   });
 });

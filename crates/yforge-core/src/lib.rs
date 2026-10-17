@@ -81,7 +81,7 @@ pub use batch::{
 };
 pub use branch::{
     branch_delete_preview, check_branch_name, checkout, checkout_leaving_stash, create_branch,
-    delete_branch, rename_branch, set_upstream,
+    delete_branch, rename_branch, resolve_start_point, set_upstream,
 };
 pub use cli::install_cli;
 pub use clone::{clone_repository, init_repository, CloneOptions};

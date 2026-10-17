@@ -234,6 +234,7 @@ export const client = {
   checkout: (path: string, target: CheckoutTarget, stash: boolean, leaveStashed = false) =>
     call<CheckoutOutcome>("checkout", leaveStashed ? { path, target, stash, leaveStashed } : { path, target, stash }),
   checkBranchName: (path: string, name: string) => call<string>("check_branch_name", { path, name }),
+  resolveStartPoint: (path: string, start: string) => call<string>("resolve_start_point", { path, start }),
   createBranch: (path: string, name: string, at: string | null, checkout: boolean) =>
     call<null>("create_branch", { path, name, at, checkout }),
   renameBranch: (path: string, from: string, to: string) => call<null>("rename_branch", { path, from, to }),
@@ -315,8 +316,8 @@ export const client = {
   merge: (path: string, source: string, mode: MergeMode) => call<OperationOutcome>("merge", { path, source, mode }),
   rebase: (path: string, onto: string) => call<OperationOutcome>("rebase", { path, onto }),
   fastForward: (path: string, branch: string, target: string) => call<null>("fast_forward", { path, branch, target }),
-  cherryPick: (path: string, sha: string) => call<OperationOutcome>("cherry_pick", { path, sha }),
-  revert: (path: string, sha: string) => call<OperationOutcome>("revert", { path, sha }),
+  cherryPick: (path: string, sha: string, mainline?: number) => call<OperationOutcome>("cherry_pick", mainline === undefined ? { path, sha } : { path, sha, mainline }),
+  revert: (path: string, sha: string, mainline?: number) => call<OperationOutcome>("revert", mainline === undefined ? { path, sha } : { path, sha, mainline }),
   reset: (path: string, target: string, mode: ResetMode) => call<null>("reset", { path, target, mode }),
   createTag: (path: string, name: string, at: string | null, message: string | null) =>
     call<null>("create_tag", { path, name, at, message }),

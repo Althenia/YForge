@@ -9,7 +9,7 @@ import { failureNotice } from "../state/errorNotice";
 import { redoState, undoState } from "../state/activityModel";
 import { createStoreValue } from "../state/clientStore";
 import { AiSheetContext, createAiSheet } from "../state/aiSheet";
-import { createComposer } from "../state/composer";
+import { createComposer, followHead } from "../state/composer";
 import { commitMessageOf } from "../state/hooks";
 import { createDiffPrefs } from "../state/diffPrefs";
 import { followTarget, isConflictTarget, type DiffTarget } from "../state/diffModel";
@@ -23,6 +23,7 @@ import { pullText } from "../state/jiraModel";
 import { takePullInspector } from "../state/connectRequest";
 import { takeFileHistoryRequest, type FileHistoryRequest } from "../state/fileHistoryRequest";
 import { createRepoSession } from "../state/repoSession";
+import { createFindRegistry, createPageFind, FindContext } from "../state/find";
 import { createSearch } from "../state/search";
 import { isDimmed } from "../state/searchModel";
 import { selectedShas, type Selection } from "../state/selection";
@@ -43,6 +44,7 @@ import { FileView } from "./FileView";
 import { FileEditor } from "./FileEditor";
 import { CreateFileDialog, FilePickerDialog } from "./FileDialogs";
 import { EmptyRepository } from "./EmptyRepository";
+import type { MessageEditRequest } from "./CommitInspector";
 import { GraphPanel } from "./GraphPanel";
 import { Inspector } from "./Inspector";
 import { MergeForm, TagForm } from "./IntegrationForms";
@@ -53,6 +55,7 @@ import { SquashDialog } from "./SquashDialog";
 import { CreateWorktreeDialog, IntegrateWorktreeDialog } from "./WorktreeDialogs";
 import { RecoveryView, type RecoveryTab } from "./RecoveryView";
 import { WorktreePanel } from "./WorktreePanel";
+import { FindBar } from "./FindBar";
 import { SearchBar } from "./SearchBar";
 import { Sidebar } from "./Sidebar";
 import { StateStrip } from "./StateStrip";
@@ -80,6 +83,10 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   const [fileTarget, setFileTarget] = createSignal<FileViewTarget | undefined>();
   const [historyRequest, setHistoryRequest] = createSignal<FileHistoryRequest | undefined>();
   const composer = createComposer();
+  followHead(composer, () => {
+    const head = session.snapshot().head;
+    return head.kind === "unborn" ? undefined : head.sha;
+  });
   const aiSheet = createAiSheet(session);
   const diffPrefs = createDiffPrefs();
   const [selection, setSelection] = createStoreValue<Selection | undefined>(undefined);
@@ -89,6 +96,35 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   const revealRow = (index: number, select = true) => setGraphFocus({ nonce: (focusNonce += 1), index, select });
   const search = createSearch(session.searchCommits, session.report, revealRow);
   const matches = createMemo(() => new Set(search.state().rows));
+  let center: HTMLDivElement | undefined;
+  const [frontView, setFrontView] = createSignal<HTMLElement | undefined>();
+  const findLists = createFindRegistry();
+  const find = createPageFind(frontView, findLists.lists);
+  const findName = () => {
+    const view = frontView();
+    return view === undefined ? undefined : (view.dataset.find ?? view.getAttribute("aria-label")?.toLowerCase() ?? "view");
+  };
+  const findTop = () => {
+    const view = frontView();
+    if (view === undefined || center === undefined) return 0;
+    const heads = [...view.children].filter((child) => child.matches(".dhead, .dtool, .rhead"));
+    const bottom = Math.max(view.getBoundingClientRect().top, ...heads.map((head) => head.getBoundingClientRect().bottom));
+    return bottom - center.getBoundingClientRect().top + 8;
+  };
+  const openSearch = () => {
+    if (frontView() === undefined) {
+      search.show();
+      return;
+    }
+    find.show();
+    queueMicrotask(() => {
+      const input = center?.querySelector<HTMLInputElement>(".findbar input");
+      input?.focus();
+      input?.select();
+    });
+  };
+  createEffect(on(frontView, () => find.close(false), { defer: true }));
+  createEffect(on([session.revision, () => JSON.stringify(uiPrefs.prefs().branch_visibility)], () => search.refresh(), { defer: true }));
   const repoSettings = () => app.repoSettings(session.path);
   const actions = createRepoActions(session, {
     selectedSha: () => {
@@ -102,6 +138,12 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     undoEntry: (id) => app.activity().find((entry) => entry.id === id),
     submoduleUpdateOnFetch: () => repoSettings()?.submodule_update_on_fetch === true,
     showFile: (target) => viewFile(target),
+    openCreateWorktree: (prefill) => {
+      openPanel({ kind: "worktrees" });
+      worktrees.openCreate(prefill);
+    },
+    editHeadMessage: () => editHeadMessage(),
+    uiPrefs,
   });
   createEffect(on(selection, (current) => selectedShas(current).forEach(actions.seeIncoming)));
   const platform = createPlatformActions(session, {
@@ -215,10 +257,26 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
   };
 
   const focusGraph = () => document.querySelector<HTMLElement>(".gscroll")?.focus();
+  const showGraph = () => {
+    setPanel(undefined);
+    setFileTarget(undefined);
+    setHistoryRequest(undefined);
+    setDiffTarget(undefined);
+  };
+  const [messageEdit, setMessageEdit] = createSignal<MessageEditRequest | undefined>();
   const select = (next: Selection) => {
     setInspectorOpen(true);
+    setMessageEdit(undefined);
     setSelection(next);
     setDiffTarget(undefined);
+  };
+  const editHeadMessage = () => {
+    const head = session.snapshot().head;
+    if (head.kind === "unborn") return;
+    app.showInspector();
+    select({ kind: "commit", sha: head.sha });
+    revealHead(false);
+    setMessageEdit({ nonce: (focusNonce += 1), sha: head.sha });
   };
   createEffect(() => {
     const number = takePullInspector(session.path);
@@ -265,6 +323,11 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     } catch (failure) {
       session.report(failure);
     }
+  }
+
+  function revealHeadInGraph(): void {
+    showGraph();
+    revealHead(true);
   }
 
   function revealHead(select = true): void {
@@ -331,11 +394,12 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       },
       ...(["Mod+G", "Mod+Shift+G"] as const).map((hotkey) => ({
         hotkey,
-        options: { enabled: search.open() },
+        options: { enabled: find.open() || (search.open() && frontView() === undefined) },
         callback: (event: KeyboardEvent) => {
           event.preventDefault();
-          if (event.shiftKey) search.previous();
-          else search.next();
+          const active = find.open() ? find : search;
+          if (event.shiftKey) active.previous();
+          else active.next();
         },
       })),
     ],
@@ -353,12 +417,17 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
       },
       selectedShas: () => selectedShas(selection()),
       revealCommit: (sha) => {
+        showGraph();
         select({ kind: "commit", sha });
         void revealSha(sha);
       },
-      revealRef: (name) => setGraphFocus({ nonce: (focusNonce += 1), ref: name }),
-      revealHead: () => revealHead(true),
-      openSearch: search.show,
+      revealRef: (name) => {
+        showGraph();
+        setGraphFocus({ nonce: (focusNonce += 1), ref: name });
+      },
+      revealHead: revealHeadInGraph,
+      openSearch,
+      findTarget: findName,
       viewChanges: () => {
         app.showInspector();
         select({ kind: "changes" });
@@ -399,7 +468,8 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           redo={redo()}
           onRedo={() => void runRedo()}
           onPalette={() => app.setPaletteOpen(true)}
-          onSearch={search.show}
+          onSearch={openSearch}
+          searchLabel={findName() === undefined ? undefined : `Find in ${findName()}`}
         />
         <StateStrip
           snapshot={session.snapshot()}
@@ -407,7 +477,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           online={app.online()}
           onOpenChanges={() => select({ kind: "changes" })}
           onShowInspector={!dockedInspector() && !app.inspectorHidden() ? () => setInspectorOpen(true) : undefined}
-          onRevealHead={() => revealHead(true)}
+          onRevealHead={revealHeadInGraph}
           onResolve={(file) => showDiff({ source: "working", area: "conflicted", file })}
           onOpenWorktrees={() => openPanel({ kind: "worktrees" })}
           conflict={conflicts.current()}
@@ -425,7 +495,15 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
         />
         <div class="main" classList={{ "no-sidebar": app.sidebarHidden(), "no-inspector": app.inspectorHidden(), minimum: !dockedInspector(), "inspector-open": inspectorOpen() }}>
           <Sidebar snapshot={session.snapshot()} actions={actions} conflictOf={conflicts.conflictOf} worktrees={worktrees} uiPrefs={uiPrefs} selection={selection()} onSelectStash={inspectStash} onOpenPanel={requestPanel} platform={platform} jira={jira} onSelectPull={(number) => select({ kind: "pull", number })} commitMessage={() => commitMessageOf(composer.summary(), composer.description())} />
-          <div class="center">
+          <div class="center" ref={(element) => {
+            center = element;
+            const front = () => setFrontView([...element.children].filter((child): child is HTMLElement => child instanceof HTMLElement && child.matches(".panel:not(.graph):not(.empty-repo)")).at(-1));
+            const observer = new MutationObserver(front);
+            observer.observe(element, { childList: true });
+            onCleanup(() => observer.disconnect());
+            queueMicrotask(front);
+          }}>
+            <FindContext.Provider value={findLists.registry}>
             <Show
               when={!unborn()}
               fallback={<EmptyRepository snapshot={session.snapshot()} actions={actions} />}
@@ -450,11 +528,12 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
                 onSettled={props.onSettled}
               />
             </Show>
-            <Show when={search.open()}>
+            <Show when={search.open() && frontView() === undefined}>
               <SearchBar search={search} onClosed={focusGraph} />
             </Show>
+            <Show when={find.open() && findName()}>{(name) => <FindBar find={find} name={name()} top={findTop()} />}</Show>
             <Show when={actions.files.editing()} keyed>
-              {(target) => <FileEditor target={target} repoPath={session.path} servers={app.settings().language_servers} save={actions.files.save} onClose={closeEditor} />}
+              {(target) => <FileEditor target={target} draft={actions.files.draft()} onDraft={actions.files.keepDraft} repoPath={session.path} servers={app.settings().language_servers} save={actions.files.save} onClose={closeEditor} />}
             </Show>
             <Show when={historyOf("rebase")} keyed>
               {(view) => <RebaseEditor session={session} base={view.base} from={view.from} onClose={() => void closeHistory()} />}
@@ -487,6 +566,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               )}
             </Show>
             <AiSheet sheet={aiSheet} onOpenAiSettings={() => app.openSettings("ai")} />
+            </FindContext.Provider>
           </div>
           <div class="inspector-slot" hidden={!dockedInspector() && !inspectorOpen()} onKeyDown={(event) => {
             if (event.key === "Escape" && !event.defaultPrevented && !dockedInspector()) {
@@ -502,6 +582,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
               jira={jira}
               composer={composer}
               selection={selection()}
+              editRequest={messageEdit()}
               activeTarget={diffTarget()}
               onOpenDiff={showDiff}
               onViewFile={viewFile}
@@ -546,7 +627,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
           {(dialog) => (
             <Show
               when={dialog.kind === "integrate" && dialog}
-              fallback={<CreateWorktreeDialog snapshot={session.snapshot()} actions={worktrees} />}
+              fallback={<CreateWorktreeDialog snapshot={session.snapshot()} actions={worktrees} prefill={dialog.kind === "create" ? dialog.prefill : undefined} />}
             >
               {(integrate) => <IntegrateWorktreeDialog worktree={integrate().worktree} all={integrate().all} actions={worktrees} />}
             </Show>

@@ -1,11 +1,12 @@
 import { createMemo, createSignal, For, Index, Show, type JSX } from "solid-js";
 import { basename } from "../format";
+import type { RefKind } from "../ipc/bindings/RefKind";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { localTarget, remoteTarget, tagTarget, type RefTarget } from "../state/refMenu";
 import { treeRows, type TreeRow } from "../state/refTree";
 import type { Anchor, RepoActions } from "../state/repoActions";
 import type { Selection } from "../state/selection";
-import { toggleFolder, type RepoUiPrefsStore } from "../state/repoUiPrefs";
+import { isHidden, toggleFolder, type RepoUiPrefsStore } from "../state/repoUiPrefs";
 import {
   bulkMenu,
   countLabel,
@@ -93,6 +94,13 @@ export function Sidebar(props: {
     railOpener?.focus();
   };
   const collapsedFolders = createMemo((): ReadonlySet<string> => new Set(props.uiPrefs.prefs().collapsed_folders));
+  const hiddenInGraph = (kind: RefKind, name: string) => isHidden(props.uiPrefs.prefs().branch_visibility, { kind, name });
+  const hiddenNote = (kind: RefKind, name: string) => (hiddenInGraph(kind, name) ? ", hidden in the graph" : "");
+  const HiddenFlag = (flag: { kind: RefKind; name: string }) => (
+    <Show when={hiddenInGraph(flag.kind, flag.name)}>
+      <span class="meta">hidden</span>
+    </Show>
+  );
   const [activeRow, setActiveRow] = createSignal<string | undefined>();
   const [worktreeMenu, setWorktreeMenu] = createSignal<MenuState | undefined>();
   const [pullMenu, setPullMenu] = createSignal<MenuState | undefined>();
@@ -532,7 +540,7 @@ export function Sidebar(props: {
         virtual={virtual}
         id={`branch:${row.path}`}
         title={withConflict(row.path, props.conflictOf?.(row.path))}
-        label={withConflict(`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}`, props.conflictOf?.(row.path))}
+        label={withConflict(`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}${hiddenNote("local_branch", row.path)}`, props.conflictOf?.(row.path))}
         current={row.path === currentBranch()}
         depth={row.depth + 1}
         base={6}
@@ -543,6 +551,7 @@ export function Sidebar(props: {
         onActivate={activateOf(branchTarget(row.path))}
       >
         <span class="name">{row.label}</span>
+        <HiddenFlag kind="local_branch" name={row.path} />
         <Show when={pullOfLocal(props.platform?.pullLookup(), row.path)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(row.path)}>
           <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
@@ -582,13 +591,14 @@ export function Sidebar(props: {
       <NavRow
         id={`remote:${remote}/${row.path}`}
         title={withConflict(`${remote}/${row.path}`, props.conflictOf?.(`${remote}/${row.path}`))}
-        label={withConflict(`Remote branch ${remote}/${row.path}`, props.conflictOf?.(`${remote}/${row.path}`))}
+        label={withConflict(`Remote branch ${remote}/${row.path}${hiddenNote("remote_branch", `${remote}/${row.path}`)}`, props.conflictOf?.(`${remote}/${row.path}`))}
         {...chrome}
         onOpen={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
         onMenu={(anchor) => props.actions.openRefMenu(remoteTarget(`${remote}/${row.path}`), anchor)}
         onActivate={activateOf(remoteTarget(`${remote}/${row.path}`))}
       >
         <span class="name">{row.label}</span>
+        <HiddenFlag kind="remote_branch" name={`${remote}/${row.path}`} />
         <Show when={pullOfRemote(props.platform?.pullLookup(), `${remote}/${row.path}`)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(`${remote}/${row.path}`)}>
           <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
@@ -688,7 +698,7 @@ export function Sidebar(props: {
           total={snapshot().worktrees.length}
           shown={visibleWorktrees().length}
           open={{ label: "Show worktrees", run: () => props.onOpenPanel("worktrees") }}
-          add={{ label: "Create worktree", run: props.worktrees.openCreate }}
+          add={{ label: "Create worktree", run: () => props.worktrees.openCreate() }}
         >
           <For each={visibleWorktrees()}>
             {(worktree) => (
@@ -722,7 +732,7 @@ export function Sidebar(props: {
                   virtual={virtual}
                   id={`tag:${name}`}
                   title={name}
-                  label={`Tag ${name}`}
+                  label={`Tag ${name}${hiddenNote("tag", name)}`}
                   depth={1}
                   base={6}
                   group="tags"
@@ -732,6 +742,7 @@ export function Sidebar(props: {
                   onActivate={activateOf(target())}
                 >
                   <span class="name">{name}</span>
+                  <HiddenFlag kind="tag" name={name} />
                 </NavRow>
               );
             }}

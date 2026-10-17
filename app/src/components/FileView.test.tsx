@@ -11,6 +11,7 @@ import { flush, mountWithApp, stubLayout, testSession } from "./testkit";
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
 let calls: Array<{ cmd: string; args: Record<string, unknown> }> = [];
+let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 let stylesheet: HTMLStyleElement;
 
 beforeAll(() => {
@@ -25,6 +26,7 @@ beforeEach(() => {
   vi.stubGlobal("ResizeObserver", class { observe = () => undefined; unobserve = () => undefined; disconnect = () => undefined; });
   restoreLayout = stubLayout();
   calls = [];
+  toolsStatus = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 });
 
 afterEach(async () => {
@@ -39,10 +41,13 @@ afterEach(async () => {
 });
 
 const target: FileViewTarget = { file: "src/app.ts", rev: "abcdef1234567", source: "abcdef1" };
+const worktree: FileViewTarget = { file: "src/app.ts", rev: ":worktree", source: "Working tree" };
+const editorButton = (host: ParentNode) => host.querySelector<HTMLButtonElement>('button[aria-label="Open in editor"]');
 
 function mount(result: (file: string) => FileAtRevision, shown: FileViewTarget = target) {
   mockIPC((cmd, args) => {
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
+    if (cmd === "external_tools_status") return toolsStatus;
     if (cmd === "file_at_revision") return result((args as { file: string }).file);
     if (cmd === "preview_start") return ["preview-token", `http://127.0.0.1:4321/preview-token/${(args as { file: string }).file}`];
     return null;
@@ -205,13 +210,42 @@ describe("file view", () => {
   it("says why a file over the limit is not shown, with its size, and offers the editor", async () => {
     const { host } = mount(() => {
       throw { kind: "file_too_large", message: "src/app.ts is too large", output: "3145728" };
-    });
+    }, worktree);
     await flush(80);
 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("This file is 3.0 MiB, over the 2.0 MiB limit of the file view. Open it in your editor instead.");
-    host.querySelector<HTMLButtonElement>('button[aria-label="Open in editor"]')?.click();
+    editorButton(host)?.click();
     await flush();
-    expect(calls.find((call) => call.cmd === "open_path")?.args).toEqual({ path: "/r/src/app.ts", with: "editor" });
+    expect(calls.filter((call) => call.cmd === "open_in_editor").map((call) => call.args)).toEqual([{ path: "/r", file: "src/app.ts" }]);
+    expect(calls.some((call) => call.cmd === "open_path")).toBe(false);
+  });
+
+  it.each<[string, FileViewTarget]>([
+    ["a commit", target],
+    ["the index", { file: "src/app.ts", rev: ":index", source: "Staged" }],
+  ])("keeps Open in editor visible but aria-disabled with its reason while the view shows %s", async (_name, shown) => {
+    const { host } = mount(() => ({ kind: "text", text: "a\n", size: 2, eol: "\n" }), shown);
+    await flush(80);
+
+    const button = editorButton(host);
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    expect(button?.dataset.tip).toBe("Open in editor. Only the working tree copy opens in an editor");
+    button?.click();
+    await flush();
+    expect(calls.some((call) => call.cmd === "open_in_editor" || call.cmd === "open_path")).toBe(false);
+  });
+
+  it("keeps Open in editor aria-disabled with its reason when no editor is chosen", async () => {
+    toolsStatus = { editor: null, diff: "FileMerge", merge: "FileMerge" };
+    const { host } = mount(() => ({ kind: "text", text: "a\n", size: 2, eol: "\n" }), worktree);
+    await flush(80);
+
+    const button = editorButton(host);
+    expect(button?.getAttribute("aria-disabled")).toBe("true");
+    expect(button?.dataset.tip).toBe("Open in editor. Choose an external editor in Settings → External tools");
+    button?.click();
+    await flush();
+    expect(calls.some((call) => call.cmd === "open_in_editor" || call.cmd === "open_path")).toBe(false);
   });
 
   it("shows another refusal as it is, such as a file that is not in that revision", async () => {

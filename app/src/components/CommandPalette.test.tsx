@@ -45,7 +45,7 @@ const snapshot = {
 function mount(overrides: Partial<PaletteContext> = {}, scope?: "repositories", appOverrides: Partial<PaletteApp> = {}) {
   const startRebase = vi.fn();
   const openCreateBranchAt = vi.fn();
-  const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt, discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined } as unknown as RepoActions;
+  const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt, discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined, graphVisibility: () => ({ kind: "all" }) } as unknown as RepoActions;
   const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), checkForUpdate: vi.fn(), openRepositorySearch: vi.fn(), openShortcuts: vi.fn(), openLogs: vi.fn(), openDrawer: vi.fn(), openReleaseNotes: vi.fn(), zoom: vi.fn(), toggleSidebar: vi.fn(), toggleInspector: vi.fn(), toggleSyntaxHighlighting: vi.fn(), toggleTheme: vi.fn(), switchProfile: vi.fn(), profileList: () => undefined, profileOptions: async () => [], openFileInTool: vi.fn(), openFileInEditor: vi.fn(), initializeLfs: vi.fn(), ...appOverrides } as PaletteApp;
   const closed = vi.fn();
   const context: PaletteContext = {

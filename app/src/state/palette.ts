@@ -9,7 +9,10 @@ import type { ResetMode } from "../ipc/bindings/ResetMode";
 import type { AppSettings } from "../ipc/bindings/AppSettings";
 import { NOTHING_TO_UNDO, type RedoState, type UndoState } from "./activityModel";
 import { zoomBlockReason, type ZoomMove } from "./appUiPrefs";
-import { commitMenu, localTarget, NOT_AVAILABLE, operationBlock, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
+import { operationButtons } from "./operationModel";
+import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
+import { commitMenu, localTarget, operationBlock, refMenu, remoteTarget, resetModeMenu, tagTarget, type MenuContext, type MenuEntry, type RefTarget } from "./refMenu";
+import { hiddenRefs } from "./repoUiPrefs";
 import type { Anchor, RepoActions } from "./repoActions";
 import { SHORTCUTS } from "./shortcuts";
 import { THEME_OPTIONS } from "./settingsModel";
@@ -173,6 +176,7 @@ export type PaletteApp = {
   addPlatformConnection: () => void;
   toggleDrawer: () => void;
   openSearch: () => void;
+  findTarget?: () => string | undefined;
   openExternal: (with_: "editor" | "terminal" | "finder") => void;
   setTheme: (theme: AppSettings["theme"]) => void;
   openRepository: (path: string) => void;
@@ -236,11 +240,12 @@ export const NO_CLOSED_TABS = "No closed tabs";
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
 
-const menuContextOf = (snapshot: RepoSnapshot): MenuContext => ({
+const menuContextOf = (snapshot: RepoSnapshot, visibility: GraphVisibility = { kind: "all" }): MenuContext => ({
   current: snapshot.head.kind === "branch" ? snapshot.head.name : undefined,
   remotes: snapshot.remotes,
   operation: snapshot.operation,
   upstream: snapshot.upstream?.name ?? null,
+  visibility,
 });
 
 const reasonOf = (entries: MenuEntry[], id: string): { present: boolean; reason: string | undefined } => {
@@ -258,8 +263,8 @@ export function refTargets(snapshot: RepoSnapshot): RefTarget[] {
 
 const kindNote = { local_branch: "local", remote_branch: "remote", tag: "tag" } as const;
 
-export function refOptions(snapshot: RepoSnapshot, menuId: string): PickerOption[] {
-  const context = menuContextOf(snapshot);
+export function refOptions(snapshot: RepoSnapshot, menuId: string, visibility?: GraphVisibility): PickerOption[] {
+  const context = menuContextOf(snapshot, visibility);
   return refTargets(snapshot).flatMap((target) => {
     const { present, reason } = reasonOf(refMenu(target, context), menuId);
     if (!present) return [];
@@ -284,7 +289,8 @@ const resetModeOptions = (): PickerOption[] =>
 export function buildCommands(context: PaletteContext): PaletteCommand[] {
   const { snapshot, actions, app } = context;
   const repo = snapshot !== undefined && actions !== undefined ? { snapshot, actions } : undefined;
-  const menuContext = snapshot === undefined ? undefined : menuContextOf(snapshot);
+  const visibility = actions?.graphVisibility();
+  const menuContext = snapshot === undefined ? undefined : menuContextOf(snapshot, visibility);
   const busy = actions?.sync().kind === "running";
   const current = menuContext?.current;
 
@@ -299,7 +305,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
   const refArg = (menuId: string, label: string): ArgSpec => ({
     name: "ref",
     label,
-    options: () => (snapshot === undefined ? [] : refOptions(snapshot, menuId)),
+    options: () => (snapshot === undefined ? [] : refOptions(snapshot, menuId, visibility)),
   });
 
   const commitArg = (menuId: string, label: string): ArgSpec => ({
@@ -324,8 +330,6 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     return reason === undefined ? {} : { disabledReason: reason };
   };
 
-  const unavailable = (id: string, title: string, group: PaletteGroup): PaletteCommand => command({ id: `unavailable.${id}`, title, group, covers: [id], disabledReason: NOT_AVAILABLE });
-
   const stashOptions = (): PickerOption[] =>
     snapshot === undefined ? [] : snapshot.stashes.map((stash) => ({ value: String(stash.index), label: `stash@{${stash.index}}`, note: stash.message }));
   const stashArg: ArgSpec = { name: "stash", label: "Stash", options: stashOptions };
@@ -334,8 +338,8 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     if (repo !== undefined && stash !== undefined) run(stash, repo.actions);
   };
   const noStashes = snapshot !== undefined && snapshot.stashes.length === 0 ? "This repository has no stashes" : undefined;
-  const localBranchOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id).filter((option) => option.value.startsWith("local_branch:"))) });
-  const tagOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id).filter((option) => option.value.startsWith("tag:"))) });
+  const localBranchOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id, visibility).filter((option) => option.value.startsWith("local_branch:"))) });
+  const tagOption = (id: string, label: string): ArgSpec => ({ ...refArg(id, label), options: () => (snapshot === undefined ? [] : refOptions(snapshot, id, visibility).filter((option) => option.value.startsWith("tag:"))) });
   const platform = context.platform;
   const listedPulls = platform?.pulls() ?? [];
   const openPulls = listedPulls.filter((pull) => pull.state === "open");
@@ -348,6 +352,9 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
   };
   const operation = snapshot?.operation ?? null;
   const noOperation = operation === null ? "No operation is in progress" : undefined;
+  const operationControls = operation === null || snapshot === undefined ? undefined : operationButtons(operation, snapshot.counts.conflicted, repo?.actions.operationBusy() === true, snapshot.operation_detail?.stopped_edit != null);
+  const continueReason = noOperation ?? (operation === "bisect" ? "A bisect moves on when you mark commits good or bad" : operationControls?.continue.disabledReason);
+  const skipReason = noOperation ?? (operationControls?.skip === true ? (repo?.actions.operationBusy() === true ? "Working…" : undefined) : "Only a rebase or a multi-commit cherry-pick or revert can skip a step");
   const modeCommand = (mode: PullMode, label: string): PaletteCommand =>
     command({
       id: `sync.pull.${mode}`,
@@ -417,7 +424,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     }),
     command({ id: "activity.toggle", title: "Toggle Activity drawer", group: "Application", shortcut: SHORTCUTS.activity, run: () => app.toggleDrawer() }),
     command({ id: "head.reveal", title: "Reveal HEAD in the graph", group: "Repository", shortcut: SHORTCUTS.revealHead, run: () => context.revealHead() }),
-    command({ id: "search.commits", title: "Search commits", group: "Commits", shortcut: SHORTCUTS.search, run: () => app.openSearch() }),
+    command({ id: "search.commits", title: app.findTarget?.() === undefined ? "Search commits" : `Find in ${app.findTarget?.()}`, group: "Commits", shortcut: SHORTCUTS.search, run: () => app.openSearch() }),
     command({ id: "repository.search", title: "Open repo…", group: "Application", shortcut: SHORTCUTS.openRepoSearch, run: () => app.openRepositorySearch() }),
     command({ id: "open.editor", title: "Open in external editor", group: "Repository", shortcut: SHORTCUTS.openInEditor, ...(noEditor === undefined ? {} : { disabledReason: noEditor }), run: () => app.openExternal("editor") }),
     command({
@@ -432,7 +439,14 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     command({ id: "open.terminal", title: "Open in terminal", group: "Repository", run: () => app.openExternal("terminal") }),
     command({ id: "open.finder", title: "Reveal in Finder", group: "Repository", run: () => app.openExternal("finder") }),
     command({ id: "worktrees.show", title: "Show worktrees", group: "Repository", run: () => context.openPanel("worktrees") }),
-    command({ id: "worktrees.create", title: "Create worktree…", group: "Repository", run: () => context.openPanel("create_worktree") }),
+    command({
+      id: "worktrees.create",
+      title: "Create worktree…",
+      group: "Repository",
+      covers: ["create_worktree"],
+      args: [refArg("create_worktree", "Create worktree from")],
+      run: withTarget((target, actions) => actions.openCreateWorktree(target)),
+    }),
     command({ id: "recovery.reflog", title: "Recovery: browse the reflog", group: "Repository", run: () => context.openPanel("reflog") }),
     command({ id: "recovery.lost", title: "Recovery: find lost commits", group: "Repository", run: () => context.openPanel("lost") }),
     command({ id: "recovery.snapshots", title: "Recovery: show safety snapshots", group: "Repository", run: () => context.openPanel("snapshots") }),
@@ -575,7 +589,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       group: "Commits",
       covers: ["cherry_pick"],
       args: [commitArg("cherry_pick", "Cherry-pick")],
-      run: withCommit((sha, actions) => void actions.applyCommit(sha, "Cherry-pick")),
+      run: withCommit((sha, actions) => void actions.openApplyCommit(sha, "Cherry-pick", context.anchor)),
     }),
     command({
       id: "commit.revert",
@@ -583,7 +597,7 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
       group: "Commits",
       covers: ["revert"],
       args: [commitArg("revert", "Revert")],
-      run: withCommit((sha, actions) => void actions.applyCommit(sha, "Revert")),
+      run: withCommit((sha, actions) => void actions.openApplyCommit(sha, "Revert", context.anchor)),
     }),
     command({
       id: "history.rebase",
@@ -805,13 +819,50 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     command({ id: "logs.errors", title: "Error log", group: "Logs", run: () => app.openLogs("errors") }),
     command({ id: "logs.performance", title: "Performance log", group: "Logs", run: () => app.openLogs("performance") }),
     command({ id: "logs.release_notes", title: "Release notes", group: "Logs", run: () => app.openReleaseNotes() }),
-    command({ id: "operation.continue", title: "Continue operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.continueOperation(null) }),
-    command({ id: "operation.skip", title: "Skip step", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => void repo?.actions.skipOperation() }),
+    command({ id: "operation.continue", title: "Continue operation", group: "Operation", ...(continueReason === undefined ? {} : { disabledReason: continueReason }), run: () => void repo?.actions.continueOperation(null) }),
+    command({ id: "operation.skip", title: "Skip step", group: "Operation", ...(skipReason === undefined ? {} : { disabledReason: skipReason }), run: () => void repo?.actions.skipOperation() }),
     command({ id: "operation.abort", title: "Abort operation", group: "Operation", ...(noOperation === undefined ? {} : { disabledReason: noOperation }), run: () => repo?.actions.abortOperation() }),
-    unavailable("create_worktree", "Create worktree…", "Branches"),
-    unavailable("edit_message", "Edit commit message…", "Commits"),
-    unavailable("copy", "Copy…", "Application"),
-    unavailable("hide", "Hide in graph", "Application"),
+    command({
+      id: "commit.edit_message",
+      title: "Edit commit message…",
+      group: "Commits",
+      covers: ["edit_message"],
+      disabledReason: operationBlock(operation) ?? (snapshot?.head.kind === "unborn" ? "Make a first commit before editing its message" : undefined),
+      run: () => repo?.actions.editHeadMessage(),
+    }),
+    command({
+      id: "ref.copy_name",
+      title: "Copy branch or tag name…",
+      group: "Branches",
+      covers: ["copy_name"],
+      args: [refArg("copy_name", "Copy the name of")],
+      run: withTarget((target, actions) => void actions.copyRefName(target)),
+    }),
+    command({
+      id: "ref.copy_sha",
+      title: "Copy commit SHA of branch or tag…",
+      group: "Branches",
+      covers: ["copy_sha"],
+      args: [refArg("copy_sha", "Copy the commit SHA of")],
+      run: withTarget((target, actions) => void actions.copyCommitSha(target)),
+    }),
+    command({
+      id: "graph.hide_ref",
+      title: "Hide in graph…",
+      group: "Branches",
+      covers: ["hide"],
+      args: [refArg("hide", "Hide in graph")],
+      run: withTarget((target, actions) => actions.hideRef(target)),
+    }),
+    command({
+      id: "graph.show_ref",
+      title: "Show in graph…",
+      group: "Branches",
+      covers: ["show"],
+      args: [refArg("show", "Show in graph")],
+      ...(repo !== undefined && hiddenRefs(visibility ?? { kind: "all" }).length === 0 ? { disabledReason: "No refs are hidden in the graph" } : {}),
+      run: withTarget((target, actions) => actions.showRef(target)),
+    }),
   ];
 }
 

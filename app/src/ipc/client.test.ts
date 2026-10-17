@@ -160,6 +160,7 @@ describe("typed IPC client", () => {
 
     await client.checkout("/r", { kind: "tag", name: "v1" }, true);
     await client.checkBranchName("/r", "topic");
+    await client.resolveStartPoint("/r", "refs/heads/topic");
     await client.createBranch("/r", "topic", "abc1234", false);
     await client.renameBranch("/r", "topic", "topic2");
     await client.branchDeletePreview("/r", "topic2");
@@ -185,6 +186,7 @@ describe("typed IPC client", () => {
     expect(calls).toEqual([
       { cmd: "checkout", args: { path: "/r", target: { kind: "tag", name: "v1" }, stash: true } },
       { cmd: "check_branch_name", args: { path: "/r", name: "topic" } },
+      { cmd: "resolve_start_point", args: { path: "/r", start: "refs/heads/topic" } },
       { cmd: "create_branch", args: { path: "/r", name: "topic", at: "abc1234", checkout: false } },
       { cmd: "rename_branch", args: { path: "/r", from: "topic", to: "topic2" } },
       { cmd: "branch_delete_preview", args: { path: "/r", name: "topic2" } },
@@ -223,6 +225,8 @@ describe("typed IPC client", () => {
     await client.fastForward("/r", "main", "topic");
     await client.cherryPick("/r", "abc1234");
     await client.revert("/r", "abc1234");
+    await client.cherryPick("/r", "def5678", 2);
+    await client.revert("/r", "def5678", 1);
     await client.reset("/r", "abc1234", "hard");
     await client.createTag("/r", "v1", "abc1234", null);
     await client.deleteTag("/r", "v1");
@@ -242,6 +246,8 @@ describe("typed IPC client", () => {
       { cmd: "fast_forward", args: { path: "/r", branch: "main", target: "topic" } },
       { cmd: "cherry_pick", args: { path: "/r", sha: "abc1234" } },
       { cmd: "revert", args: { path: "/r", sha: "abc1234" } },
+      { cmd: "cherry_pick", args: { path: "/r", sha: "def5678", mainline: 2 } },
+      { cmd: "revert", args: { path: "/r", sha: "def5678", mainline: 1 } },
       { cmd: "reset", args: { path: "/r", target: "abc1234", mode: "hard" } },
       { cmd: "create_tag", args: { path: "/r", name: "v1", at: "abc1234", message: null } },
       { cmd: "delete_tag", args: { path: "/r", name: "v1" } },

@@ -19,6 +19,8 @@ import { viewOf } from "../routes";
 import { createStoreValue } from "./clientStore";
 import { createAppUiPrefs, DEFAULT_ZOOM_PERCENT, withInspectorToggled, withSidebarToggled, withSyntaxToggled, withZoom, type ZoomMove } from "./appUiPrefs";
 import { requestFileHistory } from "./fileHistoryRequest";
+import { discardEditsCopy, forgetEditors, unsavedEditorFile } from "./fileOps";
+import type { ConfirmCopy } from "./confirmCopy";
 import { setSyntaxHighlighting } from "./syntax";
 import { createOnline } from "./online";
 import { createQueryClient } from "./queryClient";
@@ -95,6 +97,7 @@ export type RepoBridge = {
   revealRef: (name: string) => void;
   revealHead: () => void;
   openSearch: () => void;
+  findTarget: () => string | undefined;
   focusComposer: () => void;
   loadCommits: () => Promise<CommitChoice[]>;
   openPanel: (panel: PanelRequest) => void;
@@ -143,6 +146,7 @@ export function createAppState(router: AppRouter) {
   let announced = 0;
   const [entryDialog, setEntryDialog] = createSignal<EntryDialog | undefined>();
   const [initPrompt, setInitPrompt] = createSignal<string | undefined>();
+  const [closePending, setClosePending] = createSignal<{ copy: ConfirmCopy; run: () => void } | undefined>();
   const [notice, setNotice] = createSignal<string | undefined>();
   const [repoNotice, setRepoNotice] = createSignal<RepoNotice | undefined>();
   const [tabGroupSaveFailure, setTabGroupSaveFailure] = createSignal<string | undefined>();
@@ -260,9 +264,30 @@ export function createAppState(router: AppRouter) {
     setClosedTabs(pushClosed(closedTabs(), closedEntries(tabs(), ids)));
   }
 
+  function closeDiscardingEdits(ids: readonly string[], close: () => void, discarded: readonly string[] = []): void {
+    const unsaved = ids.flatMap((id) => {
+      const file = discarded.includes(id) ? undefined : unsavedEditorFile(id);
+      return file === undefined ? [] : [{ id, file }];
+    })[0];
+    if (unsaved === undefined) {
+      forgetEditors(ids);
+      close();
+      return;
+    }
+    setClosePending({ copy: discardEditsCopy(unsaved.file), run: () => closeDiscardingEdits(ids, close, [...discarded, unsaved.id]) });
+  }
+
+  function confirmClose(): void {
+    const pending = closePending();
+    setClosePending(undefined);
+    pending?.run();
+  }
+
   function closeIds(ids: readonly string[]): void {
-    forget(ids);
-    applyTabs(closeTabIds(tabs(), ids));
+    closeDiscardingEdits(ids, () => {
+      forget(ids);
+      applyTabs(closeTabIds(tabs(), ids));
+    });
   }
 
   const reopenable = () => nextClosed(closedTabs(), tabs());
@@ -527,6 +552,7 @@ export function createAppState(router: AppRouter) {
     addPlatformConnection,
     toggleDrawer: () => setDrawerOpen((open) => !open),
     openSearch: () => bridge()?.openSearch(),
+    findTarget: () => bridge()?.findTarget(),
     openExternal: (with_) => void openExternal(with_),
     setTheme: (theme) => void saveSettings({ ...settings(), theme }),
     toggleTheme,
@@ -772,8 +798,14 @@ export function createAppState(router: AppRouter) {
       const tab = tabs().tabs[index];
       if (tab !== undefined) closeIds([tabId(tab)]);
     },
-    closeTabsAt: (path: string) => applyTabs(closeTabIds(tabs(), [path])),
+    closeTabsAt: (path: string) => {
+      forgetEditors([path]);
+      applyTabs(closeTabIds(tabs(), [path]));
+    },
     closeTabIds: closeIds,
+    closePrompt: () => closePending()?.copy,
+    confirmClose,
+    cancelClose: () => setClosePending(undefined),
     closedTabs,
     planClose,
     reopenClosedTab,
@@ -805,8 +837,11 @@ export function createAppState(router: AppRouter) {
     toggleTabGroup: (group: number) => applyGroups(toggleGroup(tabs(), group)),
     ungroupTabs: (group: number) => applyGroups(ungroup(tabs(), group)),
     closeTabGroup: (group: number) => {
-      forget(tabs().groups[group]?.tabs ?? []);
-      applyGroups(closeGroup(tabs(), group));
+      const ids = tabs().groups[group]?.tabs ?? [];
+      closeDiscardingEdits(ids, () => {
+        forget(ids);
+        applyGroups(closeGroup(tabs(), group));
+      });
     },
     openSettings,
     addPlatformConnection,

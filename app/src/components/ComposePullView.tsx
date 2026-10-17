@@ -157,7 +157,7 @@ export function ComposePullView(props: { session: RepoSession; platform: Platfor
   }
 
   return (
-    <section class="panel compose" aria-label="Create pull request">
+    <section class="panel compose" aria-label="Create pull request" data-find="pull request">
       <div class="compose-scroll">
         <h2 class="compose-title">Create pull request</h2>
         <p class="setting-note">

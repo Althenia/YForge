@@ -450,6 +450,17 @@ describe("graph panel", () => {
     expect(list().querySelector(`#graph-row-${TOTAL - 1}`)?.getAttribute("aria-selected")).toBe("true");
   });
 
+  it.each(["End", "ArrowUp"])("loads, selects, and scrolls to the last commit with %s when its page is not loaded yet", async (name) => {
+    const { key, list, selection, offsets } = await mountGraph();
+    expect(offsets).not.toContain(400);
+
+    key(name);
+    await flush(120);
+
+    expect(selection()).toEqual({ kind: "commit", sha: `sha${TOTAL - 1}` });
+    expect(list().scrollTop).toBeGreaterThanOrEqual((TOTAL - 1) * geometry.row + geometry.row - VIEWPORT - 1);
+  });
+
   it("jumps to a commit that a search reveals and selects it", async () => {
     const { setFocus, selection, positions } = await mountGraph();
 

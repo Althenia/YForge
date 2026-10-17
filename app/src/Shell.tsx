@@ -3,6 +3,7 @@ import { Outlet } from "@tanstack/solid-router";
 import { ActivityDrawer } from "./components/ActivityDrawer";
 import { AuthDialog } from "./components/AuthDialog";
 import { CommandPalette } from "./components/CommandPalette";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { CloneDialog, CreateDialog } from "./components/EntryDialogs";
 import { EmptyState } from "./components/EmptyState";
 import { InitializeDialog } from "./components/InitializeDialog";
@@ -68,6 +69,9 @@ export function Shell() {
         </Show>
         <Show when={app.initPrompt()}>
           {(folder) => <InitializeDialog folder={folder()} onConfirm={() => void app.confirmInit()} onCancel={app.cancelInit} />}
+        </Show>
+        <Show when={app.closePrompt()} keyed>
+          {(copy) => <ConfirmDialog copy={copy} onConfirm={app.confirmClose} onCancel={app.cancelClose} />}
         </Show>
         <Show when={app.updateDialogOpen()}>
           <UpdateDialog onClose={app.closeUpdateDialog} />

@@ -3963,6 +3963,16 @@ button.cmd {
   width: 300px;
 }
 
+::highlight(find) {
+  background-color: var(--colors-attention-tint);
+  color: var(--colors-text);
+}
+
+::highlight(find-current) {
+  background-color: var(--colors-attention-ink);
+  color: var(--colors-text-inverse);
+}
+
 .search-count {
   min-width: 72px;
   font: var(--font-ui-small);
@@ -4303,6 +4313,19 @@ button.cmd {
 .graph-branches {
   display: grid;
   gap: var(--spacing-2);
+}
+
+.graph-hidden {
+  display: grid;
+  gap: var(--spacing-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph-hidden .ref {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chip-group {

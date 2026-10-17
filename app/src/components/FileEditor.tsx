@@ -4,9 +4,9 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { vim } from "@replit/codemirror-vim";
 import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js";
-import type { ConfirmCopy } from "../state/confirmCopy";
-import type { EditingFile } from "../state/fileOps";
+import { discardEditsCopy, type EditingFile, type EditorDraft } from "../state/fileOps";
 import { formatBytes } from "../state/fileView";
+import { useFindRegistry } from "../state/find";
 import { createLspSession } from "../state/lsp";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
@@ -14,16 +14,17 @@ import { tip } from "./Tooltip";
 
 const normalized = (text: string): string => text.replace(/\r\n/g, "\n");
 
-const discardCopy = (file: string): ConfirmCopy => ({
-  title: `Discard unsaved edits to ${file}?`,
-  names: [],
-  confirmLabel: "Discard edits",
-  consequences: ["Your edits have not been saved. Closing the editor discards them; the file on disk stays as it was."],
-});
-
-export function FileEditor(props: { target: EditingFile; repoPath: string; servers: Readonly<Record<string, string>>; save: (file: string, text: string, eol: string) => Promise<boolean>; onClose: () => void }) {
-  const [text, setText] = createSignal(normalized(props.target.text));
-  const [saved, setSaved] = createSignal(normalized(props.target.text));
+export function FileEditor(props: {
+  target: EditingFile;
+  draft: EditorDraft | undefined;
+  onDraft: (draft: EditorDraft) => void;
+  repoPath: string;
+  servers: Readonly<Record<string, string>>;
+  save: (file: string, text: string, eol: string) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const [text, setText] = createSignal(props.draft?.text ?? normalized(props.target.text));
+  const [saved, setSaved] = createSignal(props.draft?.saved ?? normalized(props.target.text));
   const [saving, setSaving] = createSignal(false);
   const [failure, setFailure] = createSignal<string>();
   const [confirming, setConfirming] = createSignal(false);
@@ -36,6 +37,7 @@ export function FileEditor(props: { target: EditingFile; repoPath: string; serve
   const lsp = createLspSession(props.repoPath, props.target.file, () => view, lspLayer);
   const extension = () => props.target.file.split(".").at(-1)?.toLowerCase() ?? "";
   const serverCommand = () => props.servers[extension()];
+  const finder = useFindRegistry();
 
   onMount(() => {
     if (editorHost === undefined) return;
@@ -58,8 +60,24 @@ export function FileEditor(props: { target: EditingFile; repoPath: string; serve
       }),
     });
     view.focus();
+    const editor = view;
+    if (finder !== undefined) {
+      onCleanup(
+        finder.register({
+          element: editor.dom,
+          texts: () => text().split("\n"),
+          reveal: (index, start, length) => {
+            const from = editor.state.doc.line(index + 1).from + start;
+            editor.dispatch({ selection: { anchor: from, head: from + length }, effects: EditorView.scrollIntoView(from, { y: "center" }) });
+          },
+          rows: () => [...editor.contentDOM.querySelectorAll<HTMLElement>(".cm-line")].map((line) => [editor.state.doc.lineAt(editor.posAtDOM(line)).number - 1, line] as const),
+        }),
+      );
+    }
     onCleanup(() => view?.destroy());
   });
+
+  createEffect(() => props.onDraft({ text: text(), saved: saved() }));
 
   createEffect(() => {
     const enabled = vimMode();
@@ -94,6 +112,7 @@ export function FileEditor(props: { target: EditingFile; repoPath: string; serve
     <>
       <section
         class="panel dpanel fpanel feditor"
+        data-find="editor"
         aria-label="Edit file"
         aria-busy={saving()}
         tabindex="-1"
@@ -163,7 +182,7 @@ export function FileEditor(props: { target: EditingFile; repoPath: string; serve
       </section>
       <Show when={confirming()}>
         <ConfirmDialog
-          copy={discardCopy(props.target.file)}
+          copy={discardEditsCopy(props.target.file)}
           onConfirm={() => {
             setConfirming(false);
             props.onClose();

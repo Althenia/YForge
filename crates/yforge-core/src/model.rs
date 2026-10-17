@@ -227,6 +227,9 @@ pub enum GraphVisibility {
     Refs {
         refs: Vec<RefSelector>,
     },
+    Hidden {
+        refs: Vec<RefSelector>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

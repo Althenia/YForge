@@ -44,6 +44,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `revision_file_diff` | `path`, `base: string`, `head: string`, `file: string`, `ignoreWhitespace?: boolean` | `FileDiff` of one file from `base` to `head`; each revision must name a commit (`invalid_request` otherwise) |
 | `repo_watch` | `path` | `null`; starts (or replaces) the repository watcher that emits `repo-changed` |
 | `check_branch_name` | `path`, `name: string` | `string`: the name, if `git check-ref-format --branch` accepts it unchanged; otherwise `invalid_request` |
+| `resolve_start_point` | `path`, `start: string` (a `refs/heads/`, `refs/remotes/`, or `refs/tags/` name, or a commit id of 4–64 hex characters) | `string`: the full SHA of the commit it names; anything else, or a ref that does not exist, is `invalid_request` |
 | `checkout` | `path`, `target: CheckoutTarget`, `stash: boolean`, `leaveStashed?: boolean` | `CheckoutOutcome { auto_stash }`; `auto_stash` is `stashed` when the stash was left and recorded |
 | `create_branch` | `path`, `name: string`, `at: string \| null`, `checkout: boolean` | `null` |
 | `rename_branch` | `path`, `from: string`, `to: string` | `null` |
@@ -69,7 +70,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `merge` | `path`, `source: string`, `mode: "fast_forward" \| "merge_commit"` | `OperationOutcome` |
 | `rebase` | `path`, `onto: string` | `OperationOutcome` |
 | `fast_forward` | `path`, `branch: string`, `target: string` | `null` |
-| `cherry_pick`, `revert` | `path`, `sha: string` | `OperationOutcome` |
+| `cherry_pick`, `revert` | `path`, `sha: string`, `mainline?: number` | `OperationOutcome` |
 | `reset` | `path`, `target: string`, `mode: "soft" \| "mixed" \| "hard"` | `null` |
 | `create_tag` | `path`, `name: string`, `at: string \| null`, `message: string \| null` | `null` |
 | `delete_tag` | `path`, `name: string` | `null` |
@@ -189,7 +190,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 
 `client` also exposes `pickFolder(title)` (the native folder picker, `tauri-plugin-dialog`), `homeDirectory()`, and `onFolderDrop(handler)`, and the phase 3b commands as `publish`, `authRespond`, `searchCommits`, `cloneRepo`, `initRepo`, `settingsLoad`, `settingsSave`, `repoSettingsLoad`, `repoSettingsSave`, `identityRead`, `identityWrite`, `remotesList`, `remoteAdd`, `remoteEdit`, `remoteRemove`, `recentsList`, `recentAdd`, `recentRemove`, `recentStatuses`, `sessionLoad`, `sessionSave`, `openPath`, `activityList`, `activityClear`, `undoLast`, plus `onAuthPrompt(handler)` and `onActivity(handler)`.
 
-`client` exposes them as `appInfo()`, `launchPath()`, `repoOpen(path)`, `repoGraph(path, offset, limit)`, `diffFile`, `stageFiles`, `unstageFiles`, `stageAll`, `unstageAll`, `discardFiles`, `stageHunk`, `unstageHunk`, `discardHunk`, `commit`, `amendInfo`, `commitDetails`, `commitFileDiff`, `repoWatch`, `checkBranchName`, `checkout`, `createBranch`, `renameBranch`, `branchDeletePreview`, `deleteBranch`, `deleteBranches`, `stashPush`, `stashApply`, `stashPop`, `stashDrop`, `dropStashes`, `fetch`, `pull`, `push`, `pushPlan`, `pushForce`, `operationCancel`, `operationContinue`, `operationSkip`, `operationAbort`, `markResolved`, `integrationPreview`, `merge`, `rebase`, `fastForward`, `cherryPick`, `revert`, `reset`, `createTag`, `deleteTag`, `deleteTags`, `pushTag`, `deleteRemoteTag`, `conflictFile`, `conflictResolve`, `conflictTakeSide`, `conflictReset`, `onRepoChanged(handler)`, and `onOperationProgress(handler)`.
+`client` exposes them as `appInfo()`, `launchPath()`, `repoOpen(path)`, `repoGraph(path, offset, limit)`, `diffFile`, `stageFiles`, `unstageFiles`, `stageAll`, `unstageAll`, `discardFiles`, `stageHunk`, `unstageHunk`, `discardHunk`, `commit`, `amendInfo`, `commitDetails`, `commitFileDiff`, `repoWatch`, `checkBranchName`, `checkout`, `createBranch`, `renameBranch`, `branchDeletePreview`, `deleteBranch`, `deleteBranches`, `stashPush`, `stashApply`, `stashPop`, `stashDrop`, `dropStashes`, `fetch`, `pull`, `push`, `pushPlan`, `pushForce`, `operationCancel`, `operationContinue`, `operationSkip`, `operationAbort`, `markResolved`, `integrationPreview`, `merge`, `rebase`, `fastForward`, `cherryPick(path, sha, mainline?)`, `revert(path, sha, mainline?)`, `reset`, `createTag`, `deleteTag`, `deleteTags`, `pushTag`, `deleteRemoteTag`, `conflictFile`, `conflictResolve`, `conflictTakeSide`, `conflictReset`, `onRepoChanged(handler)`, and `onOperationProgress(handler)`.
 
 ## Events
 
@@ -316,7 +317,7 @@ These run against the checked-out branch and fail with `invalid_request` while a
 - `merge`: `fast_forward` runs `git merge --ff-only` and fails with `not_fast_forward` when the branches diverged; `merge_commit` runs `git merge --no-ff`. A branch that shares its name with a tag is merged by its full ref. Overlapping local changes are `local_changes`.
 - `rebase`: `git rebase <onto>`; local changes that block it are `local_changes`.
 - `fast_forward`: `branch` must be a local branch. `not_fast_forward` when `target` does not contain it, `invalid_request` when it is already at `target`. The checked-out branch moves with `git merge --ff-only`; another branch moves with `git branch --force` after the ancestor check.
-- `cherry_pick`, `revert`: `sha` must be a commit id that is not a merge commit (`invalid_request`). A pick or revert that changes nothing is aborted and reported as `invalid_request`.
+- `cherry_pick`, `revert`: `sha` must be a commit id. A merge commit needs `mainline`, the 1-based number of the parent the changes are taken relative to (`git cherry-pick|revert -m <mainline>`). Refusals (nothing changes) are `invalid_request`: a merge commit without `mainline`, a `mainline` of 0 or above the parent count, or a `mainline` for a commit that is not a merge. A pick or revert that changes nothing is aborted and reported as `invalid_request`.
 - `reset`: `target` is a commit id, branch name, or full ref. `soft` keeps index and files, `mixed` keeps files, `hard` resets tracked files (untracked files stay).
 
 ### Tag commands
@@ -437,11 +438,11 @@ These run against the checked-out branch and fail with `invalid_request` while a
 ### Graph visibility and the working-tree row
 
 - Row 0 is the working-tree row whenever HEAD exists: kind `changes` when the working tree has any change, else `clean_changes` (summary "Working tree clean"); its parent is HEAD. An unborn repository has a row only while it has changes.
-- `GraphVisibility` is `{ kind: "all" }`, `{ kind: "current_and_upstream" }`, or `{ kind: "refs", refs: { name, kind: "local_branch" | "remote_branch" | "tag" }[] }`. Filtered layouts are computed for the filtered history alone, so lanes, edges, and `total` describe only the rows shown, and `search_commits` with the same `visibility` returns indexes into them. `current_and_upstream` shows the checked-out branch and its upstream (a detached HEAD shows its own history) and labels tags on shown commits; `refs` shows only the listed refs (missing ones are skipped; an empty list shows only the working-tree row). Stash rows stay only when their base commit is shown. The visible tips are part of the graph cache key.
+- `GraphVisibility` is `{ kind: "all" }`, `{ kind: "current_and_upstream" }`, `{ kind: "refs", refs: RefSelector[] }`, or `{ kind: "hidden", refs: RefSelector[] }`, where `RefSelector` is `{ name, kind: "local_branch" | "remote_branch" | "tag" }`. Filtered layouts are computed for the filtered history alone, so lanes, edges, and `total` describe only the rows shown, and `search_commits` with the same `visibility` returns indexes into them. `current_and_upstream` shows the checked-out branch and its upstream (a detached HEAD shows its own history) and labels tags on shown commits; `refs` shows only the listed refs (missing ones are skipped; an empty list shows only the working-tree row). `hidden` (`{ kind: "hidden", refs }`) shows every branch, remote branch, and tag except the listed ones, plus the HEAD commit's history: commits reachable only from hidden refs are left out, hidden refs get no label, and a hidden checked-out branch keeps its commit unlabelled. Stash rows stay only when their base commit is shown. The visible tips are part of the graph cache key.
 
 ### Interface preferences
 
-- `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "graph" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` or `graph` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or more than 500 refs. A stored blob that does not match is `storage_failed`.
+- `repo_ui_prefs_load` / `repo_ui_prefs_save` keep one JSON blob per repository in `yforge.db` (migration 4, table `repo_ui_prefs(repository, prefs, updated_at)`). `RepoUiPrefs { columns: ColumnPref[], collapsed_folders: string[], branch_visibility: GraphVisibility }`; `ColumnPref { column: "refs" | "graph" | "author" | "date" | "sha", visible, width? }`. Missing fields take their defaults. Save refuses with `invalid_request` (leaving the stored value untouched) for a blank path, a repeated column, a hidden `refs` or `graph` column, a width outside 24–2000, blank or repeated folder ids, more than 5,000 folders, or a `refs` or `hidden` list with more than 500 refs or a blank or repeated ref. A stored blob that does not match is `storage_failed`.
 
 ### Application interface preferences
 
@@ -527,7 +528,7 @@ Every command rejects with a tagged `ErrorPayload { kind, message, output }`. `o
 - Mutating commands take git's own locks; a concurrent git process in the terminal surfaces as `git_failed` with git's message.
 - `repo_graph` and `search_commits` reuse one computed history and layout per repository root. The cache key is every ref and its target (`git for-each-ref`), the HEAD commit, the stash commits, the commit tips of the requested visibility, and whether the working tree has changes; any difference recomputes the full layout, and the working-tree summary text is always read fresh. Pages are consistent only while the key does not change between calls. The ignored test `crates/yforge-core/tests/graph_perf.rs` gates the first page at under 1 s for 10k commits and under 3 s for 100k commits (`cargo test --release -p yforge-core -- --ignored`).
 - `fetch`, `pull`, `push`, `push_force`, `push_tag`, `delete_remote_tag`, `publish`, and `clone_repo` register their `id` in a registry held by the shell (`OperationRegistry`); `operation_cancel` sets the cancel flag of the registered operation, and the id is removed when the call ends.
-- `merge_prediction` and `ai_compose_pull_request` are also cancellable through the operation registry. Incremental layout and cherry-pick/revert of merge commits (parent choice) remain deferred.
+- `merge_prediction` and `ai_compose_pull_request` are also cancellable through the operation registry. Incremental layout remains deferred.
 
 ## Authentication prompts
 

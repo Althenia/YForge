@@ -1283,6 +1283,14 @@ async fn check_branch_name(path: String, name: String) -> Result<String, ErrorPa
 }
 
 #[tauri::command]
+async fn resolve_start_point(path: String, start: String) -> Result<String, ErrorPayload> {
+    log::debug!("resolve_start_point path={path} start={start}");
+    let result = blocking(move || yforge_core::resolve_start_point(Path::new(&path), &start)).await;
+    log_outcome("resolve_start_point", &result, |sha| format!("sha={sha}"));
+    result
+}
+
+#[tauri::command]
 async fn create_branch<R: Runtime>(
     app: AppHandle<R>,
     log: State<'_, ActivityLog>,
@@ -2164,8 +2172,9 @@ async fn cherry_pick<R: Runtime>(
     log: State<'_, ActivityLog>,
     path: String,
     sha: String,
+    mainline: Option<u32>,
 ) -> Result<OperationOutcome, ErrorPayload> {
-    log::debug!("cherry_pick path={path} sha={sha}");
+    log::debug!("cherry_pick path={path} sha={sha} mainline={mainline:?}");
     let target = path.clone();
     let label = format!("Cherry-picked {}", short(&sha));
     let result = recorder(&app, &log)
@@ -2173,7 +2182,7 @@ async fn cherry_pick<R: Runtime>(
             track(&path, OperationKind::CherryPick, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
-            move || yforge_core::cherry_pick(Path::new(&target), &sha),
+            move || yforge_core::cherry_pick(Path::new(&target), &sha, mainline),
             integration_plan("cherry-pick", path.clone(), conflicted),
         )
         .await;
@@ -2187,8 +2196,9 @@ async fn revert<R: Runtime>(
     log: State<'_, ActivityLog>,
     path: String,
     sha: String,
+    mainline: Option<u32>,
 ) -> Result<OperationOutcome, ErrorPayload> {
-    log::debug!("revert path={path} sha={sha}");
+    log::debug!("revert path={path} sha={sha} mainline={mainline:?}");
     let target = path.clone();
     let label = format!("Reverted {}", short(&sha));
     let result = recorder(&app, &log)
@@ -2196,7 +2206,7 @@ async fn revert<R: Runtime>(
             track(&path, OperationKind::Revert, true, true),
             move |_: &OperationOutcome| label,
             state_of(&path),
-            move || yforge_core::revert(Path::new(&target), &sha),
+            move || yforge_core::revert(Path::new(&target), &sha, mainline),
             integration_plan("revert", path.clone(), conflicted),
         )
         .await;
@@ -5652,6 +5662,7 @@ pub fn register_with_passphrases<R: Runtime>(
             cli_install,
             checkout,
             check_branch_name,
+            resolve_start_point,
             create_branch,
             rename_branch,
             branch_delete_preview,

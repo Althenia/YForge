@@ -526,3 +526,101 @@ fn search_rows_index_the_filtered_graph_the_same_visibility_renders() {
         Some(history.upstream.as_str())
     );
 }
+
+fn selector(name: &str, kind: RefKind) -> RefSelector {
+    RefSelector {
+        name: name.into(),
+        kind,
+    }
+}
+
+#[test]
+fn hidden_refs_lose_their_labels_and_the_commits_only_they_reach() {
+    let history = divergent_history();
+    let path = &history.repo.path;
+    let visibility = GraphVisibility::Hidden {
+        refs: vec![
+            selector("feature", RefKind::LocalBranch),
+            selector("v-feature", RefKind::Tag),
+            selector("gone", RefKind::LocalBranch),
+        ],
+    };
+
+    let page = graph_page(path, 0, 100, &visibility).unwrap();
+
+    assert_eq!(page.total, 3);
+    assert!(!summaries(&page).contains(&"Feature work"));
+    assert_eq!(labels(&page), vec!["main", "origin/main", "v1"]);
+    assert_eq!(widest_lane(&page), 1);
+}
+
+#[test]
+fn a_hidden_ref_that_shares_a_commit_with_a_shown_ref_keeps_the_commit() {
+    let history = divergent_history();
+    let path = &history.repo.path;
+    let visibility = GraphVisibility::Hidden {
+        refs: vec![selector("feature", RefKind::LocalBranch)],
+    };
+
+    let page = graph_page(path, 0, 100, &visibility).unwrap();
+
+    assert_eq!(page.total, 4);
+    let (_, feature) = row_of(&page, &history.feature);
+    let names: Vec<&str> = feature
+        .refs
+        .iter()
+        .map(|label| label.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["v-feature"]);
+}
+
+#[test]
+fn hiding_the_checked_out_branch_keeps_the_head_commit_without_its_label() {
+    let history = divergent_history();
+    let path = &history.repo.path;
+    let visibility = GraphVisibility::Hidden {
+        refs: vec![
+            selector("main", RefKind::LocalBranch),
+            selector("origin/main", RefKind::RemoteBranch),
+            selector("feature", RefKind::LocalBranch),
+            selector("v-feature", RefKind::Tag),
+        ],
+    };
+
+    let page = graph_page(path, 0, 100, &visibility).unwrap();
+
+    let mut shown: Vec<&str> = page
+        .rows
+        .iter()
+        .filter_map(|row| row.sha.as_deref())
+        .collect();
+    shown.sort_unstable();
+    let mut expected = vec![history.base.as_str(), history.local.as_str()];
+    expected.sort_unstable();
+    assert_eq!(shown, expected);
+    assert_eq!(labels(&page), vec!["v1"]);
+}
+
+#[test]
+fn search_rows_index_the_graph_without_hidden_refs() {
+    let history = divergent_history();
+    let path = &history.repo.path;
+    let visibility = GraphVisibility::Hidden {
+        refs: vec![
+            selector("feature", RefKind::LocalBranch),
+            selector("v-feature", RefKind::Tag),
+        ],
+    };
+
+    let hidden = search_commits(path, "Feature work", &visibility).unwrap();
+    let shown = search_commits(path, "Upstream work", &visibility).unwrap();
+
+    assert!(hidden.rows.is_empty());
+    assert_eq!(hidden.total, 3);
+    let page = graph_page(path, 0, 100, &visibility).unwrap();
+    assert_eq!(shown.rows.len(), 1);
+    assert_eq!(
+        page.rows[shown.rows[0] as usize].sha.as_deref(),
+        Some(history.upstream.as_str())
+    );
+}

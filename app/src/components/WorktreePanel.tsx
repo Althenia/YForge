@@ -32,7 +32,7 @@ export function WorktreePanel(props: { session: RepoSession; actions: WorktreeAc
         <span>Worktrees</span>
         <span class="dim">{lanes().length}</span>
         <span class="spacer" />
-        <button type="button" class="btn sm primary" onClick={props.actions.openCreate}>
+        <button type="button" class="btn sm primary" onClick={() => props.actions.openCreate()}>
           <Icon name="plus" />
           Create worktree…
         </button>

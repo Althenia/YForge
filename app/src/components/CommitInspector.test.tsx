@@ -69,7 +69,7 @@ const details = (sha: string): CommitDetails => ({ sha, summary: "Tune retries",
 
 const snapshot = { root: "/r", head: { kind: "branch", name: "main", sha: HEAD }, upstream: { name: "origin/main", ahead_behind: { ahead: 0, behind: 0 } }, operation: null, remotes: ["origin"], remote_branches: [], branches: ["main"], files: [] } as unknown as RepoSnapshot;
 
-function mount(sha: string, options: { body?: string; pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; refs?: GraphRef[]; pullLookup?: PullLookup; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown } = {}) {
+function mount(sha: string, options: { body?: string; pushed?: boolean; operation?: boolean; files?: CommitDetails["files"]; parents?: string[]; refs?: GraphRef[]; pullLookup?: PullLookup; author?: CommitDetails["author"]; jira?: { summary: string | null; failure?: string }; tree?: string[]; summaries?: Record<string, string>; ai?: AiFeature[]; explain?: unknown; amendDraft?: unknown; editRequest?: { nonce: number; sha: string } } = {}) {
   const selected: string[] = [];
   const selectedPulls: number[] = [];
   const opened: DiffTarget[] = [];
@@ -89,6 +89,8 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
       const found = options.jira?.summary ?? null;
       return (args as { keys: string[] }).keys.map((key) => ({ key, issue: found === null ? null : { key, summary: found, status: "Done", status_category: "done", issue_type: "Bug", project: "ABC", updated_at: "", web_url: "", connection_id: "j1" }, failure: options.jira?.failure ?? null }));
     }
+    const summary = options.summaries?.[(args as { sha?: string } | undefined)?.sha ?? ""];
+    if (cmd === "commit_details" && summary !== undefined) return { ...details((args as { sha: string }).sha), summary };
     if (cmd === "commit_details") return { ...details(sha), body: options.body ?? "Because.", summary: options.jira === undefined ? "Tune retries" : "Retry login (ABC-142)", author: options.author ?? person, files: options.files ?? [], parents: options.parents ?? [OLDER], refs: options.refs ?? [] };
     if (cmd === "amend_info") return { sha: HEAD, summary: "Tune retries", description: "Because.", pushed: options.pushed ?? false };
     if (cmd === "repo_open") return options.operation === true ? { ...snapshot, operation: "rebase" } : snapshot;
@@ -102,7 +104,7 @@ function mount(sha: string, options: { body?: string; pushed?: boolean; operatio
   const sheet = createRoot(() => createAiSheet(session));
   const mounted = mountWithApp(() => (
     <AiSheetContext.Provider value={sheet}>
-      <CommitInspector session={session} actions={actions} sha={sha} activeTarget={undefined} platform={{ pullLookup: () => options.pullLookup } as PlatformActions} onSelectPull={(number) => selectedPulls.push(number)} onSelectCommit={(next) => selected.push(next)} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
+      <CommitInspector session={session} actions={actions} sha={sha} editRequest={options.editRequest} activeTarget={undefined} platform={{ pullLookup: () => options.pullLookup } as PlatformActions} onSelectPull={(number) => selectedPulls.push(number)} onSelectCommit={(next) => selected.push(next)} onOpenDiff={(target) => opened.push(target)} onViewFile={(view) => viewed.push(view)} />
       <Show when={actions.menu()} keyed>
         {(menu) => <ContextMenu menu={menu} onClose={actions.closeMenu} />}
       </Show>
@@ -234,17 +236,25 @@ describe("commit verbs in the header", () => {
     ]);
   });
 
-  it("disables Cherry-pick and Revert on a merge commit with the stated reason, while Branch here and Reset stay available", async () => {
-    const { host } = mount(OLDER, { parents: [HEAD, "c".repeat(40)] });
+  it("cherry-picks and reverts a merge commit relative to the parent chosen from its parents menu", async () => {
+    const third = "c".repeat(40);
+    const { host } = mount(OLDER, { parents: [HEAD, third], summaries: { [HEAD]: "Main work", [third]: "Topic work" } });
     await flush(60);
 
-    for (const name of ["Cherry-pick", "Revert"]) {
-      expect(verb(host, name)?.getAttribute("aria-disabled")).toBe("true");
-      expect(verb(host, name)?.getAttribute("data-tip")).toBe("A merge commit needs a parent choice, which is not available yet");
+    for (const [name, cmd, choice] of [["Cherry-pick", "cherry_pick", 1], ["Revert", "revert", 0]] as const) {
+      expect(verb(host, name)?.getAttribute("aria-disabled")).toBeNull();
+      verb(host, name)?.click();
+      await flush(60);
+      expect(calls.some((call) => call.cmd === cmd)).toBe(false);
+      const items = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')];
+      expect(items.map((entry) => entry.textContent)).toEqual([
+        `Parent 1: ${HEAD.slice(0, 7)} Main workmainline: changes relative to this parent`,
+        `Parent 2: ${third.slice(0, 7)} Topic workmainline: changes relative to this parent`,
+      ]);
+      items[choice]?.click();
+      await flush(60);
+      expect(calls.filter((call) => call.cmd === cmd).map((call) => call.args)).toEqual([{ path: "/r", sha: OLDER, mainline: choice + 1 }]);
     }
-    verb(host, "Cherry-pick")?.click();
-    await flush(40);
-    expect(calls.some((call) => call.cmd === "cherry_pick")).toBe(false);
     expect(verb(host, "Branch here")?.getAttribute("aria-disabled")).toBeNull();
     expect(verb(host, "Reset main to here")?.getAttribute("aria-disabled")).toBeNull();
   });
@@ -278,6 +288,25 @@ describe("commit verbs in the header", () => {
 });
 
 describe("edit the HEAD message", () => {
+  it("opens the message form when the workspace asks to edit the HEAD commit, once per request", async () => {
+    const { host } = mount(HEAD, { editRequest: { nonce: 1, sha: HEAD } });
+    await flush(80);
+
+    expect(field(host, "Summary")?.value).toBe("Tune retries");
+    expect(editButton(host)).toBeNull();
+    buttonNamed(host, "Cancel")?.click();
+    await flush(40);
+    expect(field(host, "Summary")).toBeNull();
+    expect(editButton(host)).not.toBeNull();
+  });
+
+  it("ignores a request for a commit that is not HEAD", async () => {
+    const { host } = mount(OLDER, { editRequest: { nonce: 1, sha: OLDER } });
+    await flush(80);
+
+    expect(field(host, "Summary")).toBeNull();
+  });
+
   it("generates an editable amend draft from the resulting commit, locks fields while waiting, and restores prior text", async () => {
     let finish: ((draft: unknown) => void) | undefined;
     const draft = new Promise((resolve) => (finish = resolve));
