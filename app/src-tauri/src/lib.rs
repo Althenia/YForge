@@ -5882,6 +5882,10 @@ pub fn run() {
     };
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_filter))
         .init();
+    #[cfg(target_os = "macos")]
+    if let Err(error) = yforge_core::adopt_login_shell_path() {
+        log::warn!("could not read PATH from the login shell: {error}");
+    }
     register(
         tauri::Builder::default()
             .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {

@@ -32,6 +32,8 @@ mod jira;
 mod launchpad;
 mod layout;
 mod lfs;
+#[cfg(target_os = "macos")]
+mod login_path;
 mod maintenance;
 mod model;
 mod operation;
@@ -139,6 +141,8 @@ pub use jira::{
 };
 pub use launchpad::{launchpad_wips, LaunchpadPull, LaunchpadPulls, PullRole, Wip};
 pub use lfs::{lfs_initialize, lfs_status, lfs_track, lfs_untrack, LfsStatus};
+#[cfg(target_os = "macos")]
+pub use login_path::adopt_login_shell_path;
 pub use maintenance::maintenance_run;
 pub use model::{
     AheadBehind, AmendInfo, AppInfo, AuthPromptEvent, Author, AutoStash, BlameRun, CarriedEdge,
