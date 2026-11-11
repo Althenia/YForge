@@ -6,13 +6,13 @@ describe("settings search (S47)", () => {
   it("finds settings across sections by title, note, group, or section, every word required", () => {
     expect(searchSettings("fetch").map((entry) => entry.id)).toEqual(["auto-fetch"]);
     expect(searchSettings("folder").map((entry) => entry.section)).toContain("repositories");
-    expect(searchSettings("ssh key").map((entry) => entry.id)).toEqual(["ssh-key", "signing-key", "git-hosts"]);
+    expect(searchSettings("ssh key").map((entry) => entry.id)).toEqual(["ssh-key", "folder-git-rules", "signing-key", "git-hosts"]);
     expect(searchSettings("   ")).toEqual([]);
     expect(searchSettings("zzz")).toEqual([]);
   });
 
   it("counts matches per section for the tabs", () => {
-    expect(matchCounts(searchSettings("ssh"))).toEqual({ git: 3, "git-hosts": 1 });
+    expect(matchCounts(searchSettings("ssh"))).toEqual({ git: 4, "git-hosts": 1 });
   });
 
   it("names each result's section and group, without repeating a section that is its own group", () => {

@@ -202,6 +202,8 @@ export type PaletteApp = {
   reopenClosedTab: () => void;
   nextTab: () => void;
   previousTab: () => void;
+  selectVisibleTab?: (oneBased: number) => void;
+  visibleTabCount?: () => number;
   checkForUpdate: () => void;
 };
 
@@ -409,6 +411,18 @@ export function buildCommands(context: PaletteContext): PaletteCommand[] {
     }),
     command({ id: "tab.next", title: "Show next tab", group: "Application", shortcut: SHORTCUTS.nextTab, run: () => app.nextTab() }),
     command({ id: "tab.previous", title: "Show previous tab", group: "Application", shortcut: SHORTCUTS.previousTab, run: () => app.previousTab() }),
+    command({ id: "tab.next_bracket", title: "Show next tab", group: "Application", shortcut: SHORTCUTS.nextTabBracket, run: () => app.nextTab() }),
+    command({ id: "tab.previous_bracket", title: "Show previous tab", group: "Application", shortcut: SHORTCUTS.previousTabBracket, run: () => app.previousTab() }),
+    ...([1, 2, 3, 4, 5, 6, 7, 8, 9] as const).map((n) =>
+      command({
+        id: `tab.${n}`,
+        title: `Show tab ${n}`,
+        group: "Application",
+        shortcut: SHORTCUTS[`tab${n}`],
+        ...((app.visibleTabCount?.() ?? Infinity) < n ? { disabledReason: `Fewer than ${n} tabs are open` } : {}),
+        run: () => app.selectVisibleTab?.(n),
+      }),
+    ),
     command({ id: "update.check", title: "Check for update…", group: "Application", run: () => app.checkForUpdate() }),
     command({ id: "launchpad.open", title: "Open Launchpad", group: "Application", run: () => app.openLaunchpad() }),
     command({ id: "settings.open", title: "Open settings", group: "Application", shortcut: SHORTCUTS.settings, run: () => app.openSettings("general") }),

@@ -10,7 +10,7 @@ mod preview;
 mod tracking;
 pub mod update;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
 
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
-use yforge_ai::{Ai, AiError, CachedStore, KeychainStore, SecretStore, Selection};
+use yforge_ai::{Ai, AiError, CachedStore, SecretStore, Selection, SqliteSecrets};
 use yforge_core::{
     ActivityEntry, AiFeature, AiFeatureConfig, AiFeatureSummary, AiSignInEvent, AiSignInMethod,
     AiSignInStage, AmendInfo, AppInfo, AppSettings, AppUiPrefs, AuthReply, BatchOutcome, BlameRun,
@@ -28,23 +28,26 @@ use yforge_core::{
     ErrorPayload, Explanation, FileAtRevision, FileDiff, FileRevision, FolderRemoved, FolderScan,
     ForceLease, ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GraphPage, GraphVisibility,
     Identity, IdentityField, IntegrationPreview, JiraConnection, JiraIssueList, JiraIssueLookup,
-    JiraKind, KeychainPassphrases, LaunchpadPulls, LostCommit, ManagedRepo, MatchedRepo, MergeMode,
-    MessageEdit, ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore,
-    Planned, PlatformConnection, PlatformKind, PrDetail, Progress, ProviderInput, ProviderKind,
-    ProviderStatus, ProviderSummary, ProviderUpdate, PullList, PullMode, PullOutcome, PullReport,
-    PullRequest, PushTarget, RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo,
-    RecentStatus, RecomposeGroup, RecomposePreview, RecomposeProposal, RecomposeResult,
-    ReflogEntry, RemoteInfo, RepoAlias, RepoChanged, RepoRemoved, RepoSettings, RepoSnapshot,
-    RepoUiPrefs, RepoWatcher, Repositories, Rescan, ResetMode, RevisionRange, ScannedFolder,
-    SearchResult, SnapshotChange, SnapshotInfo, SshKey, StashDetails, StashDraft, StashRestore,
-    StashTarget, Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord, WorktreeIntegration,
+    JiraKind, LaunchpadPulls, LostCommit, ManagedRepo, MatchedRepo, MergeMode, MessageEdit,
+    ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore, Planned,
+    PlatformConnection, PlatformKind, PlatformOAuthMethod, PlatformOAuthStage, PlatformSignInEvent,
+    PrDetail, Progress, ProviderInput, ProviderKind, ProviderStatus, ProviderSummary,
+    ProviderUpdate, PullList, PullMode, PullOutcome, PullReport, PullRequest, PushTarget,
+    RebaseOutcome, RebasePlan, RebaseResult, RebaseStep, RecentRepo, RecentStatus, RecomposeGroup,
+    RecomposePreview, RecomposeProposal, RecomposeResult, ReflogEntry, RemoteInfo, RepoAlias,
+    RepoChanged, RepoRemoved, RepoSettings, RepoSnapshot, RepoUiPrefs, RepoWatcher, Repositories,
+    Rescan, ResetMode, RevisionRange, ScannedFolder, SearchResult, Secrets, SnapshotChange,
+    SnapshotInfo, SqlitePassphrases, SshKey, StashDetails, StashDraft, StashRestore, StashTarget,
+    Submodule, SwitchStash, TabSession, UrlIdentity, UsageRecord, WorktreeIntegration,
     WorktreeStatus,
 };
 use yforge_core::{
     BranchComparison, MergePrediction, MergePredictor, PullChecks, PullRequestDisclosure,
     PullRequestDraft,
 };
-use yforge_platform::{NewConnection, NewJiraConnection, PlatformService, PrFilter};
+use yforge_platform::{
+    NewConnection, NewJiraConnection, NewOAuthConnection, PlatformService, PrFilter,
+};
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
 pub use crash::{install_panic_hook, note_repository};
@@ -58,6 +61,7 @@ const DATA_DIR_ENV: &str = "YFORGE_DATA_DIR";
 const REPO_CHANGED_EVENT: &str = "repo-changed";
 const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const AI_SIGN_IN_EVENT: &str = "ai-sign-in";
+const PLATFORM_SIGN_IN_EVENT: &str = "platform-sign-in";
 const LOST_COMMITS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub struct DataDir(pub PathBuf);
@@ -69,8 +73,22 @@ struct PredictionState(Arc<MergePredictor>);
 
 pub struct SshPassphrases(pub Arc<dyn PassphraseStore>);
 
+struct WatchedRepo {
+    _watcher: RepoWatcher,
+    announced: Arc<Mutex<HashSet<String>>>,
+}
+
 #[derive(Default)]
-struct WatchState(Mutex<Option<RepoWatcher>>);
+struct WatchState(Mutex<HashMap<String, WatchedRepo>>);
+
+fn canonical_watch_key(path: &str) -> String {
+    if let Ok(root) = yforge_core::repository_root(Path::new(path)) {
+        return root.to_string_lossy().into_owned();
+    }
+    std::fs::canonicalize(path)
+        .map(|root| root.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_owned())
+}
 
 #[derive(Default)]
 struct OperationRegistry(Mutex<HashMap<String, CancelToken>>);
@@ -189,7 +207,10 @@ impl<R: Runtime> Network<'_, R> {
         };
         let dir = self.recorder.app.state::<DataDir>().0.clone();
         let repository = meta.repo.clone();
-        let ssh = blocking(move || yforge_core::ssh_plan(&dir, Some(&repository))).await?;
+        let mut ssh = blocking(move || yforge_core::ssh_plan(&dir, Some(&repository))).await?;
+        let platform = self.recorder.app.state::<PlatformState>().0.clone();
+        let data_root = self.recorder.app.state::<DataDir>().0.clone();
+        ssh.https_credentials = platform.https_credentials(&data_root).await;
         log::debug!(
             "network id={id} repository_key_set={} app_key_set={} host_identities={}",
             ssh.repository_key.is_some(),
@@ -2469,22 +2490,98 @@ async fn repo_watch<R: Runtime>(
     path: String,
 ) -> Result<(), ErrorPayload> {
     log::debug!("repo_watch path={path}");
-    let announced = path.clone();
+    let key = canonical_watch_key(&path);
+    {
+        let watched = state.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(entry) = watched.get(&key) {
+            entry
+                .announced
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(path.clone());
+            return Ok(());
+        }
+    }
+    let announced: Arc<Mutex<HashSet<String>>> =
+        Arc::new(Mutex::new(HashSet::from([path.clone()])));
+    let announced_in_callback = announced.clone();
+    let app_in_callback = app.clone();
+    let watched_path = path.clone();
     let result = blocking(move || {
-        yforge_core::watch_repo(Path::new(&path), move || {
-            let payload = RepoChanged {
-                path: announced.clone(),
-            };
-            log::debug!("repo-changed path={}", payload.path);
-            if let Err(error) = app.emit(REPO_CHANGED_EVENT, payload) {
-                log::warn!("could not emit {REPO_CHANGED_EVENT}: {error}");
+        yforge_core::watch_repo(Path::new(&watched_path), move || {
+            let paths: Vec<String> = announced_in_callback
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .iter()
+                .cloned()
+                .collect();
+            for announced_path in paths {
+                let payload = RepoChanged {
+                    path: announced_path,
+                };
+                log::debug!("repo-changed path={}", payload.path);
+                if let Err(error) = app_in_callback.emit(REPO_CHANGED_EVENT, payload) {
+                    log::warn!("could not emit {REPO_CHANGED_EVENT}: {error}");
+                }
             }
         })
     })
     .await;
     log_outcome("repo_watch", &result, |_| String::new());
     let watcher = result?;
-    *state.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(watcher);
+    let mut watched = state.0.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(entry) = watched.get(&key) {
+        entry
+            .announced
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(path);
+        return Ok(());
+    }
+    watched.insert(
+        key,
+        WatchedRepo {
+            _watcher: watcher,
+            announced,
+        },
+    );
+    Ok(())
+}
+
+#[tauri::command]
+fn repo_unwatch(state: State<'_, WatchState>, path: String) -> Result<(), ErrorPayload> {
+    log::debug!("repo_unwatch path={path}");
+    let key = canonical_watch_key(&path);
+    let mut watched = state.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let target_key = if watched.contains_key(&key) {
+        Some(key)
+    } else {
+        watched
+            .iter()
+            .find(|(_, entry)| {
+                entry
+                    .announced
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains(&path)
+            })
+            .map(|(key, _)| key.clone())
+    };
+    if let Some(target_key) = target_key {
+        let remove_entry = if let Some(entry) = watched.get(&target_key) {
+            let mut announced = entry
+                .announced
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            announced.remove(&path);
+            announced.is_empty()
+        } else {
+            false
+        };
+        if remove_entry {
+            watched.remove(&target_key);
+        }
+    }
     Ok(())
 }
 
@@ -3261,6 +3358,54 @@ async fn lfs_track(path: String, pattern: String) -> Result<(), ErrorPayload> {
 async fn lfs_untrack(path: String, pattern: String) -> Result<(), ErrorPayload> {
     log::debug!("lfs_untrack path={path} pattern={pattern}");
     blocking(move || yforge_core::lfs_untrack(Path::new(&path), &pattern)).await
+}
+
+#[tauri::command]
+async fn folder_git_configs_list(
+    data: State<'_, DataDir>,
+) -> Result<Vec<yforge_core::FolderGitConfig>, ErrorPayload> {
+    log::debug!("folder_git_configs_list");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::list_folder_git_configs(&dir)).await;
+    log_outcome("folder_git_configs_list", &result, |list| {
+        format!("configs={}", list.len())
+    });
+    result
+}
+
+#[tauri::command]
+async fn folder_git_config_save<R: Runtime>(
+    app: AppHandle<R>,
+    log: State<'_, ActivityLog>,
+    data: State<'_, DataDir>,
+    draft: yforge_core::FolderGitConfigDraft,
+) -> Result<yforge_core::FolderGitConfig, ErrorPayload> {
+    let _ = (&app, &log);
+    log::debug!(
+        "folder_git_config_save folder={} author_name_set={} author_email_set={} ssh_key_set={}",
+        draft.folder,
+        draft.author_name.is_some(),
+        draft.author_email.is_some(),
+        draft.ssh_key_path.is_some()
+    );
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::save_folder_git_config(&dir, &draft)).await;
+    log_outcome("folder_git_config_save", &result, |config| {
+        format!("folder={}", config.folder)
+    });
+    result
+}
+
+#[tauri::command]
+async fn folder_git_config_remove(
+    data: State<'_, DataDir>,
+    folder: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("folder_git_config_remove folder={folder}");
+    let dir = data_dir(&data);
+    let result = blocking(move || yforge_core::remove_folder_git_config(&dir, &folder)).await;
+    log_outcome("folder_git_config_remove", &result, |()| String::new());
+    result
 }
 
 #[tauri::command]
@@ -4150,7 +4295,7 @@ fn ai_error_kind(error: &AiError) -> ErrorKind {
         AiError::Timeout { .. } => ErrorKind::AiTimeout,
         AiError::Cancelled => ErrorKind::Cancelled,
         AiError::Invalid { .. } => ErrorKind::InvalidRequest,
-        AiError::Keychain { .. } => ErrorKind::StorageFailed,
+        AiError::Secrets { .. } => ErrorKind::StorageFailed,
         AiError::Core(error) => error.kind(),
     }
 }
@@ -4257,6 +4402,23 @@ async fn ai_provider_test(
     log::debug!("ai_provider_test id={id}");
     let result = ai.0.test(&data_dir(&data), &id).await.map_err(ai_payload);
     log_outcome("ai_provider_test", &result, |status| format!("{status:?}"));
+    result
+}
+
+#[tauri::command]
+async fn ai_provider_sign_out(
+    data: State<'_, DataDir>,
+    ai: State<'_, AiState>,
+    id: String,
+) -> Result<ProviderStatus, ErrorPayload> {
+    log::debug!("ai_provider_sign_out id={id}");
+    let result =
+        ai.0.sign_out(&data_dir(&data), &id)
+            .await
+            .map_err(ai_payload);
+    log_outcome("ai_provider_sign_out", &result, |status| {
+        format!("{status:?}")
+    });
     result
 }
 
@@ -5177,6 +5339,63 @@ async fn platform_connection_add(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn platform_oauth_sign_in<R: Runtime>(
+    app: AppHandle<R>,
+    data: State<'_, DataDir>,
+    platform: State<'_, PlatformState>,
+    operations: State<'_, Operations>,
+    operation_id: String,
+    existing_id: Option<String>,
+    kind: PlatformKind,
+    host: String,
+    name: String,
+    client_id: String,
+    client_secret: Option<String>,
+    insecure_tls: bool,
+    method: PlatformOAuthMethod,
+) -> Result<PlatformConnection, ErrorPayload> {
+    log::debug!(
+        "platform_oauth_sign_in operation_id={operation_id} existing_id={existing_id:?} kind={kind:?} host={host} name={name:?} client_id={client_id} insecure_tls={insecure_tls} method={method:?} client_secret=<redacted>"
+    );
+    let token = operations
+        .running
+        .register(&operation_id, CancelToken::new())?;
+    let emitter = app.clone();
+    let operation = operation_id.clone();
+    let input = NewOAuthConnection {
+        existing_id,
+        kind,
+        host,
+        name,
+        client_id,
+        client_secret,
+        insecure_tls,
+    };
+    let result = platform
+        .0
+        .sign_in_oauth(&data_dir(&data), input, method, &token, &move |stage| {
+            if let PlatformOAuthStage::Browser { url } = &stage {
+                open_in_browser(url);
+            }
+            let event = PlatformSignInEvent {
+                operation: operation.clone(),
+                stage,
+            };
+            if let Err(error) = emitter.emit(PLATFORM_SIGN_IN_EVENT, event) {
+                log::warn!("could not emit {PLATFORM_SIGN_IN_EVENT}: {error}");
+            }
+        })
+        .await
+        .map_err(platform_payload);
+    operations.running.finish(&operation_id);
+    log_outcome("platform_oauth_sign_in", &result, |connection| {
+        format!("id={}", connection.id)
+    });
+    result
+}
+
+#[tauri::command]
 async fn platform_connection_remove(
     data: State<'_, DataDir>,
     platform: State<'_, PlatformState>,
@@ -5561,11 +5780,24 @@ async fn launchpad_wips(data: State<'_, DataDir>) -> Result<Vec<yforge_core::Wip
 }
 
 pub fn register<R: Runtime>(builder: tauri::Builder<R>) -> tauri::Builder<R> {
-    let keychain: Arc<dyn SecretStore> = Arc::new(CachedStore::new(Arc::new(KeychainStore)));
-    register_with(
-        builder,
-        Ai::new(keychain.clone()),
-        PlatformService::new(keychain),
+    register_with_secrets(builder, Arc::new(Secrets::new(None)))
+}
+
+pub fn register_with_secrets<R: Runtime>(
+    builder: tauri::Builder<R>,
+    secrets: Arc<Secrets>,
+) -> tauri::Builder<R> {
+    let credentials: Arc<dyn SecretStore> = Arc::new(CachedStore::new(Arc::new(
+        SqliteSecrets::new(secrets.clone()),
+    )));
+    let passphrases = Arc::new(CachedPassphrases::new(Arc::new(SqlitePassphrases::new(
+        secrets.clone(),
+    ))));
+    register_with_passphrases(
+        builder.manage(secrets),
+        Ai::new(credentials.clone()),
+        PlatformService::new(credentials),
+        passphrases,
     )
 }
 
@@ -5574,11 +5806,14 @@ pub fn register_with<R: Runtime>(
     ai: Ai,
     platform: PlatformService,
 ) -> tauri::Builder<R> {
+    let secrets = Arc::new(Secrets::new(None));
     register_with_passphrases(
-        builder,
+        builder.manage(secrets.clone()),
         ai,
         platform,
-        Arc::new(CachedPassphrases::new(Arc::new(KeychainPassphrases))),
+        Arc::new(CachedPassphrases::new(Arc::new(SqlitePassphrases::new(
+            secrets,
+        )))),
     )
 }
 
@@ -5720,6 +5955,7 @@ pub fn register_with_passphrases<R: Runtime>(
             conflict_take_side,
             conflict_reset,
             repo_watch,
+            repo_unwatch,
             ssh_keys_list,
             ssh_public_key,
             git_hosts_list,
@@ -5809,6 +6045,9 @@ pub fn register_with_passphrases<R: Runtime>(
             lfs_initialize,
             lfs_track,
             lfs_untrack,
+            folder_git_configs_list,
+            folder_git_config_save,
+            folder_git_config_remove,
             signing_read,
             signing_write,
             signing_keys,
@@ -5829,6 +6068,7 @@ pub fn register_with_passphrases<R: Runtime>(
             ai_provider_update,
             ai_provider_remove,
             ai_provider_test,
+            ai_provider_sign_out,
             ai_models,
             ai_feature_config_list,
             ai_feature_config_set,
@@ -5851,6 +6091,7 @@ pub fn register_with_passphrases<R: Runtime>(
             ai_propose_conflict,
             platform_connections_list,
             platform_connection_add,
+            platform_oauth_sign_in,
             platform_connection_remove,
             platform_connection_test,
             platform_repo_match,
@@ -5873,6 +6114,10 @@ pub fn register_with_passphrases<R: Runtime>(
         ])
 }
 
+fn normalize_data_dir_override(value: Option<OsString>) -> Option<PathBuf> {
+    value.filter(|value| !value.is_empty()).map(PathBuf::from)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let default_filter = if cfg!(debug_assertions) {
@@ -5886,17 +6131,26 @@ pub fn run() {
     if let Err(error) = yforge_core::adopt_login_shell_path() {
         log::warn!("could not read PATH from the login shell: {error}");
     }
-    register(
+    let overridden_dir = normalize_data_dir_override(std::env::var_os(DATA_DIR_ENV));
+    #[cfg(target_os = "macos")]
+    let legacy = overridden_dir
+        .is_none()
+        .then(|| Box::new(yforge_core::NativeKeychain) as Box<dyn yforge_core::LegacyKeychain>);
+    #[cfg(not(target_os = "macos"))]
+    let legacy = None;
+    let secrets = Arc::new(Secrets::new(legacy));
+    register_with_secrets(
         tauri::Builder::default()
             .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
                 second_instance(app, &argv, &cwd);
             }))
             .plugin(tauri_plugin_dialog::init())
             .plugin(tauri_plugin_updater::Builder::new().build()),
+        secrets.clone(),
     )
-    .setup(|app| {
-        let dir = match std::env::var_os(DATA_DIR_ENV).filter(|value| !value.is_empty()) {
-            Some(dir) => PathBuf::from(dir),
+    .setup(move |app| {
+        let dir = match overridden_dir {
+            Some(dir) => dir,
             None => app.path().app_data_dir()?,
         };
         if let Some(moved) = yforge_core::start_storage(&dir)? {
@@ -5905,6 +6159,7 @@ pub fn run() {
                 moved.display()
             );
         }
+        secrets.bind(&dir)?;
         yforge_core::profile_activate(&dir)?;
         crash::seed_repositories(&dir);
         install_panic_hook(dir.clone());
@@ -5921,6 +6176,16 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_dir_override_normalization_keeps_native_selection_and_path_resolution_aligned() {
+        assert_eq!(normalize_data_dir_override(None), None);
+        assert_eq!(normalize_data_dir_override(Some(OsString::new())), None);
+        assert_eq!(
+            normalize_data_dir_override(Some(OsString::from("/synthetic/data"))),
+            Some(PathBuf::from("/synthetic/data"))
+        );
+    }
 
     #[test]
     fn open_url_accepts_only_http_and_https_schemes_case_insensitively() {

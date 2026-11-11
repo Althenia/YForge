@@ -251,3 +251,15 @@ fn discarding_unstaged_files_still_keeps_their_staged_content() {
     assert_eq!(repo.read("a.txt"), "staged\n");
     assert_eq!(repo.git(&["show", ":a.txt"]), "staged");
 }
+
+#[test]
+fn stage_all_skips_an_ignored_nested_worktree_directory() {
+    let repo = repository();
+    repo.write(".gitignore", ".worktrees/\n");
+    repo.write(".worktrees/inner/file.txt", "nested\n");
+    repo.write("new.txt", "new\n");
+    yforge_core::stage_all(&repo.path).unwrap();
+    let snap = repo_snapshot(&repo.path).unwrap();
+    assert!(snap.files.iter().all(|f| !f.path.starts_with(".worktrees")));
+    assert!(snap.files.iter().any(|f| f.path == "new.txt"));
+}

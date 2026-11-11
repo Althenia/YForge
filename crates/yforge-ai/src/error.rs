@@ -19,8 +19,8 @@ pub enum AiError {
     Cancelled,
     #[error("invalid request: {detail}")]
     Invalid { detail: String },
-    #[error("the macOS Keychain refused the request: {detail}")]
-    Keychain { detail: String },
+    #[error("could not use saved credentials: {detail}")]
+    Secrets { detail: String },
     #[error(transparent)]
     Core(#[from] CoreError),
 }
@@ -60,8 +60,8 @@ impl From<AiError> for CoreError {
             AiError::Timeout { provider, seconds } => CoreError::AiTimeout { provider, seconds },
             AiError::Cancelled => CoreError::Cancelled,
             AiError::Invalid { detail } => CoreError::InvalidRequest { detail },
-            AiError::Keychain { detail } => CoreError::StorageFailed {
-                path: "macOS Keychain".to_owned(),
+            AiError::Secrets { detail } => CoreError::StorageFailed {
+                path: "saved credentials".to_owned(),
                 detail,
             },
             AiError::Core(error) => error,

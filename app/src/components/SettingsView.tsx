@@ -25,6 +25,7 @@ import { GitHostsSettings } from "./GitHostsSettings";
 import { Icon } from "./Icon";
 import { JiraSettings } from "./JiraSettings";
 import { LfsSettings } from "./LfsSettings";
+import { FolderGitSettings } from "./FolderGitSettings";
 import { PlatformSettings } from "./PlatformSettings";
 import { PrivacyDiagnostics } from "./PrivacyDiagnostics";
 import { ProfilesSettings } from "./ProfilesSettings";
@@ -506,6 +507,7 @@ export function SettingsView(props: { section: string }) {
               <SshKeyPicker label="SSH key" value={settings().ssh_key_path} blankLabel={SSH_AGENT_LABEL} onChange={(key) => void change({ ssh_key_path: key })} />
             </SettingRow>
             <SigningSettings />
+            <FolderGitSettings />
           </Match>
           <Match when={section() === "tools"}>
             <ExternalToolsSettings />

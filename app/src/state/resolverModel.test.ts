@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConflictFile } from "../ipc/bindings/ConflictFile";
 import {
+  anchorAtScroll,
   assemble,
   choose,
   draftLines,
@@ -8,14 +9,19 @@ import {
   markerCount,
   markResolvedReason,
   mergeProgress,
+  pickedLines,
   regionLines,
+  regionSideState,
   regionsOf,
   resolverCommand,
   savedContent,
+  scrollTopAtAnchor,
   sideState,
   step,
   toggleAll,
+  toggleLinePick,
   toggleSide,
+  type RegionPick,
   type ResolverState,
 } from "./resolverModel";
 
@@ -35,7 +41,8 @@ const file = (overrides: Partial<ConflictFile> = {}): ConflictFile => ({
 });
 
 const labels = { current: "main", incoming: "origin/main" };
-const chosen = (choices: ResolverState["choices"], active = 0): ResolverState => ({ choices, active });
+const pick = (side: RegionPick["side"], lineIndex: number): RegionPick => ({ side, lineIndex });
+const chosen = (picks: ResolverState["picks"], active = 0): ResolverState => ({ picks, active });
 
 describe("conflict regions", () => {
   it("lists the conflict segments in order with their base and starts unresolved on the first", () => {
@@ -45,7 +52,7 @@ describe("conflict regions", () => {
       { current: ["Run npm start."], incoming: ["Run node app.js.", "Add --verbose."], base: ["Run it."] },
       { current: ["MIT"], incoming: ["Apache"], base: null },
     ]);
-    expect(initialState(parsed)).toEqual({ choices: [undefined, undefined], active: 0 });
+    expect(initialState(parsed)).toEqual({ picks: [[], []], active: 0 });
   });
 
   it("builds yours, theirs, and both (yours first) from the region sides", () => {
@@ -82,14 +89,14 @@ describe("output", () => {
   });
 
   it("replaces a chosen conflict by its lines and moves the later starts with it", () => {
-    const output = assemble(file(), chosen(["incoming", "both"]), labels);
+    const output = assemble(file(), chosen([[pick("incoming", 0), pick("incoming", 1)], [pick("current", 0), pick("incoming", 0)]]), labels);
 
     expect(output.text).toBe("# sample\n\nRun node app.js.\nAdd --verbose.\n## License\nMIT\nApache");
     expect(output.starts).toEqual([2, 5]);
   });
 
   it("puts a proposed text in place of its conflict and keeps the others as chosen or marked", () => {
-    const output = assemble(file(), chosen([undefined, "current"]), labels, { 0: "npm start\nnode app.js\n" });
+    const output = assemble(file(), chosen([[], [pick("current", 0)]]), labels, { 0: "npm start\nnode app.js\n" });
 
     expect(output.text).toBe("# sample\n\nnpm start\nnode app.js\n## License\nMIT");
     expect(output.starts).toEqual([2, 5]);
@@ -97,39 +104,78 @@ describe("output", () => {
 });
 
 describe("side checkboxes", () => {
-  it("adds and removes a side per conflict, both sides meaning yours then theirs, none meaning unresolved", () => {
+  it("adds and removes a whole side per conflict, keeping the other side's picks", () => {
+    const regions = regionsOf(file());
     let state = initialState(file());
 
-    state = toggleSide(state, 1, "current");
-    expect(state).toEqual({ choices: [undefined, "current"], active: 1 });
-    state = toggleSide(state, 1, "incoming");
-    expect(state.choices[1]).toBe("both");
-    state = toggleSide(state, 1, "current");
-    expect(state.choices[1]).toBe("incoming");
-    state = toggleSide(state, 1, "incoming");
-    expect(state.choices[1]).toBeUndefined();
+    state = toggleSide(state, 1, "current", regions[1]!);
+    expect(state).toEqual({ picks: [[], [pick("current", 0)]], active: 1 });
+    state = toggleSide(state, 1, "incoming", regions[1]!);
+    expect(state.picks[1]).toEqual([pick("current", 0), pick("incoming", 0)]);
+    state = toggleSide(state, 1, "current", regions[1]!);
+    expect(state.picks[1]).toEqual([pick("incoming", 0)]);
+    state = toggleSide(state, 1, "incoming", regions[1]!);
+    expect(state.picks[1]).toEqual([]);
+  });
+
+  it("appends individual lines in click order and removes a line when unchecked", () => {
+    const region = regionsOf(file())[0]!;
+    let state = initialState(file());
+
+    state = toggleLinePick(state, 0, pick("incoming", 1));
+    state = toggleLinePick(state, 0, pick("current", 0));
+    state = toggleLinePick(state, 0, pick("incoming", 0));
+
+    expect(state.picks[0]).toEqual([pick("incoming", 1), pick("current", 0), pick("incoming", 0)]);
+    expect(pickedLines(region, state.picks[0]!)).toEqual(["Add --verbose.", "Run npm start.", "Run node app.js."]);
+    expect(assemble(file(), state, labels).text).toContain("Add --verbose.\nRun npm start.\nRun node app.js.");
+
+    state = toggleLinePick(state, 0, pick("current", 0));
+    expect(state.picks[0]).toEqual([pick("incoming", 1), pick("incoming", 0)]);
+  });
+
+  it("reads a region side as true, mixed, or false, including an explicitly chosen empty side", () => {
+    const region = regionsOf(file())[0]!;
+    const emptyRegion = { current: [], incoming: ["kept"], base: null };
+
+    expect(regionSideState(region, [], "incoming")).toBe("false");
+    expect(regionSideState(region, [pick("incoming", 0)], "incoming")).toBe("mixed");
+    expect(regionSideState(region, [pick("incoming", 0), pick("incoming", 1)], "incoming")).toBe("true");
+    expect(regionSideState(emptyRegion, [], "current")).toBe("false");
+    expect(regionSideState(emptyRegion, [pick("current", -1)], "current")).toBe("true");
+    expect(pickedLines(emptyRegion, [pick("current", -1)])).toEqual([]);
+  });
+
+  it("replaces a partial side with every line in order when its region checkbox is clicked, keeping the other side", () => {
+    const region = regionsOf(file())[0]!;
+    const state = chosen([[pick("current", 0), pick("incoming", 1)]]);
+
+    expect(toggleSide(state, 0, "incoming", region).picks[0]).toEqual([pick("current", 0), pick("incoming", 0), pick("incoming", 1)]);
   });
 
   it("reads each side's Select all as false, mixed, or true", () => {
-    expect(sideState(chosen([undefined, "incoming"]), "current")).toBe("false");
-    expect(sideState(chosen([undefined, "incoming"]), "incoming")).toBe("mixed");
-    expect(sideState(chosen(["both", "incoming"]), "incoming")).toBe("true");
-    expect(sideState(chosen(["both", "incoming"]), "current")).toBe("mixed");
+    const regions = regionsOf(file());
+
+    expect(sideState(chosen([[], [pick("incoming", 0)]]), "current", regions)).toBe("false");
+    expect(sideState(chosen([[], [pick("incoming", 0)]]), "incoming", regions)).toBe("mixed");
+    expect(sideState(chosen([[pick("incoming", 0)], [pick("incoming", 0)]]), "incoming", regions)).toBe("mixed");
+    expect(sideState(chosen([[pick("incoming", 0), pick("incoming", 1)], [pick("incoming", 0)]]), "incoming", regions)).toBe("true");
   });
 
   it("selects a side everywhere unless it is already everywhere, then clears it, keeping the other side", () => {
-    const mixed = chosen([undefined, "incoming"]);
+    const regions = regionsOf(file());
+    const mixed = chosen([[], [pick("incoming", 0)]]);
 
-    expect(toggleAll(mixed, "incoming").choices).toEqual(["incoming", "incoming"]);
-    expect(toggleAll(mixed, "current").choices).toEqual(["current", "both"]);
-    expect(toggleAll(chosen(["both", "incoming"]), "incoming").choices).toEqual(["current", undefined]);
+    expect(toggleAll(mixed, "incoming", regions).picks).toEqual([[pick("incoming", 0), pick("incoming", 1)], [pick("incoming", 0)]]);
+    expect(toggleAll(mixed, "current", regions).picks).toEqual([[pick("current", 0)], [pick("incoming", 0), pick("current", 0)]]);
+    expect(toggleAll(chosen([[pick("current", 0), pick("incoming", 0), pick("incoming", 1)], [pick("incoming", 0)]]), "incoming", regions).picks).toEqual([[pick("current", 0)], []]);
   });
 
   it("chooses one conflict and ignores an unknown one", () => {
     const start = initialState(file());
 
-    expect(choose(start, 1, "both").choices).toEqual([undefined, "both"]);
-    expect(choose(start, 5, "incoming")).toBe(start);
+    expect(choose(start, 1, "both", regionsOf(file())).picks).toEqual([[], [pick("current", 0), pick("incoming", 0)]]);
+    expect(choose(start, 5, "incoming", regionsOf(file()))).toBe(start);
   });
 
   it("steps through the conflicts and wraps around in both directions", () => {
@@ -143,13 +189,19 @@ describe("side checkboxes", () => {
 });
 
 describe("markers and the saved text", () => {
-  it("counts the conflicts whose markers remain and words why Mark resolved waits", () => {
+  it("counts every conflict marker line and words why Mark resolved waits", () => {
     const marked = assemble(file(), initialState(file()), labels).text;
 
-    expect(markerCount(marked)).toBe(2);
-    expect(markResolvedReason(marked)).toBe("2 conflicts left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
-    expect(markResolvedReason("a\n>>>>>>> origin/main")).toBe("1 conflict left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
-    expect(markResolvedReason("Title\n=======\nbody <<<<<<< inline")).toBeUndefined();
+    expect(markerCount(marked)).toBe(6);
+    expect(markerCount("<<<<<<< main\na")).toBe(1);
+    expect(markerCount("a\n=======\nb")).toBe(1);
+    expect(markerCount("a\n||||||| base\nb")).toBe(1);
+    expect(markerCount("a\n>>>>>>> origin/main")).toBe(1);
+    expect(markerCount("Title\n=======\nbody <<<<<<< inline")).toBe(1);
+    expect(markerCount("body <<<<<<< inline")).toBe(0);
+    expect(markResolvedReason(marked)).toBe("6 conflict markers left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
+    expect(markResolvedReason("a\n>>>>>>> origin/main")).toBe("1 conflict marker left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
+    expect(markResolvedReason("plain text")).toBeUndefined();
   });
 
   it("saves the Output with the file's line ending and final newline, keeping a trailing blank line", () => {
@@ -163,6 +215,28 @@ describe("markers and the saved text", () => {
     expect(draftLines("")).toEqual([]);
     expect(draftLines("a\nb\n")).toEqual(["a", "b"]);
     expect(draftLines("a\n\nb")).toEqual(["a", "", "b"]);
+  });
+});
+
+describe("scroll mapping", () => {
+  it("maps a scroll position to a segment and fraction and back to another pane", () => {
+    const yours = [2, 1, 3];
+    const output = [2, 4, 1];
+
+    expect(anchorAtScroll(yours, 50, 40, 120, 20)).toEqual({ segmentIndex: 1, fraction: 0.5 });
+    expect(scrollTopAtAnchor(output, { segmentIndex: 1, fraction: 0.5 }, 40, 140, 20)).toBe(80);
+    expect(scrollTopAtAnchor(yours, anchorAtScroll(yours, 50, 40, 120, 20), 40, 120, 20)).toBe(50);
+  });
+
+  it("returns zero without NaN when a pane fits or has only empty segments", () => {
+    expect(anchorAtScroll([0, 0], 10, 40, 30, 20)).toEqual({ segmentIndex: 0, fraction: 0 });
+    expect(anchorAtScroll([2, 1], 10, 40, 30, 20)).toEqual({ segmentIndex: 0, fraction: 0 });
+    expect(scrollTopAtAnchor([0, 2], { segmentIndex: 1, fraction: 0.5 }, 40, 30, 20)).toBe(0);
+    expect(scrollTopAtAnchor([2, 1], { segmentIndex: 9, fraction: 2 }, 40, 120, 20)).not.toBeNaN();
+  });
+
+  it("skips zero-line segments when anchoring", () => {
+    expect(anchorAtScroll([2, 0, 2], 50, 40, 80, 20)).toEqual({ segmentIndex: 2, fraction: 0.25 });
   });
 });
 

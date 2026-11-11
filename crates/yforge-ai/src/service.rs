@@ -163,7 +163,7 @@ impl Ai {
                 Some(value) => secrets.set(&account, &value),
                 None => secrets.delete(&account),
             }
-            .map_err(|error| AiError::Keychain { detail: error.0 })
+            .map_err(|error| AiError::Secrets { detail: error.0 })
         })
         .await
     }
@@ -199,7 +199,7 @@ impl Ai {
         config: &ProviderConfig,
         value: &T,
     ) -> Result<()> {
-        let text = serde_json::to_string(value).map_err(|error| AiError::Keychain {
+        let text = serde_json::to_string(value).map_err(|error| AiError::Secrets {
             detail: error.to_string(),
         })?;
         self.secret_write(&oauth_account(&config.id), Some(&text))
@@ -233,7 +233,7 @@ impl Ai {
                     (None, ProviderKind::OpenaiCompatible) => Ok(Access::Anonymous),
                     (None, _) => Err(AiError::AuthRequired {
                         provider: config.name.clone(),
-                        detail: "no API key is stored in the Keychain".to_owned(),
+                        detail: "no API key is saved for this provider".to_owned(),
                     }),
                 }
             }
@@ -287,6 +287,127 @@ impl Ai {
             base_url: self.base_url(config),
             access: self.access(config).await?,
         })
+    }
+
+    fn connection_with(&self, config: &ProviderConfig, access: Access) -> Connection {
+        Connection {
+            label: config.name.clone(),
+            kind: config.kind,
+            mode: config.auth_mode,
+            base_url: self.base_url(config),
+            access,
+        }
+    }
+
+    async fn delete_oauth(&self, config: &ProviderConfig) -> Result<()> {
+        self.secret_write(&oauth_account(&config.id), None).await
+    }
+
+    async fn auth_required_after_clearing(
+        &self,
+        config: &ProviderConfig,
+        error: AiError,
+    ) -> AiError {
+        let detail = match &error {
+            AiError::AuthRequired { detail, .. } => detail.clone(),
+            other => other.to_string(),
+        };
+        let _ = self.delete_oauth(config).await;
+        AiError::AuthRequired {
+            provider: config.name.clone(),
+            detail,
+        }
+    }
+
+    async fn force_refresh_access(&self, config: &ProviderConfig) -> Result<Access> {
+        match (config.auth_mode, config.kind) {
+            (AuthMode::Subscription, ProviderKind::Chatgpt) => {
+                let tokens = self
+                    .chatgpt_tokens(config)
+                    .await?
+                    .ok_or_else(|| sign_in_first(&config.name, "ChatGPT"))?;
+                match chatgpt::refresh(&self.endpoints.openai_auth, &tokens, &self.limits).await {
+                    Ok(tokens) => {
+                        self.store_json(config, &tokens).await?;
+                        Ok(Access::Subscription {
+                            token: tokens.access,
+                            account_id: tokens.account_id,
+                        })
+                    }
+                    Err(error @ AiError::AuthRequired { .. }) => {
+                        Err(self.auth_required_after_clearing(config, error).await)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            (AuthMode::Subscription, ProviderKind::Claude) => {
+                let cached: Option<claude_code::Credentials> = self
+                    .secret_read(&oauth_account(&config.id))
+                    .await?
+                    .and_then(|text| serde_json::from_str(&text).ok());
+                let external = read_from(Arc::clone(&self.claude_code), CLAUDE_CODE_SERVICE)
+                    .await?
+                    .and_then(|text| claude_code::parse(&text));
+                if let Some(external) = &external {
+                    if cached
+                        .as_ref()
+                        .is_none_or(|cached| cached.access_token != external.access_token)
+                    {
+                        let credentials = external.clone();
+                        self.store_json(config, &credentials).await?;
+                        return Ok(Access::Subscription {
+                            token: credentials.access_token,
+                            account_id: None,
+                        });
+                    }
+                }
+                let credentials = claude_code::freshest(cached, external)
+                    .ok_or_else(claude_code::auth_required)?;
+                match claude_code::refresh(
+                    &self.endpoints.claude_token,
+                    &credentials,
+                    now_ms(),
+                    &self.limits,
+                )
+                .await
+                {
+                    Ok(credentials) => {
+                        self.store_json(config, &credentials).await?;
+                        Ok(Access::Subscription {
+                            token: credentials.access_token,
+                            account_id: None,
+                        })
+                    }
+                    Err(error @ AiError::AuthRequired { .. }) => {
+                        Err(self.auth_required_after_clearing(config, error).await)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            _ => self.access(config).await,
+        }
+    }
+
+    async fn models_once(&self, config: &ProviderConfig) -> Result<Vec<ModelInfo>> {
+        providers::models(&self.connection(config).await?, &self.limits).await
+    }
+
+    async fn models_with_retry(&self, config: &ProviderConfig) -> Result<Vec<ModelInfo>> {
+        match self.models_once(config).await {
+            Ok(models) => Ok(models),
+            Err(AiError::AuthRequired { .. }) if config.auth_mode == AuthMode::Subscription => {
+                let access = self.force_refresh_access(config).await?;
+                let connection = self.connection_with(config, access);
+                match providers::models(&connection, &self.limits).await {
+                    Ok(models) => Ok(models),
+                    Err(error @ AiError::AuthRequired { .. }) => {
+                        Err(self.auth_required_after_clearing(config, error).await)
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     async fn signed_in(&self, config: &ProviderConfig) -> Result<bool> {
@@ -465,10 +586,7 @@ impl Ai {
     pub async fn test(&self, dir: &Path, id: &str) -> Result<ProviderStatus> {
         let config = self.find(dir, id).await?;
         let subscription = config.auth_mode == AuthMode::Subscription;
-        let result = match self.connection(&config).await {
-            Ok(connection) => providers::models(&connection, &self.limits).await,
-            Err(error) => Err(error),
-        };
+        let result = self.models_with_retry(&config).await;
         Ok(match (status_of(result), subscription) {
             (ProviderStatus::KeyRejected, true) => ProviderStatus::SignedOut,
             (ProviderStatus::KeyRejected, false)
@@ -482,7 +600,7 @@ impl Ai {
 
     pub async fn models(&self, dir: &Path, id: &str) -> Result<Vec<ModelInfo>> {
         let config = self.find(dir, id).await?;
-        providers::models(&self.connection(&config).await?, &self.limits).await
+        self.models_with_retry(&config).await
     }
 
     pub async fn feature_configs(&self, dir: &Path) -> Result<Vec<AiFeatureSummary>> {
@@ -571,14 +689,40 @@ impl Ai {
         if cancel.is_cancelled() {
             return Err(AiError::Cancelled);
         }
-        providers::complete(
+        let prompt = render(&selection.template, context);
+        match providers::complete(
             &selection.connection,
             &selection.model,
-            &render(&selection.template, context),
+            &prompt,
             &self.limits,
             cancel,
         )
         .await
+        {
+            Ok(reply) => Ok(reply),
+            Err(AiError::AuthRequired { .. })
+                if selection.config.auth_mode == AuthMode::Subscription =>
+            {
+                let access = self.force_refresh_access(&selection.config).await?;
+                let connection = self.connection_with(&selection.config, access);
+                match providers::complete(
+                    &connection,
+                    &selection.model,
+                    &prompt,
+                    &self.limits,
+                    cancel,
+                )
+                .await
+                {
+                    Ok(reply) => Ok(reply),
+                    Err(error @ AiError::AuthRequired { .. }) => Err(self
+                        .auth_required_after_clearing(&selection.config, error)
+                        .await),
+                    Err(error) => Err(error),
+                }
+            }
+            Err(error) => Err(error),
+        }
     }
 
     pub fn pull_request_disclosure(
@@ -721,6 +865,7 @@ impl Ai {
                 self.store_json(&config, &tokens).await?;
             }
             _ => {
+                self.delete_oauth(&config).await?;
                 self.access(&config).await?;
             }
         }
@@ -730,6 +875,15 @@ impl Ai {
         });
         Ok(status)
     }
+
+    pub async fn sign_out(&self, dir: &Path, id: &str) -> Result<ProviderStatus> {
+        let config = self.find(dir, id).await?;
+        if config.auth_mode != AuthMode::Subscription {
+            return Err(AiError::invalid("only subscription providers sign out"));
+        }
+        self.delete_oauth(&config).await?;
+        Ok(self.configured_status(&config).await)
+    }
 }
 
 async fn read_from(store: Arc<dyn SecretStore>, account: &str) -> Result<Option<String>> {
@@ -737,7 +891,7 @@ async fn read_from(store: Arc<dyn SecretStore>, account: &str) -> Result<Option<
     blocking(move || {
         store
             .get(&account)
-            .map_err(|error| AiError::Keychain { detail: error.0 })
+            .map_err(|error| AiError::Secrets { detail: error.0 })
     })
     .await
 }

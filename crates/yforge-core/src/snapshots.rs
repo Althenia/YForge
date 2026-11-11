@@ -258,7 +258,18 @@ fn take(
     let (index_tree, worktree_tree) = activity::quietly(|| -> Result<_, CoreError> {
         let scratch = ScratchIndex::create(root)?;
         let index_tree = scratch.write_tree(root)?;
-        scratch.run(root, &["add", "--all"])?;
+        let nested = repo::unignored_nested_worktree_directories(root)?;
+        let mut add = vec!["add".to_owned(), "--all".to_owned()];
+        if !nested.is_empty() {
+            add.extend(["--".to_owned(), ".".to_owned()]);
+            add.extend(
+                nested
+                    .iter()
+                    .map(|directory| format!(":(exclude,literal){directory}")),
+            );
+        }
+        let add_refs: Vec<&str> = add.iter().map(String::as_str).collect();
+        scratch.run(root, &add_refs)?;
         Ok((index_tree, scratch.write_tree(root)?))
     })?;
     let parents: Vec<&str> = head.as_deref().into_iter().collect();

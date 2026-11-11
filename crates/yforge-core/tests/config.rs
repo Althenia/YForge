@@ -1,5 +1,12 @@
 mod common;
 
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+fn global_env_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+}
+
 use common::Fixture;
 use yforge_core::{
     add_remote, edit_remote, list_remotes, read_identity, remove_remote, write_identity,
@@ -8,6 +15,7 @@ use yforge_core::{
 
 #[test]
 fn identity_reports_the_source_and_writes_to_the_requested_scope() {
+    let _env_guard = global_env_lock();
     let global = tempfile::NamedTempFile::new().unwrap();
     std::env::set_var("GIT_CONFIG_GLOBAL", global.path());
     std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
@@ -130,4 +138,55 @@ fn invalid_remote_names_addresses_and_duplicates_are_rejected() {
     assert_eq!(slash.kind(), ErrorKind::InvalidRequest);
     assert_eq!(duplicate.kind(), ErrorKind::GitFailed);
     assert_eq!(list_remotes(&repo.path).unwrap().len(), 1);
+}
+
+#[test]
+fn folder_git_configs_round_trip_and_identity_reports_folder_source() {
+    let _env_guard = global_env_lock();
+    let global = tempfile::NamedTempFile::new().unwrap();
+    std::env::set_var("GIT_CONFIG_GLOBAL", global.path());
+    std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+    let data = tempfile::tempdir().unwrap();
+    let folder = tempfile::tempdir().unwrap();
+    let folder_path = folder.path().canonicalize().unwrap();
+    let draft = yforge_core::FolderGitConfigDraft {
+        folder: folder_path.to_string_lossy().into_owned(),
+        author_name: Some("Folder Yui".into()),
+        author_email: Some("folder@example.test".into()),
+        ssh_key_path: Some("/tmp/folder-key".into()),
+        signing: yforge_core::SigningConfig {
+            sign_commits: true,
+            sign_tags: false,
+            format: yforge_core::SigningFormat::Ssh,
+            key: "/tmp/folder-key.pub".into(),
+            program: String::new(),
+        },
+    };
+    let saved = yforge_core::save_folder_git_config(data.path(), &draft).unwrap();
+    assert_eq!(saved.author_name.as_deref(), Some("Folder Yui"));
+    assert_eq!(saved.ssh_key_path.as_deref(), Some("/tmp/folder-key"));
+    assert!(saved.config_path.contains("git-folders"));
+    let listed = yforge_core::list_folder_git_configs(data.path()).unwrap();
+    assert_eq!(listed, vec![saved.clone()]);
+    let repo_dir = folder_path.join("repo");
+    std::fs::create_dir(&repo_dir).unwrap();
+    std::process::Command::new("git")
+        .arg("-C")
+        .arg(&repo_dir)
+        .args(["init", "-q", "-b", "main"])
+        .env("GIT_CONFIG_GLOBAL", global.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    let identity = read_identity(Some(&repo_dir)).unwrap();
+    assert_eq!(identity.name.value.as_deref(), Some("Folder Yui"));
+    assert_eq!(identity.name.source, ConfigSource::Folder);
+    let folder_signing =
+        yforge_core::signing_read(yforge_core::SigningScope::Folder, Some(&folder_path)).unwrap();
+    assert_eq!(folder_signing, draft.signing);
+    yforge_core::remove_folder_git_config(data.path(), &folder_path.to_string_lossy()).unwrap();
+    assert!(yforge_core::list_folder_git_configs(data.path())
+        .unwrap()
+        .is_empty());
+    assert!(!std::path::Path::new(&saved.config_path).exists());
 }

@@ -56,3 +56,18 @@ export function refTarget(group: LabelGroup, startPoint: string): RefTarget {
   if (group.local) return { kind: "local_branch", name: group.name, remoteName: group.remoteRef, startPoint };
   return { kind: "remote_branch", name: group.remoteRef ?? group.name, startPoint };
 }
+
+const byName = (left: LabelGroup, right: LabelGroup): number => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+
+export function rowRefTarget(refs: readonly GraphRef[], sha: string, remotes: readonly string[], current: string | undefined): RefTarget | undefined {
+  const groups = groupRefs(refs, remotes);
+  const locals = groups.filter((group) => group.local).sort(byName);
+  const ordered = [
+    ...locals.filter((group) => group.name === current),
+    ...locals.filter((group) => group.name !== current),
+    ...groups.filter((group) => !group.local && !group.tag).sort(byName),
+    ...groups.filter((group) => group.tag).sort(byName),
+  ];
+  const first = ordered[0];
+  return first === undefined ? undefined : refTarget(first, sha);
+}

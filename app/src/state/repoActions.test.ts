@@ -1429,6 +1429,69 @@ describe("commit menu with a multi-selection", () => {
   });
 });
 
+describe("commit menu on a row with refs", () => {
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+  const idsOf = (actions: ReturnType<typeof setup>["actions"]) => (actions.menu()?.entries ?? []).flatMap((entry) => (entry.kind === "item" ? [entry.id] : []));
+  const refs = (...entries: Array<[string, "local_branch" | "remote_branch" | "tag", boolean?]>) => entries.map(([name, kind, is_head]) => ({ name, kind, is_head: is_head ?? false }));
+
+  it("opens the branch menu of the checked-out branch on its tip, runs a branch action, and still runs a commit action", async () => {
+    const { actions, calls } = setup((call) => (call.cmd === "commit_details" ? { sha: "bbbbbbbb", summary: "", body: "", author: {}, committer: {}, parents: ["aaaaaaaa"], refs: [], files: [] } : null));
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { refs: refs(["feature", "local_branch"], ["main", "local_branch", true]) });
+    expect(idsOf(actions)).toEqual(expect.arrayContaining(["checkout", "merge", "rename", "edit_message", "squash", "recompose", "cherry_pick"]));
+    expect(actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "checkout")).toMatchObject({ disabledReason: "Already checked out" });
+
+    actions.menu()?.run("rename");
+    expect(actions.popover()).toMatchObject({ kind: "rename_branch", name: "main" });
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { refs: refs(["main", "local_branch", true]) });
+    actions.menu()?.run("recompose");
+    await tick();
+    expect(calls.find((call) => call.cmd === "commit_details")?.args).toEqual({ path: "/r", sha: "bbbbbbbb" });
+    expect(actions.history()).toEqual({ kind: "recompose", base: "aaaaaaaa" });
+  });
+
+  it("uses another local branch on an old commit instead of attaching the checked-out branch to it", () => {
+    const { actions } = setup(() => null);
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { refs: refs(["v1", "tag"], ["origin/feature", "remote_branch"], ["feature", "local_branch"]) });
+
+    const entries = actions.menu()?.entries ?? [];
+    expect(entries.find((entry) => entry.kind === "item" && entry.id === "checkout")).toMatchObject({ label: ["Checkout ", { ref: "feature" }] });
+    expect(entries.find((entry) => entry.kind === "item" && entry.id === "merge")).toMatchObject({ label: ["Merge ", { ref: "feature" }, " into ", { ref: "main" }] });
+    expect(entries.find((entry) => entry.kind === "item" && entry.id === "edit_message")).toMatchObject({ disabledReason: "Check out feature to edit its latest commit message" });
+  });
+
+  it("opens a tag menu for a tag-only row and runs its action against the tag", async () => {
+    const { actions, calls } = setup(() => null);
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { refs: refs(["v1", "tag"]) });
+    expect(idsOf(actions)).toEqual(expect.arrayContaining(["push_tag", "delete_tag", "squash"]));
+    actions.menu()?.run("push_tag");
+    await tick();
+    expect(calls.find((call) => call.cmd === "push_tag")?.args).toMatchObject({ remote: "origin", name: "v1" });
+  });
+
+  it("keeps the plain commit menu for a row without refs, with Squash shown and disabled", () => {
+    const { actions } = setup(() => null);
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb"], { refs: [] });
+
+    expect(idsOf(actions)).toEqual(["cherry_pick", "revert", "create_branch", "create_tag", "reset", "edit_history", "squash", "recompose"]);
+    expect(actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "squash")).toMatchObject({ disabledReason: "Select two or more commits to squash" });
+  });
+
+  it("ignores the refs of the row for a multi-selection and keeps its squash and single-commit reasons", () => {
+    const { actions } = setup(() => null);
+
+    actions.openCommitMenu("bbbbbbbb", false, { left: 1, top: 2 }, ["bbbbbbbb", "dddddddd"], { refs: refs(["main", "local_branch", true]), squashReason: "The selected commits are not one contiguous run of the current branch" });
+
+    expect(idsOf(actions)).not.toContain("checkout");
+    expect(actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "cherry_pick")).toMatchObject({ disabledReason: "Select a single commit" });
+    expect(actions.menu()?.entries.find((entry) => entry.kind === "item" && entry.id === "squash")).toMatchObject({ disabledReason: "The selected commits are not one contiguous run of the current branch" });
+  });
+});
+
 describe("stale pull notice", () => {
   it("drops the pull's stash notice when the user switches branch", async () => {
     const { actions } = setup((call) => (call.cmd === "pull_with_autostash" ? { outcome: "updated", stash: { kind: "restored" } } : { auto_stash: "none" }), dirty());

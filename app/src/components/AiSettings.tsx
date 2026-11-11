@@ -99,7 +99,7 @@ export function AiSettings(props: { initialDialog?: ProviderDialogStart }) {
         {(start) => <ProviderDialog start={start} onClose={() => setDialog(undefined)} onRemove={setRemoval} />}
       </Show>
       <Show when={removal()} keyed>
-        {(summary) => <ConfirmDialog copy={removeProviderCopy(summary.config.name, summary.config.has_api_key, usedBy(summary.config.id))} onConfirm={() => void confirmRemoval()} onCancel={() => setRemoval(undefined)} />}
+        {(summary) => <ConfirmDialog copy={removeProviderCopy(summary.config.name, usedBy(summary.config.id))} onConfirm={() => void confirmRemoval()} onCancel={() => setRemoval(undefined)} />}
       </Show>
     </>
   );

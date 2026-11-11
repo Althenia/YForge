@@ -17,8 +17,8 @@ pub enum PlatformError {
     Network { host: String, detail: String },
     #[error("invalid request: {detail}")]
     Invalid { detail: String },
-    #[error("the macOS Keychain refused the request: {detail}")]
-    Keychain { detail: String },
+    #[error("could not use saved credentials: {detail}")]
+    Secrets { detail: String },
     #[error(transparent)]
     Core(#[from] CoreError),
 }
@@ -60,8 +60,8 @@ impl From<PlatformError> for CoreError {
             },
             PlatformError::Network { host, detail } => CoreError::Network { host, detail },
             PlatformError::Invalid { detail } => CoreError::InvalidRequest { detail },
-            PlatformError::Keychain { detail } => CoreError::StorageFailed {
-                path: "macOS Keychain".to_owned(),
+            PlatformError::Secrets { detail } => CoreError::StorageFailed {
+                path: "saved credentials".to_owned(),
                 detail,
             },
             PlatformError::Core(error) => error,

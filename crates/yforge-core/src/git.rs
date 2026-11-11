@@ -97,13 +97,6 @@ fn base_command() -> Command {
         .env("GIT_EDITOR", "true")
         .env("GIT_MERGE_AUTOEDIT", "no")
         .stdin(Stdio::null());
-    if let Some((name, email)) = crate::store::active_author() {
-        command
-            .env("GIT_AUTHOR_NAME", &name)
-            .env("GIT_AUTHOR_EMAIL", &email)
-            .env("GIT_COMMITTER_NAME", &name)
-            .env("GIT_COMMITTER_EMAIL", &email);
-    }
     command
 }
 
@@ -201,9 +194,59 @@ fn describe(args: &[&str]) -> String {
     format!("git {}", activity::redact(&args.join(" ")))
 }
 
+fn profile_yielded_by_repo_or_folder(dir: &Path, args: &[&str]) -> bool {
+    if LOCAL_READ.with_borrow(Option::is_some) {
+        return false;
+    }
+    if args.first() == Some(&"config") {
+        return false;
+    }
+    let Ok(output) = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args([
+            "config",
+            "--includes",
+            "--show-scope",
+            "--show-origin",
+            "--get-regexp",
+            "^user\\.(name|email)$",
+        ])
+        .output()
+    else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let root_global = crate::config::root_global_config_path(dir);
+    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+        let mut parts = line.split('\t');
+        let scope = parts.next().unwrap_or_default();
+        let origin = parts.next().unwrap_or_default();
+        match scope {
+            "local" | "worktree" => true,
+            "global" => {
+                let raw = origin.strip_prefix("file:").unwrap_or(origin);
+                !crate::config::same_config_path(Path::new(raw), &root_global)
+            }
+            _ => false,
+        }
+    })
+}
+
 fn in_directory(dir: &Path, args: &[&str]) -> Command {
     let mut command = base_command();
     command.arg("-C").arg(dir).args(args);
+    if let Some((name, email)) = crate::store::active_author() {
+        if !profile_yielded_by_repo_or_folder(dir, args) {
+            command
+                .env("GIT_AUTHOR_NAME", &name)
+                .env("GIT_AUTHOR_EMAIL", &email)
+                .env("GIT_COMMITTER_NAME", &name)
+                .env("GIT_COMMITTER_EMAIL", &email);
+        }
+    }
     command
 }
 
@@ -385,6 +428,14 @@ impl CancelToken {
         self
     }
 
+    pub fn with_https_credentials(
+        mut self,
+        credentials: Vec<crate::git_hosts::HttpsCredential>,
+    ) -> Self {
+        self.plan.https_credentials = credentials;
+        self
+    }
+
     pub fn with_passphrases(mut self, passphrases: Arc<dyn PassphraseStore>) -> Self {
         self.passphrases = Some(passphrases);
         self
@@ -494,6 +545,12 @@ pub(crate) fn run_streaming_until(
     if let Some(askpass) = &askpass {
         askpass.apply(&mut command);
     }
+    if !cancel.plan.https_credentials.is_empty() {
+        command
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "credential.helper")
+            .env("GIT_CONFIG_VALUE_0", "");
+    }
     match &cancel.ssh_key {
         Some(key) => {
             command.env("GIT_SSH_COMMAND", ssh_command(key, askpass.is_none()));
@@ -573,6 +630,9 @@ pub(crate) fn run_streaming_until(
         stdout: String::from_utf8_lossy(&stdout).into_owned(),
         stderr: kept.join("\n"),
     };
+    if let Some(error) = outcome.storage_failure {
+        return Err(error);
+    }
     note(&description, &completed, started);
     if outcome.cancelled && !completed.succeeded() {
         return Err(CoreError::Cancelled);

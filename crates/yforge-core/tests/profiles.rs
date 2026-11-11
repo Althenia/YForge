@@ -255,7 +255,8 @@ fn a_database_from_before_profiles_keeps_its_tabs_as_the_default_profiles_tabs()
     let database = Connection::open(dir.path().join("yforge.db")).unwrap();
     database
         .execute_batch(
-            "DROP TABLE profile_sessions; DROP TABLE profiles; PRAGMA user_version = 14;",
+            "DROP TABLE secret_cleanup; DROP TABLE secrets;
+             DROP TABLE profile_sessions; DROP TABLE profiles; PRAGMA user_version = 14;",
         )
         .unwrap();
     drop(database);

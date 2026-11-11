@@ -22,6 +22,9 @@ const connection = (id: string, overrides: Partial<PlatformConnection> = {}): Pl
   name: "GitHub",
   insecure_tls: false,
   created_at: 1,
+  auth_method: "token",
+  oauth_client_id: null,
+  login: null,
   ...overrides,
 });
 
@@ -86,6 +89,8 @@ describe("Settings → Platforms", () => {
     const { host } = await mount([]);
 
     expect(host.textContent).toContain("No connections yet");
+    expect(host.textContent).toContain("Tokens are stored unencrypted in the YForge database, so anyone who can read it or its backups can read them");
+    expect(host.textContent).not.toContain("Keychain");
   });
 
   it("offers the three platforms and validates the host, name, and token before it calls the backend", async () => {
@@ -235,12 +240,12 @@ describe("Settings → Platforms", () => {
     expect(dialog()?.textContent).toContain("Authentication failed for github.com");
   });
 
-  it("confirms Remove with the Keychain consequence, then removes the connection", async () => {
+  it("confirms Remove with the database consequence, then removes the connection", async () => {
     const { host, calls } = await mount([connection("c1", { name: "Work" })]);
     host.querySelector<HTMLElement>('[aria-label="Remove Work"]')?.click();
     await flush();
 
-    expect(dialog()?.textContent).toContain("deleted from the macOS Keychain");
+    expect(dialog()?.textContent).toContain("deleted from the YForge database");
     expect(calls.some((call) => call.cmd === "platform_connection_remove")).toBe(false);
     buttonNamed(dialog() as HTMLElement, "Remove connection")?.click();
     await flush(60);

@@ -24,7 +24,7 @@ pub use endpoints::Endpoints;
 pub use error::{AiError, Result};
 pub use limits::Limits;
 pub use secret::{
-    CachedStore, ClaudeCodeKeychain, KeychainStore, MemoryStore, SecretError, SecretStore,
-    CLAUDE_CODE_SERVICE, KEYCHAIN_SERVICE,
+    CachedStore, ClaudeCodeKeychain, MemoryStore, SecretError, SecretStore, SqliteSecrets,
+    CLAUDE_CODE_SERVICE,
 };
 pub use service::{field_problem, Ai, Selection};

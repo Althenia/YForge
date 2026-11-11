@@ -42,6 +42,31 @@ describe("frontend crash capture", () => {
     expect(reports).toEqual([{ kind: "error", message: "undefined is not a function", stack: error.stack ?? null, view: "/settings/privacy" }]);
   });
 
+  it("ignores benign ResizeObserver loop errors without an error object", async () => {
+    const reports = install();
+    uninstall = installCrashCapture(() => "/repo");
+
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop completed with undelivered notifications." }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop limit exceeded" }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "  resizeobserver loop limit exceeded  " }));
+    await flush();
+
+    expect(reports).toEqual([]);
+  });
+
+  it("still reports a ResizeObserver message that carries an error object and other string errors", async () => {
+    const reports = install();
+    uninstall = installCrashCapture(() => "/repo");
+    const error = new Error("ResizeObserver loop limit exceeded");
+
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop limit exceeded", error }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "ResizeObserver loop did something else" }));
+    window.dispatchEvent(new ErrorEvent("error", { message: "Another string error." }));
+    await flush();
+
+    expect(reports.map((report) => report.message)).toEqual(["ResizeObserver loop limit exceeded", "ResizeObserver loop did something else", "Another string error."]);
+  });
+
   it("reports an unhandled rejection with an Error reason and with a plain reason", async () => {
     const reports = install();
     uninstall = installCrashCapture(() => "/repo");

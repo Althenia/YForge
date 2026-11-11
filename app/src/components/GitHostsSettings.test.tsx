@@ -142,6 +142,7 @@ describe("Settings → Git hosts", () => {
     expect(host.textContent).toContain("Add a host to use a different key or HTTPS user name per server.");
     expect([...host.querySelectorAll(".order li")].map((item) => item.textContent)).toEqual([
       "The repository's own SSH key (Repository settings)",
+      "The folder's SSH key (Settings → Git)",
       "The identity whose host matches the remote URL",
       "The app-wide SSH key (General)",
       "Your SSH agent and ~/.ssh/config",
@@ -279,7 +280,7 @@ describe("Settings → Git hosts", () => {
     expect(document.activeElement).toBe(newKeyInput);
   });
 
-  it("generates an ed25519 key at the edited path with a passphrase, names the file it writes, selects the key, and says the passphrase went to the Keychain", async () => {
+  it("generates an ed25519 key at the edited path with a passphrase, names the file it writes, selects the key, and says the passphrase went to the YForge database", async () => {
     let finish: (path: string) => void = () => undefined;
     const { host, calls } = await mount([], (call) => {
       if (call.cmd === "git_host_generate_key") return new Promise((resolve) => (finish = resolve));
@@ -294,7 +295,7 @@ describe("Settings → Git hosts", () => {
     type(input(host, "New key file"), "~/.ssh/yforge_corp_b");
     type(input(host, "Passphrase (optional)"), "correct horse");
     await flush(60);
-    expect(host.textContent).toContain("saves this passphrase in the macOS Keychain");
+    expect(host.textContent).toContain("saves this passphrase unencrypted in the YForge database");
 
     buttonNamed(host, "Generate key")?.click();
     await flush();
@@ -309,7 +310,7 @@ describe("Settings → Git hosts", () => {
     expect(input(host, "SSH key")?.value).toBe("/Users/you/.ssh/yforge_corp_b");
     expect(input(host, "Passphrase (optional)")?.value).toBe("");
     expect(host.textContent).toContain("Generated ~/.ssh/yforge_corp_b");
-    expect(host.textContent).toContain("The passphrase is saved in the macOS Keychain for this key file.");
+    expect(host.textContent).toContain("The passphrase is saved in the YForge database (unencrypted) for this key file.");
     expect(buttonNamed(host, "Generate key")?.getAttribute("aria-disabled")).toBe("true");
     buttonNamed(host, "Copy public key")?.click();
     await flush(40);
@@ -317,7 +318,7 @@ describe("Settings → Git hosts", () => {
     expect(host.textContent).toContain("Copied the public key.");
   });
 
-  it("generates without a passphrase at the default path, says nothing about the Keychain, and reports a refused generation", async () => {
+  it("generates without a passphrase at the default path, says nothing about the saved passphrase, and reports a refused generation", async () => {
     const { host, calls } = await mount([], (call) => (call.cmd === "git_host_generate_key" ? new Error("~/.ssh/yforge_github.com: A file already exists there") : undefined));
     buttonNamed(host, "Add host")?.click();
     await flush();
@@ -330,7 +331,7 @@ describe("Settings → Git hosts", () => {
     expect(calls.find((call) => call.cmd === "git_host_generate_key")?.args).toEqual({ host: "github.com", keyPath: "~/.ssh/yforge_github.com", passphrase: null });
     expect(host.querySelector('[role="alert"]')?.textContent).toContain("A file already exists there");
     expect(input(host, "SSH key")?.value).toBe("");
-    expect(host.textContent).not.toContain("is saved in the macOS Keychain");
+    expect(host.textContent).not.toContain("is saved in the YForge database");
   });
 
   it("refuses a path where a file exists or whose parent is not a folder and keeps Generate key disabled", async () => {
@@ -435,6 +436,7 @@ describe("Settings → Git hosts", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Remove this host identity?");
     expect(dialog?.textContent).toContain("The key files stay in ~/.ssh");
+    expect(dialog?.textContent).toContain("saved key passphrases stay in the YForge database");
     expect(document.activeElement?.textContent).toBe("Cancel");
     buttonNamed(document.body, "Cancel")?.click();
     await flush();

@@ -643,3 +643,50 @@ fn resolves_a_start_point_to_the_full_commit_sha_of_its_tip() {
         );
     }
 }
+
+#[test]
+fn deleting_a_branch_checked_out_in_another_worktree_reports_the_holder() {
+    let repo = ready();
+    repo.git(&["branch", "held"]);
+    let wt = repo.sibling("held-wt");
+    yforge_core::create_worktree(&repo.path, "held", false, None, &wt).unwrap();
+    let error = delete_branch(&repo.path, "held", true).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::BranchInWorktree);
+}
+
+#[test]
+fn checking_out_a_remote_branch_works_with_a_single_branch_fetch_refspec() {
+    let repo = ready();
+    let remote = repo.add_bare_remote("origin.git");
+    repo.git(&["push", "-q", "origin", "main"]);
+    repo.git(&["branch", "other"]);
+    repo.git(&["push", "-q", "origin", "other"]);
+    let clone = repo.clone_of(&remote, "single");
+    repo.run_in(
+        &clone,
+        &[
+            "config",
+            "remote.origin.fetch",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    );
+    repo.run_in(
+        &clone,
+        &[
+            "fetch",
+            "-q",
+            "origin",
+            "+refs/heads/other:refs/remotes/origin/other",
+        ],
+    );
+    checkout(
+        &clone,
+        &CheckoutTarget::RemoteBranch {
+            name: "origin/other".into(),
+        },
+        false,
+    )
+    .unwrap();
+    let snap = repo_snapshot(&clone).unwrap();
+    assert_eq!(snap.upstream.unwrap().name, "origin/other");
+}

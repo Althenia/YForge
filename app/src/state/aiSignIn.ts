@@ -17,7 +17,7 @@ export function createSignIn(queryClient: QueryClient, provider: string) {
   const mutation = useMutation(
     () => ({
       mutationFn: (input: { method: AiSignInMethod; operation: string }) => client.aiSignIn(provider, input.operation, input.method),
-      onSettled: () => refreshProviders(queryClient),
+      onSettled: () => refreshProviders(queryClient, provider),
     }),
     () => queryClient,
   );

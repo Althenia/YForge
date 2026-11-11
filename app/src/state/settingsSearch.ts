@@ -18,6 +18,7 @@ export const SETTINGS_INDEX: readonly SettingEntry[] = [
   { id: "pull-mode", section: "git", group: "Defaults", title: "Pull mode", note: "Strategy used by Pull: merge, rebase, or fast-forward only." },
   { id: "auto-fetch", section: "git", group: "Defaults", title: "Auto-fetch", note: "Fetch every remote in the background." },
   { id: "ssh-key", section: "git", group: "SSH", title: "SSH key", note: "Key used for every repository that has no key of its own; ssh-agent by default." },
+  { id: "folder-git-rules", section: "git", group: "Folder rules", title: "Folder Git rules", note: "Per-folder author identity, SSH key, and commit signing via Git includeIf." },
   { id: "signing-scope", section: "git", group: "Commit signing", title: "Apply signing to", note: "Choose the global Git config or this repository's Git config." },
   { id: "sign-commits", section: "git", group: "Commit signing", title: "Sign commits", note: "Sign every commit YForge makes (commit.gpgSign)." },
   { id: "sign-tags", section: "git", group: "Commit signing", title: "Sign tags", note: "Sign every tag YForge makes (tag.gpgSign)." },

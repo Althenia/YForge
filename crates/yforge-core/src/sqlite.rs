@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -46,14 +47,47 @@ impl Database {
 
     pub(crate) fn connect(&self, dir: &Path, busy: Duration) -> Result<Connection, CoreError> {
         let path = self.path(dir);
-        fs::create_dir_all(dir).map_err(|error| failure(dir, error))?;
+        fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(dir)
+            .map_err(|error| failure(dir, error))?;
+        owner_only(dir, 0o700)?;
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+            .or_else(|error| {
+                if error.kind() == std::io::ErrorKind::AlreadyExists {
+                    fs::OpenOptions::new().read(true).open(&path)
+                } else {
+                    Err(error)
+                }
+            })
+            .map_err(|error| failure(&path, error))?;
+        owner_only(&path, 0o600)?;
+        self.secure_sidecars(dir)?;
         let conn = Connection::open(&path).map_err(|error| failure(&path, error))?;
         conn.busy_timeout(busy)
             .and_then(|()| conn.pragma_update(None, "journal_mode", "WAL"))
             .and_then(|()| conn.pragma_update(None, "synchronous", "NORMAL"))
             .and_then(|()| conn.pragma_update(None, "foreign_keys", true))
             .map_err(|error| failure(&path, error))?;
+        self.secure_sidecars(dir)?;
         Ok(conn)
+    }
+
+    fn secure_sidecars(&self, dir: &Path) -> Result<(), CoreError> {
+        for suffix in SIDECARS {
+            let path = dir.join(format!("{}{suffix}", self.file));
+            match fs::symlink_metadata(&path) {
+                Ok(_) => owner_only(&path, 0o600)?,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(failure(&path, error)),
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn open(&self, dir: &Path) -> Result<Connection, CoreError> {
@@ -97,6 +131,12 @@ impl Database {
         if copy.exists() {
             fs::remove_file(&copy).map_err(|error| failure(&copy, error))?;
         }
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&copy)
+            .map_err(|error| failure(&copy, error))?;
         conn.execute("VACUUM INTO ?1", [copy.to_string_lossy().as_ref()])
             .map_err(|error| failure(&copy, error))?;
         drop(conn);
@@ -123,6 +163,18 @@ impl Database {
         }
         Ok(aside)
     }
+}
+
+fn owner_only(path: &Path, mode: u32) -> Result<(), CoreError> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| failure(path, error))?;
+    if metadata.file_type().is_symlink() {
+        return Err(failure(
+            path,
+            "the storage path must not be a symbolic link",
+        ));
+    }
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|error| failure(path, error))
 }
 
 pub(crate) fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), CoreError> {

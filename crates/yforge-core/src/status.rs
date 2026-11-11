@@ -128,6 +128,45 @@ pub(crate) fn drop_untracked_inside(parsed: &mut ParsedStatus, directories: &[St
     parsed.counts.untracked -= u32::try_from(dropped).unwrap_or(u32::MAX);
 }
 
+fn decrement(counts: &mut ChangeCounts, status: FileStatus) {
+    let slot = match status {
+        FileStatus::Modified | FileStatus::TypeChanged => &mut counts.modified,
+        FileStatus::Added => &mut counts.added,
+        FileStatus::Deleted => &mut counts.deleted,
+        FileStatus::Renamed | FileStatus::Copied => &mut counts.renamed,
+        FileStatus::Untracked => &mut counts.untracked,
+        FileStatus::Conflicted => &mut counts.conflicted,
+    };
+    *slot = slot.saturating_sub(1);
+}
+
+pub(crate) fn drop_nested_directories(
+    parsed: &mut ParsedStatus,
+    directories: &[String],
+    submodules: &std::collections::HashSet<String>,
+) {
+    if directories.is_empty() {
+        return;
+    }
+    let mut counted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut primaries: Vec<FileStatus> = Vec::new();
+    parsed.files.retain(|file| {
+        let path = file.path.trim_end_matches('/');
+        let nested = directories.iter().any(|dir| dir == path) && !submodules.contains(path);
+        if nested {
+            if counted.insert(path.to_owned()) {
+                primaries.push(file.status);
+            }
+            false
+        } else {
+            true
+        }
+    });
+    for status in primaries {
+        decrement(&mut parsed.counts, status);
+    }
+}
+
 pub(crate) fn parse_status(output: &str) -> Result<ParsedStatus, CoreError> {
     let mut headers = Headers::default();
     let mut parsed = ParsedStatus {

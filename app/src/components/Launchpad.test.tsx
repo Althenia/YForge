@@ -28,8 +28,8 @@ afterEach(async () => {
   takeConnectKind();
 });
 
-const gitlab: PlatformConnection = { id: "c1", kind: "gitlab", host: "gitlab.corp-a.com", name: "GitLab", insecure_tls: false, created_at: 1 };
-const bitbucket: PlatformConnection = { id: "c2", kind: "bitbucket", host: "bitbucket.corp-b.com", name: "Bitbucket", insecure_tls: false, created_at: 2 };
+const gitlab: PlatformConnection = { id: "c1", kind: "gitlab", host: "gitlab.corp-a.com", name: "GitLab", insecure_tls: false, created_at: 1, auth_method: "token", oauth_client_id: null, login: null };
+const bitbucket: PlatformConnection = { id: "c2", kind: "bitbucket", host: "bitbucket.corp-b.com", name: "Bitbucket", insecure_tls: false, created_at: 2, auth_method: "token", oauth_client_id: null, login: null };
 const site: JiraConnection = { id: "j1", kind: "cloud", site: "https://your-site.atlassian.net", host: "your-site.atlassian.net", email: "a@b.c", display_name: "V", projects: [{ key: "ABC", name: "Accounts" }], created_at: 1 };
 
 const pull = (connection: string, number: number, title: string, overrides: Partial<LaunchpadPull> = {}): LaunchpadPull => ({
@@ -104,6 +104,8 @@ describe("Launchpad pull requests", () => {
     const { host, app } = await mount({});
 
     expect(host.textContent).toContain("No pull request service is connected");
+    expect(host.textContent).toContain("Each connection keeps its token in the YForge database (unencrypted).");
+    expect(host.textContent).not.toContain("Keychain");
     expect(["Connect GitHub", "Connect GitLab", "Connect Bitbucket"].map((name) => buttonNamed(host, name) !== undefined)).toEqual([true, true, true]);
     buttonNamed(host, "Connect GitLab")?.click();
     await flush();
@@ -316,6 +318,8 @@ describe("Launchpad issues and WIPs", () => {
     await flush();
 
     expect(host.textContent).toContain("No Jira site is connected");
+    expect(host.textContent).toContain("The token stays in the YForge database (unencrypted)");
+    expect(host.textContent).not.toContain("Keychain");
     buttonNamed(host, "Connect Jira")?.click();
     expect(settings).toHaveBeenCalledWith("jira");
   });

@@ -53,7 +53,7 @@ pub struct AuthPrompt {
     pub fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AuthReply {
     Credentials {
@@ -66,9 +66,25 @@ pub enum AuthReply {
     TimedOut,
 }
 
+impl std::fmt::Debug for AuthReply {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Credentials { username, save, .. } => f
+                .debug_struct("Credentials")
+                .field("username", username)
+                .field("secret", &"<redacted>")
+                .field("save", save)
+                .finish(),
+            Self::Trust => f.write_str("Trust"),
+            Self::Cancel => f.write_str("Cancel"),
+            Self::TimedOut => f.write_str("TimedOut"),
+        }
+    }
+}
+
 pub type AuthHandler = Arc<dyn Fn(AuthPrompt) -> AuthReply + Send + Sync>;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) struct UsedCredential {
     url: String,
     username: String,
@@ -76,11 +92,23 @@ pub(crate) struct UsedCredential {
     save: bool,
 }
 
+impl std::fmt::Debug for UsedCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("UsedCredential")
+            .field("url", &self.url)
+            .field("username", &self.username)
+            .field("secret", &"<redacted>")
+            .field("save", &self.save)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct AskpassOutcome {
     pub cancelled: bool,
     pub timed_out: bool,
     pub used: Vec<UsedCredential>,
+    pub storage_failure: Option<CoreError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,8 +203,10 @@ fn host_of(url: &str) -> Option<String> {
 #[derive(Default)]
 struct State {
     outcome: AskpassOutcome,
-    from_keychain: HashSet<String>,
+    from_saved: HashSet<String>,
+    from_saved_https: HashSet<String>,
     pending: Option<(String, String, String, bool)>,
+    pending_https: Option<(String, String, String)>,
 }
 
 pub(crate) struct Askpass {
@@ -211,7 +241,7 @@ struct Answerers<'a> {
     passphrases: Option<&'a Arc<dyn PassphraseStore>>,
 }
 
-const KEYCHAIN_REFUSED: &str = "The passphrase saved in the Keychain was not accepted. ";
+const SAVED_PASSPHRASE_REFUSED: &str = "The passphrase YForge saved was not accepted. ";
 
 fn ask(
     Answerers {
@@ -236,6 +266,26 @@ fn ask(
     match parsed {
         Parsed::Username { url } => {
             let host = host_of(&url);
+            if let Some(credential) = host
+                .as_deref()
+                .and_then(|host| plan.https_credential(host))
+                .cloned()
+            {
+                let host_key = host.clone().unwrap_or_default();
+                {
+                    let mut guard = lock();
+                    if guard.from_saved_https.contains(&host_key) {
+                        return (1, String::new());
+                    }
+                    guard.from_saved_https.insert(host_key);
+                    guard.pending_https = Some((
+                        url.clone(),
+                        credential.username.clone(),
+                        credential.secret.clone(),
+                    ));
+                }
+                return (0, credential.username);
+            }
             let reply = handler(AuthPrompt {
                 id: prompt_id,
                 kind: AuthKind::Credentials,
@@ -262,6 +312,28 @@ fn ask(
             }
         }
         Parsed::Password { url, username } => {
+            let saved_https = lock()
+                .pending_https
+                .take()
+                .filter(|(pending, ..)| *pending == url);
+            if let Some((_, _, secret)) = saved_https {
+                return (0, secret);
+            }
+            if let Some(credential) = host_of(&url)
+                .as_deref()
+                .and_then(|host| plan.https_credential(host))
+                .cloned()
+            {
+                let host_key = host_of(&url).unwrap_or_default();
+                {
+                    let mut guard = lock();
+                    if guard.from_saved_https.contains(&host_key) {
+                        return (1, String::new());
+                    }
+                    guard.from_saved_https.insert(host_key);
+                }
+                return (0, credential.secret);
+            }
             let stored = lock()
                 .pending
                 .take()
@@ -303,13 +375,20 @@ fn ask(
         Parsed::Passphrase { message } => {
             let message = match (passphrases, quoted(&message)) {
                 (Some(store), Some(key)) => {
-                    if lock().from_keychain.contains(key) {
-                        format!("{KEYCHAIN_REFUSED}{message}")
-                    } else if let Ok(Some(saved)) = store.get(key) {
-                        lock().from_keychain.insert(key.to_owned());
-                        return (0, saved);
+                    if lock().from_saved.contains(key) {
+                        format!("{SAVED_PASSPHRASE_REFUSED}{message}")
                     } else {
-                        message
+                        match store.get(key) {
+                            Ok(Some(saved)) => {
+                                lock().from_saved.insert(key.to_owned());
+                                return (0, saved);
+                            }
+                            Ok(None) => message,
+                            Err(error) => {
+                                lock().outcome.storage_failure = Some(error);
+                                return (1, String::new());
+                            }
+                        }
                     }
                 }
                 _ => message,

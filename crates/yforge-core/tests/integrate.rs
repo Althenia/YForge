@@ -518,3 +518,21 @@ fn reset_and_preview_accept_a_full_ref_name() {
         repo.git(&["rev-parse", "main"])
     );
 }
+
+#[test]
+fn fast_forward_updates_a_branch_checked_out_in_a_linked_worktree() {
+    let repo = ahead();
+    let wt = repo.sibling("topic-wt");
+    yforge_core::create_worktree(&repo.path, "topic", false, None, &wt).unwrap();
+    std::fs::write(wt.join("d.txt"), "three\n").unwrap();
+    repo.run_in(&wt, &["add", "d.txt"]);
+    repo.run_in(&wt, &["commit", "-q", "-m", "Topic three"]);
+    repo.run_in(&wt, &["branch", "next"]);
+    repo.run_in(&wt, &["reset", "-q", "--hard", "HEAD~1"]);
+    fast_forward(&repo.path, "topic", "next").unwrap();
+    assert_eq!(
+        repo.run_in(&wt, &["rev-parse", "HEAD"]),
+        repo.git(&["rev-parse", "next"])
+    );
+    assert_eq!(repo.run_in(&wt, &["branch", "--show-current"]), "topic");
+}

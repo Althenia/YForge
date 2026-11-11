@@ -70,6 +70,14 @@ describe("AI providers", () => {
 
     expect(host.querySelector(".privacy-notice")?.textContent).toContain("Nothing is sent until you run an AI action");
     expect(host.querySelector(".privacy-notice")?.textContent).toContain("Files named .env*");
+    const storage = host.querySelector(".privacy-notice")?.textContent ?? "";
+    expect(storage).toContain("stored unencrypted in YForge's database");
+    expect(storage).toContain("anyone who can read the database or its backups can read them");
+    expect(storage).toContain("never shows a saved secret again");
+    expect(storage).toContain("reads Claude Code's sign-in from the macOS Keychain without changing it");
+    expect(storage).toContain("keeps its own copy of a token it refreshes in its database");
+    expect(storage).not.toContain("never reads");
+    expect(storage).not.toContain("never in YForge's database");
     const rows = [...host.querySelectorAll(".provider-row")];
     expect(rows).toHaveLength(2);
     expect(rows[0]?.textContent).toContain("Ready");
@@ -126,7 +134,7 @@ describe("AI providers", () => {
     await flush(60);
 
     expect(calls.find((call) => call.cmd === "ai_provider_add")?.args).toEqual({ input: { kind: "openai_compatible", auth_mode: "api_key", name: "Local", base_url: "http://localhost:11434/v1", api_key: "sk-test" } });
-    expect(dialog()?.textContent).toContain("Key saved in the macOS Keychain");
+    expect(dialog()?.textContent).toContain("Key saved in the YForge database (unencrypted)");
     expect(dialog()?.querySelector('input[aria-label="API key"]')).toBeNull();
   });
 
@@ -167,7 +175,7 @@ describe("AI providers", () => {
 
   it("signs a ChatGPT provider in by device code, showing the URL and code of its own operation, and cancels through the operation id", async () => {
     let release: (status: ProviderStatus) => void = () => undefined;
-    const { host, calls } = await mount([summary("p3", { kind: "chatgpt", name: "ChatGPT" }, { kind: "signed_out" })], (call) => {
+    const { host, calls } = await mount([summary("p3", { kind: "chatgpt", name: "ChatGPT", auth_mode: "subscription" }, { kind: "signed_out" })], (call) => {
       if (call.cmd === "ai_sign_in") return new Promise<ProviderStatus>((resolve) => (release = resolve));
       return undefined;
     });
@@ -192,22 +200,46 @@ describe("AI providers", () => {
   });
 
   it("offers a browser sign-in but no device code for Claude, and both for ChatGPT", async () => {
-    const claude = await mount([summary("p1", { kind: "claude", name: "Claude" }, { kind: "signed_out" })]);
+    const claude = await mount([summary("p1", { kind: "claude", name: "Claude", auth_mode: "subscription" }, { kind: "signed_out" })]);
     claude.host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
     await flush(60);
 
-    expect(buttonNamed(dialog() as HTMLElement, "Sign in with browser")).toBeDefined();
+    expect(buttonNamed(dialog() as HTMLElement, "Read Claude Code sign-in")).toBeDefined();
     expect(buttonNamed(dialog() as HTMLElement, "No browser? Use a code")).toBeUndefined();
     claude.dispose();
     await flush();
 
-    const chatgpt = await mount([summary("p1", { kind: "chatgpt", name: "ChatGPT" }, { kind: "signed_out" })]);
+    const chatgpt = await mount([summary("p1", { kind: "chatgpt", name: "ChatGPT", auth_mode: "subscription" }, { kind: "signed_out" })]);
     chatgpt.host.querySelector<HTMLElement>('[aria-label="Edit ChatGPT"]')?.click();
     await flush(60);
 
     expect(buttonNamed(dialog() as HTMLElement, "Sign in with browser")).toBeDefined();
     expect(buttonNamed(dialog() as HTMLElement, "No browser? Use a code")).toBeDefined();
     chatgpt.dispose();
+  });
+
+  it("shows Reconnect and Sign out for a ready subscription provider, and Sign out calls ai_provider_sign_out", async () => {
+    const { host, calls } = await mount([summary("p1", { kind: "chatgpt", name: "ChatGPT", auth_mode: "subscription" }, { kind: "ready" })], (call) =>
+      call.cmd === "ai_provider_sign_out" ? { kind: "signed_out" } : undefined,
+    );
+    host.querySelector<HTMLElement>('[aria-label="Edit ChatGPT"]')?.click();
+    await flush(60);
+
+    expect(buttonNamed(dialog() as HTMLElement, "Reconnect in browser")).toBeDefined();
+    expect(buttonNamed(dialog() as HTMLElement, "Use a code")).toBeDefined();
+    buttonNamed(dialog() as HTMLElement, "Sign out")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "ai_provider_sign_out")?.args).toEqual({ id: "p1" });
+  });
+
+  it("shows Refresh Claude Code sign-in and Sign out for a ready Claude subscription", async () => {
+    const { host } = await mount([summary("p1", { kind: "claude", name: "Claude", auth_mode: "subscription" }, { kind: "ready" })]);
+    host.querySelector<HTMLElement>('[aria-label="Edit Claude"]')?.click();
+    await flush(60);
+
+    expect(buttonNamed(dialog() as HTMLElement, "Refresh Claude Code sign-in")).toBeDefined();
+    expect(buttonNamed(dialog() as HTMLElement, "Sign out")).toBeDefined();
   });
 
   it("offers no model choice in the provider dialog, because each feature chooses its own", async () => {
@@ -221,13 +253,25 @@ describe("AI providers", () => {
     expect(calls.some((call) => call.cmd === "ai_models")).toBe(false);
   });
 
-  it("confirms before removing a provider and names the Keychain consequence", async () => {
+  it("names the stored sign-in token, not an unchanged Mac, when a subscription provider with no API key is removed", async () => {
+    const { host, calls } = await mount([summary("p3", { kind: "claude", name: "Claude", auth_mode: "subscription", has_api_key: false }, { kind: "ready" })]);
+
+    host.querySelector<HTMLElement>('[aria-label="Remove Claude"]')?.click();
+    await flush();
+    const confirm = document.querySelector('[role="alertdialog"]');
+
+    expect(confirm?.textContent).toContain("Any saved API key or sign-in token is deleted from the YForge database. Claude Code's own sign-in is not changed.");
+    expect(confirm?.textContent).not.toContain("Nothing else on this Mac changes");
+    expect(calls.some((call) => call.cmd === "ai_provider_remove")).toBe(false);
+  });
+
+  it("confirms before removing a provider and names the database consequence", async () => {
     const { host, calls } = await mount([summary("p2", { kind: "openrouter", name: "OpenRouter", has_api_key: true })]);
 
     host.querySelector<HTMLElement>('[aria-label="Remove OpenRouter"]')?.click();
     await flush();
     const confirm = document.querySelector('[role="alertdialog"]');
-    expect(confirm?.textContent).toContain("Its API key is deleted from the macOS Keychain.");
+    expect(confirm?.textContent).toContain("Any saved API key or sign-in token is deleted from the YForge database. Claude Code's own sign-in is not changed.");
     expect(calls.some((call) => call.cmd === "ai_provider_remove")).toBe(false);
     buttonNamed(confirm as HTMLElement, "Remove provider")?.click();
     await flush();

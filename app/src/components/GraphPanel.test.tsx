@@ -864,8 +864,8 @@ describe("multi-select", () => {
     rowElement(host, 6).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 6, clientY: 7 }));
     await flush();
 
-    expect(menus[0]).toEqual(["sha3", false, { left: 4, top: 5 }, ["sha1", "sha3"], { root: false, squashReason: "The selected commits are not one contiguous run of the current branch" }]);
-    expect(menus[1]).toEqual(["sha6", false, { left: 6, top: 7 }, ["sha6"], { root: false }]);
+    expect(menus[0]).toEqual(["sha3", false, { left: 4, top: 5 }, ["sha1", "sha3"], { root: false, refs: [], squashReason: "The selected commits are not one contiguous run of the current branch" }]);
+    expect(menus[1]).toEqual(["sha6", false, { left: 6, top: 7 }, ["sha6"], { root: false, refs: [] }]);
     expect(selection()).toEqual({ kind: "commit", sha: "sha6" });
   });
 
@@ -880,7 +880,33 @@ describe("multi-select", () => {
     });
 
     expect(menus[0]?.[3]).toEqual(["sha1", "sha2"]);
-    expect(menus[0]?.[4]).toEqual({ root: false });
+    expect(menus[0]?.[4]).toEqual({ root: false, refs: [] });
+  });
+
+  it("passes the refs of the right-clicked row to the menu", async () => {
+    overrides = { 2: { sha: "sha2", parents: ["sha3"], refs: [ref("main", "local_branch", true), ref("v1", "tag")] } };
+    const menus: unknown[][] = [];
+    const { host } = await mountGraph({ actions: { openCommitMenu: (...args: unknown[]) => menus.push(args) } });
+
+    rowElement(host, 2).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 1, clientY: 2 }));
+    await flush();
+
+    expect(menus[0]?.[4]).toEqual({ root: false, refs: [ref("main", "local_branch", true), ref("v1", "tag")] });
+  });
+
+  it("opens the row menu, not the label menu, from the keyboard on a row that has a ref label", async () => {
+    overrides = { 2: { sha: "sha2", parents: ["sha3"], refs: [ref("main", "local_branch", true)] } };
+    const menus: unknown[][] = [];
+    const refMenus: unknown[] = [];
+    const { host, key } = await mountGraph({ actions: { openCommitMenu: (...args: unknown[]) => menus.push(args), openRefMenu: (target: unknown) => refMenus.push(target) } });
+    click(rowElement(host, 2));
+    await flush();
+
+    key("F10", { shiftKey: true });
+    await flush();
+
+    expect(refMenus).toEqual([]);
+    expect(menus[0]?.[0]).toBe("sha2");
   });
 });
 

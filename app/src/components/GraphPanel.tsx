@@ -541,6 +541,7 @@ export function GraphPanel(props: {
     });
     props.actions.openCommitMenu(row.sha, row.kind === "merge", { left: event.clientX, top: event.clientY }, shas, {
       root: row.parents.length === 0,
+      refs: row.refs,
       ...(shas.length > 1 ? { squashReason: squashProblem(commits) } : {}),
     });
   };
@@ -599,11 +600,10 @@ export function GraphPanel(props: {
     const last = store.total() - 1;
     if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
       const row = document.querySelector<HTMLElement>(`#graph-row-${selected()}`);
-      const label = row?.querySelector<HTMLElement>("[data-ref-label]") ?? row;
-      if (label !== null && label !== undefined) {
+      if (row !== null) {
         event.preventDefault();
-        const rect = label.getBoundingClientRect();
-        label.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom + 4 }));
+        const rect = (row.querySelector<HTMLElement>("[data-ref-label]") ?? row).getBoundingClientRect();
+        row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: rect.left, clientY: rect.bottom + 4 }));
       }
       return;
     }

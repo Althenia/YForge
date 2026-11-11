@@ -1,7 +1,9 @@
 import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, Match, Show, Switch } from "solid-js";
 import type { ProviderSummary } from "../ipc/bindings/ProviderSummary";
+import { client } from "../ipc/client";
 import { createSignIn } from "../state/aiSignIn";
+import { refreshProviders } from "../state/aiProviders";
 import { statusView } from "../state/aiModel";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -32,6 +34,30 @@ function CopyField(props: { label: string; value: string }) {
 export function SignInPanel(props: { provider: ProviderSummary; deviceCode: boolean }) {
   const queryClient = useQueryClient();
   const signIn = createSignIn(queryClient, props.provider.config.id);
+  const [signingOut, setSigningOut] = createSignal(false);
+  const [signOutFailure, setSignOutFailure] = createSignal<string | undefined>();
+  const ready = () => props.provider.status.kind === "ready";
+  const primaryLabel = () =>
+    ready()
+      ? props.provider.config.kind === "claude"
+        ? "Refresh Claude Code sign-in"
+        : "Reconnect in browser"
+      : props.provider.config.kind === "claude"
+        ? "Read Claude Code sign-in"
+        : "Sign in with browser";
+  async function signOut(): Promise<void> {
+    setSigningOut(true);
+    setSignOutFailure(undefined);
+    try {
+      await client.aiProviderSignOut(props.provider.config.id);
+      signIn.reset();
+      await refreshProviders(queryClient, props.provider.config.id);
+    } catch (error) {
+      setSignOutFailure(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSigningOut(false);
+    }
+  }
   const running = () => {
     const state = signIn.status();
     return state.kind === "running" ? state : undefined;
@@ -66,15 +92,30 @@ export function SignInPanel(props: { provider: ProviderSummary; deviceCode: bool
           <div class="hrow">
             <button type="button" class="btn sm" onClick={() => void signIn.start("browser")}>
               <Icon name="key" size={14} />
-              Sign in with browser
+              {primaryLabel()}
             </button>
             <Show when={props.deviceCode}>
               <button type="button" class="btn sm" onClick={() => void signIn.start("device_code")}>
                 <Icon name="terminal" size={14} />
-                No browser? Use a code
+                {ready() ? "Use a code" : "No browser? Use a code"}
+              </button>
+            </Show>
+            <Show when={ready()}>
+              <button type="button" class="btn sm text-danger" disabled={signingOut()} aria-busy={signingOut()} onClick={() => void signOut()}>
+                Sign out
               </button>
             </Show>
           </div>
+          <Show when={signOutFailure()}>
+            {(text) => (
+              <p class="field-note error" role="alert">
+                {text()}
+              </p>
+            )}
+          </Show>
+          <Show when={props.provider.config.kind === "claude" && props.provider.status.kind === "signed_out"}>
+            <p class="field-note">Sign in to Claude Code first, then read its sign-in here.</p>
+          </Show>
           {(() => {
             const state = signIn.status();
             if (state.kind === "failed") {

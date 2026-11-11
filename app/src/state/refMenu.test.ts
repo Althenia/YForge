@@ -47,6 +47,29 @@ describe("menu icons", () => {
 });
 
 describe("branch context menu", () => {
+  it("disables delete and delete_both when another worktree holds the branch, leaving checkout and fast-forward enabled", () => {
+    const entries = refMenu(local, {
+      ...context("main", ["origin"]),
+      worktrees: [
+        { path: "/repo", branch: "main", current: true },
+        { path: "/repo-feature", branch: "feature/greeting", current: false },
+      ],
+    });
+    expect(item(entries, "delete").disabledReason).toBe("Checked out in worktree /repo-feature");
+    expect(item(entries, "delete_both").disabledReason).toBe("Checked out in worktree /repo-feature");
+    expect(item(entries, "checkout").disabledReason).toBeUndefined();
+    expect(item(entries, "fast_forward").disabledReason).toBeUndefined();
+  });
+
+  it("leaves delete enabled when only the current worktree holds the branch", () => {
+    const entries = refMenu(local, {
+      ...context("main", ["origin"]),
+      worktrees: [{ path: "/repo", branch: "feature/greeting", current: true }],
+    });
+    expect(item(entries, "delete").disabledReason).toBeUndefined();
+    expect(item(entries, "delete_both").disabledReason).toBeUndefined();
+  });
+
   it("follows the order and grouping of specimen 05 for a local branch with a remote", () => {
     expect(layout(refMenu(local, context("main", ["origin"])))).toEqual([
       "Checkout feature/greeting",
@@ -300,6 +323,7 @@ describe("commit row context menu", () => {
       "Reset main to abcdef0",
       "-",
       "Edit history from abcdef0…",
+      "Squash commits…",
       "Recompose from abcdef0…",
     ]);
     for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset", "edit_history", "recompose"]) expect(item(entries, id).disabledReason).toBeUndefined();
@@ -358,13 +382,70 @@ describe("commit menu with a multi-selection", () => {
     expect(item(commitMenu({ ...selected, operation: "merge" }), "squash").disabledReason).toBe("Finish or abort the merge first");
   });
 
-  it("does not offer Squash for a single commit", () => {
-    expect(commitMenu({ ...context("main"), sha: "abcdef0123456", merge: false }).some((entry) => entry.kind === "item" && entry.id === "squash")).toBe(false);
+  it("shows Squash for a single commit, disabled until a second commit is selected", () => {
+    const single = commitMenu({ ...context("main"), sha: "abcdef0123456", merge: false });
+    expect(text(item(single, "squash").label)).toBe("Squash commits…");
+    expect(item(single, "squash").disabledReason).toBe("Select two or more commits to squash");
+    expect(item(commitMenu({ ...context("main", [], "merge"), sha: "abcdef0123456", merge: false }), "squash").disabledReason).toBe("Finish or abort the merge first");
   });
 
   it("keeps the verbs enabled for a selection of one", () => {
     const entries = commitMenu({ ...selected, selection: ["abcdef0123456"] });
     expect(item(entries, "cherry_pick").disabledReason).toBeUndefined();
+  });
+});
+
+describe("commit row menu on a ref tip", () => {
+  const base = { sha: "abcdef0123456", merge: false };
+  const own: RefTarget = { kind: "local_branch", name: "main", remoteName: undefined, startPoint: "abcdef0123456" };
+  const idsOf = (entries: MenuEntry[]) => entries.flatMap((entry) => (entry.kind === "item" ? [entry.id] : []));
+  const rowMenu = (target: RefTarget, overrides: Partial<Parameters<typeof commitMenu>[0]> = {}) => commitMenu({ ...context("main", ["origin"]), ...base, target, ...overrides });
+
+  it("carries the branch menu of the ref, then the commit rewrites and Squash, without repeating an action", () => {
+    const entries = rowMenu(local);
+    const ids = idsOf(entries);
+
+    expect(ids.slice(0, 5)).toEqual(["checkout", "merge", "rebase", "fast_forward", "create_branch"]);
+    for (const id of ["create_worktree", "edit_message", "set_upstream", "rename", "delete", "copy_name", "copy_sha", "hide", "cherry_pick", "revert", "edit_history", "squash", "recompose"]) expect(ids).toContain(id);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.slice(-3)).toEqual(["edit_history", "squash", "recompose"]);
+  });
+
+  it("keeps the guards of the branch menu: the checked-out branch cannot merge into itself and a tip that is not checked out cannot edit its message", () => {
+    const current = rowMenu(own);
+    for (const id of ["merge", "rebase", "fast_forward"]) expect(item(current, id).disabledReason).toBe("Already the checked-out branch");
+    expect(item(current, "checkout").disabledReason).toBe("Already checked out");
+    expect(item(current, "edit_message").disabledReason).toBeUndefined();
+    expect(item(rowMenu(local), "edit_message").disabledReason).toBe("Check out feature/greeting to edit its latest commit message");
+    expect(item(rowMenu(local, { operation: "rebase" }), "merge").disabledReason).toBe("Finish or abort the rebase first");
+  });
+
+  it("keeps the commit guards on the rewrite verbs", () => {
+    const entries = rowMenu(local, { merge: true, root: true });
+    expect(item(entries, "edit_history").disabledReason).toBe("A merge commit cannot be rewritten");
+    expect(item(entries, "recompose").disabledReason).toBe("A merge commit cannot be rewritten");
+    expect(item(rowMenu(local, { root: true }), "recompose").disabledReason).toBe("The root commit has no parent to recompose from");
+    expect(item(rowMenu(local, { operation: "merge" }), "cherry_pick").disabledReason).toBe("Finish or abort the merge first");
+    expect(item(rowMenu(local), "squash").disabledReason).toBe("Select two or more commits to squash");
+  });
+
+  it("uses the tag and remote branch menus for those targets", () => {
+    const tag = idsOf(rowMenu({ kind: "tag", name: "v1", startPoint: "abc" }));
+    expect(tag).toContain("push_tag");
+    expect(tag).not.toContain("merge");
+    const remote = idsOf(rowMenu({ kind: "remote_branch", name: "origin/x", startPoint: "abc" }));
+    expect(remote).toContain("delete_remote");
+    expect(remote).not.toContain("rename");
+  });
+
+  it("falls back to the plain commit menu for a multi-selection, keeping the single-commit reasons and the contiguous Squash reason", () => {
+    const reason = "The selected commits are not one contiguous run of the current branch";
+    const entries = rowMenu(local, { selection: ["abcdef0123456", "1234567abcdef"], squashReason: reason });
+
+    expect(idsOf(entries)).not.toContain("checkout");
+    for (const id of ["cherry_pick", "revert", "create_branch", "create_tag", "reset", "edit_history", "recompose"]) expect(item(entries, id).disabledReason).toBe(SINGLE_COMMIT_REASON);
+    expect(text(item(entries, "squash").label)).toBe("Squash 2 commits…");
+    expect(item(entries, "squash").disabledReason).toBe(reason);
   });
 });
 

@@ -88,6 +88,96 @@
   margin: var(--spacing-1) var(--spacing-2);
 }
 
+.mt-lines {
+  display: flex;
+  flex-direction: column;
+}
+
+.mt-line-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-1);
+  padding: 0 var(--spacing-2) 0 var(--spacing-1-5);
+}
+
+.mt-line-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: var(--spacing-1-5);
+  min-height: var(--controls-height-dense);
+  padding: 0 var(--spacing-1);
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: transparent;
+  color: var(--colors-text);
+  font: var(--font-ui-caption);
+  cursor: var(--cursors-action);
+}
+
+.mt-line-check[aria-checked="true"] {
+  background: var(--colors-accent-tint);
+  color: var(--colors-accent-ink);
+}
+
+.mt-line-check[aria-checked="true"] .mt-box {
+  background: var(--colors-accent);
+  box-shadow: none;
+  color: var(--colors-on-accent);
+}
+
+.mt-line-check:focus-visible {
+  outline: var(--controls-focus-ring) solid var(--colors-focus);
+  outline-offset: var(--controls-focus-offset);
+}
+
+.mt-code pre.mt-line {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+}
+
+.mt-empty {
+  margin: var(--spacing-1) var(--spacing-2);
+  font-style: italic;
+}
+
+.rfile-pos {
+  color: var(--colors-text-muted);
+  font: var(--font-ui-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.cbase-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1);
+  min-height: var(--controls-height-dense);
+  padding: 0 var(--spacing-2);
+  border: 0;
+  border-radius: var(--rounded-sm);
+  background: var(--colors-field);
+  box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
+  color: var(--colors-text);
+  font: var(--font-ui-caption);
+  cursor: var(--cursors-action);
+}
+
+.cbase-toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.cbase-toggle:focus-visible {
+  outline: var(--controls-focus-ring) solid var(--colors-focus);
+  outline-offset: var(--controls-focus-offset);
+}
+
+.rpanel.merge-tool .mergebar .input.area {
+  flex: 1 1 200px;
+  min-width: 0;
+}
+
 .mt-box {
   display: inline-grid;
   place-items: center;
@@ -99,7 +189,8 @@
 
 .mt-all[aria-checked="true"],
 .mt-all[aria-checked="mixed"],
-.mt-check[aria-checked="true"] {
+.mt-check[aria-checked="true"],
+.mt-check[aria-checked="mixed"] {
   background: var(--colors-accent-tint);
   box-shadow: inset 0 0 0 1px var(--colors-accent);
   color: var(--colors-accent-ink);
@@ -112,7 +203,8 @@
   color: var(--colors-on-accent);
 }
 
-.mt-all[aria-checked="mixed"] .mt-box {
+.mt-all[aria-checked="mixed"] .mt-box,
+.mt-check[aria-checked="mixed"] .mt-box {
   box-shadow: inset 0 0 0 1px var(--colors-accent);
   color: var(--colors-accent-ink);
 }
@@ -142,6 +234,8 @@
   min-height: 0;
   padding: var(--spacing-1-5) 0;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--colors-rule-strong) transparent;
 }
 
 .mt-code pre {
@@ -185,6 +279,8 @@
   font: var(--font-code);
   white-space: pre;
   overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--colors-rule-strong) transparent;
 }
 
 .mt-out {
@@ -272,6 +368,8 @@
   line-height: var(--spacing-5);
   white-space: pre;
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--colors-rule-strong) transparent;
   tab-size: 2;
   cursor: var(--cursors-text);
 }

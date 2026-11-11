@@ -1,21 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
+import type { RecomposeGroup } from "../ipc/bindings/RecomposeGroup";
 import type { RecomposePreview } from "../ipc/bindings/RecomposePreview";
-import {
-  addGroup,
-  assign,
-  catalogOf,
-  describeGroup,
-  fromGroups,
-  groupOf,
-  groupsOf,
-  moveGroup,
-  newDraft,
-  problemsOf,
-  progressOf,
-  removeGroup,
-  renameGroup,
-} from "./recomposeModel";
+import { catalogOf, describeGroup, fromGroups, groupsOf, problemsOf, progressOf } from "./recomposeModel";
 
 const line = (kind: DiffLine["kind"], text: string): DiffLine => ({ kind, old_number: 1, new_number: 1, text, no_newline: false });
 const hunk = (lines: DiffLine[]) => ({ old_start: 1, old_lines: 3, new_start: 1, new_lines: 3, heading: "", lines });
@@ -58,7 +45,7 @@ describe("catalog of a file whose hunks the core omitted", () => {
 
   it("keeps the reason on the whole-file unit and assigns it as one file", () => {
     expect(omitted[0]).toMatchObject({ path: "big.sql", whole: true, omitted: reason, hunks: [] });
-    const draft = assign(newDraft(), omitted, { kind: "file", path: "big.sql" }, 1);
+    const draft = fromGroups([{ message: "Big", changes: [{ kind: "file", path: "big.sql" }] }], omitted);
     expect(groupsOf(draft, omitted)[0]?.changes).toEqual([{ kind: "file", path: "big.sql" }]);
     expect(progressOf(draft, omitted)).toEqual({ total: 1, assigned: 1 });
   });
@@ -68,90 +55,43 @@ describe("catalog of a file whose hunks the core omitted", () => {
   });
 });
 
-describe("groups", () => {
-  it("starts with one empty commit and adds, renames, moves, and removes commits", () => {
-    let draft = newDraft();
-    expect(draft.groups).toEqual([{ id: 1, message: "" }]);
-    draft = renameGroup(addGroup(draft), 2, "Second");
-    expect(draft.groups).toEqual([{ id: 1, message: "" }, { id: 2, message: "Second" }]);
-    draft = moveGroup(draft, 2, -1);
-    expect(draft.groups.map((group) => group.id)).toEqual([2, 1]);
-    expect(moveGroup(draft, 2, -1).groups.map((group) => group.id)).toEqual([2, 1]);
-    draft = removeGroup(draft, 2);
-    expect(draft.groups.map((group) => group.id)).toEqual([1]);
+const plan: RecomposeGroup[] = [
+  { message: "Docs", changes: [{ kind: "file", path: "logo.png" }, { kind: "hunk", id: "a.txt@20,3+20,3" }] },
+  { message: "Rest", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "file", path: "empty.txt" }] },
+];
+
+describe("a plan from the AI proposal", () => {
+  it("builds one commit per proposed group, in order, with its message", () => {
+    const draft = fromGroups(plan, catalog);
+    expect(draft.groups.map((group) => group.message)).toEqual(["Docs", "Rest"]);
+    expect(problemsOf(draft, catalog)).toEqual({ general: [], groups: {}, ready: true });
+    expect(progressOf(draft, catalog)).toEqual({ total: 6, assigned: 6 });
   });
 
-  it("unassigns the changes of a removed commit", () => {
-    let draft = addGroup(newDraft());
-    draft = assign(draft, catalog, { kind: "file", path: "a.txt" }, 2);
-    draft = removeGroup(draft, 2);
-    expect(groupOf(draft, catalog, { kind: "file", path: "a.txt" })).toBeUndefined();
-  });
-});
-
-describe("assignment", () => {
-  it("assigns a whole file, a hunk, or chosen lines, and reads the assignment back", () => {
-    let draft = addGroup(newDraft());
-    draft = assign(draft, catalog, { kind: "hunk", id: "a.txt@1,3+1,3" }, 1);
-    draft = assign(draft, catalog, { kind: "lines", id: "a.txt@20,3+20,3", lines: [0] }, 2);
-    expect(groupOf(draft, catalog, { kind: "hunk", id: "a.txt@1,3+1,3" })).toBe(1);
-    expect(groupOf(draft, catalog, { kind: "hunk", id: "a.txt@20,3+20,3" })).toBe(2);
-    expect(groupOf(draft, catalog, { kind: "file", path: "a.txt" })).toBe("mixed");
-    draft = assign(draft, catalog, { kind: "file", path: "a.txt" }, 2);
-    expect(groupOf(draft, catalog, { kind: "file", path: "a.txt" })).toBe(2);
-    draft = assign(draft, catalog, { kind: "file", path: "a.txt" }, undefined);
-    expect(groupOf(draft, catalog, { kind: "file", path: "a.txt" })).toBeUndefined();
+  it("emits the proposed changes for recompose_apply, folding a fully assigned splittable file into one file change", () => {
+    const whole = fromGroups([{ message: "All of a", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "hunk", id: "a.txt@20,3+20,3" }] }], catalog);
+    expect(groupsOf(whole, catalog)).toEqual([{ message: "All of a", changes: [{ kind: "file", path: "a.txt" }] }]);
+    expect(groupsOf(fromGroups(plan, catalog), catalog)).toEqual([
+      { message: "Docs", changes: [{ kind: "hunk", id: "a.txt@20,3+20,3" }, { kind: "file", path: "logo.png" }] },
+      { message: "Rest", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "file", path: "empty.txt" }] },
+    ]);
   });
 
-  it("moves a change between commits so it belongs to exactly one", () => {
-    let draft = addGroup(newDraft());
-    draft = assign(draft, catalog, { kind: "file", path: "logo.png" }, 1);
-    draft = assign(draft, catalog, { kind: "file", path: "logo.png" }, 2);
-    expect(groupsOf(draft, catalog).flatMap((group) => group.changes)).toEqual([{ kind: "file", path: "logo.png" }]);
-    expect(groupsOf(draft, catalog)[1]?.changes).toEqual([{ kind: "file", path: "logo.png" }]);
-  });
-
-  it("ignores context lines when assigning lines", () => {
-    const draft = assign(newDraft(), catalog, { kind: "lines", id: "a.txt@1,3+1,3", lines: [0, 1] }, 1);
+  it("splits a hunk into lines only for the changed lines of a proposed lines change and ignores context lines", () => {
+    const draft = fromGroups([{ message: "Part", changes: [{ kind: "lines", id: "a.txt@1,3+1,3", lines: [0, 1] }] }], catalog);
     expect(groupsOf(draft, catalog)[0]?.changes).toEqual([{ kind: "lines", id: "a.txt@1,3+1,3", lines: [1] }]);
   });
-});
 
-describe("output for recompose_apply", () => {
-  it("emits a file when every change of a splittable file is in one commit, else hunks, else lines", () => {
-    let draft = addGroup(newDraft());
-    draft = assign(draft, catalog, { kind: "file", path: "a.txt" }, 1);
-    expect(groupsOf(draft, catalog)[0]?.changes).toEqual([{ kind: "file", path: "a.txt" }]);
-    draft = assign(draft, catalog, { kind: "hunk", id: "a.txt@20,3+20,3" }, 2);
-    expect(groupsOf(draft, catalog)[0]?.changes).toEqual([{ kind: "hunk", id: "a.txt@1,3+1,3" }]);
-    expect(groupsOf(draft, catalog)[1]?.changes).toEqual([{ kind: "hunk", id: "a.txt@20,3+20,3" }]);
-    draft = assign(draft, catalog, { kind: "lines", id: "a.txt@1,3+1,3", lines: [3] }, 2);
-    expect(groupsOf(draft, catalog)[0]?.changes).toEqual([{ kind: "lines", id: "a.txt@1,3+1,3", lines: [1, 2] }]);
-    expect(groupsOf(draft, catalog)[1]?.changes).toEqual(
-      expect.arrayContaining([{ kind: "lines", id: "a.txt@1,3+1,3", lines: [3] }, { kind: "hunk", id: "a.txt@20,3+20,3" }]),
-    );
+  it("blocks apply and names the unassigned paths, a blank message, and an empty commit", () => {
+    const draft = fromGroups([{ message: " ", changes: [{ kind: "file", path: "logo.png" }] }, { message: "Nothing", changes: [] }], catalog);
+    const problems = problemsOf(draft, catalog);
+    expect(problems.ready).toBe(false);
+    expect(problems.general).toEqual(["Changes not assigned to any commit: a.txt, empty.txt"]);
+    expect(problems.groups).toEqual({ 1: "Enter a message", 2: "This commit has no changes" });
   });
 
-  it("carries the message of each commit in order", () => {
-    const draft = assign(renameGroup(newDraft(), 1, "Only"), catalog, { kind: "file", path: "logo.png" }, 1);
-    expect(groupsOf(draft, catalog)).toEqual([{ message: "Only", changes: [{ kind: "file", path: "logo.png" }] }]);
-  });
-});
-
-describe("validation", () => {
-  it("lists what blocks Apply: unassigned paths, blank messages, and empty commits", () => {
-    let draft = addGroup(newDraft());
-    const first = problemsOf(draft, catalog);
-    expect(first.ready).toBe(false);
-    expect(first.general).toEqual(["Changes not assigned to any commit: a.txt, logo.png, empty.txt"]);
-    expect(first.groups).toEqual({ 1: "Enter a message", 2: "Enter a message" });
-    draft = renameGroup(renameGroup(draft, 1, "One"), 2, "Two");
-    draft = assign(assign(assign(draft, catalog, { kind: "file", path: "a.txt" }, 1), catalog, { kind: "file", path: "logo.png" }, 1), catalog, { kind: "file", path: "empty.txt" }, 1);
-    const second = problemsOf(draft, catalog);
-    expect(second.groups).toEqual({ 2: "This commit has no changes" });
-    expect(second.ready).toBe(false);
-    draft = removeGroup(draft, 2);
-    expect(problemsOf(draft, catalog)).toEqual({ general: [], groups: {}, ready: true });
+  it("blocks apply for a proposal with no commits", () => {
+    expect(problemsOf(fromGroups([], catalog), catalog).general).toContain("The proposal has no commits");
   });
 
   it("counts a long list of unassigned changes and names only the first three", () => {
@@ -159,37 +99,18 @@ describe("validation", () => {
       ...preview,
       files: Array.from({ length: 245 }, (_, index) => ({ path: `src/file${index}.ts`, status: "added" as const, binary: true, whole_file_only: true, hunks_omitted: null, hunks: [] })),
     });
-    expect(problemsOf(newDraft(), many).general[0]).toBe(
-      "Changes not assigned to any commit: 245 files: src/file0.ts, src/file1.ts, src/file2.ts and 242 more",
-    );
+    expect(problemsOf(fromGroups([], many), many).general[0]).toBe("Changes not assigned to any commit: 245 files: src/file0.ts, src/file1.ts, src/file2.ts and 242 more");
   });
 
-  it("counts assigned and total changes", () => {
-    const draft = assign(newDraft(), catalog, { kind: "hunk", id: "a.txt@1,3+1,3" }, 1);
+  it("counts a partial proposal as partly assigned", () => {
+    const draft = fromGroups([{ message: "One", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }] }], catalog);
     expect(progressOf(draft, catalog)).toEqual({ total: 6, assigned: 3 });
-  });
-});
-
-describe("from an AI proposal", () => {
-  it("builds commits from file and hunk changes, keeping the message, so the user can edit them", () => {
-    const draft = fromGroups(
-      [
-        { message: "Docs", changes: [{ kind: "file", path: "logo.png" }, { kind: "hunk", id: "a.txt@20,3+20,3" }] },
-        { message: "Rest", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "file", path: "empty.txt" }] },
-      ],
-      catalog,
-    );
-    expect(draft.groups.map((group) => group.message)).toEqual(["Docs", "Rest"]);
-    expect(problemsOf(draft, catalog).ready).toBe(true);
-    expect(groupOf(draft, catalog, { kind: "hunk", id: "a.txt@20,3+20,3" })).toBe(draft.groups[0]?.id);
   });
 });
 
 describe("describeGroup", () => {
   it("summarizes what a commit holds per file", () => {
-    let draft = newDraft();
-    draft = assign(draft, catalog, { kind: "hunk", id: "a.txt@1,3+1,3" }, 1);
-    draft = assign(draft, catalog, { kind: "file", path: "logo.png" }, 1);
+    const draft = fromGroups([{ message: "One", changes: [{ kind: "hunk", id: "a.txt@1,3+1,3" }, { kind: "file", path: "logo.png" }] }], catalog);
     expect(describeGroup(draft, catalog, 1)).toEqual([
       { path: "a.txt", scope: "1 of 2 hunks", added: 2, removed: 1 },
       { path: "logo.png", scope: "whole file", added: 0, removed: 0 },

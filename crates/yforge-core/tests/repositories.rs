@@ -603,7 +603,8 @@ fn start_storage_creates_the_scanned_folder_tables_in_a_database_that_predates_t
     let connection = rusqlite::Connection::open(dir.path().join("yforge.db")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE profile_sessions; DROP TABLE profiles; DROP TABLE hook_approvals;
+            "DROP TABLE secret_cleanup; DROP TABLE secrets;
+             DROP TABLE profile_sessions; DROP TABLE profiles; DROP TABLE hook_approvals;
              DROP TABLE scanned_repos; DROP TABLE scanned_folders; PRAGMA user_version = 11;",
         )
         .unwrap();

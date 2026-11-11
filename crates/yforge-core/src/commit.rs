@@ -392,13 +392,22 @@ pub fn commit(
     description: &str,
     amend: bool,
 ) -> Result<String, CoreError> {
+    repo::with_repo_mutation_lock(path, || commit_inner(path, summary, description, amend))
+}
+
+fn commit_inner(
+    path: &Path,
+    summary: &str,
+    description: &str,
+    amend: bool,
+) -> Result<String, CoreError> {
     let root = repo::open(path)?;
     if summary.trim().is_empty() {
         return Err(CoreError::invalid_request("the commit summary is empty"));
     }
     let mut args = vec!["commit", "--quiet"];
     if amend {
-        args.push("--amend");
+        args.extend(["--amend", "--allow-empty"]);
     } else if !has_commits(&root)? {
         args.push("--allow-empty");
     }
@@ -427,6 +436,17 @@ pub fn edit_head_message(
     summary: &str,
     description: &str,
 ) -> Result<MessageEdit, CoreError> {
+    repo::with_repo_mutation_lock(path, || {
+        edit_head_message_inner(path, sha, summary, description)
+    })
+}
+
+fn edit_head_message_inner(
+    path: &Path,
+    sha: &str,
+    summary: &str,
+    description: &str,
+) -> Result<MessageEdit, CoreError> {
     let root = repo::open(path)?;
     validate_sha(sha)?;
     if summary.trim().is_empty() {
@@ -440,7 +460,15 @@ pub fn edit_head_message(
         });
     }
     let pushed = head_is_on_upstream(&root)?;
-    let mut args = vec!["commit", "--quiet", "--amend", "--only", "-m", summary];
+    let mut args = vec![
+        "commit",
+        "--quiet",
+        "--amend",
+        "--allow-empty",
+        "--only",
+        "-m",
+        summary,
+    ];
     if !description.trim().is_empty() {
         args.extend(["-m", description]);
     }

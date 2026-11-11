@@ -11,9 +11,9 @@ export type FileUnit = { path: string; status: FileStatus; binary: boolean; whol
 
 export type Catalog = FileUnit[];
 
-export type Target = { kind: "file"; path: string } | { kind: "hunk"; id: string } | { kind: "lines"; id: string; lines: readonly number[] };
+type Target = { kind: "file"; path: string } | { kind: "hunk"; id: string } | { kind: "lines"; id: string; lines: readonly number[] };
 
-export type Draft = { groups: Array<{ id: number; message: string }>; slots: Record<string, number>; next: number };
+export type Draft = { groups: Array<{ id: number; message: string }>; slots: Record<string, number> };
 
 export function catalogOf(preview: RecomposePreview): Catalog {
   return preview.files.map((file) => ({
@@ -48,44 +48,10 @@ function slotsOf(catalog: Catalog, target: Target): string[] {
   return wanted.map((line) => lineSlot(unit.id, line));
 }
 
-export const newDraft = (): Draft => ({ groups: [{ id: 1, message: "" }], slots: {}, next: 2 });
-
-export const addGroup = (draft: Draft): Draft => ({ ...draft, groups: [...draft.groups, { id: draft.next, message: "" }], next: draft.next + 1 });
-
-export const renameGroup = (draft: Draft, id: number, message: string): Draft => ({
-  ...draft,
-  groups: draft.groups.map((group) => (group.id === id ? { ...group, message } : group)),
-});
-
-export function moveGroup(draft: Draft, id: number, delta: -1 | 1): Draft {
-  const from = draft.groups.findIndex((group) => group.id === id);
-  const to = from + delta;
-  if (from < 0 || to < 0 || to >= draft.groups.length) return draft;
-  const groups = [...draft.groups];
-  const [moved] = groups.splice(from, 1);
-  if (moved === undefined) return draft;
-  groups.splice(to, 0, moved);
-  return { ...draft, groups };
-}
-
-export function removeGroup(draft: Draft, id: number): Draft {
-  const slots = Object.fromEntries(Object.entries(draft.slots).filter(([, group]) => group !== id));
-  return { ...draft, groups: draft.groups.filter((group) => group.id !== id), slots };
-}
-
-export function assign(draft: Draft, catalog: Catalog, target: Target, group: number | undefined): Draft {
+function assign(draft: Draft, catalog: Catalog, target: Target, group: number): Draft {
   const slots = { ...draft.slots };
-  for (const slot of slotsOf(catalog, target)) {
-    if (group === undefined) delete slots[slot];
-    else slots[slot] = group;
-  }
+  for (const slot of slotsOf(catalog, target)) slots[slot] = group;
   return { ...draft, slots };
-}
-
-export function groupOf(draft: Draft, catalog: Catalog, target: Target): number | "mixed" | undefined {
-  const owners = new Set(slotsOf(catalog, target).map((slot) => draft.slots[slot]));
-  if (owners.size !== 1) return owners.size === 0 ? undefined : "mixed";
-  return [...owners][0];
 }
 
 export function progressOf(draft: Draft, catalog: Catalog): { total: number; assigned: number } {
@@ -124,7 +90,7 @@ export function problemsOf(draft: Draft, catalog: Catalog): Problems {
   const groups: Record<number, string> = {};
   const unassigned = catalog.filter((file) => slotsOfFile(file).some((slot) => draft.slots[slot] === undefined)).map((file) => file.path);
   if (unassigned.length > 0) general.push(`Changes not assigned to any commit: ${fileList(unassigned)}`);
-  if (draft.groups.length === 0) general.push("Add at least one commit");
+  if (draft.groups.length === 0) general.push("The proposal has no commits");
   for (const group of draft.groups) {
     if (group.message.trim() === "") groups[group.id] = "Enter a message";
     else if (group.message.includes("\0")) groups[group.id] = "The message cannot contain a NUL character";
@@ -134,7 +100,7 @@ export function problemsOf(draft: Draft, catalog: Catalog): Problems {
 }
 
 export function fromGroups(groups: readonly RecomposeGroup[], catalog: Catalog): Draft {
-  let draft: Draft = { groups: groups.map((group, index) => ({ id: index + 1, message: group.message })), slots: {}, next: groups.length + 1 };
+  let draft: Draft = { groups: groups.map((group, index) => ({ id: index + 1, message: group.message })), slots: {} };
   groups.forEach((group, index) => {
     for (const change of group.changes) draft = assign(draft, catalog, change, index + 1);
   });

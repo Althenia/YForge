@@ -83,7 +83,7 @@ describe("Settings → Jira", () => {
     expect(input(host, "Site address")).not.toBeNull();
     expect(input(host, "Email")).not.toBeNull();
     expect(input(host, "API token")?.type).toBe("password");
-    expect(host.textContent).toContain("Stored in the macOS Keychain and never shown again");
+    expect(host.textContent).toContain("Stored unencrypted in the YForge database and never shown again");
     expect(buttonNamed(host, "Cancel")).toBeUndefined();
   });
 
@@ -189,8 +189,8 @@ describe("Settings → Jira", () => {
     expect(cards[0]?.textContent).toContain("your-site.atlassian.net");
     expect(cards[0]?.textContent).toContain("Jira Cloud · Connected as Sam Lee");
     expect(cards[0]?.textContent).toContain("ABC Accounts · WEB Website");
-    expect(cards[0]?.textContent).toContain("API token for you@example.com, stored in the macOS Keychain");
-    expect(cards[1]?.textContent).toContain("Personal access token, stored in the macOS Keychain");
+    expect(cards[0]?.textContent).toContain("API token for you@example.com, stored in the YForge database (unencrypted)");
+    expect(cards[1]?.textContent).toContain("Personal access token, stored in the YForge database (unencrypted)");
     expect(cards[0]?.querySelector(".provider-logo.neutral svg")).not.toBeNull();
     expect(host.querySelector("form")).toBeNull();
     expect(buttonNamed(host, "Connect a site")).toBeDefined();

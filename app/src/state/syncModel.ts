@@ -153,10 +153,20 @@ export function authFailure(message: string): { text: string; hint: string; remo
   return { text: `auth failed for ${remote ?? "the remote"}`, hint: AUTH_HINT, remote };
 }
 
-export const authFix = (remoteUrl: string | undefined): AuthFix =>
-  remoteUrl !== undefined && (remoteUrl.startsWith("ssh://") || /^[\w.-]+@[\w.-]+:/.test(remoteUrl))
+export function authFix(remoteUrl: string | undefined, platformHosts?: readonly string[]): AuthFix {
+  if (remoteUrl !== undefined && platformHosts !== undefined) {
+    try {
+      const url = new URL(remoteUrl);
+      if (url.protocol === "https:" && platformHosts.some((host) => host.trim().toLowerCase() === url.host.toLowerCase())) {
+        return { section: "platforms", label: "Edit connection" };
+      }
+    } catch {
+    }
+  }
+  return remoteUrl !== undefined && (remoteUrl.startsWith("ssh://") || /^[\w.-]+@[\w.-]+:/.test(remoteUrl))
     ? { section: "git", label: "Choose an SSH key" }
     : { section: "repository", label: "Check the remote" };
+}
 
 export function runningText(state: Extract<SyncState, { kind: "running" }>): string {
   const phase = state.phase === undefined ? state.label : state.phase.startsWith(state.label) ? state.phase : `${state.label} · ${state.phase}`;

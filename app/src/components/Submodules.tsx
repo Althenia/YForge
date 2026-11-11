@@ -93,6 +93,22 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
     });
   };
 
+  const openReason = (row: Submodule): string | undefined => {
+    for (const entry of submoduleEntries(row)) if (entry.kind === "item" && entry.id === "open") return entry.disabledReason;
+    return undefined;
+  };
+
+  const rowTitle = (row: Submodule): string => {
+    const info = `${row.url}${row.branch === null ? "" : ` · ${row.branch}`}`;
+    const reason = openReason(row);
+    return reason === undefined ? info : `${reason} · ${info}`;
+  };
+
+  const openRow = (row: Submodule) => {
+    if (running() !== undefined || openReason(row) !== undefined) return;
+    void app.openRepository(submoduleCheckout(props.root, row.path));
+  };
+
   const openMenu = (row: Submodule, anchor: Anchor) => {
     if (running() !== undefined) return;
     setMenu({
@@ -101,7 +117,7 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
       run: (id) => {
         setMenu(undefined);
         if (id === "update") void run("Updating submodule", () => client.submoduleUpdate(props.root, row.path));
-        else if (id === "open") void app.openRepository(submoduleCheckout(props.root, row.path));
+        else if (id === "open") openRow(row);
         else if (id === "stage") void run("Staging submodule pointer", () => client.submoduleStage(props.root, row.path));
         else if (id === "deinit") setConfirmPath(row.path);
       },
@@ -145,16 +161,22 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
               tabindex="0"
               data-nav={`submodule:${row.path}`}
               aria-label={`${row.path}, ${submoduleStatusWord(row.status)}`}
-              title={`${row.url}${row.branch === null ? "" : ` · ${row.branch}`}`}
+              aria-disabled={openReason(row) === undefined ? undefined : "true"}
+              title={rowTitle(row)}
+              onClick={() => openRow(row)}
               onContextMenu={(event) => {
                 event.preventDefault();
                 openMenu(row, { left: event.clientX, top: event.clientY });
               }}
               onKeyDown={(event) => {
+                if (event.target !== event.currentTarget) return;
                 if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
                   event.preventDefault();
                   const rect = event.currentTarget.getBoundingClientRect();
                   openMenu(row, { left: rect.left, top: rect.bottom });
+                } else if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openRow(row);
                 }
               }}
             >

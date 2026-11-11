@@ -5,13 +5,15 @@ use rusqlite::{params, Connection, Row};
 
 use super::{open, sql, state_path};
 use crate::error::CoreError;
-use crate::platform::{PlatformConnection, PlatformKind};
+use crate::platform::{PlatformAuthMethod, PlatformConnection, PlatformKind};
 use crate::sqlite::{failure, unix_now};
 
-const COLUMNS: &str = "id, kind, host, name, insecure_tls, created_at";
+const COLUMNS: &str =
+    "id, kind, host, name, insecure_tls, created_at, auth_method, oauth_client_id, login";
 
 fn read_row(row: &Row<'_>) -> rusqlite::Result<(String, PlatformConnection)> {
     let kind: String = row.get(1)?;
+    let auth_method: String = row.get(6)?;
     let connection = PlatformConnection {
         id: row.get(0)?,
         kind: PlatformKind::GitHub,
@@ -19,6 +21,13 @@ fn read_row(row: &Row<'_>) -> rusqlite::Result<(String, PlatformConnection)> {
         name: row.get(3)?,
         insecure_tls: row.get(4)?,
         created_at: row.get(5)?,
+        auth_method: if auth_method == "oauth" {
+            PlatformAuthMethod::OAuth
+        } else {
+            PlatformAuthMethod::Token
+        },
+        oauth_client_id: row.get(7)?,
+        login: row.get(8)?,
     };
     Ok((kind, connection))
 }
@@ -95,7 +104,75 @@ pub fn platform_connection_add(
         name: name.to_owned(),
         insecure_tls,
         created_at,
+        auth_method: PlatformAuthMethod::Token,
+        oauth_client_id: None,
+        login: None,
     })
+}
+
+pub fn platform_connection_save_meta(
+    dir: &Path,
+    id: &str,
+    auth_method: PlatformAuthMethod,
+    oauth_client_id: Option<&str>,
+    login: Option<&str>,
+) -> Result<PlatformConnection, CoreError> {
+    let auth_value = match auth_method {
+        PlatformAuthMethod::Token => "token",
+        PlatformAuthMethod::OAuth => "oauth",
+    };
+    let changed = open(dir)?
+        .execute(
+            "UPDATE platform_connections SET auth_method = ?2, oauth_client_id = ?3, login = ?4 WHERE id = ?1",
+            params![id, auth_value, oauth_client_id, login],
+        )
+        .map_err(sql(dir))?;
+    if changed == 0 {
+        return Err(CoreError::invalid_request(format!(
+            "there is no platform connection `{id}`"
+        )));
+    }
+    platform_connections_list(dir)?
+        .into_iter()
+        .find(|connection| connection.id == id)
+        .ok_or_else(|| {
+            CoreError::invalid_request(format!("there is no platform connection `{id}`"))
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn platform_connection_update(
+    dir: &Path,
+    id: &str,
+    kind: PlatformKind,
+    host: &str,
+    name: &str,
+    insecure_tls: bool,
+    auth_method: PlatformAuthMethod,
+    oauth_client_id: Option<&str>,
+    login: Option<&str>,
+) -> Result<PlatformConnection, CoreError> {
+    let auth_value = match auth_method {
+        PlatformAuthMethod::Token => "token",
+        PlatformAuthMethod::OAuth => "oauth",
+    };
+    let changed = open(dir)?
+        .execute(
+            "UPDATE platform_connections SET kind = ?2, host = ?3, name = ?4, insecure_tls = ?5, auth_method = ?6, oauth_client_id = ?7, login = ?8 WHERE id = ?1",
+            params![id, kind.as_str(), host, name, insecure_tls, auth_value, oauth_client_id, login],
+        )
+        .map_err(sql(dir))?;
+    if changed == 0 {
+        return Err(CoreError::invalid_request(format!(
+            "there is no platform connection `{id}`"
+        )));
+    }
+    platform_connections_list(dir)?
+        .into_iter()
+        .find(|connection| connection.id == id)
+        .ok_or_else(|| {
+            CoreError::invalid_request(format!("there is no platform connection `{id}`"))
+        })
 }
 
 pub fn platform_connection_remove(dir: &Path, id: &str) -> Result<(), CoreError> {

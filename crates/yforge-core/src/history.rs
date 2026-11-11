@@ -286,16 +286,34 @@ fn build_todo(range: &Range, steps: &[RebaseStep]) -> Result<Todo, CoreError> {
     }
     let mut text = String::new();
     for chain in &chains {
-        let verb = if chain.edit { "edit" } else { "pick" };
-        text.push_str(&format!("{verb} {}\n", chain.sha));
-        for follower in &chain.followers {
-            text.push_str(&format!("fixup {follower}\n"));
-        }
-        if let Some(message) = &chain.message {
-            text.push_str(&format!(
-                "exec git commit --quiet --amend --allow-empty -m \"$(printf '{}')\"\n",
-                octal(message)
-            ));
+        let k = chain.followers.len();
+        if k > 0 {
+            text.push_str(&format!("pick {}\n", chain.sha));
+            for follower in &chain.followers {
+                text.push_str(&format!("pick {follower}\n"));
+            }
+            if let Some(message) = &chain.message {
+                text.push_str(&format!(
+                    "exec git reset --soft HEAD~{k} && git commit --quiet --amend --allow-empty -m \"$(printf '{}')\"\n",
+                    octal(message)
+                ));
+            } else {
+                text.push_str(&format!(
+                    "exec git reset --soft HEAD~{k} && git commit --quiet --amend --allow-empty --no-edit\n"
+                ));
+            }
+            if chain.edit {
+                text.push_str("break\n");
+            }
+        } else {
+            let verb = if chain.edit { "edit" } else { "pick" };
+            text.push_str(&format!("{verb} {}\n", chain.sha));
+            if let Some(message) = &chain.message {
+                text.push_str(&format!(
+                    "exec git commit --quiet --amend --allow-empty -m \"$(printf '{}')\"\n",
+                    octal(message)
+                ));
+            }
         }
     }
     for commit in &range.commits {
@@ -359,7 +377,13 @@ fn run_rebase(root: &Path, base: &str, todo: &str) -> Result<RebaseOutcome, Core
     let scratch = Scratch::create().map_err(failed)?;
     let script = write_sequence_editor(&scratch, todo).map_err(failed)?;
     let editor = shell_quote(&script);
-    let args = ["rebase", "--interactive", "--no-autostash", base];
+    let args = [
+        "rebase",
+        "--interactive",
+        "--empty=keep",
+        "--no-autostash",
+        base,
+    ];
     let completed = git::run_with_env(root, &args, &[("GIT_SEQUENCE_EDITOR", &editor)])?;
     if completed.succeeded() && repo::read_operation(root)?.0.is_some() {
         return Ok(RebaseOutcome::StoppedToEdit);

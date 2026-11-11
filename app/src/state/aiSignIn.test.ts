@@ -2,9 +2,10 @@ import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { QueryClient } from "@tanstack/solid-query";
 import { createRoot } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderStatus } from "../ipc/bindings/ProviderStatus";
 import { createSignIn } from "./aiSignIn";
+import { refreshProviders } from "./aiProviders";
 
 afterEach(() => clearMocks());
 
@@ -71,6 +72,16 @@ describe("provider sign-in", () => {
 
     expect(calls.find((call) => call.cmd === "operation_cancel")?.args.id).toBe(calls[0]?.args.id);
     expect(state.status()).toEqual({ kind: "idle" });
+  });
+
+  it("invalidates the provider model list, or all model lists without a provider id", async () => {
+    const queryClient = new QueryClient();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+    await refreshProviders(queryClient, "p1");
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["ai", "models", "p1"] });
+    invalidate.mockClear();
+    await refreshProviders(queryClient);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ["ai", "models"] });
   });
 
   it("keeps a failure as a message", async () => {

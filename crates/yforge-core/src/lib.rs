@@ -40,6 +40,7 @@ mod operation;
 mod passphrase;
 mod patch;
 mod platform;
+mod secrets;
 pub use platform::PullChecks;
 mod pull_request;
 mod recovery;
@@ -92,8 +93,9 @@ pub use commit::{
 };
 pub use compose::compose_apply;
 pub use config::{
-    add_remote, edit_remote, list_remotes, read_identity, remove_remote, write_identity,
-    ConfigSource, ConfigValue, Identity, IdentityField, RemoteInfo,
+    add_remote, edit_remote, list_folder_git_configs, list_remotes, read_identity,
+    remove_folder_git_config, remove_remote, save_folder_git_config, write_identity, ConfigSource,
+    ConfigValue, FolderGitConfig, FolderGitConfigDraft, Identity, IdentityField, RemoteInfo,
 };
 pub use conflict::{conflict_file, conflict_reset, conflict_resolve, conflict_take_side};
 pub use diagnostics::{
@@ -122,7 +124,7 @@ pub use git_flow::{
 };
 pub use git_hosts::{
     git_host_problem, remote_address, url_identity, GitHost, GitHostDraft, GitHostProblem,
-    IdentitySource, RemoteAddress, Resolved, SshPlan, Transport, UrlIdentity,
+    HttpsCredential, IdentitySource, RemoteAddress, Resolved, SshPlan, Transport, UrlIdentity,
 };
 pub use graph::{graph_page, search_commits};
 pub use history::{
@@ -161,18 +163,22 @@ pub use model::{
 };
 pub use model::{LostCommit, LostKind, ReflogEntry, SnapshotChange, SnapshotInfo};
 pub use operation::{mark_resolved, operation_abort, operation_continue, operation_skip};
-pub use passphrase::{CachedPassphrases, KeychainPassphrases, PassphraseStore, PASSPHRASE_SERVICE};
+pub use passphrase::{CachedPassphrases, PassphraseStore, SqlitePassphrases};
 pub use patch::{patch_affected, patch_apply, patch_create};
 pub use platform::{
-    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState, PullList,
-    PullRequest, RepoRef,
+    CreatePull, MatchedRepo, PlatformAuthMethod, PlatformConnection, PlatformKind,
+    PlatformOAuthMethod, PlatformOAuthStage, PlatformSignInEvent, PrDetail, PrFile, PrState,
+    PullList, PullRequest, RepoRef,
 };
 pub use pull_request::{
     branch_comparison, pull_request_template, BranchComparison, ComparedCommit, MergePrediction,
     MergePredictor,
 };
 pub use recovery::{lost_commits, reflog_list, reflog_refs};
-pub use repo::{repo_snapshot, repository_root};
+pub use repo::{repo_snapshot, repository_root, with_repo_mutation_lock};
+#[cfg(target_os = "macos")]
+pub use secrets::NativeKeychain;
+pub use secrets::{LegacyKeychain, Namespace, Secrets};
 pub use signing::{
     list_signing_keys, signing_keys, signing_read, signing_write, SigningConfig, SigningFormat,
     SigningKey, SigningScope,
@@ -198,8 +204,9 @@ pub use store::{
     folder_scan, git_host_add, git_host_remove, git_host_update, git_hosts_list,
     jira_connection_add, jira_connection_remove, jira_connection_update, jira_connections_list,
     load_recents, load_repo_settings, load_session, load_settings, mark_activity_undone,
-    platform_connection_add, platform_connection_remove, platform_connections_list, recent_status,
-    remove_recent, repo_alias_problem, repo_aliases_list, repo_aliases_set, repo_ui_prefs_load,
+    platform_connection_add, platform_connection_remove, platform_connection_save_meta,
+    platform_connection_update, platform_connections_list, recent_status, remove_recent,
+    repo_alias_problem, repo_aliases_list, repo_aliases_set, repo_ui_prefs_load,
     repo_ui_prefs_save, repositories_list, repository_remove, repository_restore,
     save_repo_settings, save_session, save_settings, scan_folder_remove, scan_folder_rescan,
     scan_folder_save, ssh_plan, switch_stashes, AppSettings, AppUiPrefs, ColumnPref, Density,
@@ -216,8 +223,8 @@ pub use submodule::{
     update_submodules,
 };
 pub use sync::{
-    delete_remote_branch, fetch, incoming_commits, publish, pull, pull_autostash, push, push_force,
-    push_plan, push_to, remote_branch_sha, Progress,
+    delete_remote_branch, fetch, incoming_commits, publish, pull, pull_autostash,
+    pull_with_autostash, push, push_force, push_plan, push_to, remote_branch_sha, Progress,
 };
 pub use tag::{create_tag, delete_remote_tag, delete_tag, push_tag};
 pub use tracked_files::tracked_files;

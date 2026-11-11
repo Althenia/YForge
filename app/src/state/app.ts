@@ -67,6 +67,7 @@ import {
   tabSegments,
   toggleGroup,
   ungroup,
+  visibleTabIndices,
   type Aliases,
   type ClosedTab,
   type MainRoots,
@@ -545,6 +546,11 @@ export function createAppState(router: AppRouter) {
     canReopenClosedTab: () => reopenable() !== undefined,
     nextTab: () => showTabAt(1),
     previousTab: () => showTabAt(-1),
+    selectVisibleTab: (oneBased: number) => {
+      const target = visibleTabIndices(tabs(), mainRoots())[oneBased - 1];
+      if (target !== undefined) applyTabs(activateTab(tabs(), target));
+    },
+    visibleTabCount: () => visibleTabIndices(tabs(), mainRoots()).length,
     checkForUpdate: () => setUpdateDialogOpen(true),
     aliasOf: (path: string) => aliases()[path],
     openSettings,

@@ -239,7 +239,7 @@ export function Launchpad() {
             fallback={
               <div class="lp-connect">
                 <h2>No pull request service is connected</h2>
-                <p class="setting-note">Pull requests appear here when YForge can read them from GitHub, GitLab, or Bitbucket, including self-managed servers. Each connection keeps its token in the macOS Keychain.</p>
+                <p class="setting-note">Pull requests appear here when YForge can read them from GitHub, GitLab, or Bitbucket, including self-managed servers. Each connection keeps its token in the YForge database (unencrypted).</p>
                 <div class="hrow">
                   <For each={MISSING_PULL_SERVICES}>
                     {(service) => (
@@ -299,7 +299,7 @@ export function Launchpad() {
             fallback={
               <div class="lp-connect">
                 <h2>No Jira site is connected</h2>
-                <p class="setting-note">Issues assigned to you that are not done appear here. The token stays in the macOS Keychain and YForge only reads from Jira.</p>
+                <p class="setting-note">Issues assigned to you that are not done appear here. The token stays in the YForge database (unencrypted) and YForge only reads from Jira.</p>
                 <div class="hrow">
                   <button type="button" class="btn" onClick={() => app.openSettings("jira")}>
                     <Icon name="plug" />

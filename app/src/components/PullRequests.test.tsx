@@ -72,7 +72,7 @@ const snapshot: RepoSnapshot = {
   stashes: [],
 };
 
-const connection: PlatformConnection = { id: "c1", kind: "github", host: "github.com", name: "GitHub", insecure_tls: false, created_at: 1 };
+const connection: PlatformConnection = { id: "c1", kind: "github", host: "github.com", name: "GitHub", insecure_tls: false, created_at: 1, auth_method: "token", oauth_client_id: null, login: null };
 const matched = { connection, remote: "origin", repo: { owner: "team", repo: "app" } };
 
 const pull = (number: number, overrides: Partial<PullRequest> = {}): PullRequest => ({

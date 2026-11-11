@@ -94,7 +94,8 @@ fn start_storage_creates_the_alias_table_in_a_database_that_predates_it() {
     let connection = rusqlite::Connection::open(dir.path().join("yforge.db")).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE profile_sessions; DROP TABLE profiles; DROP TABLE hook_approvals;
+            "DROP TABLE secret_cleanup; DROP TABLE secrets;
+             DROP TABLE profile_sessions; DROP TABLE profiles; DROP TABLE hook_approvals;
              DROP TABLE scanned_repos; DROP TABLE scanned_folders;
              DROP TABLE repo_aliases; PRAGMA user_version = 10;",
         )

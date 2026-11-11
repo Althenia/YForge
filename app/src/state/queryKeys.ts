@@ -8,6 +8,7 @@ export const appKeys = {
   identity: ["identity"] as const,
   uiPrefs: ["app-ui-prefs"] as const,
   sshKeys: ["ssh-keys"] as const,
+  folderConfigs: ["folder-git-configs"] as const,
 };
 
 export const gitHostKeys = {

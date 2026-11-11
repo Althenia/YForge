@@ -8,6 +8,7 @@ mod legacy;
 mod platform;
 mod profiles;
 mod repositories;
+pub(crate) mod secrets;
 mod session;
 mod stashes;
 mod tool_choices;
@@ -42,7 +43,8 @@ pub use jira::{
     jira_connection_add, jira_connection_remove, jira_connection_update, jira_connections_list,
 };
 pub use platform::{
-    platform_connection_add, platform_connection_remove, platform_connections_list,
+    platform_connection_add, platform_connection_remove, platform_connection_save_meta,
+    platform_connection_update, platform_connections_list,
 };
 pub(crate) use profiles::active_author;
 pub use profiles::{
@@ -101,6 +103,8 @@ fn migrations() -> Migrations<'static> {
         M::up(include_str!("hook_approvals.sql")),
         M::up(include_str!("profiles.sql")),
         M::up(include_str!("ai_pull_request.sql")),
+        M::up(include_str!("secrets.sql")),
+        M::up(include_str!("platform_oauth.sql")),
     ])
 }
 const AUTO_FETCH_CHOICES: [u32; 4] = [0, 5, 10, 30];
@@ -200,6 +204,7 @@ pub(crate) fn open(dir: &Path) -> Result<Connection, CoreError> {
 }
 
 pub(crate) fn prepare(dir: &Path) -> Result<(), CoreError> {
+    secrets::mark_upgrade(dir)?;
     STATE.prepare(dir)?;
     open(dir).map(drop)
 }

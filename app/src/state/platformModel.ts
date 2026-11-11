@@ -22,7 +22,7 @@ export const cardOfPlatform = (kind: PlatformKind): PlatformCard => PLATFORM_CAR
 
 export type ConnectionDraft = { kind: PlatformKind; host: string; name: string; token: string; insecureTls: boolean };
 
-export type ConnectionProblems = { host?: string; name?: string; token?: string };
+export type ConnectionProblems = { host?: string; name?: string; token?: string; client_id?: string };
 
 export type ConnectionProblem = keyof ConnectionProblems;
 
@@ -42,7 +42,7 @@ export function platformFailure(failure: unknown): PlatformFailure {
     case "auth_failed":
       return { message: failure.message, action: "edit_connection" };
     case "storage_failed":
-      return { message: `YForge could not use its saved connections or the macOS Keychain: ${failure.message}` };
+      return { message: `YForge could not read or write its saved connections: ${failure.message}` };
     default:
       return { message: failure.message };
   }

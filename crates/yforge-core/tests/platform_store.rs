@@ -60,7 +60,10 @@ fn connections_round_trip_in_creation_order_without_any_token_column() {
             "host",
             "name",
             "insecure_tls",
-            "created_at"
+            "created_at",
+            "auth_method",
+            "oauth_client_id",
+            "login"
         ]
     );
 }
@@ -131,4 +134,32 @@ fn kinds_use_their_platform_names_on_the_wire_and_in_the_store() {
         .collect::<Result<_, _>>()
         .unwrap();
     assert_eq!(kinds, ["github", "gitlab", "bitbucket"]);
+}
+
+#[test]
+fn oauth_meta_round_trips_and_token_connections_keep_working() {
+    let dir = data();
+    let conn = platform_connection_add(
+        dir.path(),
+        PlatformKind::GitHub,
+        "github.com",
+        "Home",
+        false,
+    )
+    .unwrap();
+    assert_eq!(conn.auth_method, yforge_core::PlatformAuthMethod::Token);
+    assert_eq!(conn.oauth_client_id, None);
+    assert_eq!(conn.login, None);
+    let saved = yforge_core::platform_connection_save_meta(
+        dir.path(),
+        &conn.id,
+        yforge_core::PlatformAuthMethod::OAuth,
+        Some("client-1"),
+        Some("yui"),
+    )
+    .unwrap();
+    assert_eq!(saved.auth_method, yforge_core::PlatformAuthMethod::OAuth);
+    assert_eq!(saved.oauth_client_id.as_deref(), Some("client-1"));
+    assert_eq!(saved.login.as_deref(), Some("yui"));
+    assert_eq!(platform_connections_list(dir.path()).unwrap()[0], saved);
 }

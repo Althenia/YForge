@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GraphRef } from "../ipc/bindings/GraphRef";
-import { groupRefs, refTarget, rowLabels } from "./refLabels";
+import { groupRefs, refTarget, rowLabels, rowRefTarget } from "./refLabels";
 
 const ref = (name: string, kind: GraphRef["kind"], is_head = false): GraphRef => ({ name, kind, is_head });
 
@@ -61,5 +61,31 @@ describe("refTarget", () => {
     const [tag] = groupRefs([ref("v1", "tag")], []);
     expect(remote && refTarget(remote, "abc")).toEqual({ kind: "remote_branch", name: "origin/feature/x", startPoint: "abc" });
     expect(tag && refTarget(tag, "abc")).toEqual({ kind: "tag", name: "v1", startPoint: "abc" });
+  });
+});
+
+describe("rowRefTarget", () => {
+  const pick = (refs: GraphRef[], current: string | undefined = "main") => rowRefTarget(refs, "abc1234", ["origin"], current);
+
+  it("has no target for a row without refs", () => {
+    expect(pick([])).toBeUndefined();
+  });
+
+  it("prefers the checked-out local branch, then another local branch, then a remote branch, then a tag", () => {
+    const refs = [ref("v1", "tag"), ref("origin/zeta", "remote_branch"), ref("beta", "local_branch"), ref("alpha", "local_branch"), ref("main", "local_branch", true)];
+    expect(pick(refs)).toMatchObject({ kind: "local_branch", name: "main" });
+    expect(pick(refs.filter((entry) => entry.name !== "main"))).toMatchObject({ kind: "local_branch", name: "alpha" });
+    expect(pick(refs.filter((entry) => entry.kind === "tag" || entry.kind === "remote_branch"))).toMatchObject({ kind: "remote_branch", name: "origin/zeta" });
+    expect(pick([ref("v2", "tag"), ref("v1", "tag")])).toMatchObject({ kind: "tag", name: "v1" });
+  });
+
+  it("never treats a branch as checked out unless it is the current branch, so an old commit gets no current-branch menu", () => {
+    const target = pick([ref("beta", "local_branch"), ref("alpha", "local_branch")], "main");
+    expect(target).toMatchObject({ kind: "local_branch", name: "alpha" });
+    expect(pick([ref("beta", "local_branch"), ref("main", "local_branch")], undefined)).toMatchObject({ name: "main" });
+  });
+
+  it("starts the target at the row's commit and keeps the remote counterpart of a local branch", () => {
+    expect(pick([ref("main", "local_branch", true), ref("origin/main", "remote_branch")])).toEqual({ kind: "local_branch", name: "main", remoteName: "origin/main", startPoint: "abc1234" });
   });
 });

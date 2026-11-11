@@ -38,6 +38,7 @@ import {
   tabSegments,
   toggleGroup,
   ungroup,
+  visibleTabIndices,
   type TabsState,
 } from "./tabs";
 
@@ -122,6 +123,34 @@ describe("tabs", () => {
     expect(aliasProblem("   ")).toBe("Enter an alias");
     expect(aliasProblem("x".repeat(41))).toBe("An alias is at most 40 characters");
     expect(aliasProblem(` ${"é".repeat(40)} `)).toBeUndefined();
+  });
+});
+
+describe("visible tab indices", () => {
+  it("lists ungrouped tabs in visual order", () => {
+    expect(visibleTabIndices(repos("/a", "/b", "/c"), {})).toEqual([0, 1, 2]);
+  });
+
+  it("lists worktree cluster tabs in visual order", () => {
+    const mains = { "/w/repo-feature": "/w/repo", "/w/repo-fix": "/w/repo" };
+    const state = groupTabs(repos("/w/repo", "/w/other", "/w/repo-feature", "/w/repo-fix"), mains);
+
+    expect(visibleTabIndices(state, mains)).toEqual([0, 1, 2, 3]);
+    expect(state.tabs[visibleTabIndices(state, mains)[1]!]).toEqual({ kind: "repo", path: "/w/repo-feature" });
+  });
+
+  it("skips tabs hidden by a collapsed group", () => {
+    const state = grouped(["/a", "/b", "/c", "/d"], [group("G", ["/b", "/c"], { collapsed: true })]);
+
+    expect(visibleTabIndices(state, {})).toEqual([0, 3]);
+  });
+
+  it("makes the ninth visible tab index 8 and leaves it undefined with fewer visible tabs", () => {
+    const nine = repos("/1", "/2", "/3", "/4", "/5", "/6", "/7", "/8", "/9", "/10");
+    const eightVisible = grouped(["/1", "/2", "/3", "/4", "/5", "/6", "/7", "/8", "/9"], [group("G", ["/9"], { collapsed: true })]);
+
+    expect(visibleTabIndices(nine, {})[8]).toBe(8);
+    expect(visibleTabIndices(eightVisible, {})[8]).toBeUndefined();
   });
 });
 

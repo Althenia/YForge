@@ -3,6 +3,7 @@ import { createSignal } from "solid-js";
 import type { ActivityEntry } from "../ipc/bindings/ActivityEntry";
 import type { AutoStash } from "../ipc/bindings/AutoStash";
 import type { CheckoutTarget } from "../ipc/bindings/CheckoutTarget";
+import type { GraphRef } from "../ipc/bindings/GraphRef";
 import type { GraphVisibility } from "../ipc/bindings/GraphVisibility";
 import type { BatchOutcome } from "../ipc/bindings/BatchOutcome";
 import type { ForcePushPlan } from "../ipc/bindings/ForcePushPlan";
@@ -21,6 +22,7 @@ import type { StashEntry } from "../ipc/bindings/StashEntry";
 import type { StashRestore } from "../ipc/bindings/StashRestore";
 import type { IconName } from "../iconNames";
 import { client, IpcError } from "../ipc/client";
+import { rowRefTarget } from "../graph/refLabels";
 import { changeTotal } from "./changes";
 import {
   deleteBranchAndRemoteCopy,
@@ -73,6 +75,8 @@ import { authFailure, authFix, fetchedCommits, fetchMenu, fetchResult, isDiverge
 
 const PREVIEW_CONCURRENCY = 4;
 
+const COMMIT_ONLY_ITEMS: ReadonlySet<string> = new Set(["cherry_pick", "revert", "edit_history", "squash", "recompose"]);
+
 async function inBatches<T, R>(items: readonly T[], size: number, load: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   for (let at = 0; at < items.length; at += size) results.push(...(await Promise.all(items.slice(at, at + size).map(load))));
@@ -100,7 +104,7 @@ export type HistoryView =
 
 export type ApplyVerb = "Cherry-pick" | "Revert";
 
-export type HistoryRow = { root?: boolean; squashReason?: string };
+export type HistoryRow = { root?: boolean; squashReason?: string; refs?: readonly GraphRef[] };
 
 export type StripNotice = { id: string; text: string; icon?: IconName; detail?: string; dismiss?: boolean; actions: Array<{ label: string; run: () => void | Promise<void> }> };
 
@@ -255,7 +259,14 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   async function authFixFor(remote: string | undefined): Promise<AuthFix> {
     try {
       const remotes = await session.read(["remotes"], () => client.remotesList(path));
-      return authFix(remotes.find((entry) => entry.name === remote)?.fetch_url);
+      const url = remotes.find((entry) => entry.name === remote)?.fetch_url;
+      let hosts: string[] = [];
+      try {
+        hosts = (await client.platformConnectionsList()).map((connection) => connection.host);
+      } catch {
+        hosts = [];
+      }
+      return authFix(url, hosts);
     } catch {
       return authFix(undefined);
     }
@@ -721,6 +732,7 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     operation: snapshot().operation,
     upstream: snapshot().upstream?.name ?? null,
     visibility: graphVisibility(),
+    worktrees: snapshot().worktrees,
   });
 
   const openCreateWorktree = (target: RefTarget) => deps.openCreateWorktree?.(createPrefill(target, snapshot()));
@@ -853,36 +865,34 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     return undefined;
   }
 
+  function runRefItem(target: RefTarget, id: string, anchor: Anchor): void {
+    if (id === "checkout") checkoutRef(target);
+    else if (id === "merge") void openMerge(target.name, anchor);
+    else if (id === "rebase") void startRebase(target.name);
+    else if (id === "fast_forward") void fastForward(currentBranch() ?? "", target.name);
+    else if (id === "reset") openResetModes(target.startPoint, target.name, anchor);
+    else if (id === "create_tag") openCreateTag(target.startPoint, anchor);
+    else if (id === "push_tag") void pushTag(target.name);
+    else if (id === "delete_tag") deleteLocalTag(target.name);
+    else if (id === "delete_remote_tag") deleteTagOnRemote(target.name);
+    else if (id === "create_branch") openCreateBranchAt(target.startPoint, anchor);
+    else if (id === "rename" && target.kind === "local_branch") openRenameBranch(target.name, anchor);
+    else if (id === "delete" && target.kind === "local_branch") void deleteBranch(target.name);
+    else if (id === "delete_remote") deleteRemoteBranch(target);
+    else if (id === "delete_both") void deleteBranchAndRemote(target.name);
+    else if (id === "set_upstream") openSetUpstream(target.name, anchor);
+    else if (id === "unset_upstream") void unsetUpstream();
+    else if (id === "push_to") openPushTo(anchor);
+    else if (id === "create_worktree") openCreateWorktree(target);
+    else if (id === "edit_message") editHeadMessage();
+    else if (id === "copy_name") void copyRefName(target);
+    else if (id === "copy_sha") void copyCommitSha(target);
+    else if (id === "hide") hideRef(target);
+    else if (id === "show") showRef(target);
+  }
+
   function openRefMenu(target: RefTarget, anchor: Anchor): void {
-    setMenu({
-      anchor,
-      entries: refMenu(target, menuContext()),
-      run: (id) => {
-        if (id === "checkout") checkoutRef(target);
-        else if (id === "merge") void openMerge(target.name, anchor);
-        else if (id === "rebase") void startRebase(target.name);
-        else if (id === "fast_forward") void fastForward(currentBranch() ?? "", target.name);
-        else if (id === "reset") openResetModes(target.startPoint, target.name, anchor);
-        else if (id === "create_tag") openCreateTag(target.startPoint, anchor);
-        else if (id === "push_tag") void pushTag(target.name);
-        else if (id === "delete_tag") deleteLocalTag(target.name);
-        else if (id === "delete_remote_tag") deleteTagOnRemote(target.name);
-        else if (id === "create_branch") openCreateBranchAt(target.startPoint, anchor);
-        else if (id === "rename" && target.kind === "local_branch") openRenameBranch(target.name, anchor);
-        else if (id === "delete" && target.kind === "local_branch") void deleteBranch(target.name);
-        else if (id === "delete_remote") deleteRemoteBranch(target);
-        else if (id === "delete_both") void deleteBranchAndRemote(target.name);
-        else if (id === "set_upstream") openSetUpstream(target.name, anchor);
-        else if (id === "unset_upstream") void unsetUpstream();
-        else if (id === "push_to") openPushTo(anchor);
-        else if (id === "create_worktree") openCreateWorktree(target);
-        else if (id === "edit_message") editHeadMessage();
-        else if (id === "copy_name") void copyRefName(target);
-        else if (id === "copy_sha") void copyCommitSha(target);
-        else if (id === "hide") hideRef(target);
-        else if (id === "show") showRef(target);
-      },
-    });
+    setMenu({ anchor, entries: refMenu(target, menuContext()), run: (id) => runRefItem(target, id, anchor) });
   }
 
   function openCreateBranch(anchor: Anchor): void {
@@ -919,8 +929,21 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
     if (base !== undefined) setHistory({ kind: "recompose", base });
   }
 
-  const commitEntries = (sha: string, merge: boolean, selection: readonly string[] = [sha], row: HistoryRow = {}): MenuEntry[] =>
-    commitMenu({ ...menuContext(), sha, merge, selection, ...row });
+  const rowTarget = (sha: string, selection: readonly string[], row: HistoryRow): RefTarget | undefined =>
+    selection.length > 1 || row.refs === undefined ? undefined : rowRefTarget(row.refs, sha, snapshot().remotes, currentBranch());
+
+  const commitEntries = (sha: string, merge: boolean, selection: readonly string[] = [sha], row: HistoryRow = {}): MenuEntry[] => {
+    const target = rowTarget(sha, selection, row);
+    return commitMenu({
+      ...menuContext(),
+      sha,
+      merge,
+      selection,
+      ...(row.root === undefined ? {} : { root: row.root }),
+      ...(row.squashReason === undefined ? {} : { squashReason: row.squashReason }),
+      ...(target === undefined ? {} : { target }),
+    });
+  };
 
   function runCommitItem(id: string, sha: string, anchor: Anchor, selection: readonly string[] = [sha], merge = false): void {
     const apply = (verb: ApplyVerb) => void (merge ? openApplyCommit(sha, verb, anchor) : applyCommit(sha, verb));
@@ -935,11 +958,12 @@ export function createRepoActions(session: RepoSession, deps: RepoActionDeps) {
   }
 
   function openCommitMenu(sha: string, merge: boolean, anchor: Anchor, selection: readonly string[] = [sha], row: HistoryRow = {}): void {
+    const target = rowTarget(sha, selection, row);
     setMenu({
       anchor,
       entries: commitEntries(sha, merge, selection, row),
       ...(selection.length > 1 ? { title: [`${selection.length} commits selected`] } : {}),
-      run: (id) => runCommitItem(id, sha, anchor, selection, merge),
+      run: (id) => (target !== undefined && !COMMIT_ONLY_ITEMS.has(id) ? runRefItem(target, id, anchor) : runCommitItem(id, sha, anchor, selection, merge)),
     });
   }
 

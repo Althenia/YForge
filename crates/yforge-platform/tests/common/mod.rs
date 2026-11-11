@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use yforge_core::{PlatformConnection, PlatformKind};
+use yforge_core::{PlatformAuthMethod, PlatformConnection, PlatformKind};
 
 #[derive(Debug, Clone)]
 pub struct Recorded {
@@ -154,6 +154,9 @@ impl HttpFake {
             name: "Test".to_owned(),
             insecure_tls: false,
             created_at: 0,
+            auth_method: PlatformAuthMethod::Token,
+            oauth_client_id: None,
+            login: None,
         }
     }
 }

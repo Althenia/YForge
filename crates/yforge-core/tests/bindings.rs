@@ -26,7 +26,8 @@ use yforge_core::{
 };
 use yforge_core::{ComposeGroup, ComposeProposal, Explanation, ExplanationItem, StashDraft};
 use yforge_core::{
-    CreatePull, MatchedRepo, PlatformConnection, PlatformKind, PrDetail, PrFile, PrState,
+    CreatePull, MatchedRepo, PlatformAuthMethod, PlatformConnection, PlatformKind,
+    PlatformOAuthMethod, PlatformOAuthStage, PlatformSignInEvent, PrDetail, PrFile, PrState,
     PullRequest, RepoRef,
 };
 use yforge_core::{
@@ -37,10 +38,13 @@ use yforge_core::{
     FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode, HookOutcome, HookOutput, HookScript,
 };
 use yforge_core::{
+    FolderGitConfig, FolderGitConfigDraft, GitHost, GitHostDraft, GitHostProblem, IdentitySource,
+    Transport, UrlIdentity,
+};
+use yforge_core::{
     FolderRemoved, FolderScan, FoundRepo, ManagedRepo, RepoRemoved, Repositories, Rescan,
     ScannedFolder,
 };
-use yforge_core::{GitHost, GitHostDraft, GitHostProblem, IdentitySource, Transport, UrlIdentity};
 use yforge_core::{
     JiraConnection, JiraIssue, JiraIssueList, JiraIssueLookup, JiraKind, JiraProject,
     JiraStatusCategory, LaunchpadPull, LaunchpadPulls, PullList, PullRole, Wip,
@@ -170,7 +174,13 @@ fn export_all(dir: &Path) {
     OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
     CliInstall::export_all(&config).expect("export CliInstall");
     PlatformKind::export_all(&config).expect("export PlatformKind");
+    PlatformOAuthMethod::export_all(&config).expect("export PlatformOAuthMethod");
+    PlatformOAuthStage::export_all(&config).expect("export PlatformOAuthStage");
+    PlatformSignInEvent::export_all(&config).expect("export PlatformSignInEvent");
     PlatformConnection::export_all(&config).expect("export PlatformConnection");
+    PlatformAuthMethod::export_all(&config).expect("export PlatformAuthMethod");
+    FolderGitConfig::export_all(&config).expect("export FolderGitConfig");
+    FolderGitConfigDraft::export_all(&config).expect("export FolderGitConfigDraft");
     RepoRef::export_all(&config).expect("export RepoRef");
     PrState::export_all(&config).expect("export PrState");
     PullRequest::export_all(&config).expect("export PullRequest");

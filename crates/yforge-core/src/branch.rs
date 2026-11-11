@@ -44,18 +44,25 @@ pub(crate) fn classify_local_changes(error: CoreError) -> CoreError {
 }
 
 fn parse_worktree_conflict(stderr: &str) -> Option<(String, String)> {
-    const MARKER: &str = "is already used by worktree at '";
-    let at = stderr.find(MARKER)?;
-    let rest = &stderr[at + MARKER.len()..];
-    let end = rest.find('\'')?;
-    let before = &stderr[..at];
-    let close = before.rfind('\'')?;
-    let open = before[..close].rfind('\'')?;
-    let branch = &before[open + 1..close];
-    if branch.is_empty() {
-        return None;
+    for marker in ["is already used by worktree at '", "used by worktree at '"] {
+        let Some(at) = stderr.find(marker) else {
+            continue;
+        };
+        let rest = &stderr[at + marker.len()..];
+        let Some(end) = rest.find('\'') else { continue };
+        let before = &stderr[..at];
+        let Some(close) = before.rfind('\'') else {
+            continue;
+        };
+        let Some(open) = before[..close].rfind('\'') else {
+            continue;
+        };
+        let branch = &before[open + 1..close];
+        if !branch.is_empty() {
+            return Some((branch.to_owned(), rest[..end].to_owned()));
+        }
     }
-    Some((branch.to_owned(), rest[..end].to_owned()))
+    None
 }
 
 pub(crate) fn ref_exists(root: &Path, full_name: &str) -> Result<bool, CoreError> {
@@ -150,6 +157,7 @@ struct Switch {
     args: Vec<String>,
     detached: bool,
     label: String,
+    tracking: Option<(String, String)>,
 }
 
 fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError> {
@@ -165,6 +173,7 @@ fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError
                 ],
                 detached: false,
                 label: name.clone(),
+                tracking: None,
             })
         }
         CheckoutTarget::RemoteBranch { name } => {
@@ -179,10 +188,18 @@ fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError
             }
             validated_name(root, short)?;
             require_new_branch(root, short)?;
+            let remote = name[..name.len() - short.len() - 1].to_owned();
             Ok(Switch {
-                args: vec!["switch".into(), "--track".into(), name.clone()],
+                args: vec![
+                    "switch".into(),
+                    "-c".into(),
+                    short.to_owned(),
+                    "--no-track".into(),
+                    format!("refs/remotes/{name}"),
+                ],
                 detached: false,
                 label: short.to_owned(),
+                tracking: Some((remote, short.to_owned())),
             })
         }
         CheckoutTarget::Tag { name } => {
@@ -196,6 +213,7 @@ fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError
                 args: vec!["switch".into(), "--detach".into(), full],
                 detached: true,
                 label: name.clone(),
+                tracking: None,
             })
         }
         CheckoutTarget::Commit { sha } => {
@@ -204,6 +222,7 @@ fn plan_switch(root: &Path, target: &CheckoutTarget) -> Result<Switch, CoreError
                 args: vec!["switch".into(), "--detach".into(), sha.clone()],
                 detached: true,
                 label: sha.chars().take(7).collect(),
+                tracking: None,
             })
         }
     }
@@ -213,7 +232,22 @@ fn run_switch(root: &Path, switch: &Switch) -> Result<(), CoreError> {
     let args: Vec<&str> = switch.args.iter().map(String::as_str).collect();
     git::run(root, &args)
         .map(drop)
-        .map_err(classify_local_changes)
+        .map_err(classify_local_changes)?;
+    if let Some((remote, short)) = &switch.tracking {
+        let remote_key = format!("branch.{short}.remote");
+        let merge_key = format!("branch.{short}.merge");
+        let merge = format!("refs/heads/{short}");
+        git::run(root, &["config", "--local", &remote_key, remote])?;
+        git::run(root, &["config", "--local", &merge_key, &merge])?;
+        let fetch_key = format!("remote.{remote}.fetch");
+        let mapping = format!("+refs/heads/{short}:refs/remotes/{remote}/{short}");
+        let existing =
+            git::run_unchecked(root, &["config", "--local", "--get-all", &fetch_key], None)?;
+        if !existing.stdout.lines().any(|line| line == mapping) {
+            git::run(root, &["config", "--local", "--add", &fetch_key, &mapping])?;
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy)]
@@ -308,6 +342,14 @@ pub fn checkout(
     target: &CheckoutTarget,
     stash_changes: bool,
 ) -> Result<CheckoutOutcome, CoreError> {
+    repo::with_repo_mutation_lock(path, || checkout_inner(path, target, stash_changes))
+}
+
+fn checkout_inner(
+    path: &Path,
+    target: &CheckoutTarget,
+    stash_changes: bool,
+) -> Result<CheckoutOutcome, CoreError> {
     let stashing = if stash_changes {
         Stashing::Carry
     } else {
@@ -378,6 +420,10 @@ pub fn branch_delete_preview(path: &Path, name: &str) -> Result<RevisionRange, C
 }
 
 pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || delete_branch_inner(path, name, force))
+}
+
+fn delete_branch_inner(path: &Path, name: &str, force: bool) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     require_local_branch(&root, name)?;
     if current_branch(&root)?.as_deref() == Some(name) {
@@ -394,6 +440,15 @@ pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreErr
             });
         }
     }
+    if let Some(holder) = repo::read_worktrees(&root)?
+        .iter()
+        .find(|worktree| !worktree.current && worktree.branch.as_deref() == Some(name))
+    {
+        return Err(CoreError::BranchInWorktree {
+            branch: name.to_owned(),
+            worktree: holder.path.clone(),
+        });
+    }
     let tip = git::run(&root, &["rev-parse", &format!("refs/heads/{name}")])?;
     snapshots::capture(
         &root,
@@ -401,7 +456,9 @@ pub fn delete_branch(path: &Path, name: &str, force: bool) -> Result<(), CoreErr
         &format!("Delete branch {name}"),
         Some(tip.trim()),
     )?;
-    git::run(&root, &["branch", "--delete", "--force", name]).map(drop)
+    git::run(&root, &["branch", "--delete", "--force", name])
+        .map(drop)
+        .map_err(classify_local_changes)
 }
 
 pub fn set_upstream(path: &Path, branch: &str, upstream: Option<&str>) -> Result<(), CoreError> {

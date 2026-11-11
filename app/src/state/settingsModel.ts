@@ -55,6 +55,8 @@ export function sourceLabel(value: ConfigValue): string {
   switch (value.source) {
     case "repository":
       return "from repository config";
+    case "folder":
+      return "from folder config";
     case "global":
       return "from global config";
     case "system":

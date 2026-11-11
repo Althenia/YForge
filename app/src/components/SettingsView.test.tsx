@@ -475,10 +475,10 @@ describe("search-first settings (S47)", () => {
     type(search(host), "ssh");
     await flush();
 
-    expect(host.querySelector('.settings-body [role="status"]')?.textContent).toBe("4 settings match “ssh”");
-    expect([...host.querySelectorAll(".setting-result")].map((result) => result.querySelector(".setting-crumb")?.textContent)).toEqual(["Git › SSH", "Git › Commit signing", "Git › Commit signing", "Git hosts"]);
+    expect(host.querySelector('.settings-body [role="status"]')?.textContent).toBe("5 settings match “ssh”");
+    expect([...host.querySelectorAll(".setting-result")].map((result) => result.querySelector(".setting-crumb")?.textContent)).toEqual(["Git › SSH", "Git › Folder rules", "Git › Commit signing", "Git › Commit signing", "Git hosts"]);
     expect(tabs(host).find((tab) => tab.textContent?.startsWith("Git hosts"))?.querySelector(".count")?.textContent).toBe("1");
-    expect(tabs(host).find((tab) => tab.textContent?.startsWith("Git") && !tab.textContent.startsWith("Git hosts"))?.querySelector(".count")?.textContent).toBe("3");
+    expect(tabs(host).find((tab) => tab.textContent?.startsWith("Git") && !tab.textContent.startsWith("Git hosts"))?.querySelector(".count")?.textContent).toBe("4");
     expect(tabs(host).every((tab) => tab.getAttribute("aria-selected") === "false")).toBe(true);
     expect(host.textContent).not.toContain("External editor");
 

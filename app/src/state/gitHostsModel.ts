@@ -7,6 +7,7 @@ export const CREDENTIAL_HELPER_TEXT = "the password or token comes from the macO
 
 export const IDENTITY_ORDER = [
   "The repository's own SSH key (Repository settings)",
+  "The folder's SSH key (Settings → Git)",
   "The identity whose host matches the remote URL",
   "The app-wide SSH key (General)",
   "Your SSH agent and ~/.ssh/config",
@@ -40,6 +41,13 @@ export type IdentityLine = {
 
 export function identityLine(identity: UrlIdentity, home: string | undefined): IdentityLine {
   if (identity.transport === "other") return { heading: "No identity is used", detail: { kind: "text", text: "A local path or a git:// address needs no credentials." }, hostIdentity: false };
+  if (identity.source === "folder") {
+    return {
+      heading: "Uses the folder SSH key",
+      detail: identity.ssh_key_path === null ? undefined : { kind: "path", path: tildePath(identity.ssh_key_path, home) },
+      hostIdentity: false,
+    };
+  }
   if (identity.source === "host") {
     const heading = `Uses the ${identity.host} identity`;
     if (identity.transport === "https") return { heading, detail: { kind: "https", user: identity.https_user }, hostIdentity: true };

@@ -165,6 +165,15 @@ pub fn fetch(
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || fetch_inner(path, prune, cancel, on_progress))
+}
+
+fn fetch_inner(
+    path: &Path,
+    prune: bool,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     let remotes = refs::read_remotes(&root)?;
     if remotes.is_empty() {
@@ -199,11 +208,17 @@ fn keeping_fetch_head(
     let Err(error) = result else {
         return Ok(());
     };
-    restore_fetch_head(&path, saved).map_err(|restore| CoreError::GitFailed {
-        command: "git fetch".to_owned(),
-        status: None,
-        stderr: format!("{error}; FETCH_HEAD could not be restored: {restore}"),
-    })?;
+    let current = saved_fetch_head(&path).ok();
+    let differs = match (&saved, &current) {
+        (Some((content, _)), Some(Some((current_content, _)))) => content != current_content,
+        (None, Some(None)) => false,
+        (None, Some(Some(_))) => true,
+        (Some(_), Some(None)) => true,
+        _ => true,
+    };
+    if differs {
+        let _ = restore_fetch_head(&path, saved);
+    }
     Err(error)
 }
 
@@ -329,6 +344,15 @@ pub fn pull(
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<PullOutcome, CoreError> {
+    repo::with_repo_mutation_lock(path, || pull_inner(path, mode, cancel, on_progress))
+}
+
+fn pull_inner(
+    path: &Path,
+    mode: PullMode,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<PullOutcome, CoreError> {
     let root = repo::open(path)?;
     let branch = checked_out_branch(&root, "pull")?;
     let upstream = require_tracking(&root, &branch)?;
@@ -339,6 +363,26 @@ pub fn pull(
 const TOP_STASH: &str = "stash@{0}";
 
 pub fn pull_autostash(
+    path: &Path,
+    mode: PullMode,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<PullReport, CoreError> {
+    repo::with_repo_mutation_lock(path, || {
+        pull_autostash_inner(path, mode, cancel, on_progress)
+    })
+}
+
+pub fn pull_with_autostash(
+    path: &Path,
+    mode: PullMode,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<PullReport, CoreError> {
+    pull_autostash(path, mode, cancel, on_progress)
+}
+
+fn pull_autostash_inner(
     path: &Path,
     mode: PullMode,
     cancel: &CancelToken,
@@ -385,6 +429,14 @@ pub fn pull_autostash(
 }
 
 pub fn push(
+    path: &Path,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || push_inner(path, cancel, on_progress))
+}
+
+fn push_inner(
     path: &Path,
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
@@ -438,6 +490,18 @@ fn publish_branch(
 }
 
 pub fn publish(
+    path: &Path,
+    remote: &str,
+    branch: Option<&str>,
+    cancel: &CancelToken,
+    on_progress: &mut dyn FnMut(Progress),
+) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || {
+        publish_inner(path, remote, branch, cancel, on_progress)
+    })
+}
+
+fn publish_inner(
     path: &Path,
     remote: &str,
     branch: Option<&str>,

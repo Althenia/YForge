@@ -5,7 +5,9 @@ export type Choice = "current" | "incoming" | "both";
 
 export type Region = { current: string[]; incoming: string[]; base: string[] | null };
 
-export type ResolverState = { choices: (Choice | undefined)[]; active: number };
+export type RegionPick = { side: ConflictSide; lineIndex: number };
+
+export type ResolverState = { picks: RegionPick[][]; active: number };
 
 export type SideLabels = { current: string; incoming: string };
 
@@ -15,11 +17,13 @@ export type Assembled = { text: string; starts: number[] };
 
 export type ResolverCommand = { kind: "choose"; choice: Choice } | { kind: "next" } | { kind: "previous" } | { kind: "save" };
 
+export type ScrollAnchor = { segmentIndex: number; fraction: number };
+
 export function regionsOf(file: ConflictFile): Region[] {
   return file.segments.flatMap((segment) => (segment.kind === "conflict" ? [{ current: segment.current, incoming: segment.incoming, base: segment.base }] : []));
 }
 
-export const initialState = (file: ConflictFile): ResolverState => ({ choices: regionsOf(file).map(() => undefined), active: 0 });
+export const initialState = (file: ConflictFile): ResolverState => ({ picks: regionsOf(file).map(() => []), active: 0 });
 
 export function regionLines(region: Region, choice: Choice): string[] {
   switch (choice) {
@@ -32,35 +36,78 @@ export function regionLines(region: Region, choice: Choice): string[] {
   }
 }
 
-export const hasSide = (choice: Choice | undefined, side: ConflictSide): boolean => choice === side || choice === "both";
+const sideLines = (region: Region, side: ConflictSide): string[] => region[side];
 
-const choiceOf = (current: boolean, incoming: boolean): Choice | undefined => (current && incoming ? "both" : current ? "current" : incoming ? "incoming" : undefined);
+const allPicks = (region: Region, side: ConflictSide): RegionPick[] => {
+  const lines = sideLines(region, side);
+  return lines.length === 0 ? [{ side, lineIndex: -1 }] : lines.map((_, lineIndex) => ({ side, lineIndex }));
+};
 
-const withSide = (choice: Choice | undefined, side: ConflictSide, on: boolean): Choice | undefined =>
-  choiceOf(side === "current" ? on : hasSide(choice, "current"), side === "incoming" ? on : hasSide(choice, "incoming"));
+export const hasPick = (picks: readonly RegionPick[], side: ConflictSide, lineIndex?: number): boolean =>
+  picks.some((pick) => pick.side === side && (lineIndex === undefined || pick.lineIndex === lineIndex));
 
-export function choose(state: ResolverState, index: number, choice: Choice | undefined): ResolverState {
-  if (index < 0 || index >= state.choices.length) return state;
-  return { ...state, choices: state.choices.map((existing, position) => (position === index ? choice : existing)) };
+export function pickedLines(region: Region, picks: readonly RegionPick[]): string[] {
+  return picks.flatMap((pick) => {
+    const line = sideLines(region, pick.side)[pick.lineIndex];
+    return line === undefined ? [] : [line];
+  });
 }
 
-export function toggleSide(state: ResolverState, index: number, side: ConflictSide): ResolverState {
-  const next = choose(state, index, withSide(state.choices[index], side, !hasSide(state.choices[index], side)));
-  return next === state ? state : { ...next, active: index };
+const picksForChoice = (region: Region, choice: Choice | undefined): RegionPick[] => {
+  if (choice === undefined) return [];
+  if (choice === "both") return [...allPicks(region, "current"), ...allPicks(region, "incoming")];
+  return allPicks(region, choice);
+};
+
+export function choose(state: ResolverState, index: number, choice: Choice | undefined, regions: readonly Region[]): ResolverState {
+  const region = regions[index];
+  if (region === undefined || index < 0 || index >= state.picks.length) return state;
+  return { ...state, picks: state.picks.map((existing, position) => (position === index ? picksForChoice(region, choice) : existing)) };
 }
 
-export function sideState(state: ResolverState, side: ConflictSide): CheckState {
-  const count = state.choices.filter((choice) => hasSide(choice, side)).length;
-  return count === 0 ? "false" : count === state.choices.length ? "true" : "mixed";
+export function toggleLinePick(state: ResolverState, index: number, pick: RegionPick): ResolverState {
+  const existing = state.picks[index];
+  if (existing === undefined) return state;
+  const present = existing.some((candidate) => candidate.side === pick.side && candidate.lineIndex === pick.lineIndex);
+  const picks = present ? existing.filter((candidate) => !(candidate.side === pick.side && candidate.lineIndex === pick.lineIndex)) : [...existing, pick];
+  return { ...state, active: index, picks: state.picks.map((current, position) => (position === index ? picks : current)) };
 }
 
-export function toggleAll(state: ResolverState, side: ConflictSide): ResolverState {
-  const on = sideState(state, side) !== "true";
-  return { ...state, choices: state.choices.map((choice) => withSide(choice, side, on)) };
+export function regionSideState(region: Region, picks: readonly RegionPick[], side: ConflictSide): CheckState {
+  const lines = sideLines(region, side);
+  if (lines.length === 0) return hasPick(picks, side, -1) ? "true" : "false";
+  const count = new Set(picks.filter((pick) => pick.side === side && pick.lineIndex >= 0 && pick.lineIndex < lines.length).map((pick) => pick.lineIndex)).size;
+  return count === 0 ? "false" : count === lines.length ? "true" : "mixed";
+}
+
+export function toggleSide(state: ResolverState, index: number, side: ConflictSide, region: Region): ResolverState {
+  const existing = state.picks[index];
+  if (existing === undefined) return state;
+  const picks = regionSideState(region, existing, side) === "true" ? existing.filter((pick) => pick.side !== side) : [...existing.filter((pick) => pick.side !== side), ...allPicks(region, side)];
+  return { ...state, active: index, picks: state.picks.map((current, position) => (position === index ? picks : current)) };
+}
+
+export function sideState(state: ResolverState, side: ConflictSide, regions: readonly Region[]): CheckState {
+  if (regions.length === 0) return "false";
+  const states = regions.map((region, index) => regionSideState(region, state.picks[index] ?? [], side));
+  if (states.every((value) => value === "true")) return "true";
+  return states.some((value) => value !== "false") ? "mixed" : "false";
+}
+
+export function toggleAll(state: ResolverState, side: ConflictSide, regions: readonly Region[]): ResolverState {
+  const on = sideState(state, side, regions) !== "true";
+  return {
+    ...state,
+    picks: regions.map((region, index) => {
+      const existing = state.picks[index] ?? [];
+      if (!on) return existing.filter((pick) => pick.side !== side);
+      return [...existing.filter((pick) => pick.side !== side), ...allPicks(region, side)];
+    }),
+  };
 }
 
 export function step(state: ResolverState, delta: 1 | -1): ResolverState {
-  const count = state.choices.length;
+  const count = state.picks.length;
   return count === 0 ? state : { ...state, active: (state.active + delta + count) % count };
 }
 
@@ -79,22 +126,21 @@ export function assemble(file: ConflictFile, state: ResolverState, labels: SideL
     const index = starts.length;
     starts.push(lines.length);
     const proposal = proposals[index];
-    const choice = state.choices[index];
+    const picks = state.picks[index] ?? [];
     if (proposal !== undefined) lines.push(...draftLines(proposal));
-    else if (choice !== undefined) lines.push(...regionLines(segment, choice));
+    else if (picks.length > 0) lines.push(...pickedLines(segment, picks));
     else lines.push(`<<<<<<< ${labels.current}`, ...segment.current, "=======", ...segment.incoming, `>>>>>>> ${labels.incoming}`);
   }
   return { text: lines.join("\n"), starts };
 }
 
-const OPENING = /^<{7}(?: |$)/gm;
-const CLOSING = /^>{7}(?: |$)/gm;
+const MARKER = /^(?:<{7}|\|{7}|={7}|>{7})(?: |$)/;
 
-export const markerCount = (text: string): number => Math.max(text.match(OPENING)?.length ?? 0, text.match(CLOSING)?.length ?? 0);
+export const markerCount = (text: string): number => text.split("\n").filter((line) => MARKER.test(line)).length;
 
 export function markResolvedReason(text: string): string | undefined {
   const left = markerCount(text);
-  return left === 0 ? undefined : `${left} ${left === 1 ? "conflict" : "conflicts"} left: pick a side or remove the <<<<<<< ======= >>>>>>> markers`;
+  return left === 0 ? undefined : `${left} ${left === 1 ? "conflict marker" : "conflict markers"} left: pick a side or remove the <<<<<<< ======= >>>>>>> markers`;
 }
 
 export function savedContent(file: ConflictFile, text: string): string {
@@ -107,18 +153,66 @@ export function mergeProgress(input: { conflicted: number; resolved: number; bus
   return { label: `${input.resolved} of ${total} files resolved`, commitReason };
 }
 
+const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value));
+
+export function anchorAtScroll(counts: readonly number[], scrollTop: number, clientHeight: number, scrollHeight: number, lineHeight: number): ScrollAnchor {
+  const total = counts.reduce((sum, count) => sum + Math.max(0, count), 0);
+  if (total <= 0 || lineHeight <= 0 || scrollHeight <= clientHeight || scrollTop <= 0) return { segmentIndex: 0, fraction: 0 };
+  const topLine = clamp(scrollTop / lineHeight, 0, total);
+  let start = 0;
+  let lastPositive = 0;
+  for (const [index, raw] of counts.entries()) {
+    const count = Math.max(0, raw);
+    if (count <= 0) continue;
+    lastPositive = index;
+    if (topLine < start + count) return { segmentIndex: index, fraction: clamp((topLine - start) / count, 0, 1) };
+    start += count;
+  }
+  return { segmentIndex: lastPositive, fraction: 1 };
+}
+
+export function scrollTopAtAnchor(counts: readonly number[], anchor: ScrollAnchor, clientHeight: number, scrollHeight: number, lineHeight: number): number {
+  if (lineHeight <= 0 || scrollHeight <= clientHeight) return 0;
+  const index = clamp(Math.trunc(anchor.segmentIndex) || 0, 0, Math.max(0, counts.length - 1));
+  const start = counts.slice(0, index).reduce((sum, count) => sum + Math.max(0, count), 0);
+  const count = Math.max(0, counts[index] ?? 0);
+  const line = start + clamp(anchor.fraction || 0, 0, 1) * count;
+  const value = line * lineHeight;
+  return Number.isFinite(value) ? clamp(value, 0, Math.max(0, scrollHeight - clientHeight)) : 0;
+}
+
+export function mappedScrollTop(
+  sourceCounts: readonly number[],
+  targetCounts: readonly number[],
+  scrollTop: number,
+  clientHeight: number,
+  sourceScrollHeight: number,
+  targetScrollHeight: number,
+  lineHeight: number,
+): number {
+  return scrollTopAtAnchor(targetCounts, anchorAtScroll(sourceCounts, scrollTop, clientHeight, sourceScrollHeight, lineHeight), clientHeight, targetScrollHeight, lineHeight);
+}
+
 type KeyLike = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
 
 export function resolverCommand(event: KeyLike): ResolverCommand | undefined {
   if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") return { kind: "save" };
   if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return undefined;
-  switch (event.key.toLowerCase()) {
+  switch (event.key) {
     case "1":
       return { kind: "choose", choice: "current" };
     case "2":
       return { kind: "choose", choice: "incoming" };
     case "3":
       return { kind: "choose", choice: "both" };
+    case "[":
+      return { kind: "previous" };
+    case "]":
+      return { kind: "next" };
+    default:
+      break;
+  }
+  switch (event.key.toLowerCase()) {
     case "n":
       return { kind: "next" };
     case "p":

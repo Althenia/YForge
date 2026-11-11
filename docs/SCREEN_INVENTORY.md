@@ -401,7 +401,7 @@ Structure follows [INFORMATION_ARCHITECTURE.md](INFORMATION_ARCHITECTURE.md), an
 - **Empty state:** —
 - **Loading state:** "Waiting for browser confirmation…"
 - **Error state:** Expired code; denied.
-- **Destructive actions:** Disconnect (removes the token from the keychain).
+- **Destructive actions:** Disconnect (removes the token from the YForge database).
 - **Keyboard:** —
 
 ### S21 · Command palette (MVP)

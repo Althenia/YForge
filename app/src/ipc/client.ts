@@ -117,7 +117,11 @@ import type { PullChecks } from "./bindings/PullChecks";
 import type { PullRequestDisclosure } from "./bindings/PullRequestDisclosure";
 import type { PullRequestDraft } from "./bindings/PullRequestDraft";
 import type { MatchedRepo } from "./bindings/MatchedRepo";
+import type { FolderGitConfig } from "./bindings/FolderGitConfig";
+import type { FolderGitConfigDraft } from "./bindings/FolderGitConfigDraft";
 import type { PlatformConnection } from "./bindings/PlatformConnection";
+import type { PlatformOAuthMethod } from "./bindings/PlatformOAuthMethod";
+import type { PlatformSignInEvent } from "./bindings/PlatformSignInEvent";
 import type { PlatformKind } from "./bindings/PlatformKind";
 import type { PrDetail } from "./bindings/PrDetail";
 import type { PullList } from "./bindings/PullList";
@@ -157,6 +161,7 @@ export const ACTIVITY_EVENT = "activity-recorded";
 export const REDO_EVENT = "redo-changed";
 export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
 export const AI_SIGN_IN_EVENT = "ai-sign-in";
+export const PLATFORM_SIGN_IN_EVENT = "platform-sign-in";
 
 export type OpenWith = "editor" | "terminal" | "finder";
 
@@ -364,6 +369,15 @@ export const client = {
   branchComparison: (path: string, source: string, target: string) => call<BranchComparison>("branch_comparison", { path, source, target }),
   mergePrediction: (path: string, id: string, ours: string, theirs: string) => call<MergePrediction>("merge_prediction", { path, id, ours, theirs }),
   pullRequestTemplate: (path: string) => call<string | null>("pull_request_template", { path }),
+  repoUnwatch: (path: string) => call<void>("repo_unwatch", { path }),
+  platformOAuthSignIn: (input: { operationId: string; existingId: string | null; kind: PlatformKind; host: string; name: string; clientId: string; clientSecret: string | null; insecureTls: boolean; method: PlatformOAuthMethod }) =>
+    call<PlatformConnection>("platform_oauth_sign_in", input),
+  onPlatformSignIn: (handler: (event: PlatformSignInEvent) => void): Promise<UnlistenFn> =>
+    listen<PlatformSignInEvent>(PLATFORM_SIGN_IN_EVENT, (event) => handler(event.payload)),
+  aiProviderSignOut: (id: string) => call<ProviderStatus>("ai_provider_sign_out", { id }),
+  folderGitConfigsList: () => call<FolderGitConfig[]>("folder_git_configs_list"),
+  folderGitConfigSave: (draft: FolderGitConfigDraft) => call<FolderGitConfig>("folder_git_config_save", { draft }),
+  folderGitConfigRemove: (folder: string) => call<void>("folder_git_config_remove", { folder }),
   platformConnectionsList: () => call<PlatformConnection[]>("platform_connections_list"),
   platformConnectionAdd: (kind: PlatformKind, host: string, name: string, token: string, insecureTls: boolean) =>
     call<PlatformConnection>("platform_connection_add", { kind, host, name, token, insecureTls }),

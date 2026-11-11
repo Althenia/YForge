@@ -7,6 +7,7 @@ import { client } from "../ipc/client";
 import { basename } from "../format";
 import { useApp } from "../state/app";
 import { useQuery } from "../state/query";
+import { appKeys } from "../state/queryKeys";
 import { CUSTOM_KEY, SIGNING_FORMATS, signingKeyChoice, signingKeyOptions } from "../state/settingsModel";
 import { SettingRow } from "./SettingRow";
 import { Select } from "./Select";
@@ -23,12 +24,24 @@ export function SigningSettings() {
   const app = useApp();
   const queryClient = useQueryClient();
   const [scope, setScope] = createSignal<SigningScope>("global");
+  const [folder, setFolder] = createSignal<string | undefined>();
   const [customKey, setCustomKey] = createSignal(false);
   const [failure, setFailure] = createSignal<string | undefined>();
   const [saving, setSaving] = createSignal(false);
   const repository = () => app.activePath();
-  const activeScope = (): SigningScope => (scope() === "repository" && repository() !== undefined ? "repository" : "global");
-  const path = () => (activeScope() === "repository" ? (repository() ?? null) : null);
+  const folderConfigs = useQuery(() => ({ queryKey: appKeys.folderConfigs, queryFn: async () => (await client.folderGitConfigsList()) ?? [] }));
+  const activeScope = (): SigningScope =>
+    scope() === "repository" && repository() !== undefined ? "repository" : scope() === "folder" && folder() !== undefined ? "folder" : "global";
+  const path = () => (activeScope() === "repository" ? (repository() ?? null) : activeScope() === "folder" ? (folder() ?? null) : null);
+  const scopeValue = () => (activeScope() === "folder" ? `folder:${folder() ?? ""}` : activeScope());
+  const chooseScope = (value: string) => {
+    if (value.startsWith("folder:")) {
+      setScope("folder");
+      setFolder(value.slice("folder:".length));
+    } else {
+      setScope(value as SigningScope);
+    }
+  };
   const config = useQuery(() => ({ queryKey: [...signingKey, "config", activeScope(), path()], queryFn: () => client.signingRead(activeScope(), path()) }));
   const keys = useQuery(() => ({ queryKey: [...signingKey, "keys", config.data?.program ?? ""], queryFn: () => client.signingKeys(config.data?.program ?? "") }));
 
@@ -39,7 +52,7 @@ export function SigningSettings() {
     setFailure(undefined);
     try {
       await client.signingWrite(activeScope(), path(), { ...current, ...patch });
-      await queryClient.invalidateQueries({ queryKey: signingKey });
+      await Promise.all([queryClient.invalidateQueries({ queryKey: signingKey }), queryClient.invalidateQueries({ queryKey: appKeys.folderConfigs })]);
     } catch (error) {
       setFailure(message(error));
     } finally {
@@ -56,17 +69,22 @@ export function SigningSettings() {
   return (
     <>
       <h3>Commit signing</h3>
-      <SettingRow id="signing-scope" title="Apply signing to" note={activeScope() === "global" ? "Saved with git config --global, for every repository." : "Saved to .git/config, for this repository only."}>
+      <SettingRow
+        id="signing-scope"
+        title="Apply signing to"
+        note={activeScope() === "global" ? "Saved with git config --global, for every repository." : activeScope() === "folder" ? `Saved to the folder rule for ${folder() ?? ""}, for repositories under that folder.` : "Saved to .git/config, for this repository only."}
+      >
         <Select
           label="Apply signing to"
-          value={activeScope()}
+          value={scopeValue()}
           options={[
             { value: "global", label: "All repositories (global Git config)" },
             { value: "repository", label: repository() === undefined ? "This repository" : `This repository: ${basename(repository() as string)}`, ...(repository() === undefined ? { disabledReason: NO_REPOSITORY } : {}) },
+            ...(folderConfigs.data ?? []).map((config) => ({ value: `folder:${config.folder}`, label: `Folder: ${config.folder}` })),
           ]}
           disabled={saving()}
           disabledReason="Saving signing settings"
-          onChange={(value) => setScope(value as SigningScope)}
+          onChange={chooseScope}
         />
       </SettingRow>
       <Show when={config.data}>

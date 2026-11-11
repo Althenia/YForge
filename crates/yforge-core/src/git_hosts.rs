@@ -75,6 +75,7 @@ pub struct RemoteAddress {
 pub enum IdentitySource {
     Repository,
     Host,
+    Folder,
     App,
     Agent,
 }
@@ -86,11 +87,72 @@ pub struct Resolved {
     pub host: Option<GitHost>,
 }
 
+#[derive(Clone, PartialEq, Eq, Default)]
+pub struct HttpsCredential {
+    pub host: String,
+    pub username: String,
+    pub secret: String,
+}
+
+impl std::fmt::Debug for HttpsCredential {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpsCredential")
+            .field("host", &self.host)
+            .field("username", &self.username)
+            .field("secret", &"<redacted>")
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SshPlan {
     pub repository_key: Option<PathBuf>,
     pub app_key: Option<PathBuf>,
     pub hosts: Vec<GitHost>,
+    pub folder_key: Option<PathBuf>,
+    pub https_credentials: Vec<HttpsCredential>,
+}
+
+pub(crate) fn repo_folder_ssh(repo: &Path) -> (Option<PathBuf>, bool) {
+    fn scoped_value(repo: &Path, key: &str) -> Option<String> {
+        let completed = crate::git::run_unchecked(
+            repo,
+            &[
+                "config",
+                "--includes",
+                "--show-scope",
+                "--show-origin",
+                "--get",
+                key,
+            ],
+            None,
+        )
+        .ok()?;
+        if !completed.succeeded() {
+            return None;
+        }
+        let line = completed.stdout.lines().last()?;
+        let mut parts = line.split('\t');
+        let scope = parts.next().unwrap_or_default();
+        let origin = parts.next().unwrap_or_default();
+        let value = parts.collect::<Vec<_>>().join("\t");
+        let folder = scope == "global"
+            && !crate::config::same_config_path(
+                Path::new(origin.strip_prefix("file:").unwrap_or(origin)),
+                &crate::config::root_global_config_path(repo),
+            );
+        (scope == "local" || scope == "worktree" || folder).then_some(value)
+    }
+    let key = scoped_value(repo, "yforge.sshKeyPath")
+        .map(|value| expand_home(&value))
+        .or_else(|| {
+            scoped_value(repo, "core.sshCommand")
+                .and_then(|command| crate::config::parse_ssh_command_key(&command))
+                .map(|value| expand_home(&value))
+        });
+    let has_command = scoped_value(repo, "core.sshCommand").is_some()
+        || scoped_value(repo, "yforge.sshKeyPath").is_some();
+    (key, has_command)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -303,6 +365,13 @@ impl SshPlan {
                 host: Some(host.clone()),
             };
         }
+        if let Some(key) = &self.folder_key {
+            return Resolved {
+                source: IdentitySource::Folder,
+                key: Some(key.clone()),
+                host: None,
+            };
+        }
         match &self.app_key {
             Some(key) => Resolved {
                 source: IdentitySource::App,
@@ -315,6 +384,12 @@ impl SshPlan {
                 host: None,
             },
         }
+    }
+
+    pub fn https_credential(&self, host: &str) -> Option<&HttpsCredential> {
+        self.https_credentials
+            .iter()
+            .find(|credential| credential.host.eq_ignore_ascii_case(host))
     }
 
     pub(crate) fn https_user(&self, host: &str) -> Option<&str> {

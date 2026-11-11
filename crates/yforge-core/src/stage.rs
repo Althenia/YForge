@@ -16,18 +16,30 @@ pub(crate) fn with_paths<'a>(prefix: &[&'a str], files: &'a [String]) -> Vec<&'a
 }
 
 pub fn stage_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || stage_files_inner(path, files))
+}
+
+fn stage_files_inner(path: &Path, files: &[String]) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(files)?;
     git::run(&root, &with_paths(&["add"], files)).map(drop)
 }
 
 pub fn unstage_files(path: &Path, files: &[String]) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || unstage_files_inner(path, files))
+}
+
+fn unstage_files_inner(path: &Path, files: &[String]) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(files)?;
     git::run(&root, &with_paths(&["reset", "--quiet"], files)).map(drop)
 }
 
 pub fn stage_all(path: &Path) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || stage_all_inner(path))
+}
+
+fn stage_all_inner(path: &Path) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     let conflicted = repo::read_status(&root)?.counts.conflicted;
     if conflicted > 0 {
@@ -37,7 +49,7 @@ pub fn stage_all(path: &Path) -> Result<(), CoreError> {
         )));
     }
     let mut args = vec!["add".to_owned(), "--all".to_owned()];
-    let nested = repo::nested_worktree_directories(&root)?;
+    let nested = repo::unignored_nested_worktree_directories(&root)?;
     if !nested.is_empty() {
         args.extend(["--".to_owned(), ".".to_owned()]);
         args.extend(
@@ -51,6 +63,10 @@ pub fn stage_all(path: &Path) -> Result<(), CoreError> {
 }
 
 pub fn unstage_all(path: &Path) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || unstage_all_inner(path))
+}
+
+fn unstage_all_inner(path: &Path) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     git::run(&root, &["reset", "--quiet"]).map(drop)
 }

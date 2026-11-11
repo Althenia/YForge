@@ -74,7 +74,7 @@ export function VirtualRows<T>(props: {
       const observeContent = () => {
         resizes?.disconnect();
         resizes?.observe(element);
-        for (const child of element.children) resizes?.observe(child);
+        if (list !== undefined) resizes?.observe(list);
       };
       const mutations = view === null ? undefined : new view.MutationObserver(() => {
         observeContent();

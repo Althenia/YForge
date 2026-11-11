@@ -14,6 +14,7 @@ use crate::repo;
 pub enum SigningScope {
     Global,
     Repository,
+    Folder,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -65,6 +66,10 @@ fn scope_dir(scope: SigningScope, path: Option<&Path>) -> Result<PathBuf, CoreEr
             "open a repository to change its signing settings",
         )),
         (SigningScope::Global, _) => Ok(std::env::temp_dir()),
+        (SigningScope::Folder, Some(_)) => Ok(std::env::temp_dir()),
+        (SigningScope::Folder, None) => Err(CoreError::invalid_request(
+            "choose a folder to change its signing settings",
+        )),
     }
 }
 
@@ -96,7 +101,89 @@ pub(crate) fn signs_tags(root: &Path) -> Result<bool, CoreError> {
     read_flag(root, SigningScope::Repository, "tag.gpgSign")
 }
 
+fn read_file_key(file: &Path, key: &str) -> Result<Option<String>, CoreError> {
+    let file_text = file.display().to_string();
+    let dir = std::env::temp_dir();
+    let completed =
+        git::run_unchecked(&dir, &["config", "--file", &file_text, "--get", key], None)?;
+    Ok(completed
+        .succeeded()
+        .then(|| completed.stdout.trim().to_owned()))
+}
+
+fn read_file_flag(file: &Path, key: &str) -> Result<bool, CoreError> {
+    let file_text = file.display().to_string();
+    let dir = std::env::temp_dir();
+    let completed = git::run_unchecked(
+        &dir,
+        &["config", "--file", &file_text, "--type=bool", "--get", key],
+        None,
+    )?;
+    Ok(completed.succeeded() && completed.stdout.trim() == "true")
+}
+
+pub(crate) fn read_signing_file(file: &Path) -> SigningConfig {
+    SigningConfig {
+        sign_commits: read_file_flag(file, "commit.gpgSign").unwrap_or(false),
+        sign_tags: read_file_flag(file, "tag.gpgSign").unwrap_or(false),
+        format: read_file_key(file, "gpg.format")
+            .ok()
+            .flatten()
+            .as_deref()
+            .map_or(SigningFormat::Openpgp, SigningFormat::parse),
+        key: read_file_key(file, "user.signingkey")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        program: read_file_key(file, "gpg.program")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+    }
+}
+
+fn write_file_key(file: &Path, key: &str, value: Option<&str>) -> Result<(), CoreError> {
+    let file_text = file.display().to_string();
+    let dir = std::env::temp_dir();
+    match value {
+        Some(value) => git::run(&dir, &["config", "--file", &file_text, key, value]).map(drop),
+        None => git::run_allowing(
+            &dir,
+            &["config", "--file", &file_text, "--unset", key],
+            &[5],
+        )
+        .map(drop),
+    }
+}
+
+pub(crate) fn write_signing_file(file: &Path, config: &SigningConfig) -> Result<(), CoreError> {
+    fn text(value: &str) -> Option<&str> {
+        Some(value.trim()).filter(|value| !value.is_empty())
+    }
+    let flag = |value: bool| Some(if value { "true" } else { "false" });
+    write_file_key(file, "commit.gpgSign", flag(config.sign_commits))?;
+    write_file_key(file, "tag.gpgSign", flag(config.sign_tags))?;
+    write_file_key(file, "gpg.format", Some(config.format.value()))?;
+    write_file_key(file, "user.signingkey", text(&config.key))?;
+    write_file_key(file, "gpg.program", text(&config.program))
+}
+
 pub fn signing_read(scope: SigningScope, path: Option<&Path>) -> Result<SigningConfig, CoreError> {
+    if scope == SigningScope::Folder {
+        let folder = path.ok_or_else(|| {
+            CoreError::invalid_request("choose a folder to read its signing settings")
+        })?;
+        return Ok(match crate::config::folder_config_file(folder) {
+            Some(file) => read_signing_file(&file),
+            None => SigningConfig {
+                sign_commits: false,
+                sign_tags: false,
+                format: SigningFormat::Openpgp,
+                key: String::new(),
+                program: String::new(),
+            },
+        });
+    }
     let dir = scope_dir(scope, path)?;
     Ok(SigningConfig {
         sign_commits: read_flag(&dir, scope, "commit.gpgSign")?,
@@ -138,6 +225,15 @@ pub fn signing_write(
     path: Option<&Path>,
     config: &SigningConfig,
 ) -> Result<(), CoreError> {
+    if scope == SigningScope::Folder {
+        let folder = path.ok_or_else(|| {
+            CoreError::invalid_request("choose a folder to change its signing settings")
+        })?;
+        let file = crate::config::folder_config_file(folder).ok_or_else(|| {
+            CoreError::invalid_request("that folder has no YForge git configuration")
+        })?;
+        return write_signing_file(&file, config);
+    }
     let dir = scope_dir(scope, path)?;
     fn text(value: &str) -> Option<&str> {
         Some(value.trim()).filter(|value| !value.is_empty())

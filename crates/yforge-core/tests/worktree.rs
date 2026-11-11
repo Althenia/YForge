@@ -489,3 +489,30 @@ fn a_linked_worktree_opened_as_the_repository_shows_its_own_changes_only() {
         .collect();
     assert_eq!(untracked, vec!["inside.txt"]);
 }
+
+#[test]
+fn a_dirty_nested_worktree_does_not_make_the_parent_dirty() {
+    let repo = ready();
+    let nested = repo.path.join(".worktrees").join("inner");
+    std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+    create_worktree(&repo.path, "inner", true, None, &nested).unwrap();
+    fs::write(nested.join("dirty.txt"), "x\n").unwrap();
+    let listed = list_worktrees(&repo.path).unwrap();
+    assert!(
+        !listed
+            .iter()
+            .find(|w| w.path == repo.path.to_string_lossy())
+            .unwrap()
+            .dirty
+    );
+    assert!(repo_snapshot(&repo.path).unwrap().files.is_empty());
+    remove_worktree(&repo.path, &nested.to_string_lossy(), false).unwrap_err();
+    let inner_listed = list_worktrees(&repo.path).unwrap();
+    assert!(
+        inner_listed
+            .iter()
+            .find(|w| w.path == nested.to_string_lossy())
+            .unwrap()
+            .dirty
+    );
+}

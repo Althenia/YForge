@@ -6,9 +6,14 @@ use common::{HttpFake, Reply, Repo};
 use serde_json::json;
 use yforge_ai::{MemoryStore, SecretStore};
 use yforge_core::{
-    platform_connection_add, platform_connections_list, CoreError, ErrorKind, PlatformKind, PrState,
+    platform_connection_add, platform_connection_save_meta, platform_connections_list, CancelToken,
+    CoreError, ErrorKind, PlatformAuthMethod, PlatformKind, PlatformOAuthMethod,
+    PlatformOAuthStage, PrState,
 };
-use yforge_platform::{NewConnection, PlatformError, PlatformService, PrFilter};
+use yforge_platform::{
+    NewConnection, NewOAuthConnection, OAuthEndpoints, OAuthRecord, PlatformError, PlatformService,
+    PrFilter,
+};
 
 struct Harness {
     data: tempfile::TempDir,
@@ -25,6 +30,66 @@ fn harness() -> Harness {
         service: PlatformService::new(secrets.clone()),
         secrets,
     }
+}
+
+fn harness_with_endpoints(endpoints: OAuthEndpoints) -> Harness {
+    let data = tempfile::tempdir().unwrap();
+    yforge_core::start_storage(data.path()).unwrap();
+    let secrets = Arc::new(MemoryStore::default());
+    Harness {
+        data,
+        service: PlatformService::with_endpoints(secrets.clone(), endpoints),
+        secrets,
+    }
+}
+
+fn oauth_input(host: &str, existing_id: Option<String>) -> NewOAuthConnection {
+    NewOAuthConnection {
+        existing_id,
+        kind: PlatformKind::GitHub,
+        host: host.to_owned(),
+        name: "Work".to_owned(),
+        client_id: "gh-client".to_owned(),
+        client_secret: None,
+        insecure_tls: false,
+    }
+}
+
+fn github_oauth_fake() -> HttpFake {
+    HttpFake::start(|request| match request.path.as_str() {
+        "/login/device/code" => Reply::ok(
+            &json!({
+                "device_code": "dev-1",
+                "user_code": "USER-1",
+                "verification_uri": "https://github.com/login/device",
+                "interval": 0,
+                "expires_in": 60
+            })
+            .to_string(),
+        ),
+        "/login/oauth/access_token" => Reply::ok(
+            &json!({
+                "access_token": "gh-access",
+                "refresh_token": "gh-refresh",
+                "expires_in": 3600
+            })
+            .to_string(),
+        ),
+        "/api/v3/user" => Reply::ok(r#"{"login":"yui"}"#),
+        other => panic!("unexpected {other}"),
+    })
+}
+
+fn store_oauth(h: &Harness, connection_id: &str, record: &OAuthRecord) {
+    h.secrets
+        .set(
+            &format!("platform.oauth.{connection_id}"),
+            &serde_json::to_string(record).unwrap(),
+        )
+        .unwrap();
+    h.secrets
+        .set(&format!("platform.{connection_id}"), &record.access_token)
+        .unwrap();
 }
 
 fn input(host: &str) -> NewConnection {
@@ -408,4 +473,298 @@ async fn my_pulls_come_back_with_the_recent_repository_whose_remote_matches() {
         ),
         ErrorKind::InvalidRequest
     );
+}
+
+#[tokio::test]
+async fn oauth_sign_in_verifies_before_storing_and_emits_completed() {
+    let h = harness();
+    let fake = github_oauth_fake();
+    let stages = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = stages.clone();
+    let sink = move |stage| seen.lock().unwrap().push(stage);
+
+    let connection = h
+        .service
+        .sign_in_oauth(
+            h.data.path(),
+            oauth_input(&fake.host, None),
+            PlatformOAuthMethod::DeviceCode,
+            &CancelToken::new(),
+            &sink,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(connection.auth_method, PlatformAuthMethod::OAuth);
+    assert_eq!(connection.oauth_client_id.as_deref(), Some("gh-client"));
+    assert_eq!(connection.login.as_deref(), Some("yui"));
+    assert_eq!(
+        h.secrets
+            .get(&format!("platform.{}", connection.id))
+            .unwrap()
+            .as_deref(),
+        Some("gh-access")
+    );
+    let stored: OAuthRecord = serde_json::from_str(
+        &h.secrets
+            .get(&format!("platform.oauth.{}", connection.id))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored.access_token, "gh-access");
+    assert_eq!(stored.refresh_token.as_deref(), Some("gh-refresh"));
+    assert_eq!(
+        stages.lock().unwrap().last(),
+        Some(&PlatformOAuthStage::Completed {
+            login: "yui".to_owned()
+        })
+    );
+    assert!(stages
+        .lock()
+        .unwrap()
+        .contains(&PlatformOAuthStage::DeviceCode {
+            url: "https://github.com/login/device".to_owned(),
+            code: "USER-1".to_owned()
+        }));
+    assert_eq!(
+        h.service.test(h.data.path(), &connection.id).await.unwrap(),
+        "yui"
+    );
+    assert!(!format!("{:?}", oauth_input(&fake.host, None)).contains("gh-access"));
+
+    h.service.remove(h.data.path(), &connection.id).unwrap();
+    assert!(h.secrets.accounts().is_empty());
+}
+
+#[tokio::test]
+async fn oauth_reconnect_preserves_the_connection_id() {
+    let h = harness();
+    let fake = github_oauth_fake();
+    let first = h
+        .service
+        .sign_in_oauth(
+            h.data.path(),
+            oauth_input(&fake.host, None),
+            PlatformOAuthMethod::DeviceCode,
+            &CancelToken::new(),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+    let mut again = oauth_input(&fake.host, Some(first.id.clone()));
+    again.name = "Renamed".to_owned();
+    again.client_id = "gh-client-2".to_owned();
+
+    let second = h
+        .service
+        .sign_in_oauth(
+            h.data.path(),
+            again,
+            PlatformOAuthMethod::DeviceCode,
+            &CancelToken::new(),
+            &|_| {},
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(second.id, first.id);
+    assert_eq!(second.name, "Renamed");
+    assert_eq!(second.oauth_client_id.as_deref(), Some("gh-client-2"));
+    assert_eq!(h.service.list(h.data.path()).unwrap().len(), 1);
+    let stored: OAuthRecord = serde_json::from_str(
+        &h.secrets
+            .get(&format!("platform.oauth.{}", first.id))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored.client_id, "gh-client-2");
+}
+
+#[tokio::test]
+async fn expired_oauth_tokens_refresh_for_credentials_and_api_calls() {
+    let fake = HttpFake::start(|request| match request.path.as_str() {
+        "/login/oauth/access_token" => Reply::ok(
+            &json!({
+                "access_token": "gh-new",
+                "refresh_token": "gh-refresh-2",
+                "expires_in": 3600
+            })
+            .to_string(),
+        ),
+        "/api/v3/user" => {
+            if request.header("authorization") == Some("Bearer gh-new") {
+                Reply::ok(r#"{"login":"yui"}"#)
+            } else {
+                Reply::status(401, r#"{"message":"Bad credentials"}"#)
+            }
+        }
+        other => panic!("unexpected {other}"),
+    });
+    let endpoints = OAuthEndpoints {
+        github_base: Some(format!("http://{}", fake.host)),
+        ..OAuthEndpoints::default()
+    };
+    let h = harness_with_endpoints(endpoints);
+    let connection = platform_connection_add(
+        h.data.path(),
+        PlatformKind::GitHub,
+        &fake.host,
+        "Work",
+        false,
+    )
+    .unwrap();
+    let connection = platform_connection_save_meta(
+        h.data.path(),
+        &connection.id,
+        PlatformAuthMethod::OAuth,
+        Some("gh-client"),
+        Some("yui"),
+    )
+    .unwrap();
+    store_oauth(
+        &h,
+        &connection.id,
+        &OAuthRecord {
+            access_token: "gh-old".to_owned(),
+            refresh_token: Some("gh-refresh-1".to_owned()),
+            expires_at: Some(1),
+            client_id: "gh-client".to_owned(),
+            client_secret: None,
+        },
+    );
+    platform_connection_add(
+        h.data.path(),
+        PlatformKind::GitLab,
+        "gitlab.example.com",
+        "Broken",
+        false,
+    )
+    .unwrap();
+
+    let credentials = h.service.https_credentials(h.data.path()).await;
+
+    assert_eq!(credentials.len(), 1);
+    assert_eq!(credentials[0].host, fake.host);
+    assert_eq!(credentials[0].username, "x-access-token");
+    assert_eq!(credentials[0].secret, "gh-new");
+    assert_eq!(
+        h.service.test(h.data.path(), &connection.id).await.unwrap(),
+        "yui"
+    );
+    assert_eq!(
+        fake.requests()
+            .iter()
+            .filter(|request| request.path == "/login/oauth/access_token")
+            .count(),
+        1
+    );
+    let stored: OAuthRecord = serde_json::from_str(
+        &h.secrets
+            .get(&format!("platform.oauth.{}", connection.id))
+            .unwrap()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(stored.refresh_token.as_deref(), Some("gh-refresh-2"));
+}
+
+#[tokio::test]
+async fn a_rejected_oauth_token_is_force_refreshed_once_on_test() {
+    let fake = HttpFake::start(|request| match request.path.as_str() {
+        "/login/oauth/access_token" => Reply::ok(
+            &json!({
+                "access_token": "gh-new",
+                "refresh_token": "gh-refresh-2",
+                "expires_in": 3600
+            })
+            .to_string(),
+        ),
+        "/api/v3/user" => {
+            if request.header("authorization") == Some("Bearer gh-new") {
+                Reply::ok(r#"{"login":"yui"}"#)
+            } else {
+                Reply::status(401, r#"{"message":"Bad credentials"}"#)
+            }
+        }
+        other => panic!("unexpected {other}"),
+    });
+    let endpoints = OAuthEndpoints {
+        github_base: Some(format!("http://{}", fake.host)),
+        ..OAuthEndpoints::default()
+    };
+    let h = harness_with_endpoints(endpoints);
+    let connection = platform_connection_add(
+        h.data.path(),
+        PlatformKind::GitHub,
+        &fake.host,
+        "Work",
+        false,
+    )
+    .unwrap();
+    let connection = platform_connection_save_meta(
+        h.data.path(),
+        &connection.id,
+        PlatformAuthMethod::OAuth,
+        Some("gh-client"),
+        Some("yui"),
+    )
+    .unwrap();
+    store_oauth(
+        &h,
+        &connection.id,
+        &OAuthRecord {
+            access_token: "gh-bad".to_owned(),
+            refresh_token: Some("gh-refresh-1".to_owned()),
+            expires_at: None,
+            client_id: "gh-client".to_owned(),
+            client_secret: None,
+        },
+    );
+
+    assert_eq!(
+        h.service.test(h.data.path(), &connection.id).await.unwrap(),
+        "yui"
+    );
+    assert_eq!(
+        fake.requests()
+            .iter()
+            .filter(|request| request.path == "/login/oauth/access_token")
+            .count(),
+        1
+    );
+    assert_eq!(
+        h.secrets
+            .get(&format!("platform.{}", connection.id))
+            .unwrap()
+            .as_deref(),
+        Some("gh-new")
+    );
+}
+
+#[test]
+fn oauth_field_problems_cover_host_name_and_client_id() {
+    assert_eq!(
+        yforge_platform::oauth_field_problem("client_id", "  "),
+        Some("the client ID is required".to_owned())
+    );
+    assert_eq!(
+        yforge_platform::oauth_field_problem("client_id", " client "),
+        None
+    );
+    assert!(yforge_platform::oauth_field_problem("host", "https://x").is_some());
+    assert!(yforge_platform::oauth_field_problem("name", " ").is_some());
+    assert_eq!(
+        yforge_platform::connection_field_problem("client_id", "client"),
+        None
+    );
+    let redacted = format!(
+        "{:?}",
+        NewOAuthConnection {
+            client_secret: Some("top-secret".to_owned()),
+            ..oauth_input("github.com", None)
+        }
+    );
+    assert!(!redacted.contains("top-secret"));
 }

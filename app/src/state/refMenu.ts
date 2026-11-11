@@ -25,6 +25,7 @@ export type MenuContext = {
   upstream?: string | null;
   selection?: readonly string[];
   visibility?: GraphVisibility;
+  worktrees?: ReadonlyArray<{ path: string; branch: string | null; current: boolean }>;
 };
 
 const operationBlockReason: Record<Operation, string> = {
@@ -153,19 +154,17 @@ export function refMenu(target: RefTarget, context: MenuContext): MenuEntry[] {
     entries.push(item("set_upstream", ["Set upstream of ", ref, "…"], noRemote));
     if (isCurrent && context.upstream != null) entries.push(item("unset_upstream", ["Unset upstream of ", ref]));
     if (isCurrent) entries.push(item("push_to", ["Push ", ref, " to…"], noRemote));
+    const holder = isCurrent ? undefined : context.worktrees?.find((worktree) => !worktree.current && worktree.branch === target.name);
+    const deleteReason = isCurrent ? "Checked out; switch to another branch first" : holder === undefined ? undefined : `Checked out in worktree ${holder.path}`;
     entries.push(
       separator,
       item("rename", ["Rename ", ref, "…"]),
-      item("delete", ["Delete ", ref, "…"], isCurrent ? { danger: true, disabledReason: "Checked out; switch to another branch first" } : { danger: true }),
+      item("delete", ["Delete ", ref, "…"], deleteReason === undefined ? { danger: true } : { danger: true, disabledReason: deleteReason }),
     );
     if (target.remoteName !== undefined) {
       entries.push(
         item("delete_remote", ["Delete ", { ref: target.remoteName }, "…"], { danger: true }),
-        item(
-          "delete_both",
-          ["Delete ", ref, " and ", { ref: target.remoteName }, "…"],
-          isCurrent ? { danger: true, disabledReason: "Checked out; switch to another branch first" } : { danger: true },
-        ),
+        item("delete_both", ["Delete ", ref, " and ", { ref: target.remoteName }, "…"], deleteReason === undefined ? { danger: true } : { danger: true, disabledReason: deleteReason }),
       );
     }
   } else if (target.kind === "remote_branch") {
@@ -270,27 +269,35 @@ export function startPointText(at: string | null, summary?: string): string {
   return summary === undefined || summary === "" ? `from ${label}` : `from ${label} ${summary}`;
 }
 
-export type CommitMenuContext = MenuContext & { sha: string; merge: boolean; root?: boolean; squashReason?: string };
+export const SQUASH_SELECTION_REASON = "Select two or more commits to squash";
+
+export type CommitMenuContext = MenuContext & { sha: string; merge: boolean; root?: boolean; squashReason?: string; target?: RefTarget };
 
 export function commitMenu(context: CommitMenuContext): MenuEntry[] {
   const short = { ref: context.sha.slice(0, 7) };
   const current: MenuPart = { ref: context.current ?? "HEAD" };
   const blocked = operationBlock(context.operation);
-  const several = (context.selection?.length ?? 0) > 1;
+  const count = context.selection?.length ?? 0;
+  const several = count > 1;
   const single = (reason: string | undefined) => (several ? SINGLE_COMMIT_REASON : reason);
   const applyReason = single(blocked);
+  const squash = item("squash", [several ? `Squash ${count} commits…` : "Squash commits…"], reasoned(blocked ?? (several ? context.squashReason : SQUASH_SELECTION_REASON)));
+  const rewrite = [
+    item("edit_history", ["Edit history from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to rebase onto" : undefined)))),
+    squash,
+    item("recompose", ["Recompose from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to recompose from" : undefined)))),
+  ];
+  const apply = [item("cherry_pick", ["Cherry-pick ", short, " onto ", current], reasoned(applyReason)), item("revert", ["Revert ", short], reasoned(applyReason))];
+  if (context.target !== undefined && !several) return [...refMenu(context.target, context), separator, ...apply, separator, ...rewrite];
   return [
-    item("cherry_pick", ["Cherry-pick ", short, " onto ", current], reasoned(applyReason)),
-    item("revert", ["Revert ", short], reasoned(applyReason)),
+    ...apply,
     separator,
     item("create_branch", ["Create branch here…"], { shortcut: SHORTCUTS.createBranch, ...reasoned(single(undefined)) }),
     item("create_tag", ["Create tag here…"], reasoned(single(undefined))),
     separator,
     item("reset", ["Reset ", current, " to ", short], reasoned(single(blocked))),
     separator,
-    item("edit_history", ["Edit history from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to rebase onto" : undefined)))),
-    ...(several ? [item("squash", [`Squash ${context.selection?.length} commits…`], reasoned(blocked ?? context.squashReason))] : []),
-    item("recompose", ["Recompose from ", short, "…"], reasoned(single(blocked ?? (context.merge ? MERGE_REWRITE_REASON : context.root === true ? "The root commit has no parent to recompose from" : undefined)))),
+    ...rewrite,
   ];
 }
 

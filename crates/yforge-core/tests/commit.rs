@@ -558,3 +558,21 @@ fn repo_git(path: &std::path::Path, args: &[&str]) -> String {
     assert!(output.status.success(), "{output:?}");
     String::from_utf8(output.stdout).unwrap().trim().to_owned()
 }
+
+#[test]
+fn amending_an_empty_commit_and_reverting_head_by_amend_succeed() {
+    let repo = ready_repository();
+    repo.git(&["commit", "-q", "--allow-empty", "-m", "Empty"]);
+    let sha = commit(&repo.path, "Empty amended", "", true).unwrap();
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Empty amended");
+    repo.write("a.txt", "2\n");
+    repo.git(&["add", "a.txt"]);
+    commit(&repo.path, "Change", "", false).unwrap();
+    repo.write("a.txt", "1\n");
+    repo.git(&["add", "a.txt"]);
+    let sha2 = commit(&repo.path, "Change", "", true).unwrap();
+    assert_ne!(sha, sha2);
+    let edited = edit_head_message(&repo.path, &sha2, "Change edited", "").unwrap();
+    assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Change edited");
+    assert_eq!(edited.sha, repo.git(&["rev-parse", "HEAD"]));
+}

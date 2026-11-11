@@ -5,7 +5,7 @@ Status: **approved 2026-09-30** (owner decision: in current scope; private serve
 ## Scope
 
 - **Platforms:** GitHub (cloud + GitHub Enterprise Server), GitLab (cloud + self-hosted), Bitbucket (Cloud + Data Center).
-- **Authentication:** personal access tokens (PAT), stored in the macOS Keychain, never in the database. OAuth device flow stays post-MVP.
+- **Authentication:** personal access tokens (PAT), stored unencrypted in the YForge database and never shown again. OAuth device flow stays post-MVP.
 - **Git transport:** HTTPS and SSH both work. SSH uses the existing ssh-agent / key-path / askpass support; no new SSH machinery. Remote-URL parsing recognizes every URL form so a repo cloned over SSH matches its platform connection.
 - **Features (this slice):**
   1. Connection management: add, list, test, remove a platform connection (kind, host, name, token, optional insecure-TLS flag).
@@ -21,13 +21,13 @@ Status: **approved 2026-09-30** (owner decision: in current scope; private serve
 app/src-tauri (shell)
  �── yforge-platform (new crate: adapters, URL parsing, service)
         ├── yforge-core (unified model types, store: platform_connections table, error types)
-       �── yforge-ai (SecretStore trait + KeychainStore, reused)
+       �── yforge-ai (secret storage, reused)
 ```
 
 - **Model types** (`PlatformConnection`, `PullRequest`, `PullList`, `PrDetail`, `CreatePull`, `MatchedRepo`, `PlatformKind`, `PrState`, `PrFile`, `RepoRef`) live in `yforge-core` (`src/platform.rs`, following `src/ai.rs`) because the TS bindings are generated from `yforge-core` types via `crates/yforge-core/tests/bindings.rs` (`pnpm bindings`).
 - **`yforge-platform`** owns the platform-specific logic: remote-URL parsing, the four HTTP adapters, and a `PlatformService` that resolves a repository path to a connection (via its remotes) and dispatches to the right adapter.
 - **Connection rows** (non-secret) live in the app store: new migration `platform_connections.sql` (id, kind, host, name, insecure_tls, created_at), CRUD in `store/platform.rs` following the `store/ai.rs` pattern.
-- **Tokens** live in the Keychain under account `platform.<connection-id>`, through the existing `SecretStore` trait (`yforge-ai::secret`). The shell already constructs a `KeychainStore`; it passes the same `Arc<dyn SecretStore>` to the platform service.
+- **Tokens** live unencrypted in the YForge database, in the same secret storage as the AI keys, so anyone who can read the database or its backups can read them; no command returns one.
 - **HTTP:** `reqwest` (already a workspace dependency), one client per request batch, 30 s timeout. `insecure_tls` (default `false`) maps to `danger_accept_invalid_certs` for self-hosted servers with self-signed certificates; the UI states the risk.
 
 ## Unified model
@@ -156,8 +156,8 @@ The UI counts the true total, never the array length: the sidebar pull request c
 | Command | Args | Returns |
 |---|---|---|
 | `platform_connections_list` | — | `Vec<PlatformConnection>` |
-| `platform_connection_add` | `kind, host, name, token, insecure_tls` | `PlatformConnection` (validates input, tests the token, stores row + Keychain entry; rolls back on test failure) |
-| `platform_connection_remove` | `id` | `null` (removes row + Keychain entry) |
+| `platform_connection_add` | `kind, host, name, token, insecure_tls` | `PlatformConnection` (validates input, tests the token, stores row + token in the YForge database; rolls back on test failure) |
+| `platform_connection_remove` | `id` | `null` (removes row + token) |
 | `platform_connection_test` | `id` | `String` (the verified login name) |
 | `platform_repo_match` | `path` | `Option<MatchedRepo>` |
 | `platform_prs_list` | `path, state: "open" \| "all"` | `PullList { pulls, total, capped }` |
@@ -178,7 +178,7 @@ The UI counts the true total, never the array length: the sidebar pull request c
 
 ## Jira and the Launchpad (rules S39 and S41)
 
-- **Connections:** `jira_connections` (migration 9) keeps kind (`cloud` or `data_center`), the site address, the Cloud email, the display name, and the visible project list (refreshed on connect and Test). The token lives only in the Keychain under `jira.<id>`. Cloud signs in with Basic (email and API token) against `/rest/api/3`, Data Center with a Bearer personal access token against `/rest/api/2`. YForge only issues `GET` requests to Jira.
+- **Connections:** `jira_connections` (migration 9) keeps kind (`cloud` or `data_center`), the site address, the Cloud email, the display name, and the visible project list (refreshed on connect and Test). The token lives only in the YForge database, unencrypted, and is never returned. Cloud signs in with Basic (email and API token) against `/rest/api/3`, Data Center with a Bearer personal access token against `/rest/api/2`. YForge only issues `GET` requests to Jira.
 - **Reads:** `GET /myself` (display name), Cloud `GET /project/search?startAt&maxResults` (paged until `isLast`) or Data Center `GET /project`, Cloud `GET /search/jql` (`maxResults=100`, `nextPageToken`) or Data Center `GET /search` (`maxResults=100&startAt=n`, `total`) with `jql=assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC` (my issues, returned as `JiraIssueList { issues, total, capped }`, at most 1,000) or `key in (…)` (chip lookups, 50 keys per request), `fields=summary,status,issuetype,project,updated`.
 - **Issue keys:** `[A-Z][A-Z0-9]+-\d+`, case-sensitive, not glued to letters or digits, kept only when the project belongs to a connected site; branch names, commit subjects and messages, and pull request titles.
 - **My pull requests:** per connection, GitHub `GET /search/issues?q=is:pr is:open author:@me` and `review-requested:@me` then `GET /repos/{o}/{r}/pulls/{n}` for the branches; GitLab `GET /merge_requests?state=opened&scope=created_by_me` and `scope=all&reviewer_username=<user>`; Bitbucket Data Center `GET /dashboard/pull-requests?state=OPEN&role=AUTHOR|REVIEWER`; Bitbucket Cloud `GET /pullrequests/{account_id}?state=OPEN` (authored only: the API has no account-wide review list). Each role is paged and merged into `LaunchpadPulls { pulls, total, capped }`, at most 1,000. The Launchpad states each source's own update time ("<source> · updated <age> ago"), never one combined time.

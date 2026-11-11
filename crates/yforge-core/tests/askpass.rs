@@ -423,6 +423,33 @@ fn a_key_without_a_saved_passphrase_still_asks_the_user() {
 }
 
 #[test]
+fn an_unavailable_passphrase_store_stops_the_operation_without_prompting() {
+    let setup = setup("ssh://git@example.test/repo.git");
+    fake_ssh(&setup, "Enter passphrase for key '/k/id': ", "none");
+    let (handler, prompts) = recording(vec![]);
+    let store = Arc::new(yforge_core::SqlitePassphrases::new(Arc::new(
+        yforge_core::Secrets::new(None),
+    )));
+    let mut ignore = |_: Progress| {};
+    let error = fetch(
+        &setup.repo.path,
+        false,
+        &CancelToken::with_auth(handler).with_passphrases(store),
+        &mut ignore,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.kind(), ErrorKind::StorageFailed, "{error:?}");
+    assert!(prompts.lock().unwrap().is_empty());
+}
+
+#[test]
+fn authentication_reply_debug_redacts_its_secret() {
+    let reply = credentials("synthetic-user", "synthetic-auth-value", true);
+    assert!(!format!("{reply:?}").contains("synthetic-auth-value"));
+}
+
+#[test]
 fn a_refused_saved_passphrase_falls_back_to_the_prompt_once_and_says_so() {
     let setup = setup("ssh://git@example.test/repo.git");
     let answers = fake_ssh_asking_twice(&setup, "Enter passphrase for key '/k/id': ");
@@ -446,7 +473,7 @@ fn a_refused_saved_passphrase_falls_back_to_the_prompt_once_and_says_so() {
     assert_eq!(prompts[0].kind, AuthKind::Passphrase);
     assert_eq!(
         prompts[0].message,
-        "The passphrase saved in the Keychain was not accepted. Enter passphrase for key '/k/id':"
+        "The passphrase YForge saved was not accepted. Enter passphrase for key '/k/id':"
     );
 }
 
@@ -479,4 +506,50 @@ fn declining_a_host_key_cancels_the_operation() {
     let error = run_fetch(&setup, handler).unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::Cancelled, "{error:?}");
+}
+
+#[test]
+fn saved_https_credentials_answer_without_a_prompt_and_are_never_stored() {
+    let server = server(true);
+    let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
+    let (handler, prompts) = recording(vec![]);
+    let plan = SshPlan {
+        https_credentials: vec![yforge_core::HttpsCredential {
+            host: format!("127.0.0.1:{}", server.port),
+            username: "yui".into(),
+            secret: "s3cret".into(),
+        }],
+        ..SshPlan::default()
+    };
+    let token = CancelToken::with_auth(handler).with_ssh_plan(plan);
+    let mut ignore = |_: Progress| {};
+    fetch(&setup.repo.path, false, &token, &mut ignore).unwrap();
+    assert_eq!(prompts.lock().unwrap().len(), 0);
+    assert!(server.seen.lock().unwrap().iter().any(|h| h == EXPECTED));
+    assert!(
+        !helper_log(&setup).contains("store"),
+        "log: {}",
+        helper_log(&setup)
+    );
+    assert!(!helper_log(&setup).contains("erase"));
+}
+
+#[test]
+fn rejected_saved_https_credentials_fail_as_auth_not_cancelled() {
+    let server = server(false);
+    let setup = setup(&format!("http://127.0.0.1:{}/repo.git", server.port));
+    let (handler, prompts) = recording(vec![]);
+    let plan = SshPlan {
+        https_credentials: vec![yforge_core::HttpsCredential {
+            host: format!("127.0.0.1:{}", server.port),
+            username: "yui".into(),
+            secret: "wrong".into(),
+        }],
+        ..SshPlan::default()
+    };
+    let token = CancelToken::with_auth(handler).with_ssh_plan(plan);
+    let mut ignore = |_: Progress| {};
+    let error = fetch(&setup.repo.path, false, &token, &mut ignore).unwrap_err();
+    assert_eq!(error.kind(), ErrorKind::AuthFailed, "{error:?}");
+    assert_eq!(prompts.lock().unwrap().len(), 0);
 }

@@ -64,6 +64,8 @@ const app = (): PaletteApp => ({
   reopenClosedTab: vi.fn(),
   nextTab: vi.fn(),
   previousTab: vi.fn(),
+  selectVisibleTab: vi.fn(),
+  visibleTabCount: () => 9,
   checkForUpdate: vi.fn(),
   openRepositorySearch: vi.fn(),
   openShortcuts: vi.fn(),

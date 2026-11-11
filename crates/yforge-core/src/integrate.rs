@@ -104,6 +104,10 @@ pub(crate) fn abort_unfinished_merge(
 }
 
 pub fn merge(path: &Path, source: &str, mode: MergeMode) -> Result<OperationOutcome, CoreError> {
+    repo::with_repo_mutation_lock(path, || merge_inner(path, source, mode))
+}
+
+fn merge_inner(path: &Path, source: &str, mode: MergeMode) -> Result<OperationOutcome, CoreError> {
     let root = repo::open(path)?;
     require_no_operation(&root)?;
     let reference = merge_operand(&root, source)?;
@@ -124,6 +128,10 @@ pub fn merge(path: &Path, source: &str, mode: MergeMode) -> Result<OperationOutc
 }
 
 pub fn rebase(path: &Path, onto: &str) -> Result<OperationOutcome, CoreError> {
+    repo::with_repo_mutation_lock(path, || rebase_inner(path, onto))
+}
+
+fn rebase_inner(path: &Path, onto: &str) -> Result<OperationOutcome, CoreError> {
     let root = repo::open(path)?;
     require_no_operation(&root)?;
     let reference = branch_ref(&root, onto)?;
@@ -133,6 +141,10 @@ pub fn rebase(path: &Path, onto: &str) -> Result<OperationOutcome, CoreError> {
 }
 
 pub fn fast_forward(path: &Path, branch: &str, target: &str) -> Result<(), CoreError> {
+    repo::with_repo_mutation_lock(path, || fast_forward_inner(path, branch, target))
+}
+
+fn fast_forward_inner(path: &Path, branch: &str, target: &str) -> Result<(), CoreError> {
     let root = repo::open(path)?;
     require_no_operation(&root)?;
     branch::require_local_branch(&root, branch)?;
@@ -151,12 +163,21 @@ pub fn fast_forward(path: &Path, branch: &str, target: &str) -> Result<(), CoreE
             "{branch} has commits that {target} does not contain"
         )));
     }
-    if branch::current_branch(&root)?.as_deref() == Some(branch) {
-        git::run(&root, &["merge", "--ff-only", sha])
+    let holder = repo::read_worktrees(&root)?.into_iter().find(|worktree| {
+        !worktree.bare
+            && !worktree.prunable
+            && Path::new(&worktree.path).is_dir()
+            && worktree.branch.as_deref() == Some(branch)
+    });
+    if let Some(holder) = holder {
+        crate::operation::require_no_operation(Path::new(&holder.path))?;
+        git::run(Path::new(&holder.path), &["merge", "--ff-only", sha])
             .map(drop)
             .map_err(branch::classify_local_changes)
     } else {
-        git::run(&root, &["branch", "--force", branch, sha]).map(drop)
+        git::run(&root, &["branch", "--force", branch, sha])
+            .map(drop)
+            .map_err(branch::classify_local_changes)
     }
 }
 

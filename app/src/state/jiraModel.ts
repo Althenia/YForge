@@ -16,7 +16,7 @@ export const JIRA_KINDS: readonly JiraKindCard[] = [
     tokenLabel: "API token",
     sitePlaceholder: "https://your-site.atlassian.net",
     tokenPlaceholder: "Paste the token from id.atlassian.com → Security → API tokens",
-    tokenHint: "Stored in the macOS Keychain and never shown again. Data Center asks for a personal access token instead of an email and API token.",
+    tokenHint: "Stored unencrypted in the YForge database and never shown again. Data Center asks for a personal access token instead of an email and API token.",
   },
   {
     kind: "data_center",
@@ -24,7 +24,7 @@ export const JIRA_KINDS: readonly JiraKindCard[] = [
     tokenLabel: "Personal access token",
     sitePlaceholder: "https://jira.example.com",
     tokenPlaceholder: "Paste a personal access token from your Jira profile",
-    tokenHint: "Stored in the macOS Keychain and never shown again.",
+    tokenHint: "Stored unencrypted in the YForge database and never shown again.",
   },
 ];
 
@@ -79,7 +79,7 @@ export const uniqueKeys = (lists: readonly (readonly string[])[]): string[] => [
 export const connectionSubtitle = (connection: JiraConnection): string => `${jiraKindCard(connection.kind).title} · Connected as ${connection.display_name}`;
 
 export const tokenNote = (connection: JiraConnection): string =>
-  connection.kind === "cloud" ? `API token for ${connection.email ?? "the account"}, stored in the macOS Keychain` : "Personal access token, stored in the macOS Keychain";
+  connection.kind === "cloud" ? `API token for ${connection.email ?? "the account"}, stored in the YForge database (unencrypted)` : "Personal access token, stored in the YForge database (unencrypted)";
 
 export const projectsText = (connection: JiraConnection): string =>
   connection.projects.length === 0 ? "No projects visible to this account" : boundedList(connection.projects.map((project) => `${project.key} ${project.name}`), "projects", " · ");

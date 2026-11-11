@@ -14,6 +14,8 @@ import { stubScrollLayout } from "./virtualTestkit";
 
 let dispose: (() => void) | undefined;
 const opened: string[] = [];
+const openedDiffs: { source: string; area?: string; file: string }[] = [];
+const backs: string[] = [];
 const revealed: Element[] = [];
 let toolsStatus: unknown = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 
@@ -26,6 +28,8 @@ let restoreLayout: (() => void) | undefined;
 beforeEach(() => {
   restoreLayout = stubScrollLayout({ viewport: 600, row: 20, total: 50 });
   revealed.length = 0;
+  openedDiffs.length = 0;
+  backs.length = 0;
   toolsStatus = { editor: "Visual Studio Code", diff: "FileMerge", merge: "FileMerge" };
 });
 
@@ -119,7 +123,7 @@ async function mountResolver(
   dispose = render(
     () => (
       <QueryClientProvider client={queryClient}>
-        <ConflictResolver session={session} actions={actions} file={file()} onClose={() => undefined} onOpenAiSettings={() => opened.push("ai")} />
+        <ConflictResolver session={session} actions={actions} file={file()} onClose={() => backs.push("close")} onOpenDiff={(target) => openedDiffs.push(target)} onOpenAiSettings={() => opened.push("ai")} />
       </QueryClientProvider>
     ),
     host,
@@ -133,7 +137,7 @@ async function mountResolver(
   const output = () => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Output"]');
   const markButton = () => [...host.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Mark resolved"));
   const tick = () => new Promise((resolve) => setTimeout(resolve, 20));
-  return { calls, host, press, pane, box, selectAll, output, markButton, panel, session, actions, tick };
+  return { calls, host, press, pane, box, selectAll, output, markButton, panel, session, actions, tick, openedDiffs, backs };
 }
 
 describe("conflict resolver", () => {
@@ -158,8 +162,10 @@ describe("conflict resolver", () => {
     const { pane, selectAll } = await mountResolver(twoRegions);
 
     for (const name of ["Yours", "Theirs"] as const) {
-      const boxes = [...(pane(name)?.querySelectorAll('.mt-code [role="checkbox"]') ?? [])];
+      const boxes = [...(pane(name)?.querySelectorAll('.mt-code .mt-check[role="checkbox"]') ?? [])];
       expect(boxes.map((box) => box.getAttribute("aria-checked"))).toEqual(["false", "false"]);
+      const lineBoxes = [...(pane(name)?.querySelectorAll('.mt-code .mt-line-check[role="checkbox"]') ?? [])];
+      expect(lineBoxes.map((box) => box.getAttribute("aria-checked"))).toEqual(["false", "false"]);
       expect(selectAll(name)?.getAttribute("role")).toBe("checkbox");
       expect(selectAll(name)?.getAttribute("aria-checked")).toBe("false");
       expect(selectAll(name)?.textContent?.trim()).toBe("Select all");
@@ -181,7 +187,7 @@ describe("conflict resolver", () => {
     expect(output()?.closest(".input.area")).not.toBeNull();
     expect(host.querySelector(".out-ln")?.textContent).toBe(Array.from({ length: 12 }, (_, index) => index + 1).join("\n"));
     expect(markButton()?.disabled).toBe(true);
-    expect(host.querySelector(".rfoot .reason")?.textContent).toBe("2 conflicts left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
+    expect(host.querySelector(".rfoot .reason")?.textContent).toBe("6 conflict markers left: pick a side or remove the <<<<<<< ======= >>>>>>> markers");
   });
 
   it("builds the Output from the checkboxes, both sides meaning yours then theirs", async () => {
@@ -196,6 +202,109 @@ describe("conflict resolver", () => {
     box("Theirs", 0)?.click();
     await tick();
     expect(output()?.value.split("\n").slice(0, 4)).toEqual(["# sample", "npm start", "node app.js", "## License"]);
+  });
+
+  it("appends per-line picks to the Output in click order and removes a line when unchecked", async () => {
+    const multi: ConflictFile = {
+      ...twoRegions,
+      segments: [
+        { kind: "text", lines: ["# sample"] },
+        { kind: "conflict", current: ["a1", "a2"], incoming: ["b1", "b2"], base: null },
+      ],
+    };
+    const { pane, output, tick } = await mountResolver(multi);
+    const line = (name: "Yours" | "Theirs", index: number) => pane(name)?.querySelector<HTMLElement>(`.mt-hunk [data-line="${index}"]`);
+    const regionBox = (name: "Yours" | "Theirs") => pane(name)?.querySelector<HTMLElement>('.mt-hunk .mt-check[role="checkbox"]');
+
+    line("Theirs", 1)?.click();
+    await tick();
+    line("Yours", 0)?.click();
+    await tick();
+    line("Theirs", 0)?.click();
+    await tick();
+
+    expect(output()?.value).toBe("# sample\nb2\na1\nb1");
+    expect(regionBox("Theirs")?.getAttribute("aria-checked")).toBe("true");
+    expect(regionBox("Yours")?.getAttribute("aria-checked")).toBe("mixed");
+
+    line("Theirs", 1)?.click();
+    await tick();
+    expect(output()?.value).toBe("# sample\na1\nb1");
+    expect(regionBox("Theirs")?.getAttribute("aria-checked")).toBe("mixed");
+
+    regionBox("Theirs")?.click();
+    await tick();
+    expect(output()?.value).toBe("# sample\na1\nb1\nb2");
+  });
+
+  it("lets an empty side be chosen so a deletion can be resolved", async () => {
+    const deleted: ConflictFile = {
+      ...twoRegions,
+      segments: [{ kind: "conflict", current: [], incoming: ["kept"], base: null }],
+    };
+    const { pane, output, markButton, tick } = await mountResolver(deleted);
+    const empty = pane("Yours")?.querySelector<HTMLElement>(".mt-hunk .mt-line-check");
+
+    expect(empty?.getAttribute("aria-checked")).toBe("false");
+    empty?.click();
+    await tick();
+
+    expect(empty?.getAttribute("aria-checked")).toBe("true");
+    expect(output()?.value).toBe("");
+    expect(markButton()?.disabled).toBe(false);
+  });
+
+  it("shows the conflicted-file position and moves to the next conflicted file", async () => {
+    const both = snapshot({
+      files: [
+        { path: "README.md", original_path: null, area: "conflicted", status: "conflicted" },
+        { path: "NOTES.md", original_path: null, area: "conflicted", status: "conflicted" },
+      ],
+      counts: { ...counts, conflicted: 2 },
+    });
+    const { host, openedDiffs, tick } = await mountResolver(twoRegions, both);
+
+    expect(host.querySelector(".rhead")?.textContent).toContain("1 of 2 files");
+    const next = [...host.querySelectorAll<HTMLButtonElement>(".rhead button")].find((button) => button.getAttribute("aria-label") === "Next conflicted file");
+    next?.click();
+    await tick();
+
+    expect(openedDiffs).toEqual([{ source: "working", area: "conflicted", file: "NOTES.md" }]);
+  });
+
+  it("advances to the next conflicted file after Mark resolved succeeds", async () => {
+    const both = snapshot({
+      files: [
+        { path: "README.md", original_path: null, area: "conflicted", status: "conflicted" },
+        { path: "NOTES.md", original_path: null, area: "conflicted", status: "conflicted" },
+      ],
+      counts: { ...counts, conflicted: 2 },
+    });
+    const { box, markButton, openedDiffs, calls, tick } = await mountResolver(twoRegions, both);
+
+    box("Yours", 0)?.click();
+    box("Yours", 1)?.click();
+    await tick();
+    markButton()?.click();
+    await tick();
+    await tick();
+
+    expect(calls.some((call) => call.cmd === "conflict_resolve")).toBe(true);
+    expect(openedDiffs).toEqual([{ source: "working", area: "conflicted", file: "NOTES.md" }]);
+  });
+
+  it("shows a settled resolved state above the operation bar when no file follows", async () => {
+    const { box, markButton, host, tick } = await mountResolver(twoRegions);
+
+    box("Yours", 0)?.click();
+    box("Yours", 1)?.click();
+    await tick();
+    markButton()?.click();
+    await tick();
+    await tick();
+
+    expect(host.textContent).toContain("All conflicts resolved");
+    expect(host.querySelector('.rpanel section[aria-label="Finish the merge"]')).not.toBeNull();
   });
 
   it("selects a whole side with its tri-state Select all and clears it again", async () => {
@@ -224,14 +333,14 @@ describe("conflict resolver", () => {
       expect(pane(name)?.querySelector(".mt-hunk.is-cur")?.getAttribute("data-region")).toBe("1");
       expect(revealed).toContain(pane(name)?.querySelector(".mt-hunk.is-cur"));
     }
-    expect(output()?.scrollTop).toBe(7 * 20);
-    expect(host.querySelector<HTMLElement>(".out-ln")?.scrollTop).toBe(7 * 20);
+    expect(output()?.scrollTop).toBe(0);
+    expect(host.querySelector<HTMLElement>(".out-ln")?.scrollTop).toBe(0);
     expect(document.activeElement).toBe(panel());
 
     [...(pane("Theirs")?.querySelectorAll<HTMLButtonElement>(".mt-nav button") ?? [])][0]?.click();
     await tick();
     expect(pane("Yours")?.querySelector(".mt-pos")?.textContent).toBe("Conflict 1 of 2");
-    expect(output()?.scrollTop).toBe(20);
+    expect(output()?.scrollTop).toBe(0);
   });
 
   it("chooses with 1, 2, and 3, navigates with N and P, and saves the Output with the command key", async () => {
@@ -340,10 +449,17 @@ describe("conflict resolver", () => {
     const { press, host, tick } = await mountResolver(twoRegions);
 
     expect(host.querySelector(".cbase")).toBeNull();
+    expect(host.querySelector("details")).toBeNull();
     press("n");
     await tick();
 
-    expect(host.querySelector(".cbase summary")?.textContent).toBe("Show base of conflict 2");
+    const toggle = host.querySelector<HTMLButtonElement>(".cbase-toggle");
+    expect(toggle?.textContent).toContain("Show base of conflict 2");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector(".cbase pre")).toBeNull();
+    toggle?.click();
+    await tick();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector(".cbase pre")?.textContent).toBe("GPL");
   });
 
@@ -396,7 +512,7 @@ describe("conflict resolver", () => {
 
     const footer = [...(host.querySelector(".rfoot")?.children ?? [])].map((child) => child.textContent?.replace(/\s+/g, " ").trim());
 
-    expect(footer.slice(0, 3)).toEqual(["Mark resolved ⌘S", "Reset file", "2 conflicts left: pick a side or remove the <<<<<<< ======= >>>>>>> markers"]);
+    expect(footer.slice(0, 3)).toEqual(["Mark resolved ⌘S", "Reset file", "6 conflict markers left: pick a side or remove the <<<<<<< ======= >>>>>>> markers"]);
     expect(host.querySelector(".rfoot .spacer")).toBeNull();
   });
 
@@ -438,11 +554,26 @@ describe("conflict resolver", () => {
       expect(calls.find((call) => call.cmd === "operation_abort")?.args).toEqual({ path: "/r" });
     });
 
-    it("is absent outside a merge", async () => {
+    it("shows the rebase bar with step progress and Continue, Skip, and Abort", async () => {
       const rebasing = snapshot({ operation: "rebase", operation_detail: { current: "main", incoming: "feature/greeting", message: "", step: { current: 1, total: 2 }, resolved: [] } });
       const { host } = await mountResolver(twoRegions, rebasing);
 
       expect(bar(host)).toBeNull();
+      const rebaseBar = host.querySelector<HTMLElement>('.rpanel section[aria-label="Finish the rebase"]');
+      expect(rebaseBar?.textContent).toContain("step 1 of 2");
+      expect(buttonNamed(rebaseBar!, "Continue")).not.toBeUndefined();
+      expect(buttonNamed(rebaseBar!, "Skip")).not.toBeUndefined();
+      expect(buttonNamed(rebaseBar!, "Abort rebase")).not.toBeUndefined();
+    });
+
+    it("shows Continue, Skip, and Abort for a cherry-pick", async () => {
+      const picking = snapshot({ operation: "cherry_pick", operation_detail: { current: "main", incoming: "abc1234", message: "", step: null, resolved: [] } });
+      const { host } = await mountResolver(twoRegions, picking);
+
+      const pickBar = host.querySelector<HTMLElement>('.rpanel section[aria-label="Finish the cherry-pick"]');
+      expect(buttonNamed(pickBar!, "Continue")).not.toBeUndefined();
+      expect(buttonNamed(pickBar!, "Skip")).not.toBeUndefined();
+      expect(buttonNamed(pickBar!, "Abort cherry-pick")).not.toBeUndefined();
     });
   });
 

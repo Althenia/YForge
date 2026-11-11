@@ -22,7 +22,7 @@ import {
   type PullSource,
 } from "./launchpadModel";
 
-const connection = (id: string, overrides: Partial<PlatformConnection> = {}): PlatformConnection => ({ id, kind: "gitlab", host: "gitlab.corp-a.com", name: "GitLab", insecure_tls: false, created_at: 1, ...overrides });
+const connection = (id: string, overrides: Partial<PlatformConnection> = {}): PlatformConnection => ({ id, kind: "gitlab", host: "gitlab.corp-a.com", name: "GitLab", insecure_tls: false, created_at: 1, auth_method: "token", oauth_client_id: null, login: null, ...overrides });
 
 const pull = (number: number, overrides: Partial<LaunchpadPull> = {}, title = "Retry login"): LaunchpadPull => ({
   connection_id: "c1",

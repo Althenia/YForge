@@ -20,7 +20,7 @@ YForge drives the `git` already on your Mac, so your hooks, config, signing, and
 - **State always visible.** One strip shows HEAD, the branch and its upstream, and your local changes, with the running Git operation named when there is one.
 - **Safer risky moments.** Rebase, conflicts, and force pushes are handled with explicit steps, and Undo and Redo sit in the toolbar.
 - **Worktrees as first-class citizens.** Linked worktrees appear in the sidebar and as tabs.
-- **Credentials stay in the Keychain.** AI keys, platform tokens, and SSH passphrases are stored in the macOS Keychain. Usage diagnostics are off by default and, when you turn them on, are written to your local app database.
+- **Credentials stay on this Mac, unencrypted.** AI keys and sign-in tokens, platform and Jira tokens, and saved SSH passphrases are stored in `yforge.db` without encryption or an unlock prompt. YForge restricts its data directory and database files to the owner, but anyone who can read the database or its backups can read the credentials; YForge never shows a saved secret again. Existing installations migrate YForge's old Keychain entries on first credential use at the default data location, verifying the database copy before deleting the originals; failed cleanup is retryable and blocks credential operations rather than falling back. Fresh data directories do not import credentials, and a nonempty `YFORGE_DATA_DIR` override disables native migration (an empty value is treated as unset). Claude Code's own Keychain item is read-only, and Git's HTTPS credentials stay with its external credential helper. Usage diagnostics are off by default and, when you turn them on, are written to your local app database.
 
 ## Features
 

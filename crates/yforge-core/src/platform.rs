@@ -35,6 +35,35 @@ impl PlatformKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PlatformAuthMethod {
+    #[default]
+    Token,
+    OAuth,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum PlatformOAuthMethod {
+    Browser,
+    DeviceCode,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PlatformOAuthStage {
+    Browser { url: String },
+    DeviceCode { url: String, code: String },
+    Completed { login: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct PlatformSignInEvent {
+    pub operation: String,
+    pub stage: PlatformOAuthStage,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct PlatformConnection {
     pub id: String,
@@ -43,6 +72,9 @@ pub struct PlatformConnection {
     pub name: String,
     pub insecure_tls: bool,
     pub created_at: i64,
+    pub auth_method: PlatformAuthMethod,
+    pub oauth_client_id: Option<String>,
+    pub login: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

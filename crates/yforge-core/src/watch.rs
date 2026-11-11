@@ -23,7 +23,7 @@ enum Change {
     Ignored,
 }
 
-fn classify(path: &Path, root: &Path, git_dirs: &[PathBuf]) -> Change {
+fn classify(path: &Path, root: &Path, git_dirs: &[PathBuf], nested: &[String]) -> Change {
     if let Some(inside) = git_dirs.iter().find_map(|dir| path.strip_prefix(dir).ok()) {
         let is_lock = path.extension() == Some(OsStr::new("lock"));
         let first = inside.components().next().map(|part| part.as_os_str());
@@ -40,7 +40,18 @@ fn classify(path: &Path, root: &Path, git_dirs: &[PathBuf]) -> Change {
             if inside.components().next().map(|part| part.as_os_str())
                 != Some(OsStr::new(".git")) =>
         {
-            Change::WorkingTree(inside.to_path_buf())
+            let inside_text = inside.to_string_lossy().replace('\\', "/");
+            let under_nested = nested.iter().any(|directory| {
+                inside_text == *directory
+                    || inside_text
+                        .strip_prefix(directory.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            });
+            if under_nested {
+                Change::Ignored
+            } else {
+                Change::WorkingTree(inside.to_path_buf())
+            }
         }
         _ => Change::Ignored,
     }
@@ -68,7 +79,12 @@ fn some_path_is_not_ignored(root: &Path, paths: &[PathBuf]) -> bool {
     }
 }
 
-fn is_relevant(root: &Path, git_dirs: &[PathBuf], batch: &[notify::Result<Event>]) -> bool {
+fn is_relevant(
+    root: &Path,
+    git_dirs: &[PathBuf],
+    nested: &[String],
+    batch: &[notify::Result<Event>],
+) -> bool {
     let mut working_tree = Vec::new();
     for result in batch {
         let Ok(event) = result else {
@@ -78,7 +94,7 @@ fn is_relevant(root: &Path, git_dirs: &[PathBuf], batch: &[notify::Result<Event>
             continue;
         }
         for path in &event.paths {
-            match classify(path, root, git_dirs) {
+            match classify(path, root, git_dirs, nested) {
                 Change::Relevant => return true,
                 Change::WorkingTree(inside) => working_tree.push(inside),
                 Change::Ignored => {}
@@ -131,6 +147,7 @@ pub fn watch_repo(
 ) -> Result<RepoWatcher, CoreError> {
     let root = repo::open(path)?;
     let git_dirs = git_directories(&root)?;
+    let nested = repo::nested_worktree_directories(&root).unwrap_or_default();
     let (sender, events) = mpsc::channel();
     let mut watcher = notify::recommended_watcher(move |event| {
         let _ = sender.send(event);
@@ -146,7 +163,9 @@ pub fn watch_repo(
     }
     std::thread::spawn(move || {
         while let Some(batch) = collect_batch(&events) {
-            if is_relevant(&root, &git_dirs, &batch) {
+            let nested =
+                repo::nested_worktree_directories(&root).unwrap_or_else(|_| nested.clone());
+            if is_relevant(&root, &git_dirs, &nested, &batch) {
                 on_change();
             }
         }
@@ -163,7 +182,7 @@ mod tests {
     }
 
     fn classify_in(path: &str) -> Change {
-        classify(Path::new(path), Path::new("/r"), &dirs())
+        classify(Path::new(path), Path::new("/r"), &dirs(), &[])
     }
 
     #[test]
@@ -208,7 +227,7 @@ mod tests {
             PathBuf::from("/main/.git/worktrees/wt"),
             PathBuf::from("/main/.git"),
         ];
-        let classify_wt = |path: &str| classify(Path::new(path), Path::new("/wt"), &dirs);
+        let classify_wt = |path: &str| classify(Path::new(path), Path::new("/wt"), &dirs, &[]);
         assert_eq!(
             classify_wt("/main/.git/worktrees/wt/index"),
             Change::Relevant

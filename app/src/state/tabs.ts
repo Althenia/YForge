@@ -163,6 +163,12 @@ export function tabSegments(state: TabsState, mains: MainRoots): TabSegment[] {
   return segments;
 }
 
+export function visibleTabIndices(state: TabsState, mains: MainRoots): number[] {
+  return tabSegments(state, mains).flatMap((segment) =>
+    segment.kind === "cluster" ? segment.cluster.tabs : segment.clusters.flatMap((cluster) => cluster.tabs),
+  ).filter((entry) => !entry.hidden).map((entry) => entry.index);
+}
+
 export function groupNameProblem(name: string): string | undefined {
   if (name.trim() === "") return "Enter a group name";
   return [...name.trim()].length > GROUP_NAME_LIMIT ? `A group name is at most ${GROUP_NAME_LIMIT} characters` : undefined;

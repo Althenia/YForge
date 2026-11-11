@@ -14,7 +14,7 @@ describe("shortcut registry", () => {
   });
 
   it("writes each shortcut as modifier glyphs followed by one key", () => {
-    for (const [name, shortcut] of Object.entries(SHORTCUTS)) expect(shortcut, name).toMatch(/^[⌘⇧⌃⌥]*[A-Z0-9,↵⇥=\-\\]$/);
+    for (const [name, shortcut] of Object.entries(SHORTCUTS)) expect(shortcut, name).toMatch(/^[⌘⇧⌃⌥]*[A-Z0-9,↵⇥=\-\\[\]]$/);
   });
 
   it("keeps one `name: \"glyphs\",` line per shortcut, which is the form the macOS menu reads it in", () => {
@@ -34,6 +34,27 @@ describe("shortcut registry", () => {
       settings: "⌘,",
       redo: "⌘⇧Z",
     });
+  });
+
+  it("holds the tab-switching shortcuts of S43 and S61", () => {
+    expect(SHORTCUTS).toMatchObject({
+      nextTabBracket: "⌘⇧]",
+      previousTabBracket: "⌘⇧[",
+      tab1: "⌘1",
+      tab2: "⌘2",
+      tab3: "⌘3",
+      tab4: "⌘4",
+      tab5: "⌘5",
+      tab6: "⌘6",
+      tab7: "⌘7",
+      tab8: "⌘8",
+      tab9: "⌘9",
+    });
+    const tabs = SHORTCUT_GROUPS.find((group) => group.group === "Tabs");
+    expect(tabs?.entries.map((entry) => entry.key)).toEqual(expect.arrayContaining(["nextTabBracket", "previousTabBracket", "tab1", "tab9"]));
+    expect(hotkeyOf(SHORTCUTS.nextTabBracket)).toBe("Mod+Shift+]");
+    expect(hotkeyOf(SHORTCUTS.previousTabBracket)).toBe("Mod+Shift+[");
+    expect(hotkeyOf(SHORTCUTS.tab9)).toBe("Mod+9");
   });
 
   it("holds the repository search, editor, zoom, and layout shortcuts of S43 and S61", () => {

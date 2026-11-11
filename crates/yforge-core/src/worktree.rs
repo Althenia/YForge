@@ -9,11 +9,27 @@ use crate::repo;
 use crate::snapshots::{self, Action};
 
 fn is_dirty(dir: &Path) -> Result<bool, CoreError> {
-    Ok(
-        !git::run(dir, &["status", "--porcelain", "--untracked-files=all"])?
-            .trim()
-            .is_empty(),
-    )
+    Ok(!repo::read_status(&repo::resolve_root(dir)?)?
+        .files
+        .is_empty())
+}
+
+fn remove_worktree_dir(root: &Path, target: &str, force: bool) -> Result<(), CoreError> {
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(target);
+    match git::run(root, &args) {
+        Ok(_) => Ok(()),
+        Err(CoreError::GitFailed { stderr, .. })
+            if stderr
+                .contains("working trees containing submodules cannot be moved or removed") =>
+        {
+            git::run(root, &["worktree", "remove", "--force", "--force", target]).map(drop)
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn find<'a>(worktrees: &'a [Worktree], path: &str) -> Result<&'a Worktree, CoreError> {
@@ -164,12 +180,7 @@ pub fn remove_worktree(path: &Path, worktree: &str, force: bool) -> Result<(), C
             None,
         )?;
     }
-    let mut args = vec!["worktree", "remove"];
-    if force || !present {
-        args.push("--force");
-    }
-    args.push(&target.path);
-    git::run(&root, &args).map(drop)
+    remove_worktree_dir(&root, &target.path, force || !present)
 }
 
 pub fn integrate_worktree(
@@ -232,7 +243,7 @@ pub fn integrate_worktree(
         }));
     }
     if cleanup {
-        git::run(target_dir, &["worktree", "remove", &source.path])?;
+        remove_worktree_dir(target_dir, &source.path, false)?;
         git::run(target_dir, &["branch", "--delete", "--force", &branch])?;
     }
     Ok(WorktreeIntegration::Integrated {

@@ -3,6 +3,10 @@ import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { FileChange } from "../ipc/bindings/FileChange";
 import type { RevisionRange } from "../ipc/bindings/RevisionRange";
 import {
+  removeConnectionCopy,
+  removeGitHostCopy,
+  removeJiraConnectionCopy,
+  removeProviderCopy,
   clearCrashesCopy,
   closeGroupCopy,
   closeTabsCopy,
@@ -425,5 +429,21 @@ describe("close several tabs confirmation copy", () => {
       consequences: ["Closing a tab does not stop or undo its operation; it stays in the repository until you continue or abort it there."],
       confirmLabel: "Close 3 tabs",
     });
+  });
+});
+
+describe("credential removal copy", () => {
+  it("names the YForge database, not the Keychain, for provider, platform, and Jira secrets", () => {
+    expect(removeProviderCopy("OpenRouter", []).consequences[0]).toBe("Any saved API key or sign-in token is deleted from the YForge database. Claude Code's own sign-in is not changed.");
+    expect(removeConnectionCopy("Work", "github.com").consequences[0]).toContain("Its access token is deleted from the YForge database.");
+    expect(removeJiraConnectionCopy("acme.atlassian.net", "Acme").consequences[0]).toContain("Its token is deleted from the YForge database.");
+    for (const copy of [removeProviderCopy("A", []), removeConnectionCopy("W", "h"), removeJiraConnectionCopy("h", "n")]) expect(copy.consequences.join(" ")).not.toMatch(/Keychain/);
+  });
+
+  it("keeps saved SSH passphrases in the YForge database and HTTPS secrets in Git's credential helper when a host identity is removed", () => {
+    const text = removeGitHostCopy("github.com").consequences.join(" ");
+    expect(text).toContain("saved key passphrases stay in the YForge database");
+    expect(text).toContain("passwords or tokens stay in Git's credential helper");
+    expect(text).not.toContain("Keychain");
   });
 });

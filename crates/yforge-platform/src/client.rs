@@ -154,7 +154,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::{base_url, Api};
-    use yforge_core::{PlatformConnection, PlatformKind};
+    use yforge_core::{PlatformAuthMethod, PlatformConnection, PlatformKind};
 
     fn connection(kind: PlatformKind, host: &str) -> PlatformConnection {
         PlatformConnection {
@@ -164,6 +164,9 @@ mod tests {
             name: "n".to_owned(),
             insecure_tls: false,
             created_at: 0,
+            auth_method: PlatformAuthMethod::Token,
+            oauth_client_id: None,
+            login: None,
         }
     }
 

@@ -196,7 +196,7 @@ function HostForm(props: { editor: Editor; onClose: () => void; onSaved: () => v
                 <Icon name="check" size={14} />{" "}
                 {copied()
                   ? `Copied the public key. Add it to your account on ${host().trim()}.`
-                  : `Generated ${shortPath(path())}.${savedPassphrase() ? " The passphrase is saved in the macOS Keychain for this key file." : ""} Copy its public key and add it to your account on ${host().trim()}.`}
+                  : `Generated ${shortPath(path())}.${savedPassphrase() ? " The passphrase is saved in the YForge database (unencrypted) for this key file." : ""} Copy its public key and add it to your account on ${host().trim()}.`}
               </p>
             )}
           </Show>
@@ -235,7 +235,7 @@ function HostForm(props: { editor: Editor; onClose: () => void; onSaved: () => v
               <Icon name="lock" size={14} />
               <input type="password" autocomplete="off" aria-label="Passphrase (optional)" value={passphrase()} onInput={(event) => setPassphrase(event.currentTarget.value)} />
             </span>
-            <span class="field-note">When set, YForge saves this passphrase in the macOS Keychain, keyed by the key file, so it can answer the key's passphrase prompt for you. It never writes it to a file.</span>
+            <span class="field-note">When set, YForge saves this passphrase unencrypted in the YForge database, keyed by the key file, so it can answer the key's passphrase prompt for you. Anyone who can read the database or its backups can read it. YForge never shows it again or writes it to the key file.</span>
           </label>
           <div class="git-host-key-actions">
             <button

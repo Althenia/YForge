@@ -16,7 +16,10 @@ export function reportCrash(kind: string, failure: unknown, view: string): void 
 }
 
 export function installCrashCapture(view: () => string): () => void {
-  const onError = (event: ErrorEvent) => reportCrash("error", event.error ?? event.message, view());
+  const onError = (event: ErrorEvent) => {
+    if ((event.error === null || event.error === undefined) && typeof event.message === "string" && /^ResizeObserver loop (completed with undelivered notifications\.?|limit exceeded)$/i.test(event.message.trim())) return;
+    reportCrash("error", event.error ?? event.message, view());
+  };
   const onRejection = (event: PromiseRejectionEvent) => reportCrash("unhandled_rejection", event.reason, view());
   window.addEventListener("error", onError);
   window.addEventListener("unhandledrejection", onRejection);

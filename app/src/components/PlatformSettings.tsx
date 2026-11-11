@@ -3,7 +3,9 @@ import { useQueryClient } from "@tanstack/solid-query";
 import { createSignal, For, Show } from "solid-js";
 import type { PlatformConnection } from "../ipc/bindings/PlatformConnection";
 import type { PlatformKind } from "../ipc/bindings/PlatformKind";
-import { client } from "../ipc/client";
+import type { PlatformOAuthMethod } from "../ipc/bindings/PlatformOAuthMethod";
+import type { PlatformOAuthStage } from "../ipc/bindings/PlatformOAuthStage";
+import { client, IpcError } from "../ipc/client";
 import { useApp } from "../state/app";
 import { takeConnectKind } from "../state/connectRequest";
 import { removeConnectionCopy } from "../state/confirmCopy";
@@ -13,6 +15,7 @@ import { platformKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
 import { createSettled } from "../state/settled";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { CopyField } from "./SignInPanel";
 import { DialogFrame } from "./DialogFrame";
 import { Icon } from "./Icon";
 import { tip } from "./Tooltip";
@@ -32,11 +35,19 @@ export function PlatformGlyph(props: { kind: PlatformKind }) {
   );
 }
 
+let platformOperationSequence = 0;
+
 function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => void; onSaved: () => void }) {
   const editing = () => (props.start.kind === "edit" ? props.start.connection : undefined);
   const [failure, setFailure] = createSignal<string | undefined>();
   const [touched, setTouched] = createSignal(false);
   const [nameEdited, setNameEdited] = createSignal(editing() !== undefined);
+  const [authMethod, setAuthMethod] = createSignal<"token" | "oauth">(editing()?.auth_method === "o_auth" ? "oauth" : "token");
+  const [clientId, setClientId] = createSignal(editing()?.oauth_client_id ?? "");
+  const [clientSecret, setClientSecret] = createSignal("");
+  const [oauthBusy, setOauthBusy] = createSignal(false);
+  const [oauthStage, setOauthStage] = createSignal<PlatformOAuthStage | undefined>();
+  const [oauthOperation, setOauthOperation] = createSignal<string | undefined>();
   const form = createForm(() => ({
     defaultValues: {
       kind: (editing()?.kind ?? (props.start.kind === "add" ? props.start.platform : undefined) ?? "github") as PlatformKind,
@@ -69,17 +80,55 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
   }));
   const values = form.useSelector((state) => state.values);
   const problems = createSettled(
-    () => ({ host: values().host, name: values().name, token: values().token }),
+    () => ({ host: values().host, name: values().name, token: values().token, client_id: clientId(), oauth: authMethod() === "oauth" }),
     async (draft) => {
-      const entries = await Promise.all(
-        CONNECTION_FIELDS.map(async (field) => [field, await connectionFieldProblem(field, draft[field])] as const),
-      );
+      const fields: readonly ConnectionProblem[] = draft.oauth ? ["host", "name", "client_id"] : CONNECTION_FIELDS;
+      const entries = await Promise.all(fields.map(async (field) => [field, await connectionFieldProblem(field, draft[field] ?? "")] as const));
       return Object.fromEntries(entries.filter(([, problem]) => problem !== undefined)) as ConnectionProblems;
     },
   );
   const shown = (field: ConnectionProblem) => (touched() ? problems()?.[field] : undefined);
   const latestProblems = () => problems() ?? {};
-  const blocked = () => problems.pending() || Object.keys(latestProblems()).length > 0;
+  const blocked = () => oauthBusy() || problems.pending() || Object.keys(latestProblems()).length > 0;
+  const isBitbucketDataCenter = () => values().kind === "bitbucket" && values().host.trim() !== "" && values().host.trim().toLowerCase() !== "bitbucket.org";
+  async function startOAuth(method: PlatformOAuthMethod): Promise<void> {
+    setTouched(true);
+    if (blocked()) return;
+    setFailure(undefined);
+    const operationId = `platform-${Date.now()}-${(platformOperationSequence += 1)}`;
+    setOauthOperation(operationId);
+    setOauthStage(undefined);
+    setOauthBusy(true);
+    let stop: (() => void) | undefined;
+    try {
+      stop = await client.onPlatformSignIn((event) => {
+        if (event.operation === operationId) setOauthStage(event.stage);
+      });
+      await client.platformOAuthSignIn({
+        operationId,
+        existingId: editing()?.id ?? null,
+        kind: values().kind,
+        host: values().host.trim(),
+        name: values().name.trim(),
+        clientId: clientId().trim(),
+        clientSecret: clientSecret().trim() === "" ? null : clientSecret(),
+        insecureTls: values().insecureTls,
+        method,
+      });
+      props.onSaved();
+      props.onClose();
+    } catch (error) {
+      if (!(error instanceof IpcError && error.kind === "cancelled")) setFailure(platformFailure(error).message);
+    } finally {
+      stop?.();
+      setOauthBusy(false);
+      setOauthOperation(undefined);
+    }
+  }
+  const cancelOAuth = () => {
+    const operation = oauthOperation();
+    if (operation !== undefined) void client.operationCancel(operation).catch(() => undefined);
+  };
   const choose = (kind: PlatformKind) => {
     form.setFieldValue("kind", kind);
     if (!nameEdited()) form.setFieldValue("name", cardOfPlatform(kind).title);
@@ -92,6 +141,7 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
         onSubmit={(event) => {
           event.preventDefault();
           setTouched(true);
+          if (authMethod() === "oauth") return;
           if (!blocked() && !form.state.isSubmitting) void form.handleSubmit();
         }}
       >
@@ -104,6 +154,20 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
               </button>
             )}
           </For>
+        </div>
+        <div class="field">
+          <span class="field-label">Authentication</span>
+          <div class="segmented" aria-label="Authentication">
+            <button type="button" aria-pressed={authMethod() === "token"} classList={{ on: authMethod() === "token" }} onClick={() => setAuthMethod("token")}>
+              Personal access token
+            </button>
+            <button type="button" aria-pressed={authMethod() === "oauth"} classList={{ on: authMethod() === "oauth" }} onClick={() => setAuthMethod("oauth")}>
+              OAuth sign-in
+            </button>
+          </div>
+          <Show when={isBitbucketDataCenter()}>
+            <span class="field-note">Bitbucket Data Center uses personal access tokens; paste an HTTP access token instead.</span>
+          </Show>
         </div>
         <label class="field">
           <span class="field-label">Host</span>
@@ -148,6 +212,58 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
           </span>
           <Show when={shown("name")}>{(text) => <span class="field-note error">{text()}</span>}</Show>
         </label>
+        <Show when={authMethod() === "oauth"}>
+          <label class="field">
+            <span class="field-label">OAuth Client ID</span>
+            <span class="input" classList={{ invalid: shown("client_id") !== undefined }}>
+              <input type="text" spellcheck={false} autocapitalize="off" aria-label="OAuth client ID" placeholder="OAuth client ID" value={clientId()} aria-invalid={shown("client_id") !== undefined} onInput={(event) => setClientId(event.currentTarget.value)} />
+            </span>
+            <Show when={shown("client_id")} fallback={<span class="field-note">The client ID of the OAuth application you registered with the platform.</span>}>
+              {(text) => <span class="field-note error">{text()}</span>}
+            </Show>
+          </label>
+          <label class="field">
+            <span class="field-label">Client secret</span>
+            <span class="input">
+              <input type="password" autocomplete="off" aria-label="Client secret" placeholder="Optional (required for confidential Bitbucket apps)" value={clientSecret()} onInput={(event) => setClientSecret(event.currentTarget.value)} />
+            </span>
+            <span class="field-note">Stored unencrypted in the YForge database and never shown again.</span>
+          </label>
+          <div class="sign-in-run">
+            <Show when={oauthBusy()}>
+              <p class="setting-note" role="status" aria-busy="true">
+                Signing in… finish in your browser or with the code below.
+              </p>
+              <Show when={oauthStage()?.kind === "device_code" ? (oauthStage() as Extract<PlatformOAuthStage, { kind: "device_code" }>) : undefined}>
+                {(stage) => (
+                  <>
+                    <CopyField label="Address" value={stage().url} />
+                    <CopyField label="Code" value={stage().code} />
+                  </>
+                )}
+              </Show>
+              <button type="button" class="btn sm" onClick={cancelOAuth}>
+                <Icon name="close" size={14} />
+                Cancel sign-in
+              </button>
+            </Show>
+            <Show when={!oauthBusy()}>
+              <div class="hrow">
+                <button type="button" class="btn sm" onClick={() => void startOAuth("browser")}>
+                  <Icon name="key" size={14} />
+                  Sign in with browser
+                </button>
+                <Show when={values().kind === "github"}>
+                  <button type="button" class="btn sm" onClick={() => void startOAuth("device_code")}>
+                    <Icon name="terminal" size={14} />
+                    No browser? Use a code
+                  </button>
+                </Show>
+              </div>
+            </Show>
+          </div>
+        </Show>
+        <Show when={authMethod() === "token"}>
         <label class="field">
           <span class="field-label">Access token</span>
           <span class="input" classList={{ invalid: shown("token") !== undefined }}>
@@ -165,10 +281,11 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
               )}
             </form.Field>
           </span>
-          <Show when={shown("token")} fallback={<span class="field-note">{editing() === undefined ? "Stored in the macOS Keychain and never shown again." : "The saved token is never shown. Paste a new one; YForge tests it before saving."}</span>}>
+          <Show when={shown("token")} fallback={<span class="field-note">{editing() === undefined ? "Stored unencrypted in the YForge database and never shown again." : "The saved token is never shown. Paste a new one; YForge tests it before saving."}</span>}>
             {(text) => <span class="field-note error">{text()}</span>}
           </Show>
         </label>
+        </Show>
         <label class="choice">
           <form.Field name="insecureTls">
             {(field) => <input type="checkbox" checked={field().state.value} onChange={(event) => field().handleChange(event.currentTarget.checked)} />}
@@ -189,9 +306,11 @@ function ConnectionDialog(props: { start: PlatformDialogStart; onClose: () => vo
           <button type="button" class="btn" onClick={props.onClose}>
             Cancel
           </button>
-          <button type="submit" class="btn primary" disabled={form.state.isSubmitting} aria-busy={form.state.isSubmitting}>
-            {editing() === undefined ? "Add and test connection" : "Save and test connection"}
-          </button>
+          <Show when={authMethod() === "token"}>
+            <button type="submit" class="btn primary" disabled={form.state.isSubmitting} aria-busy={form.state.isSubmitting}>
+              {editing() === undefined ? "Add and test connection" : "Save and test connection"}
+            </button>
+          </Show>
         </div>
       </form>
     </DialogFrame>
@@ -245,7 +364,7 @@ export function PlatformSettings(props: { initialDialog?: PlatformDialogStart })
   return (
     <>
       <h2>Platforms</h2>
-      <p class="setting-note">Connect GitHub, GitLab, or Bitbucket to list, create, and merge pull requests for repositories cloned from that host. Tokens stay in the macOS Keychain; Git itself keeps using your SSH keys and credentials.</p>
+      <p class="setting-note">Connect GitHub, GitLab, or Bitbucket to list, create, and merge pull requests for repositories cloned from that host. Tokens are stored unencrypted in the YForge database, so anyone who can read it or its backups can read them; Git itself keeps using your SSH keys and credentials.</p>
       <div class="provider-head-row">
         <h3>Connections</h3>
         <button type="button" class="btn" onClick={() => setDialog({ kind: "add" })}>
@@ -266,7 +385,16 @@ export function PlatformSettings(props: { initialDialog?: PlatformDialogStart })
                   <span class="setting-note">
                     {cardOfPlatform(connection.kind).title} · <span class="mono">{connection.host}</span>
                   </span>
+                  <Show when={connection.auth_method === "o_auth"}>
+                    <span class="setting-note">This connected account also authenticates HTTPS Git operations (clone, fetch, pull, push) automatically, without storing tokens in the OS Keychain.</span>
+                  </Show>
                 </span>
+                <Show when={connection.auth_method === "o_auth"}>
+                  <span class="chip">OAuth</span>
+                  <Show when={connection.login}>
+                    {(login) => <span class="mono">@{login()}</span>}
+                  </Show>
+                </Show>
                 <Show when={connection.insecure_tls}>
                   <span class="chip chip-attention">
                     <Icon name="warning" size={14} />
@@ -274,6 +402,11 @@ export function PlatformSettings(props: { initialDialog?: PlatformDialogStart })
                   </span>
                 </Show>
                 <span class="recent-acts">
+                  <Show when={connection.auth_method === "o_auth"}>
+                    <button type="button" class="btn sm" onClick={() => setDialog({ kind: "edit", connection })}>
+                      Reconnect
+                    </button>
+                  </Show>
                   <button type="button" class="btn sm" disabled={busy()} aria-busy={busy()} onClick={() => void test(connection)}>
                     <Icon name="sync" size={14} />
                     Test

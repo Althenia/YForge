@@ -373,8 +373,8 @@ export function clearHistoryCopy(repository: string): ConfirmCopy {
   };
 }
 
-export function removeProviderCopy(name: string, hasKey: boolean, usedBy: readonly string[]): ConfirmCopy {
-  const consequences = [hasKey ? "Its API key is deleted from the macOS Keychain." : "Nothing else on this Mac changes."];
+export function removeProviderCopy(name: string, usedBy: readonly string[]): ConfirmCopy {
+  const consequences = ["Any saved API key or sign-in token is deleted from the YForge database. Claude Code's own sign-in is not changed."];
   if (usedBy.length > 0) consequences.push(`It is set up for ${usedBy.join(" and ")}, so ${usedBy.length === 1 ? "that feature loses its setup and turns" : "those features lose their setup and turn"} off.`);
   return { title: "Remove this AI provider?", names: [name], consequences, confirmLabel: "Remove provider" };
 }
@@ -383,7 +383,7 @@ export function removeConnectionCopy(name: string, host: string): ConfirmCopy {
   return {
     title: "Remove this platform connection?",
     names: [`${name} · ${host}`],
-    consequences: ["Its access token is deleted from the macOS Keychain. Pull requests on the platform are not changed, and repositories on this host lose their Pull requests section until you connect again."],
+    consequences: ["Its access token is deleted from the YForge database. Pull requests on the platform are not changed, and repositories on this host lose their Pull requests section until you connect again."],
     confirmLabel: "Remove connection",
   };
 }
@@ -392,7 +392,7 @@ export function removeJiraConnectionCopy(host: string, displayName: string): Con
   return {
     title: "Remove this Jira connection?",
     names: [`${host} · ${displayName}`],
-    consequences: ["Its token is deleted from the macOS Keychain. Issues in Jira are not changed; issue keys from this site show the key only and its issues leave the sidebar until you connect again."],
+    consequences: ["Its token is deleted from the YForge database. Issues in Jira are not changed; issue keys from this site show the key only and its issues leave the sidebar until you connect again."],
     confirmLabel: "Remove connection",
   };
 }
@@ -401,7 +401,7 @@ export function removeGitHostCopy(host: string): ConfirmCopy {
   return {
     title: "Remove this host identity?",
     names: [host],
-    consequences: ["Remotes on this host use the app-wide key, or your SSH agent and ~/.ssh/config, again. The key files stay in ~/.ssh, saved key passphrases stay in the Keychain, and passwords or tokens stay in Git's credential helper."],
+    consequences: ["Remotes on this host use the app-wide key, or your SSH agent and ~/.ssh/config, again. The key files stay in ~/.ssh, saved key passphrases stay in the YForge database, and passwords or tokens stay in Git's credential helper."],
     confirmLabel: "Remove host",
   };
 }

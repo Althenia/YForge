@@ -129,20 +129,20 @@ The decision for each candidate follows its workflow dependency.
     - Amend, including editing the HEAD message.
     - Interactive rebase: reorder, reword, squash, fixup, drop, and stop to edit, with a preview of the resulting history.
     - Squash a multi-selected range of commits into one.
-    - Recompose: regroup the changes of unpushed commits into a new set of commits, manually or from an AI proposal.
+    - Recompose: regroup the changes of unpushed commits into a new set of commits from an AI proposal that the user reviews and applies; there is no manual grouping.
     - Every rewrite is undoable to the recorded HEAD and warns before rewriting pushed commits.
 22. **AI assistance (optional)** (owner decision, 2026-09-30)
     - Generate commit: draft a commit message from the staged changes into the composer.
-    - Recompose: propose a regrouping of unpushed commits into new commits, shown as a plan to review and edit before applying.
+    - Recompose: propose a regrouping of unpushed commits into new commits, shown as a read-only plan to review before applying.
     - Conflict fix: propose a resolution for each conflict region in the resolver, using both sides and the base; each proposal lands in the Result pane for the user to accept, edit, or reject, and marking the file resolved stays a manual step.
-    - Opt-in and never required: every Git workflow works without a provider. Output is a draft the user reviews; nothing is committed or rewritten automatically.
+    - Opt-in: every core Git workflow, including the manual history edits (interactive rebase, squash, amend), works without a provider. Only Recompose requires a configured provider, because it applies only an AI-produced plan. Output is a draft or plan the user reviews; nothing is committed or rewritten automatically.
     - Content leaves the machine only when the user runs an AI action, and only to the provider the user chose.
     - Providers, added from a provider dialog of icon cards:
       - ChatGPT subscription, through the installed Codex CLI and its own sign-in (`codex login` in a browser, or `codex login --device-auth` headless);
       - Claude Code, through the installed `claude` CLI and its signed-in profile;
       - OpenRouter, with an API key;
       - OpenAI-compatible APIs, any number of custom endpoints, each with a base URL and an optional API key.
-    - YForge never reads, refreshes, or stores subscription tokens. API keys live in the macOS Keychain, never in YForge's database.
+    - API keys and sign-in tokens are stored unencrypted in the YForge database and never shown again. A Claude Code subscription reads Claude Code's sign-in from the macOS Keychain read-only and keeps YForge's own copy of a refreshed token in the database.
 23. **Recovery** (owner decision, 2026-09-30)
     - Reflog browser for HEAD and every branch: each entry shows the action, the commit, and when; any entry can be restored as a new branch, a detached checkout, or a reset of the current branch, each undoable.
     - Lost-commit finder: commits no ref reaches (dropped stashes, deleted branches, rewritten history) found with `git fsck`, shown with their summary and date, restorable the same way.
@@ -150,7 +150,7 @@ The decision for each candidate follows its workflow dependency.
     - Limits stated in the UI: work changed outside YForge and never committed, and objects Git has already pruned, cannot be recovered. Snapshot refs appear in `git log --all` in other tools and are pushed only by `git push --mirror`.
 24. **Platform integrations** (owner decision, 2026-09-30; see [PLATFORM_INTEGRATIONS.md](PLATFORM_INTEGRATIONS.md))
     - GitHub (cloud + Enterprise Server), GitLab (cloud + self-hosted), Bitbucket (Cloud + Data Center).
-    - Connections added in Settings: kind, host, name, personal access token (macOS Keychain, never in the database), optional insecure-TLS flag for self-signed private servers.
+    - Connections added in Settings: kind, host, name, personal access token (stored unencrypted in the YForge database, never shown again), optional insecure-TLS flag for self-signed private servers.
     - A repository matches a connection through its remotes; HTTPS and SSH remote URL forms are both recognized.
     - Pull requests / merge requests: list, detail (files with change counts), create from a local branch, merge (then fetch).
     - Auth errors surface a clear "Authentication failed for <host>" with an edit-connection action.

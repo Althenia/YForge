@@ -106,8 +106,8 @@ describe("connection words", () => {
   it("says who the connection is signed in as and where the token lives", () => {
     expect(connectionSubtitle(connection())).toBe("Jira Cloud · Connected as Sam Lee");
     expect(connectionSubtitle(connection({ kind: "data_center", email: null, display_name: "you" }))).toBe("Jira Data Center · Connected as you");
-    expect(tokenNote(connection())).toBe("API token for you@example.com, stored in the macOS Keychain");
-    expect(tokenNote(connection({ kind: "data_center", email: null }))).toBe("Personal access token, stored in the macOS Keychain");
+    expect(tokenNote(connection())).toBe("API token for you@example.com, stored in the YForge database (unencrypted)");
+    expect(tokenNote(connection({ kind: "data_center", email: null }))).toBe("Personal access token, stored in the YForge database (unencrypted)");
     expect(projectsText(connection())).toBe("ABC Accounts · WEB Website");
     expect(projectsText(connection({ projects: [] }))).toBe("No projects visible to this account");
   });

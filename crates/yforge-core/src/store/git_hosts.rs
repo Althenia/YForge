@@ -156,9 +156,22 @@ pub fn ssh_plan(dir: &Path, repository: Option<&str>) -> Result<SshPlan, CoreErr
         Some(repository) => load_repo_settings(dir, repository)?.ssh_key_path,
         None => None,
     };
+    let mut app_key = load_settings(dir)?.ssh_key_path.map(PathBuf::from);
+    let mut folder_key = None;
+    if repository_key.is_none() {
+        if let Some(repository) = repository {
+            let (key, has_command) = crate::git_hosts::repo_folder_ssh(Path::new(repository));
+            folder_key = key;
+            if has_command {
+                app_key = None;
+            }
+        }
+    }
     Ok(SshPlan {
         repository_key: repository_key.map(PathBuf::from),
-        app_key: load_settings(dir)?.ssh_key_path.map(PathBuf::from),
+        app_key,
         hosts: stored_hosts(dir)?,
+        folder_key,
+        https_credentials: Vec::new(),
     })
 }

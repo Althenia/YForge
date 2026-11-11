@@ -452,6 +452,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
     const unlistenProgress = client.onOperationProgress(actions.onProgress);
     onCleanup(() => void unlistenProgress.then((stop) => stop()));
     client.repoWatch(session.path).catch(session.report);
+    onCleanup(() => void client.repoUnwatch(session.path).catch(() => undefined));
   });
 
   return (
@@ -561,7 +562,7 @@ export function Workspace(props: { view: Extract<WorkspaceView, { status: "ready
             <Show when={fileTarget() === undefined && (actions.history() === undefined || historyOf("squash") !== undefined) ? diffTarget() : undefined}>
               {(target) => (
                 <Show when={isConflictTarget(target())} fallback={<DiffView session={session} target={target()} prefs={diffPrefs} onClose={closeDiff} onViewFile={viewFile} />}>
-                  <ConflictResolver session={session} actions={actions} file={target().file} onClose={closeDiff} onOpenAiSettings={() => app.openSettings("ai")} />
+                  <ConflictResolver session={session} actions={actions} file={target().file} onClose={closeDiff} onBack={closeDiff} onOpenDiff={showDiff} onOpenAiSettings={() => app.openSettings("ai")} />
                 </Show>
               )}
             </Show>

@@ -203,6 +203,22 @@ const WINDOW: &[Entry] = &[
     Entry::Separator,
     item("tab.next", "Show Next Tab", Some("nextTab")),
     item("tab.previous", "Show Previous Tab", Some("previousTab")),
+    item("tab.next_bracket", "Show Next Tab", Some("nextTabBracket")),
+    item(
+        "tab.previous_bracket",
+        "Show Previous Tab",
+        Some("previousTabBracket"),
+    ),
+    Entry::Separator,
+    item("tab.1", "Show Tab 1", Some("tab1")),
+    item("tab.2", "Show Tab 2", Some("tab2")),
+    item("tab.3", "Show Tab 3", Some("tab3")),
+    item("tab.4", "Show Tab 4", Some("tab4")),
+    item("tab.5", "Show Tab 5", Some("tab5")),
+    item("tab.6", "Show Tab 6", Some("tab6")),
+    item("tab.7", "Show Tab 7", Some("tab7")),
+    item("tab.8", "Show Tab 8", Some("tab8")),
+    item("tab.9", "Show Tab 9", Some("tab9")),
     Entry::Separator,
     Entry::Native(Native::BringAllToFront),
 ];
@@ -246,7 +262,7 @@ pub fn accelerator(glyphs: &str) -> Option<String> {
             parts.push(match glyph {
                 '↵' => "Enter".to_owned(),
                 '⇥' => "Tab".to_owned(),
-                other if other.is_ascii_alphanumeric() || ",=-\\".contains(other) => {
+                other if other.is_ascii_alphanumeric() || ",=-\\[]".contains(other) => {
                     other.to_ascii_uppercase().to_string()
                 }
                 _ => return None,
@@ -479,6 +495,8 @@ mod tests {
         assert_eq!(accelerator("⌘=").as_deref(), Some("CmdOrCtrl+="));
         assert_eq!(accelerator("⌘-").as_deref(), Some("CmdOrCtrl+-"));
         assert_eq!(accelerator("⌘0").as_deref(), Some("CmdOrCtrl+0"));
+        assert_eq!(accelerator("⌘⇧]").as_deref(), Some("CmdOrCtrl+Shift+]"));
+        assert_eq!(accelerator("⌘⇧[").as_deref(), Some("CmdOrCtrl+Shift+["));
         assert_eq!(accelerator("⌥⌘\\").as_deref(), Some("Alt+CmdOrCtrl+\\"));
         assert_eq!(accelerator("⌘?"), None);
     }
@@ -555,6 +573,17 @@ mod tests {
             ("stash.push", Some("stash")),
             ("tab.next", Some("nextTab")),
             ("tab.previous", Some("previousTab")),
+            ("tab.next_bracket", Some("nextTabBracket")),
+            ("tab.previous_bracket", Some("previousTabBracket")),
+            ("tab.1", Some("tab1")),
+            ("tab.2", Some("tab2")),
+            ("tab.3", Some("tab3")),
+            ("tab.4", Some("tab4")),
+            ("tab.5", Some("tab5")),
+            ("tab.6", Some("tab6")),
+            ("tab.7", Some("tab7")),
+            ("tab.8", Some("tab8")),
+            ("tab.9", Some("tab9")),
             ("zoom.in", Some("zoomIn")),
             ("zoom.out", Some("zoomOut")),
             ("zoom.reset", Some("zoomReset")),

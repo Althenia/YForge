@@ -89,9 +89,9 @@ describe("failure copy", () => {
     }
   });
 
-  it("names the Keychain or database when storage fails, and passes other errors through", () => {
-    expect(platformFailure(new IpcError({ kind: "storage_failed", message: "keychain locked" }))).toEqual({
-      message: "YForge could not use its saved connections or the macOS Keychain: keychain locked",
+  it("names the database when storage fails, and passes other errors through", () => {
+    expect(platformFailure(new IpcError({ kind: "storage_failed", message: "database is locked" }))).toEqual({
+      message: "YForge could not read or write its saved connections: database is locked",
     });
     expect(platformFailure(new Error("boom"))).toEqual({ message: "boom" });
     expect(platformFailure("odd")).toEqual({ message: "odd" });

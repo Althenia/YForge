@@ -163,4 +163,96 @@ describe("submodules", () => {
     await flush();
     expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toEqual(["/work/app/vendor/core"]);
   });
+
+  it("opens an initialized submodule as its own tab on click", async () => {
+    const { host, calls } = mount();
+    await flush();
+
+    host.querySelector<HTMLElement>('[data-nav="submodule:vendor/core"]')?.click();
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toEqual(["/work/app/vendor/core"]);
+  });
+
+  it("opens an initialized submodule as its own tab on Enter", async () => {
+    const { host, calls } = mount();
+    await flush();
+
+    host.querySelector<HTMLElement>('[data-nav="submodule:vendor/core"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toEqual(["/work/app/vendor/core"]);
+  });
+
+  it("opens an initialized submodule as its own tab on Space", async () => {
+    const { host, calls } = mount();
+    await flush();
+
+    host.querySelector<HTMLElement>('[data-nav="submodule:vendor/core"]')?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "repo_open").map((call) => call.args.path)).toEqual(["/work/app/vendor/core"]);
+  });
+
+  it.each([
+    ["uninitialized", row({ path: "ext/docs", status: "uninitialized", url: "git@example.com:sample/docs.git", recorded: "1122334000000000000000000000000000000000", checked_out: null })],
+    ["without a checkout", row({ path: "vendor/lib", status: "update_failed", url: "git@example.com:sample/lib.git", checked_out: null })],
+  ])("keeps a %s submodule from navigating and states the reason", async (_label, target) => {
+    const { host, calls } = mount([target]);
+    await flush();
+    const entry = host.querySelector<HTMLElement>(`[data-nav="submodule:${target.path}"]`);
+
+    entry?.click();
+    entry?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    entry?.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await flush();
+
+    expect(entry?.getAttribute("aria-disabled")).toBe("true");
+    expect(entry?.getAttribute("title")).toBe(`This submodule is not checked out · ${target.url}`);
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(false);
+  });
+
+  it("opens the context menu on right-click and keyboard without opening the checkout", async () => {
+    const { host, calls } = mount();
+    await flush();
+    const core = host.querySelector<HTMLElement>('[data-nav="submodule:vendor/core"]');
+
+    await openMenu(host, "vendor/core");
+    expect(menuItem("Open as tab")).toBeDefined();
+    core?.dispatchEvent(new KeyboardEvent("keydown", { key: "F10", shiftKey: true, bubbles: true }));
+    await flush();
+
+    expect(menuItem("Open as tab")).toBeDefined();
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(false);
+  });
+
+  it("opens the checkout once from the menu action", async () => {
+    const { host, calls } = mount();
+    await flush();
+
+    await openMenu(host, "vendor/core");
+    menuItem("Open as tab")?.click();
+    await flush();
+
+    expect(calls.filter((call) => call.cmd === "repo_open")).toHaveLength(1);
+  });
+
+  it("does not open a checkout while another submodule operation is running", async () => {
+    let finish: (() => void) | undefined;
+    const { host, calls } = mount(listed, () => new Promise<void>((resolve) => { finish = resolve; }));
+    await flush();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Add submodule"]')?.click();
+    await flush();
+    type(document.querySelector<HTMLInputElement>('input[aria-label="Submodule path"]'), "vendor/icons");
+    type(document.querySelector<HTMLInputElement>('input[aria-label="Submodule URL"]'), "git@example.com:sample/icons.git");
+    buttonNamed(document.body, "Add")?.click();
+    await flush();
+
+    host.querySelector<HTMLElement>('[data-nav="submodule:vendor/core"]')?.click();
+    await flush();
+
+    expect(calls.some((call) => call.cmd === "repo_open")).toBe(false);
+    finish?.();
+    await flush(40);
+  });
 });

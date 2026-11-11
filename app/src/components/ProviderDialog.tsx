@@ -149,7 +149,7 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
           >
             <span class="key-saved">
               <Icon name="lock" />
-              <span>Key saved in the macOS Keychain</span>
+              <span>Key saved in the YForge database (unencrypted)</span>
               <button type="button" class="btn sm" onClick={() => form.setFieldValue("keyMode", "set")}>
                 Replace
               </button>
@@ -159,7 +159,7 @@ function ProviderFields(props: { card: ProviderCard; provider: ProviderSummary |
             </span>
           </Show>
           <Show when={values().keyMode === "clear"}>
-            <span class="field-note">The key is deleted from the Keychain when you save.{" "}
+            <span class="field-note">The key is deleted from the YForge database when you save.{" "}
               <button type="button" class="btn sm" onClick={() => form.setFieldValue("keyMode", "keep")}>
                 Keep it
               </button>
@@ -190,7 +190,7 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
   const providers = useQuery(providersOptions);
   const summary = () => (providers.data ?? []).find((entry) => entry.config.id === props.id);
   const [failure, setFailure] = createSignal<string | undefined>();
-  const refresh = () => refreshProviders(queryClient);
+  const refresh = () => refreshProviders(queryClient, props.id);
   const save = useMutation(() => ({
     mutationFn: (input: { draft: ProviderDraft; key: ApiKeyChange }) => {
       const card = cardOf(input.draft.kind);
@@ -226,12 +226,12 @@ function ProviderPanel(props: { id: string; onRemove: (summary: ProviderSummary)
               </button>
             </div>
             <Show when={view().detail}>{(detail) => <p class="field-note error">{detail()}</p>}</Show>
-            <Show when={current().status.kind === "signed_out"}>
+            <Show when={current().config.auth_mode === "subscription"}>
               <SignInPanel provider={current()} deviceCode={current().config.kind === "chatgpt"} />
             </Show>
             <Show when={current().config.auth_mode === "subscription" && current().config.kind === "claude"}>
               <p class="field-note">
-                <Icon name="lock" size={14} /> YForge reads your Claude Code sign-in from the macOS Keychain. Run <code>claude</code> and sign in if this says signed out.
+                <Icon name="lock" size={14} /> YForge reads your Claude Code sign-in from the macOS Keychain without changing it, and keeps its own copy of a token it refreshes in the YForge database (unencrypted). Run <code>claude</code> and sign in if this says signed out.
               </p>
             </Show>
             <ProviderFields
@@ -289,7 +289,7 @@ export function ProviderDialog(props: { start: ProviderDialogStart; onClose: () 
         ...(draft.authMode === "api_key" && draft.apiKey.trim() !== "" ? { api_key: draft.apiKey.trim() } : {}),
       });
     },
-    onSuccess: () => refreshProviders(queryClient),
+    onSuccess: (summary) => refreshProviders(queryClient, summary.config.id),
   }));
   const step = () => (providerId() !== undefined ? "panel" : kind() !== undefined ? "form" : "choose");
   const title = () => (step() === "choose" ? "Add an AI provider" : step() === "form" ? `Add ${cardOf(kind() as ProviderKind).title}` : "AI provider");

@@ -309,6 +309,7 @@ fn the_plan_resolves_repository_key_then_host_identity_then_app_key_then_the_age
             host("gitlab.corp-b.com:2222", Some("/keys/corp-b"), None),
             host("github.com", None, Some("you")),
         ],
+        ..SshPlan::default()
     };
     let source_and_key = |plan: &SshPlan, url: Option<&str>| {
         let resolved = plan.resolve(url);
@@ -348,6 +349,20 @@ fn the_plan_resolves_repository_key_then_host_identity_then_app_key_then_the_age
     assert_eq!(
         source_and_key(&plan, Some("/srv/git/repo.git")),
         (IdentitySource::App, key("app"))
+    );
+
+    let folder = SshPlan {
+        folder_key: key("folder"),
+        ..plan.clone()
+    };
+    assert_eq!(
+        source_and_key(&folder, Some("git@unknown.example:x.git")),
+        (IdentitySource::Folder, key("folder"))
+    );
+    assert_eq!(
+        source_and_key(&folder, Some("git@gitlab.corp-a.com:team/app.git")),
+        (IdentitySource::Host, key("corp-a")),
+        "a per-host key outranks the folder key"
     );
 
     let own = SshPlan {
@@ -531,6 +546,7 @@ fn plan() -> SshPlan {
             host("corp-b.example:2222", Some("/keys/corp-b"), None),
             host("agent.example", None, None),
         ],
+        ..SshPlan::default()
     }
 }
 

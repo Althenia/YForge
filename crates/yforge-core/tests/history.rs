@@ -950,3 +950,19 @@ fn recompose_reports_pushed_history_and_refuses_merges_and_empty_ranges() {
         ErrorKind::MergeCommitInRange
     );
 }
+
+#[test]
+fn squashing_commits_whose_net_diff_is_empty_succeeds() {
+    let repo = Fixture::init();
+    repo.identity();
+    let base = repo.commit("a.txt", "base\n", "Base");
+    let one = repo.commit("a.txt", "changed\n", "Change");
+    let two = repo.commit("a.txt", "base\n", "Revert change");
+    let result = squash_commits(&repo.path, &[one.clone(), two.clone()], "Combined").unwrap();
+    assert_eq!(result.outcome, RebaseOutcome::Completed);
+    assert_eq!(
+        subjects(&repo),
+        vec!["Combined".to_owned(), "Base".to_owned()]
+    );
+    let _ = base;
+}

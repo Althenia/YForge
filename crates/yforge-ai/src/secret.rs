@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use thiserror::Error;
+use yforge_core::{Namespace, Secrets};
 
-pub const KEYCHAIN_SERVICE: &str = "dev.yforge.desktop.ai";
 pub const CLAUDE_CODE_SERVICE: &str = "Claude Code-credentials";
 const SECURITY_TOOL: &str = "/usr/bin/security";
 const SECURITY_NOT_FOUND: i32 = 44;
@@ -18,32 +18,33 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, account: &str) -> Result<(), SecretError>;
 }
 
-pub struct KeychainStore;
-
-fn entry(account: &str) -> Result<keyring::Entry, SecretError> {
-    keyring::Entry::new(KEYCHAIN_SERVICE, account).map_err(|error| SecretError(error.to_string()))
+pub struct SqliteSecrets {
+    secrets: Arc<Secrets>,
 }
 
-impl SecretStore for KeychainStore {
+impl SqliteSecrets {
+    pub fn new(secrets: Arc<Secrets>) -> Self {
+        Self { secrets }
+    }
+}
+
+impl SecretStore for SqliteSecrets {
     fn get(&self, account: &str) -> Result<Option<String>, SecretError> {
-        match entry(account)?.get_password() {
-            Ok(secret) => Ok(Some(secret)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(SecretError(error.to_string())),
-        }
+        self.secrets
+            .get(Namespace::Ai, account)
+            .map_err(|error| SecretError(error.to_string()))
     }
 
     fn set(&self, account: &str, secret: &str) -> Result<(), SecretError> {
-        entry(account)?
-            .set_password(secret)
+        self.secrets
+            .set(Namespace::Ai, account, secret)
             .map_err(|error| SecretError(error.to_string()))
     }
 
     fn delete(&self, account: &str) -> Result<(), SecretError> {
-        match entry(account)?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(error) => Err(SecretError(error.to_string())),
-        }
+        self.secrets
+            .delete(Namespace::Ai, account)
+            .map_err(|error| SecretError(error.to_string()))
     }
 }
 

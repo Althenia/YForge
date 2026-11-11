@@ -8,14 +8,25 @@ use yforge_core::{
 use crate::error::{PlatformError, Result};
 use crate::http::scheme_for;
 use crate::jira::JiraClient;
-use crate::service::{keychain, valid_host, valid_token, PlatformService};
+use crate::service::{secret_error, valid_host, valid_token, PlatformService};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NewJiraConnection {
     pub kind: JiraKind,
     pub site: String,
     pub email: Option<String>,
     pub token: String,
+}
+
+impl std::fmt::Debug for NewJiraConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NewJiraConnection")
+            .field("kind", &self.kind)
+            .field("site", &self.site)
+            .field("email", &self.email)
+            .field("token", &"<redacted>")
+            .finish()
+    }
 }
 
 /// The problem the form must show with a field, or `None` when the value is acceptable.
@@ -103,14 +114,14 @@ impl PlatformService {
             jira_connection_add(dir, input.kind, &site, email.as_deref(), &name, &projects)?;
         if let Err(error) = self.secrets.set(&account(&connection.id), &token) {
             let _ = jira_connection_remove(dir, &connection.id);
-            return Err(keychain(error));
+            return Err(secret_error(error));
         }
         Ok(connection)
     }
 
     pub fn jira_remove(&self, dir: &Path, id: &str) -> Result<()> {
         jira_connection_remove(dir, id)?;
-        self.secrets.delete(&account(id)).map_err(keychain)
+        self.secrets.delete(&account(id)).map_err(secret_error)
     }
 
     /// Checks the saved token and keeps the name and projects the site reports now.
@@ -188,7 +199,7 @@ impl PlatformService {
         let token = self
             .secrets
             .get(&account(&connection.id))
-            .map_err(keychain)?
+            .map_err(secret_error)?
             .ok_or_else(|| PlatformError::AuthFailed {
                 host: connection.host.clone(),
                 detail: "no access token is stored for this connection".to_owned(),

@@ -146,5 +146,6 @@ export const PRIVACY_LINES: readonly string[] = [
   "Generate commit sends your staged diff and the subjects of your last 10 commits. Propose resolution sends each conflict's current, incoming, and base text with 3 lines of context. Propose with AI in Recompose sends the changes of the unpushed commits.",
   "Files named .env*, *.pem, *.key, id_rsa*, or credentials* are never sent; their names are listed as withheld. Large diffs are cut and binary files go by name only.",
   "Answers are drafts you review. Nothing is committed, rewritten, or written to a file for you.",
-  "API keys are stored in the macOS Keychain, never in YForge's database. YForge never reads or stores the sign-in of the Codex or Claude Code CLIs.",
+  "API keys, sign-in tokens, platform and Jira tokens, and saved SSH key passphrases are stored unencrypted in YForge's database on this Mac, so anyone who can read the database or its backups can read them. YForge never shows a saved secret again.",
+  "For a Claude Code subscription YForge reads Claude Code's sign-in from the macOS Keychain without changing it, and keeps its own copy of a token it refreshes in its database. YForge does not read the Codex CLI's sign-in.",
 ];

@@ -1,4 +1,7 @@
+use std::cell::RefCell;
+use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::error::CoreError;
 use crate::git;
@@ -71,10 +74,86 @@ pub(crate) fn read_status(root: &Path) -> Result<ParsedStatus, CoreError> {
         ],
     )?;
     let mut parsed = status::parse_status(&output)?;
-    if parsed.counts.untracked > 0 {
-        status::drop_untracked_inside(&mut parsed, &nested_worktree_directories(root)?);
+    let nested = nested_worktree_directories(root)?;
+    if !nested.is_empty() {
+        status::drop_untracked_inside(&mut parsed, &nested);
+        let submodules = submodule_paths(root);
+        status::drop_nested_directories(&mut parsed, &nested, &submodules);
     }
     Ok(parsed)
+}
+
+fn submodule_paths(root: &Path) -> HashSet<String> {
+    let Ok(text) = std::fs::read_to_string(root.join(".gitmodules")) else {
+        return HashSet::new();
+    };
+    text.lines()
+        .filter_map(|line| {
+            let value = line.trim().strip_prefix("path")?.trim_start();
+            value.strip_prefix('=').map(|path| path.trim().to_owned())
+        })
+        .collect()
+}
+
+pub(crate) fn unignored_nested_worktree_directories(root: &Path) -> Result<Vec<String>, CoreError> {
+    let nested = nested_worktree_directories(root)?;
+    if nested.is_empty() {
+        return Ok(nested);
+    }
+    let input: String = nested.iter().flat_map(|dir| [dir.as_str(), "\0"]).collect();
+    let checked = git::run_unchecked(root, &["check-ignore", "-z", "--stdin"], Some(&input))?;
+    if checked.status != Some(0) {
+        return Ok(nested);
+    }
+    let ignored: HashSet<&str> = checked.stdout.split('\0').collect();
+    Ok(nested
+        .into_iter()
+        .filter(|dir| !ignored.contains(dir.as_str()))
+        .collect())
+}
+
+fn common_dir_key(path: &Path) -> PathBuf {
+    if let Ok(completed) = git::run_unchecked(path, &["rev-parse", "--git-common-dir"], None) {
+        if completed.succeeded() {
+            let raw = completed.stdout.trim();
+            if !raw.is_empty() {
+                let candidate = Path::new(raw);
+                let joined = if candidate.is_absolute() {
+                    candidate.to_path_buf()
+                } else {
+                    path.join(candidate)
+                };
+                return joined.canonicalize().unwrap_or(joined);
+            }
+        }
+    }
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+}
+
+static REPO_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+thread_local! {
+    static HELD_COMMON_DIRS: RefCell<HashSet<PathBuf>> = RefCell::new(HashSet::new());
+}
+
+pub fn with_repo_mutation_lock<T>(
+    path: &Path,
+    work: impl FnOnce() -> Result<T, CoreError>,
+) -> Result<T, CoreError> {
+    let key = common_dir_key(path);
+    if HELD_COMMON_DIRS.with_borrow(|held| held.contains(&key)) {
+        return work();
+    }
+    let lock = {
+        let mut locks = REPO_LOCKS.lock().unwrap_or_else(PoisonError::into_inner);
+        locks.entry(key.clone()).or_default().clone()
+    };
+    let _guard = lock.lock().unwrap_or_else(PoisonError::into_inner);
+    HELD_COMMON_DIRS.with_borrow_mut(|held| held.insert(key.clone()));
+    let result = work();
+    HELD_COMMON_DIRS.with_borrow_mut(|held| held.remove(&key));
+    result
 }
 
 pub(crate) fn nested_worktree_directories(root: &Path) -> Result<Vec<String>, CoreError> {

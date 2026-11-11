@@ -13,7 +13,7 @@ Status: **approved 2026-09-30** (owner decision: ChatGPT API key + headless OAut
 | `openrouter` | API key | `https://openrouter.ai/api/v1` (chat completions) | `GET /api/v1/models` |
 | `openai_compatible` | API key | user base URL | `GET {base}/models` |
 
-- Each provider row stores `auth_mode` (`api_key` | `subscription`). API keys and OAuth tokens live in the Keychain under YForge's own service; never in the database.
+- Each provider row stores `auth_mode` (`api_key` | `subscription`). API keys and OAuth tokens live unencrypted in the YForge database; no command returns them.
 - **Connections are direct API calls, the YCoding pattern — no CLI spawn at run time.**
 - **ChatGPT OAuth (YForge implements its own, per YCoding):**
   - client id `app_EMoamEEZ73f0CkXaXp7hrann`, issuer `https://auth.openai.com`;
@@ -21,7 +21,7 @@ Status: **approved 2026-09-30** (owner decision: ChatGPT API key + headless OAut
   - headless flow: `POST {issuer}/api/accounts/deviceauth/usercode` `{client_id}` → `{device_auth_id, user_code, interval}`; show the code; poll `POST {issuer}/api/accounts/deviceauth/token` `{device_auth_id, user_code}` → `{authorization_code}`; exchange with redirect `{issuer}/deviceauth/callback`;
   - refresh: `POST {issuer}/oauth/token` (`grant_type=refresh_token`);
   - account id: JWT claim `chatgpt_account_id` (id_token, then access_token, then `https://api.openai.com/auth` claim, then `organizations[0].id`).
-- **Claude Code subscription (YCoding pattern):** read the macOS Keychain service `Claude Code-credentials` (`claudeAiOauth` JSON: `accessToken`, `refreshToken`, `expiresAt`, `subscriptionType`); refresh via `POST https://claude.ai/v1/oauth/token` with client id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`. Requires Claude Code installed and signed in; YForge reads, never writes, Claude Code's store.
+- **Claude Code subscription (YCoding pattern):** read the macOS Keychain service `Claude Code-credentials` (`claudeAiOauth` JSON: `accessToken`, `refreshToken`, `expiresAt`, `subscriptionType`); refresh via `POST https://claude.ai/v1/oauth/token` with client id `9d1c250a-e61b-44d9-88ed-5944d1962f5e`. Requires Claude Code installed and signed in; YForge reads, never writes, Claude Code's store; a token it refreshes is cached in the YForge database.
 - **Run requests:**
   - ChatGPT subscription: OpenAI Responses API at `https://chatgpt.com/backend-api/codex/responses`, `Authorization: Bearer`, `chatgpt-account-id: <account id>`;
   - ChatGPT API key: `https://api.openai.com/v1/responses` with `Authorization: Bearer`;
@@ -49,7 +49,7 @@ Status: **approved 2026-09-30** (owner decision: ChatGPT API key + headless OAut
 ## Verification
 
 - Adapters against fake `TcpListener` servers: request shape (method, path, headers, body), response mapping, 401/403 → `ai_auth_required`, models mapping.
-- OAuth readers: fixture files for `~/.codex/auth.json` and a Keychain stub behind the existing `SecretStore` trait.
+- OAuth readers: fixture files for `~/.codex/auth.json` and a stub for Claude Code's Keychain item.
 - Store: feature-config CRUD and switch, migrations 6 and 7.
 - Frontend: model picker from the API, feature cards, prompt editor with reset, run dispatch per feature.
 - Live smoke (ignored test): ChatGPT subscription via the codex backend and Claude subscription via Keychain, one generate call each, on this machine.
