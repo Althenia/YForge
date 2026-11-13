@@ -32,6 +32,7 @@ export function VirtualRows<T>(props: {
   measured?: boolean;
   as?: "ul" | "ol" | "div";
   class?: string;
+  style?: JSX.CSSProperties;
   findText?: (item: T) => string;
   children: (item: T, row: VirtualRow) => JSX.Element;
 }) {
@@ -143,7 +144,7 @@ export function VirtualRows<T>(props: {
       ref={(element: HTMLElement) => (list = element)}
       class={props.class}
       {...props.attrs}
-      style={{ position: "relative", height: `${virtualizer.getTotalSize()}px` }}
+      style={{ ...props.style, position: "relative", height: `${virtualizer.getTotalSize()}px` }}
     >
       <For each={indexes()}>
         {(index) => {

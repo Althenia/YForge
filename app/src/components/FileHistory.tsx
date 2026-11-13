@@ -9,7 +9,7 @@ import { useNow } from "../state/clock";
 import { createDiffController } from "../state/diffController";
 import { diffModes, type DiffTarget } from "../state/diffModel";
 import type { DiffPrefs } from "../state/diffPrefs";
-import { blameRows, createFileHistory, historyViews, revertedNotice, revertReason, type FileHistoryState } from "../state/fileHistory";
+import { blameRows, createFileHistory, deletedNotice, historyViews, revertedNotice, revertReason, type FileHistoryState } from "../state/fileHistory";
 import type { FileHistoryRequest } from "../state/fileHistoryRequest";
 import { fileViewError, type FileViewTarget } from "../state/fileView";
 import { useQuery } from "../state/query";
@@ -45,10 +45,12 @@ function HistoryDiff(props: { session: RepoSession; state: FileHistoryState; rev
   let pane: HTMLDivElement | undefined;
   const { step, unit, track } = createDiffStep(diff, mode, () => pane);
   const reason = () => revertReason(props.prefs.ignoreWhitespace());
+  const shownRevision = createMemo<FileRevision | undefined>((previous) => (diff.shown() === undefined || diff.diff.isPlaceholderData ? previous : props.revision()));
 
   const revert = (index: number) => {
-    if (reason() !== undefined) return;
-    const { sha, short, path } = props.revision();
+    const shown = shownRevision();
+    if (reason() !== undefined || shown === undefined) return;
+    const { sha, short, path } = shown;
     void props.session.mutate(() => client.revertHunk(props.session.path, sha, path, index)).then((ok) => {
       if (ok) props.session.inform(revertedNotice(path, short));
     });
@@ -105,7 +107,14 @@ function HistoryFile(props: { session: RepoSession; state: FileHistoryState; rev
       <div class="dtool" role="toolbar" aria-label="History options">
         <ViewSwitch state={props.state} />
       </div>
-      <FileBody session={props.session} file={props.revision().path} rev={props.revision().sha} onOpenFile={(file, fragment) => props.onViewFile({ file, rev: props.revision().sha, source: props.revision().short, fragment })} />
+      <Show
+        when={props.revision().status === "deleted"}
+        fallback={<FileBody session={props.session} file={props.revision().path} rev={props.revision().sha} onOpenFile={(file, fragment) => props.onViewFile({ file, rev: props.revision().sha, source: props.revision().short, fragment })} />}
+      >
+        <div class="dbody">
+          <div class="empty">{deletedNotice(props.revision().path, props.revision().short)}</div>
+        </div>
+      </Show>
     </div>
   );
 }
@@ -113,12 +122,14 @@ function HistoryFile(props: { session: RepoSession; state: FileHistoryState; rev
 function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; revision: () => FileRevision; onPick: (sha: string) => void }) {
   const path = props.session.path;
   const now = useNow();
+  const deleted = () => props.revision().status === "deleted";
   const blame = useQuery(() => ({
     queryKey: repoKeys.read(path, "file-blame", props.revision().path, props.revision().sha),
     queryFn: () => client.fileBlame(path, props.revision().path, props.revision().sha),
     placeholderData: keepPreviousData,
+    enabled: !deleted(),
   }));
-  const runs = (): BlameRun[] => (blame.error == null ? (blame.data ?? []) : []);
+  const runs = (): BlameRun[] => (blame.error == null && !deleted() ? (blame.data ?? []) : []);
   const rows = createMemo(() => blameRows(runs()));
   const lines = createMemo(() => rows().map((row) => row.text));
   let body: HTMLDivElement | undefined;
@@ -147,7 +158,10 @@ function HistoryBlame(props: { session: RepoSession; state: FileHistoryState; re
         <ViewSwitch state={props.state} />
       </div>
       <div class="dbody blame" ref={body}>
-        <Show when={blame.error}>
+        <Show when={deleted()}>
+          <div class="empty">{deletedNotice(props.revision().path, props.revision().short)}</div>
+        </Show>
+        <Show when={!deleted() && blame.error}>
           {(error) => (
             <div class="graph-error" role="alert">
               {fileViewError(error())}
@@ -179,12 +193,6 @@ export function FileHistory(props: { session: RepoSession; request: FileHistoryR
 
   const pick = (sha: string) => {
     state.select(sha);
-    list?.focus();
-  };
-
-  const pickBlame = (sha: string) => {
-    state.select(sha);
-    state.setView("diff");
     list?.focus();
   };
 
@@ -270,7 +278,7 @@ export function FileHistory(props: { session: RepoSession; request: FileHistoryR
               <HistoryFile session={props.session} state={state} revision={() => state.selected() as FileRevision} onViewFile={props.onViewFile} />
             </Show>
             <Show when={state.view() === "blame"}>
-              <HistoryBlame session={props.session} state={state} revision={() => state.selected() as FileRevision} onPick={pickBlame} />
+              <HistoryBlame session={props.session} state={state} revision={() => state.selected() as FileRevision} onPick={pick} />
             </Show>
           </Show>
         </div>

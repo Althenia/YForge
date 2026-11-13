@@ -232,7 +232,7 @@ export const client = {
     call<FileDiff>("commit_file_diff", ignoreWhitespace ? { path, sha, file, ignoreWhitespace } : { path, sha, file }),
   revisionFileDiff: (path: string, base: string, head: string, file: string, ignoreWhitespace = false) =>
     call<FileDiff>("revision_file_diff", ignoreWhitespace ? { path, base, head, file, ignoreWhitespace } : { path, base, head, file }),
-  fileHistory: (path: string, file: string) => call<FileRevision[]>("file_history", { path, file }),
+  fileHistory: (path: string, file: string, revision: string | null) => call<FileRevision[]>("file_history", { path, file, revision }),
   fileBlame: (path: string, file: string, revision: string | null) => call<BlameRun[]>("file_blame", { path, file, revision }),
   revertHunk: (path: string, sha: string, file: string, hunk: number) => call<null>("revert_hunk", { path, sha, file, hunk }),
   commitTreePaths: (path: string, sha: string) => call<string[]>("commit_tree_paths", { path, sha }),

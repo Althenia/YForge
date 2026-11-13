@@ -123,5 +123,7 @@ const columns = (text: string): number => {
   return width;
 };
 
+export const widestText = (lines: readonly string[]): number => lines.reduce((most, text) => Math.max(most, columns(text)), 0);
+
 /// The longest code line of the hunks in character columns, so every diff row can share the widest row's width.
-export const widestLine = (hunks: readonly DiffHunk[]): number => hunks.reduce((widest, hunk) => hunk.lines.reduce((most, line) => Math.max(most, columns(line.text)), widest), 0);
+export const widestLine = (hunks: readonly DiffHunk[]): number => widestText(hunks.flatMap((hunk) => hunk.lines.map((line) => line.text)));

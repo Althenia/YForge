@@ -924,9 +924,15 @@ async fn commit_file_diff(
 }
 
 #[tauri::command]
-async fn file_history(path: String, file: String) -> Result<Vec<FileRevision>, ErrorPayload> {
-    log::debug!("file_history path={path} file={file}");
-    let result = blocking(move || yforge_core::file_history(Path::new(&path), &file)).await;
+async fn file_history(
+    path: String,
+    file: String,
+    revision: Option<String>,
+) -> Result<Vec<FileRevision>, ErrorPayload> {
+    log::debug!("file_history path={path} file={file} revision={revision:?}");
+    let result =
+        blocking(move || yforge_core::file_history(Path::new(&path), &file, revision.as_deref()))
+            .await;
     log_outcome("file_history", &result, |revisions| {
         format!("revisions={}", revisions.len())
     });

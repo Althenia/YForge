@@ -7,6 +7,7 @@ import { fileLines, fileViewError, formatBytes, previewKind, type FileViewTarget
 import { repoKeys } from "../state/queryKeys";
 import type { RepoSession } from "../state/repoSession";
 import { displayText } from "../state/diffHighlight";
+import { widestText } from "../state/diffRows";
 import { highlightLines, languageOf, loadLanguage, type LanguageId } from "../state/syntax";
 import { handleMarkdownClick, renderMarkdown } from "../state/markdown";
 import { Icon } from "./Icon";
@@ -35,7 +36,7 @@ export function FileLines(props: { file: string; lines: readonly string[]; repor
   const highlighted = createMemo(() => highlightLines(language(), lines()));
 
   return (
-    <VirtualRows as="div" class="dflat" items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE} findText={(line) => line}>
+    <VirtualRows as="div" class="dflat flines" style={{ "--code-ch": String(widestText(lines())) }} items={lines()} scroller={props.scroller} estimate={LINE_ESTIMATE} findText={(line) => line}>
       {(_, virtual) => (
         <div class="fline" classList={{ "blame-selected": props.highlight?.(virtual.index) === true }} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
           {props.gutter?.(virtual.index)}

@@ -24,6 +24,8 @@ export const revertReason = (ignoreWhitespace: boolean): string | undefined => (
 
 export const revertedNotice = (file: string, short: string): string => `Reverted a hunk of ${basename(file)} from ${short}`;
 
+export const deletedNotice = (file: string, short: string): string => `${file} was deleted in ${short}.`;
+
 export function pickRevision(revisions: readonly FileRevision[], sha: string | undefined): FileRevision | undefined {
   return (sha === undefined ? undefined : revisions.find((revision) => revision.sha.startsWith(sha))) ?? revisions[0];
 }
@@ -49,8 +51,8 @@ export function blameRows(runs: readonly BlameRun[]): BlameRow[] {
 export function createFileHistory(session: RepoSession, request: FileHistoryRequest) {
   const path = session.path;
   const history = useQuery(() => ({
-    queryKey: repoKeys.read(path, "file-history", request.file),
-    queryFn: () => client.fileHistory(path, request.file),
+    queryKey: repoKeys.read(path, "file-history", request.file, request.sha ?? "HEAD"),
+    queryFn: () => client.fileHistory(path, request.file, request.sha ?? null),
   }));
   const revisions = (): FileRevision[] => (history.error == null ? (history.data ?? []) : []);
   const [chosen, setChosen] = createSignal<string | undefined>(request.sha);

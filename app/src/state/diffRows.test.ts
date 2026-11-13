@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { DiffHunk } from "../ipc/bindings/DiffHunk";
 import type { DiffLine } from "../ipc/bindings/DiffLine";
-import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, widestLine, wordMarks } from "./diffRows";
+import { changeStops, hunkRows, inlineRows, lineKey, rowIndex, selectableLines, splitRows, widestLine, widestText, wordMarks } from "./diffRows";
 
 const line = (kind: DiffLine["kind"], text: string, no_newline = false): DiffLine => ({
   kind,
@@ -125,5 +125,10 @@ describe("widest line", () => {
     expect(widestLine([first, second])).toBe("old one".length);
     expect(widestLine([make(1, 1, [line("added", "\tx"), line("context", "ab\tc")])])).toBe(9);
     expect(widestLine([])).toBe(0);
+  });
+
+  it("measures the longest of plain file lines the same way", () => {
+    expect(widestText(["ab", "\tx", "ab\tc"])).toBe(9);
+    expect(widestText([])).toBe(0);
   });
 });

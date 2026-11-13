@@ -162,7 +162,7 @@ export function DiffBody(props: { diff: DiffController; target: DiffTarget; mode
               fallback={
                 <VirtualRows
                   as="div"
-                  class="dflat"
+                  class={props.mode === "split" ? "dflat" : "dflat dinline"}
                   measured={props.mode === "split"}
                   items={diff.flatRows()}
                   scroller={() => body}

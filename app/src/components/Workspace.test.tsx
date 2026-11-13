@@ -270,7 +270,7 @@ describe("file history", () => {
 
     const view = host.querySelector('.center section[aria-label="File history"]');
     expect(view).not.toBeNull();
-    expect(calls.find((call) => call.cmd === "file_history")?.args).toEqual({ path: "/r", file: "src/util.js" });
+    expect(calls.find((call) => call.cmd === "file_history")?.args).toEqual({ path: "/r", file: "src/util.js", revision: null });
     expect(host.querySelector(".center .graph")?.classList.contains("covered")).toBe(true);
 
     document.body.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));

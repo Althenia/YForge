@@ -107,7 +107,7 @@ describe("file history list", () => {
     const { host, selected } = mount();
     await flush(80);
 
-    expect(called("file_history")[0]?.args).toEqual({ path: "/r", file: "src/util.js" });
+    expect(called("file_history")[0]?.args).toEqual({ path: "/r", file: "src/util.js", revision: null });
     expect(listbox(host)?.getAttribute("aria-label")).toBe("Commits that changed src/util.js");
     const options = [...host.querySelectorAll('[role="option"]')];
     expect(options).toHaveLength(3);
@@ -156,6 +156,19 @@ describe("file history list", () => {
     expect(called("file_blame")[0]?.args).toEqual({ path: "/r", file: "src/util.js", revision: "b".repeat(40) });
   });
 
+  it("reads the history through the requested commit, so a commit outside the checked-out branch lists its own history and is selected", async () => {
+    const side = revision("e", "Side branch tweak", "Arjun Patel", DAY);
+    const { host, selected } = mount({ file: "src/util.js", sha: "e".repeat(40) }, (cmd, args) =>
+      cmd === "file_history" ? (args.revision === "e".repeat(40) ? [side, ...revisions.slice(1)] : revisions) : undefined,
+    );
+    await flush(80);
+
+    expect(called("file_history")[0]?.args).toEqual({ path: "/r", file: "src/util.js", revision: "e".repeat(40) });
+    expect(activeOption(host)?.textContent).toContain("Side branch tweak");
+    expect(selected.at(-1)).toBe("e".repeat(40));
+    expect(called("commit_file_diff").at(-1)?.args).toMatchObject({ sha: "e".repeat(40), file: "src/util.js" });
+  });
+
   it("says so when no commit changed the file", async () => {
     const { host } = mount({ file: "notes.txt" }, (cmd) => (cmd === "file_history" ? [] : undefined));
     await flush(80);
@@ -193,6 +206,43 @@ describe("file history views", () => {
     expect(viewed).toHaveBeenCalledExactlyOnceWith({ file: "src/util.js", rev: "b".repeat(40), source: "bbbbbbb", fragment: "notes" });
   });
 
+  it("says the file was deleted in a commit that deleted it, instead of reading the missing file", async () => {
+    const deleted: FileRevision = { ...revision("d", "Remove util", "Yui Lin", 5 * MINUTE), status: "deleted" };
+    const { host } = mount({ file: "src/util.js" }, (cmd) => (cmd === "file_history" ? [deleted, ...revisions] : undefined));
+    await flush(80);
+    groupButton(host, "View", "File")?.click();
+    await flush(80);
+
+    expect(activeOption(host)?.textContent).toContain("Remove util");
+    expect(host.querySelector(".hmain")?.textContent).toContain("src/util.js was deleted in ddddddd.");
+    expect(host.querySelector('.hmain [role="alert"]')).toBeNull();
+    expect(host.querySelectorAll(".hmain .fline")).toHaveLength(0);
+    expect(called("file_at_revision")).toEqual([]);
+
+    [...host.querySelectorAll<HTMLElement>('.hlist [role="option"]')].find((option) => option.textContent?.includes("Export shout helper"))?.click();
+    await flush(80);
+    expect(called("file_at_revision").at(-1)?.args).toEqual({ path: "/r", file: "src/util.js", rev: "b".repeat(40) });
+    expect(host.querySelector(".hmain")?.textContent).not.toContain("was deleted in");
+  });
+
+  it("shows no blame and makes no blame request for the commit that deleted the file", async () => {
+    const deleted: FileRevision = { ...revision("d", "Remove util", "Yui Lin", 5 * MINUTE), status: "deleted" };
+    const { host } = mount({ file: "src/util.js", view: "blame" }, (cmd) => (cmd === "file_history" ? [deleted, ...revisions] : undefined));
+    await flush(80);
+
+    expect(activeOption(host)?.textContent).toContain("Remove util");
+    expect(host.querySelector(".hmain")?.textContent).toContain("src/util.js was deleted in ddddddd.");
+    expect(host.querySelector('.hmain [role="alert"]')).toBeNull();
+    expect(host.querySelectorAll(".hmain .fline")).toHaveLength(0);
+    expect(called("file_blame")).toEqual([]);
+
+    [...host.querySelectorAll<HTMLElement>('.hlist [role="option"]')].find((option) => option.textContent?.includes("Export shout helper"))?.click();
+    await flush(80);
+    expect(called("file_blame").at(-1)?.args).toEqual({ path: "/r", file: "src/util.js", revision: "b".repeat(40) });
+    expect(host.querySelector(".hmain")?.textContent).not.toContain("was deleted in");
+    expect(host.querySelectorAll(".blame .fline").length).toBeGreaterThan(0);
+  });
+
   it("switches between File, Diff, and Blame", async () => {
     const { host } = mount();
     await flush(80);
@@ -210,7 +260,7 @@ describe("file history views", () => {
     expect(host.querySelectorAll("section.hunk")).toHaveLength(0);
   });
 
-  it("shows a blame gutter per run with SHA, author, and age, and choosing an entry selects that commit", async () => {
+  it("shows a blame gutter per run with SHA, author, and age, and choosing an entry selects that commit and keeps the Blame view", async () => {
     const { host } = mount({ file: "src/util.js", view: "blame" });
     await flush(80);
 
@@ -228,6 +278,9 @@ describe("file history views", () => {
 
     expect(activeOption(host)?.textContent).toContain("Export shout helper");
     expect(activeOption(host)?.getAttribute("aria-selected")).toBe("true");
+    expect(pressed(host, "View")).toEqual(["Blame"]);
+    expect(host.querySelectorAll("section.hunk")).toHaveLength(0);
+    expect(called("file_blame").at(-1)?.args).toEqual({ path: "/r", file: "src/util.js", revision: "b".repeat(40) });
   });
 
   it("highlights blame lines attributed to the selected history commit and updates the highlight on selection", async () => {
@@ -319,6 +372,21 @@ describe("file history diff", () => {
 
     expect(called("revert_hunk")).toEqual([{ cmd: "revert_hunk", args: { path: "/r", sha: "c".repeat(40), file: "src/util.js", hunk: 1 } }]);
     expect(session.notice()).toBe("Reverted a hunk of util.js from ccccccc");
+  });
+
+  it("reverts a hunk of the commit whose diff is shown while the next commit's diff is still loading", async () => {
+    const { host } = mount({ file: "src/util.js" }, (cmd, args) => (cmd === "commit_file_diff" && args.sha === "b".repeat(40) ? new Promise<FileDiff>(() => undefined) : undefined));
+    await flush(80);
+
+    press(listbox(host), "ArrowDown");
+    await flush(60);
+    expect(activeOption(host)?.textContent).toContain("Export shout helper");
+    const reverts = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label="Revert hunk"]')];
+    expect(reverts).toHaveLength(2);
+    reverts[1]?.click();
+    await flush(60);
+
+    expect(called("revert_hunk")).toEqual([{ cmd: "revert_hunk", args: { path: "/r", sha: "c".repeat(40), file: "src/util.js", hunk: 1 } }]);
   });
 
   it("shows a concise refusal when the hunk no longer applies and retains the full core error", async () => {

@@ -24,6 +24,24 @@ const rules = () =>
 const rule = (selector: string) =>
   rules().find((entry) => "selectorText" in entry && String(entry.selectorText).replace(/\s+/g, " ").trim() === selector) as CSSStyleRule | undefined;
 
+describe("inline diff width", () => {
+  it("leaves sideways scrolling to the diff body and sizes the inline line list to its widest line", () => {
+    const body = document.createElement("div");
+    body.className = "dbody";
+    body.style.setProperty("--code-ch", "140");
+    const list = document.createElement("div");
+    list.className = "dflat dinline";
+    body.append(list);
+    document.body.append(body);
+
+    expect(getComputedStyle(body).overflow).toBe("auto");
+    expect(getComputedStyle(list).overflowX).toBe("visible");
+    expect(getComputedStyle(list).width).toBe("calc(106px + var(--code-ch, 0) * 1ch + var(--spacing-4))");
+    expect(getComputedStyle(list).minWidth).toBe("100%");
+    body.remove();
+  });
+});
+
 describe("diff row fill", () => {
   it("paints a short added or removed line across the pane, and leaves an empty split half as the pane background", () => {
     const pane = document.createElement("div");

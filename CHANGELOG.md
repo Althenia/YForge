@@ -1,5 +1,19 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
++ Blame keeps its commit gutter and line numbers in place while the code scrolls sideways, so the start of each line no longer slides under the gutter.
++ The blame highlight for the selected commit spans each whole line instead of stopping partway across long lines.
++ Long lines in blame, the file view, and the Inline diff scroll sideways with the view's own scrollbar at the bottom of the pane, instead of a scrollbar hidden below the last line.
++ The Preview and Source buttons of a Markdown, HTML, or image file in file history no longer collapse over the file.
++ For the commit that deleted a file, the file view and Blame say "<file> was deleted in <commit>." instead of showing an error.
++ File history opened from a commit lists that commit's history and selects it, even when the commit is on another branch, instead of falling back to the newest commit on the checked-out branch.
++ Choosing a blame entry selects that commit in the history list and keeps the Blame view, which reloads at that commit.
++ Revert hunk in file history reverts the hunk of the commit whose diff is on screen, even while the next commit's diff is still loading.
+
+---
+
 ## [0.3.13] - 2026-10-17
 
 ### Added

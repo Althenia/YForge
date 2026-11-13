@@ -26,7 +26,7 @@ fn history_lists_every_commit_that_changed_the_file_newest_first_following_renam
     repo.git(&["commit", "-q", "-m", "Rename"]);
     let newest = repo.commit("two.txt", "a\nB\nC\n", "Edit two");
 
-    let history = file_history(&repo.path, "two.txt").unwrap();
+    let history = file_history(&repo.path, "two.txt", None).unwrap();
 
     let summaries: Vec<&str> = history.iter().map(|r| r.summary.as_str()).collect();
     assert_eq!(summaries, ["Edit two", "Rename", "Edit one", "Add one"]);
@@ -50,11 +50,43 @@ fn history_lists_every_commit_that_changed_the_file_newest_first_following_renam
 }
 
 #[test]
+fn history_starts_at_the_requested_commit_and_at_head_when_none_is_given() {
+    let repo = repo();
+    repo.commit("f.txt", "1\n2\n3\n", "Add f");
+    repo.git(&["checkout", "-q", "-b", "side"]);
+    let side = repo.commit("f.txt", "1\nside\n3\n", "Side edit");
+    repo.git(&["checkout", "-q", "-"]);
+    repo.commit("f.txt", "1\n2\nmain\n", "Main edit");
+
+    let checked_out: Vec<String> = file_history(&repo.path, "f.txt", None)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.summary)
+        .collect();
+    let through_side: Vec<String> = file_history(&repo.path, "f.txt", Some(side.as_str()))
+        .unwrap()
+        .into_iter()
+        .map(|r| r.summary)
+        .collect();
+
+    assert_eq!(checked_out, ["Main edit", "Add f"]);
+    assert_eq!(through_side, ["Side edit", "Add f"]);
+    assert_eq!(
+        file_history(&repo.path, "f.txt", Some("HEAD"))
+            .unwrap_err()
+            .kind(),
+        ErrorKind::InvalidRequest
+    );
+}
+
+#[test]
 fn history_of_an_unknown_file_is_empty() {
     let repo = repo();
     repo.commit("a.txt", "a\n", "First");
 
-    assert!(file_history(&repo.path, "missing.txt").unwrap().is_empty());
+    assert!(file_history(&repo.path, "missing.txt", None)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

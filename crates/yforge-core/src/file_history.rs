@@ -65,29 +65,36 @@ fn parse_history(output: &str, file: &str) -> Result<Vec<FileRevision>, CoreErro
     Ok(revisions)
 }
 
-/// Every commit that changed `file`, newest first, following renames.
-pub fn file_history(path: &Path, file: &str) -> Result<Vec<FileRevision>, CoreError> {
+/// Every commit that changed `file`, newest first, following renames, reachable from
+/// `revision` (HEAD when absent).
+pub fn file_history(
+    path: &Path,
+    file: &str,
+    revision: Option<&str>,
+) -> Result<Vec<FileRevision>, CoreError> {
     let root = repo::open(path)?;
     repo::check_paths(&[file])?;
+    if let Some(sha) = revision {
+        validate_sha(sha)?;
+    }
     if head_sha(&root)?.is_none() {
         return Ok(Vec::new());
     }
-    let output = git::run(
-        &root,
-        &[
-            "--literal-pathspecs",
-            "log",
-            "--follow",
-            "-M",
-            "--diff-merges=first-parent",
-            "--no-show-signature",
-            LOG_FORMAT,
-            "--name-status",
-            "-z",
-            "--",
-            file,
-        ],
-    )?;
+    let args = [
+        "--literal-pathspecs",
+        "log",
+        "--follow",
+        "-M",
+        "--diff-merges=first-parent",
+        "--no-show-signature",
+        LOG_FORMAT,
+        "--name-status",
+        "-z",
+        revision.unwrap_or("HEAD"),
+        "--",
+        file,
+    ];
+    let output = git::run(&root, &args)?;
     parse_history(&output, file)
 }
 
