@@ -13,6 +13,21 @@
   flex: none;
 }
 
+.rpanel.merge-tool .rhead .btn.sm {
+  padding-inline: var(--spacing-2);
+}
+
+.rpanel.merge-tool .rfoot {
+  padding-inline: var(--spacing-3);
+}
+
+.rpanel.merge-tool .mt-nav > button > .icon,
+.rpanel.merge-tool .rfoot > .btn.primary > .icon,
+.rpanel.merge-tool .mergebar > .btn.primary > .icon,
+.rpanel.merge-tool .mb-progress > .icon {
+  transform: translateY(-1px);
+}
+
 .mt-sides {
   display: grid;
   flex: 1 1 240px;
@@ -176,6 +191,7 @@
 .rpanel.merge-tool .mergebar .input.area {
   flex: 1 1 200px;
   min-width: 0;
+  padding-inline: var(--spacing-2);
 }
 
 .mt-box {

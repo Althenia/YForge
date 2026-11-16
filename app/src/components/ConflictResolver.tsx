@@ -419,7 +419,7 @@ export function ConflictResolver(props: {
           >
             <span class="mt-box" aria-hidden="true">
               <Show when={allState() !== "false"}>
-                <Icon name={allState() === "true" ? "check" : "minus"} size={14} />
+                <Icon name={allState() === "true" ? "check" : "minus"} />
               </Show>
             </span>
             Select all
@@ -469,7 +469,7 @@ export function ConflictResolver(props: {
                       >
                         <span class="mt-box" aria-hidden="true">
                           <Show when={sideCheck() !== "false"}>
-                            <Icon name={sideCheck() === "true" ? "check" : "minus"} size={14} />
+                            <Icon name={sideCheck() === "true" ? "check" : "minus"} />
                           </Show>
                         </span>
                         Use {names.word}
@@ -488,7 +488,7 @@ export function ConflictResolver(props: {
                           >
                             <span class="mt-box" aria-hidden="true">
                               <Show when={hasPick(picks(), paneProps.side, -1)}>
-                                <Icon name="check" size={14} />
+                                <Icon name="check" />
                               </Show>
                             </span>
                             <span class="mt-line-text">(no lines)</span>
@@ -510,7 +510,7 @@ export function ConflictResolver(props: {
                                 >
                                   <span class="mt-box" aria-hidden="true">
                                     <Show when={hasPick(picks(), paneProps.side, lineIndex())}>
-                                      <Icon name="check" size={14} />
+                                      <Icon name="check" />
                                     </Show>
                                   </span>
                                 </button>
@@ -581,15 +581,15 @@ export function ConflictResolver(props: {
             when={proposer.running()}
             fallback={
               <button type="button" class="icon-btn dense ai-btn" {...tip("Propose a resolution for every conflict in this file")} onClick={() => void propose()}>
-                <Icon name="wand" size={14} />
+                <Icon name="wand" />
               </button>
             }
           >
             <button type="button" class="icon-btn dense ai-btn" aria-busy="true" disabled {...tip("Proposing a resolution…")}>
-              <Icon name="wand" size={14} />
+              <Icon name="wand" />
             </button>
             <button type="button" class="icon-btn dense" {...tip("Cancel proposing")} onClick={proposer.cancel}>
-              <Icon name="close" size={14} />
+              <Icon name="close" />
             </button>
           </Show>
         </Show>
@@ -634,7 +634,7 @@ export function ConflictResolver(props: {
                     <Show when={error().action}>
                       {(action) => (
                         <button type="button" class="btn sm" onClick={() => props.onOpenAiSettings?.()}>
-                          <Icon name={action() === "sign_in" ? "key" : "settings"} size={14} />
+                          <Icon name={action() === "sign_in" ? "key" : "settings"} />
                           {action() === "sign_in" ? "Sign in" : "Open AI settings"}
                         </button>
                       )}
@@ -650,7 +650,7 @@ export function ConflictResolver(props: {
                 {(base) => (
                   <div class="cbase">
                     <button type="button" class="cbase-toggle" aria-expanded={baseOpen()} onClick={() => setBaseOpen(!baseOpen())}>
-                      <Icon name="chevron" size={14} />
+                      <Icon name="chevron" />
                       {`Show base of conflict ${state().active + 1}`}
                     </button>
                     <Show when={baseOpen()}>
@@ -665,7 +665,7 @@ export function ConflictResolver(props: {
                     <strong>Output</strong> <span class="dim">Exactly what will be saved. Type to edit; unresolved parts show Git's conflict markers.</span>
                   </span>
                   <span class="out-state" classList={{ warn: left() > 0, ok: left() === 0 }} role="status">
-                    <Icon name={left() > 0 ? "warning" : "check"} size={14} />
+                    <Icon name={left() > 0 ? "warning" : "check"} />
                     {left() > 0 ? `${left()} ${left() === 1 ? "conflict marker" : "conflict markers"} left` : "No conflicts left"}
                   </span>
                 </div>
@@ -673,7 +673,7 @@ export function ConflictResolver(props: {
                   <div class="note attention" role="status">
                     <span>Rebuilt the Output from your choices, replacing your edits.</span>
                     <button type="button" class="btn sm" onClick={undoRebuild}>
-                      <Icon name="undo" size={14} />
+                      <Icon name="undo" />
                       Undo
                     </button>
                   </div>
@@ -684,7 +684,7 @@ export function ConflictResolver(props: {
                     <For each={rationales()}>{(proposal) => <span>Conflict {proposal.index + 1}: {proposal.rationale}</span>}</For>
                     <Show when={restore() !== undefined}>
                       <button type="button" class="btn sm" onClick={restoreMine}>
-                        <Icon name="undo" size={14} />
+                        <Icon name="undo" />
                         Restore my text
                       </button>
                     </Show>

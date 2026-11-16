@@ -107,7 +107,7 @@ export function FileRow(props: {
       tabindex={props.tabStop ? 0 : -1}
       aria-label={`${statusWord[props.status]} ${label()}${props.partial ? ", partially staged" : ""}`}
       aria-current={props.selected ? "true" : undefined}
-      title={label()}
+      data-tip={label()}
       onClick={onClick}
       onContextMenu={(event) => {
         if (props.onMenu === undefined) return;
@@ -118,7 +118,7 @@ export function FileRow(props: {
       onKeyDown={onKeyDown}
     >
       <Guides depth={props.depth} />
-      <span class={`badge st-${props.status}`} classList={{ partial: props.partial === true }} role="img" aria-label={statusWord[props.status]} title={props.partial ? `${statusWord[props.status]} · Partially staged` : statusWord[props.status]}>
+      <span class={`badge st-${props.status}`} classList={{ partial: props.partial === true }} role="img" aria-label={statusWord[props.status]} data-tip={props.partial ? `${statusWord[props.status]} · Partially staged` : statusWord[props.status]}>
         <Icon name={statusIcon[props.status]} />
         <Show when={props.partial}>
           <span class="half">½</span>
@@ -183,7 +183,7 @@ export function FolderRow(props: {
       aria-expanded={props.open}
       aria-label={`${props.path}, ${props.count} ${props.count === 1 ? "file" : "files"}`}
       tabindex={props.tabStop ? 0 : -1}
-      title={props.path}
+      data-tip={props.path}
       onClick={() => props.onToggle()}
       onContextMenu={(event) => {
         if (props.onMenu === undefined) return;
@@ -226,7 +226,7 @@ export function UnchangedRow(props: { rowId: string; path: string; depth?: numbe
       aria-level={tree() ? (props.depth ?? 0) + 1 : undefined}
       tabindex={props.tabStop ? 0 : -1}
       aria-label={`Unchanged ${props.path}`}
-      title={`${props.path} · unchanged in this commit`}
+      data-tip={`${props.path} · unchanged in this commit`}
       onFocus={() => props.onFocusRow(props.rowId)}
       onKeyDown={(event) => {
         if (!event.metaKey && !event.ctrlKey && !event.altKey) moveFocus(event);

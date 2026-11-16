@@ -8,6 +8,7 @@ import type { RepoSession } from "../state/repoSession";
 import { MenuLabel } from "./ContextMenu";
 import { FileRow } from "./FileRow";
 import { Icon } from "./Icon";
+import { TextArea } from "./TextArea";
 import { fileRowHeight, VirtualRows } from "./VirtualRows";
 import { tip } from "./Tooltip";
 
@@ -35,7 +36,7 @@ export function OperationInspector(props: {
   return (
     <Show when={operation()}>
       {(current) => (
-        <aside class="panel inspector" aria-label={operationTitle[current()]}>
+        <aside class="panel inspector operation-inspector" aria-label={operationTitle[current()]}>
           <div class="ihead">
             <h2>{operationTitle[current()]}</h2>
             <p>
@@ -107,7 +108,7 @@ export function OperationInspector(props: {
                   {(path, virtual) => (
                       <li class="frow" aria-label={`Resolved ${path}`} ref={virtual.measure} data-index={virtual.index} style={virtual.style}>
                         <span class="badge st-added" aria-hidden="true">
-                          ✓
+                          <Icon name="check" />
                         </span>
                         <span class="path">
                           <bdi dir="ltr">
@@ -122,9 +123,7 @@ export function OperationInspector(props: {
           </div>
           <div class="composer" role="group" aria-label="Continue or abort">
             <Show when={current() === "merge"}>
-              <label class="input area mtext">
-                <textarea aria-label="Merge message" placeholder="Merge message" value={message()} onInput={(event) => setMessage(event.currentTarget.value)} />
-              </label>
+              <TextArea label="Merge message" placeholder="Merge message" value={message()} onInput={setMessage} minRows={2} />
             </Show>
             <div class="hrow">
               <button

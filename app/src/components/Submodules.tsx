@@ -131,14 +131,14 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
           <Icon name="folder" />
           Submodules
           <span class="sec-chevron" classList={{ collapsed: !props.expanded }}>
-            <Icon name="chevron" size={14} />
+            <Icon name="chevron" />
           </span>
         </button>
         <Show when={list.isSuccess}>
           <span class="count">{countLabel(rows().length, visible().length, props.filter !== "")}</span>
         </Show>
         <button type="button" class="icon-btn dense" disabled={running() !== undefined} {...tip("Add submodule")} onClick={(event) => openAdd(event.currentTarget)}>
-          <Icon name="plus" size={14} />
+          <Icon name="plus" />
         </button>
       </div>
       <Show when={props.expanded}>
@@ -162,7 +162,7 @@ export function SubmoduleSection(props: { root: string; expanded: boolean; onTog
               data-nav={`submodule:${row.path}`}
               aria-label={`${row.path}, ${submoduleStatusWord(row.status)}`}
               aria-disabled={openReason(row) === undefined ? undefined : "true"}
-              title={rowTitle(row)}
+              data-tip={rowTitle(row)}
               onClick={() => openRow(row)}
               onContextMenu={(event) => {
                 event.preventDefault();

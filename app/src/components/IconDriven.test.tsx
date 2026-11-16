@@ -10,7 +10,7 @@ import { Launchpad } from "./Launchpad";
 import { SettingsView } from "./SettingsView";
 import { TooltipHost } from "./Tooltip";
 import { Workspace } from "./Workspace";
-import { flush, mountWithApp, stubLayout } from "./testkit";
+import { flush, mountWithApp, stubLayout, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 let restoreLayout: (() => void) | undefined;
@@ -74,14 +74,16 @@ const snapshot: RepoSnapshot = {
 const recent = { path: "/Users/yui/dev/sample", opened_at: Math.floor(Date.now() / 1000) };
 const recentStatus = { path: recent.path, exists: true, branch: "main", unborn: false, ahead_behind: null, counts, worktrees: 1 };
 
-function install() {
+function install(current: RepoSnapshot = snapshot) {
   mockIPC(
     (cmd) => {
       if (cmd === "settings_load") return defaultSettings;
       if (cmd === "repo_aliases_list") return [];
       if (cmd === "session_load") return { tabs: ["/r"], active: 0, groups: [] };
       if (cmd === "launch_path") return "/nowhere";
-      if (cmd === "repo_open") return snapshot;
+      if (cmd === "repo_open") return current;
+      if (cmd === "conflict_file") return { file: "src/app.ts", eol: "\n", final_newline: true, binary: false, sides: { base: false, current: true, incoming: true }, segments: [{ kind: "conflict", current: ["yours"], incoming: ["theirs"], base: null }] };
+      if (cmd === "external_tools_status") return { editor: null, diff: null, merge: null };
       if (cmd === "repo_graph") return { rows: [], carried: [], total: 0 };
       if (cmd === "plugin:path|resolve_directory") return "/Users/yui";
       if (cmd === "recents_list") return [recent];
@@ -100,7 +102,7 @@ function install() {
 }
 
 async function mountWorkspace(current: RepoSnapshot = snapshot) {
-  install();
+  install(current);
   const mounted = mountWithApp(() => (
     <>
       <Workspace view={{ status: "ready", path: "/r", snapshot: current, info }} geometry={geometry} />
@@ -131,6 +133,64 @@ const expectNamedWithTooltip = (host: ParentNode) => {
 };
 
 describe("icon-driven controls (S15)", () => {
+  it("uses owned glyphs and tooltips throughout the merge Workspace chrome", async () => {
+    const merging: RepoSnapshot = {
+      ...snapshot,
+      operation: "merge",
+      counts: { ...counts, modified: 0, conflicted: 1 },
+      files: [{ path: "src/app.ts", original_path: null, area: "conflicted", status: "conflicted" }],
+      operation_detail: { current: "main", incoming: "feature/topic", message: "Merge feature/topic", step: null, resolved: ["notes.txt"] },
+    };
+    install(merging);
+    const { host } = await mountWorkspace(merging);
+    (host.querySelector('button[aria-label="Resolve src/app.ts"]') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(host.querySelector('textarea[aria-label="Output"]')).not.toBeNull());
+    const chrome = [".tabbar", ".commandbar", ".op-bar", ".sidebar", ".inspector", ".activity"];
+    const native = host.querySelectorAll(chrome.map((selector) => `${selector} [title]`).join(","));
+    expect([...native].map((element) => element.getAttribute("title"))).toEqual([]);
+    const glyphs = host.querySelectorAll<SVGElement>(chrome.map((selector) => `${selector} svg[data-icon]`).join(","));
+    expect(glyphs.length).toBeGreaterThan(0);
+    expect([...glyphs].filter((glyph) => ![16, 20, 24].includes(Number(glyph.getAttribute("width"))))).toEqual([]);
+  });
+
+  it("uses an owned check for a resolved merge file beside the center resolver", async () => {
+    setWidth(1440);
+    const current: RepoSnapshot = {
+      ...snapshot,
+      operation: "merge",
+      operation_detail: { current: "main", incoming: "feature/greeting", message: "Merge feature/greeting", step: null, resolved: ["notes.txt"] },
+      counts: { ...counts, conflicted: 1 },
+      files: [{ path: "src/app.ts", original_path: null, area: "conflicted", status: "conflicted" }],
+    };
+    const { host } = await mountWorkspace(current);
+    host.querySelector<HTMLButtonElement>('.inspector button[aria-label="Resolve src/app.ts"]')?.click();
+    await flush();
+
+    expect(host.querySelector('.center .rpanel textarea[aria-label="Output"]')).not.toBeNull();
+    const badge = host.querySelector('.inspector [aria-label="Resolved notes.txt"] .badge.st-added');
+    expect(badge?.querySelector('svg[data-icon="check"]')).not.toBeNull();
+    expect(badge?.textContent?.trim()).toBe("");
+    expect(badge?.getAttribute("aria-hidden")).toBe("true");
+  });
+
+  it("keeps the merge message in the owned multi-line field without enabling a conflicted merge", async () => {
+    const current: RepoSnapshot = {
+      ...snapshot,
+      operation: "merge",
+      operation_detail: { current: "main", incoming: "feature/greeting", message: "Merge feature/greeting", step: null, resolved: [] },
+      counts: { ...counts, conflicted: 1 },
+      files: [{ path: "src/app.ts", original_path: null, area: "conflicted", status: "conflicted" }],
+    };
+    const { host } = await mountWorkspace(current);
+    const message = host.querySelector<HTMLTextAreaElement>('.inspector textarea[aria-label="Merge message"]');
+
+    expect(message?.getAttribute("rows")).toBe("2");
+    expect(message?.closest<HTMLElement>(".input.area")?.style.height).toBe("56px");
+    type(message, "Reviewed merge\nKeep both changes");
+    expect(message?.value).toBe("Reviewed merge\nKeep both changes");
+    expect(host.querySelector<HTMLButtonElement>(".inspector .composer .btn.primary")?.disabled).toBe(true);
+  });
+
   it("gives every icon-only button in the workspace an accessible name and a tooltip", async () => {
     const { host } = await mountWorkspace();
 
@@ -165,12 +225,12 @@ describe("icon-driven controls (S15)", () => {
 
     expect(labelled.map((button) => textOf(button as Element))).toEqual(["Fetch", "Pull↓0", "Push↑2", "Branch", "Stash", "Undo"]);
     expect(labelled.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true, true, true]);
-    expect(labelled.map((button) => button?.hasAttribute("data-tip"))).toEqual([false, false, false, false, false, false]);
+    expect(labelled.map((button) => button?.getAttribute("data-tip"))).toEqual([null, null, null, null, null, "No local operation to undo in this session"]);
 
     setWidth(1279);
     await flush();
     const collapsed = ["Fetch", "Pull, 0 behind", "Push, 2 ahead", "Branch", "Stash", "Undo"].map((name) => host.querySelector<HTMLButtonElement>(`.commandbar button[aria-label="${name}"]`));
-    expect(collapsed.map((button) => button !== null && button.dataset.tip === button.getAttribute("aria-label"))).toEqual([true, true, true, true, true, true]);
+    expect(collapsed.map((button) => button?.dataset.tip)).toEqual(["Fetch", "Pull, 0 behind", "Push, 2 ahead", "Branch", "Stash", "No local operation to undo in this session"]);
     expect(collapsed.map((button) => button?.querySelector("svg") !== null)).toEqual([true, true, true, true, true, true]);
     expect(collapsed.map((button) => button?.textContent?.replace(/[↓↑]\d+/, "").trim())).toEqual(["", "", "", "", "", ""]);
 
@@ -215,7 +275,8 @@ describe("icon-driven controls (S15)", () => {
 
     const actions = [...host.querySelectorAll(".op-bar button")];
     expect(actions.map(textOf)).toEqual(["Resolve", "Continue", "Skip", "Abort"]);
-    expect(actions.some((button) => button.hasAttribute("data-tip"))).toBe(false);
+    expect(actions.map((button) => button.getAttribute("data-tip"))).toEqual([null, "Resolve 1 conflict first", null, null]);
+    expect(actions.some((button) => button.hasAttribute("title"))).toBe(false);
   });
 
   it("keeps the discard action as a text menu item with a leading icon", async () => {

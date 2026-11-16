@@ -89,7 +89,7 @@ function HeadChip(props: { snapshot: RepoSnapshot; actions: RepoActions; onRevea
             aria-label={`Pull menu: ${counts() === null || counts() === undefined ? "counts unknown" : `${counts()?.ahead} ahead, ${counts()?.behind} behind`}`}
             onClick={(event) => props.actions.openPullMenu(anchorBelow(event.currentTarget))}
           >
-            <Show when={counts()} fallback={<span title="Fetch to compare">—</span>}>
+            <Show when={counts()} fallback={<span data-tip="Fetch to compare">—</span>}>
               {(value) => (
                 <>
                   <span class="ahead">↑{value().ahead} ahead</span>
@@ -114,7 +114,7 @@ function DetachedAction(props: { head: RepoSnapshot["head"]; actions: RepoAction
     <Show when={sha()}>
       {(value) => (
         <button type="button" class="btn sm" onClick={(event) => props.actions.openCreateBranchAt(value(), anchorBelow(event.currentTarget))}>
-          <Icon name="branch" size={14} />
+          <Icon name="branch" />
           Create branch here
         </button>
       )}
@@ -131,7 +131,7 @@ function ChangesChip(props: { snapshot: RepoSnapshot; onOpen: () => void }) {
       <Show when={present().length > 0} fallback={<span>clean</span>}>
         <For each={present()}>
           {(key) => (
-            <span class={`st st-${key}`} role="img" aria-label={`${statusWord[key]}: ${props.snapshot.counts[key]}`} title={statusWord[key]}>
+            <span class={`st st-${key}`} role="img" aria-label={`${statusWord[key]}: ${props.snapshot.counts[key]}`} data-tip={statusWord[key]}>
               <Icon name={statusIcon[key]} /> {props.snapshot.counts[key]}
             </span>
           )}
@@ -164,7 +164,7 @@ function FreshnessChip(props: { snapshot: RepoSnapshot; actions: RepoActions; on
             class="chip"
             classList={{ "chip-success": fresh(), "chip-attention": !fresh() }}
             aria-label={`${text()}. Fetch now`}
-            title={reason() ?? `${text()}. Fetch now`}
+            data-tip={reason() ?? `${text()}. Fetch now`}
             disabled={reason() !== undefined}
             onClick={() => void props.actions.fetchAll()}
           >
@@ -179,7 +179,7 @@ function FreshnessChip(props: { snapshot: RepoSnapshot; actions: RepoActions; on
 
 function OfflineChip() {
   return (
-    <span class="chip chip-attention" title="No network connection. Fetch, pull, and push are unavailable until you are back online.">
+    <span class="chip chip-attention" data-tip="No network connection. Fetch, pull, and push are unavailable until you are back online.">
       <Icon name="warning" />
       Offline
     </span>
@@ -205,7 +205,7 @@ function Notices(props: { actions: RepoActions; plain: boolean }) {
           </For>
           <Show when={notice.dismiss !== false}>
             <button type="button" class="icon-btn dense" {...tip("Dismiss")} onClick={() => props.actions.dismissNotice(notice.id)}>
-              <Icon name="close" size={14} />
+              <Icon name="close" />
             </button>
           </Show>
         </span>
@@ -237,7 +237,7 @@ function ConflictChip(props: { conflict: Conflict; branch: string; composeReason
   return (
     <>
       <button type="button" class="chip conflict-chip" aria-haspopup="dialog" aria-expanded={anchor() !== undefined} onClick={(event) => setAnchor(anchorBelow(event.currentTarget))}>
-        <span class="st st-conflicted" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+        <span class="st st-conflicted" role="img" aria-label={statusWord.conflicted} data-tip={statusWord.conflicted}>
           <Icon name={statusIcon.conflicted} />
         </span>
         {predictionLabel(props.conflict)}
@@ -311,7 +311,7 @@ function OperationPill(props: { state: SyncState; actions: RepoActions; online: 
                 {(done) => (
                   <>
                     <Icon name="check" />
-                    <span class="op-outcome" title={done().outcome}>
+                    <span class="op-outcome" data-tip={done().outcome}>
                       {done().outcome}
                     </span>
                     <Show when={done().next}>
@@ -364,12 +364,12 @@ function OperationPill(props: { state: SyncState; actions: RepoActions; online: 
       <Show when={failed()}>
         {(failed) => (
           <>
-            <span class="chip chip-danger" role="alert" title={failed().hint}>
+            <span class="chip chip-danger" role="alert" data-tip={failed().hint}>
               <Icon name="warning" />
               {failed().message}
             </span>
             <span class="hint-text">{failed().hint}</span>
-            <button type="button" class="btn sm" title={failed().fix.label} onClick={() => app.openSettings(failed().fix.section)}>
+            <button type="button" class="btn sm" data-tip={failed().fix.label} onClick={() => app.openSettings(failed().fix.section)}>
               <Icon name="settings" />
               Fix
             </button>
@@ -398,7 +398,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
       </span>
       <Show when={step()}>{(text) => <span aria-label={text()}>· {text()}</span>}</Show>
       <Show when={conflicts() > 0}>
-        <span class="st st-conflicted"><span role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}><Icon name={statusIcon.conflicted} /></span> {conflictLabel(conflicts())}</span>
+        <span class="st st-conflicted"><span role="img" aria-label={statusWord.conflicted} data-tip={statusWord.conflicted}><Icon name={statusIcon.conflicted} /></span><span>{conflictLabel(conflicts())}</span></span>
       </Show>
       <Notices actions={props.actions} plain />
       <span class="spacer" />
@@ -408,7 +408,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
             type="button"
             class="btn primary"
             disabled={buttons().resolve.disabledReason !== undefined}
-            title={buttons().resolve.disabledReason}
+            data-tip={buttons().resolve.disabledReason}
             onClick={() => {
               const file = target();
               if (file !== undefined) props.onResolve(file);
@@ -421,7 +421,7 @@ function OperationBanner(props: { snapshot: RepoSnapshot; operation: Operation; 
           type="button"
           class="btn"
           disabled={buttons().continue.disabledReason !== undefined}
-          title={buttons().continue.disabledReason}
+          data-tip={buttons().continue.disabledReason}
           onClick={() => void props.actions.continueOperation(null)}
         >
           Continue
