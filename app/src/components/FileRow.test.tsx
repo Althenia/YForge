@@ -17,7 +17,7 @@ describe("file status icons", () => {
     dispose = render(() => <FileRow rowId="file" path="file.ts" originalPath={null} status={status as FileStatus} selected={false} tabStop onFocusRow={() => undefined} virtual={{ index: 0, measure: () => undefined, style: {} }} />, host);
     const badge = host.querySelector(".badge");
     expect(badge?.getAttribute("aria-label")).toBe(word);
-    expect(badge?.getAttribute("title")).toBe(word);
+    expect(badge?.getAttribute("data-tip")).toBe(word);
     expect(badge?.querySelector("svg")?.getAttribute("data-icon")).toBe(icon);
     expect(badge?.textContent).toBe("");
     expect(host.querySelector("li")?.getAttribute("aria-label")).toBe(`${word} file.ts`);

@@ -67,9 +67,9 @@ async function mountTabs(tabs = ["/work/sample"], mains: Record<string, string> 
 
 const group = (name: string, tabs: string[], extra: Partial<TabGroup> = {}): TabGroup => ({ name, color: "blue", collapsed: false, tabs, ...extra });
 
-const tabTitles = (host: ParentNode) => [...host.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("title"));
+const tabTitles = (host: ParentNode) => [...host.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("data-tip"));
 
-const tabButton = (host: ParentNode, title: string) => host.querySelector<HTMLElement>(`[role="tab"][title="${title}"]`) as HTMLElement;
+const tabButton = (host: ParentNode, title: string) => host.querySelector<HTMLElement>(`[role="tab"][data-tip="${title}"]`) as HTMLElement;
 
 const chip = (host: ParentNode, name: string) => [...host.querySelectorAll<HTMLButtonElement>("button.gchip")].find((entry) => entry.textContent?.startsWith(name)) as HTMLButtonElement;
 
@@ -119,7 +119,7 @@ describe("tab bar", () => {
     const host = await mountTabs(["/work/sample", "/work/other", "/work/sample-feature"], { "/work/sample-feature": "/work/sample" });
 
     const groups = [...host.querySelectorAll(".tab-group")];
-    const names = (group: Element) => [...group.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("title"));
+    const names = (group: Element) => [...group.querySelectorAll('[role="tab"]')].map((tab) => tab.getAttribute("data-tip"));
 
     expect(groups.map(names)).toEqual([["/work/sample", "/work/sample-feature"], ["/work/other"]]);
     expect(groups[0]?.getAttribute("role")).toBe("group");
@@ -171,7 +171,7 @@ describe("tab bar", () => {
     await pickMenuItem("Close other tabs");
 
     expect(tabTitles(host)).toEqual(["/work/b"]);
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title")).toBe("/work/b");
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("data-tip")).toBe("/work/b");
   });
 
   it("confirms closing several tabs only when one of them has an operation in progress, naming it", async () => {
@@ -211,7 +211,7 @@ describe("tab bar", () => {
 
     const grouped = host.querySelector('[role="group"][aria-label="Corp A tab group"]') as HTMLElement;
     expect(tabTitles(grouped)).toEqual(["/work/a", "/work/b"]);
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("title")).toBe("/work/b");
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.getAttribute("data-tip")).toBe("/work/b");
   });
 
   it("sets an alias from a popover prefilled with the current name, and shows it on the tab with the folder in the tooltip and description", async () => {
@@ -240,7 +240,7 @@ describe("tab bar", () => {
 
     const tab = tabButton(host, "/work/api");
     expect(tab.textContent?.replace(/\s+/g, " ").trim().startsWith("Corp A · API")).toBe(true);
-    expect(tab.getAttribute("title")).toBe("/work/api");
+    expect(tab.getAttribute("data-tip")).toBe("/work/api");
     expect(tab.getAttribute("aria-description")).toBe("api");
     expect(tabButton(host, "/work/b").getAttribute("aria-description")).toBeNull();
     expect(dialog("Alias api")).toBeNull();
@@ -778,7 +778,7 @@ describe("tab bar with many tabs (S45)", () => {
     const first = host.querySelector('[role="tab"]') as HTMLElement;
 
     expect(first.querySelector(".tab-label")?.textContent).toBe("repository-00");
-    expect(first.getAttribute("title")).toBe("/work/repository-00");
+    expect(first.getAttribute("data-tip")).toBe("/work/repository-00");
   });
 
   it("brings the active tab into view when it changes", async () => {

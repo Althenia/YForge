@@ -61,9 +61,14 @@
   color: var(--colors-text-muted);
 }
 
-.frow.picked,
-.frow.picked:hover {
+.frow.picked {
   background: var(--colors-selection);
+}
+
+@media (hover: hover) {
+  .frow.picked:hover {
+    background: var(--colors-selection);
+  }
 }
 
 .lhead .btn.sm {
@@ -257,6 +262,11 @@
 
 .composer .input.area textarea {
   overflow-y: auto;
+}
+
+.operation-inspector .composer .input.area {
+  min-height: var(--controls-height);
+  padding-inline: var(--spacing-2);
 }
 
 .composer-row {

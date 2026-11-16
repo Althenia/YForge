@@ -208,7 +208,7 @@ describe("submodules", () => {
     await flush();
 
     expect(entry?.getAttribute("aria-disabled")).toBe("true");
-    expect(entry?.getAttribute("title")).toBe(`This submodule is not checked out · ${target.url}`);
+    expect(entry?.getAttribute("data-tip")).toBe(`This submodule is not checked out · ${target.url}`);
     expect(calls.some((call) => call.cmd === "repo_open")).toBe(false);
   });
 

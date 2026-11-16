@@ -78,7 +78,7 @@ describe("hooks section", () => {
     const header = host.querySelector<HTMLButtonElement>("button.sec-title");
     expect(header?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector(".sec-note")?.textContent).toBe(".git/hooks");
-    expect(host.querySelector(".sec-note")?.getAttribute("title")).toBe("/work/app/.git/hooks");
+    expect(host.querySelector(".sec-note")?.getAttribute("data-tip")).toBe("/work/app/.git/hooks");
     expect(host.querySelector(".count")?.textContent).toBe("4");
     expect(row(host, "pre-commit").getAttribute("aria-label")).toBe("Hook pre-commit, Active");
     expect(row(host, "post-merge").getAttribute("aria-label")).toBe("Hook post-merge, Inactive, Not executable: Git skips this hook");

@@ -208,7 +208,7 @@ p {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: 0 14px;
+  padding: 0 var(--spacing-3);
   min-width: 0;
 }
 
@@ -456,6 +456,18 @@ p {
 .commandbar > .split-btn,
 .commandbar > .btn { flex-shrink: 0; }
 
+.commandbar > .icon-btn {
+  height: var(--controls-height);
+}
+
+.tabbar > .icon-btn > .icon,
+.tabbar .tab-close > .icon,
+.commandbar .split-btn > .btn.icon-only > .icon,
+.commandbar .split-btn > .chev > .icon,
+.op-bar .st > [role="img"] > .icon {
+  transform: translateY(-1px);
+}
+
 @media (max-width: 1023px) {
   .commandbar .cmd {
     min-width: var(--layout-command-field-min);
@@ -472,7 +484,7 @@ p {
   display: flex;
   align-items: center;
   gap: var(--spacing-2);
-  padding: 0 10px;
+  padding: 0 var(--spacing-2);
   border-radius: var(--rounded-lg);
   background: var(--material-control);
   box-shadow: inset 0 0 0 1px var(--colors-rule);
@@ -497,7 +509,7 @@ p {
   flex: none;
   font: var(--font-ui-micro);
   font-family: var(--typography-ref-font-family);
-  padding: 1px 7px;
+  padding: var(--spacing-0-5) var(--spacing-1-5);
   border-radius: var(--rounded-pill);
   background: var(--fill-hover);
 }
@@ -557,7 +569,7 @@ p {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-1-5);
-  padding: 0 11px;
+  padding: 0 var(--spacing-3);
   border-radius: var(--rounded-pill);
   background: var(--material-control);
   box-shadow: inset 0 0 0 1px var(--colors-rule);
@@ -611,7 +623,7 @@ p {
   width: 100%;
   height: var(--controls-banner);
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-2);
   padding: 0 6px 0 var(--spacing-4);
   border-radius: var(--rounded-pill);
   background: var(--colors-attention-tint);
@@ -622,8 +634,15 @@ p {
 
 .op-bar .btn {
   height: var(--controls-height-dense);
-  padding: 0 10px;
+  padding: 0 var(--spacing-2);
   font-size: var(--typography-ui-small-font-size);
+}
+
+.op-bar .st,
+.op-bar .st [role="img"] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-1-5);
 }
 
 .main {
@@ -648,7 +667,7 @@ p {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-1);
-  padding: 10px var(--spacing-2);
+  padding: var(--spacing-2);
 }
 
 .sidebar.compact:not(.expanded) {
@@ -757,7 +776,7 @@ p {
   font-variant-numeric: tabular-nums;
   background: var(--fill);
   border-radius: var(--rounded-pill);
-  padding: 0 7px;
+  padding: 0 var(--spacing-1-5);
 }
 
 .sec .count {
@@ -804,14 +823,14 @@ p {
   align-items: center;
   gap: var(--spacing-2);
   min-height: var(--controls-row-list);
-  padding: 0 var(--spacing-2) 0 14px;
+  padding: 0 var(--spacing-2) 0 var(--spacing-3);
   font: var(--font-ui-small);
   color: var(--colors-text-muted);
 }
 
 .submod-note {
   margin: 0;
-  padding: 0 var(--spacing-2) 4px 14px;
+  padding: 0 var(--spacing-2) var(--spacing-1) var(--spacing-3);
   font: var(--font-ui-small);
   color: var(--colors-text-muted);
 }
@@ -1514,7 +1533,7 @@ svg.lanes {
   height: var(--controls-row-file);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--spacing-2);
   padding: 0 var(--spacing-2);
   border-radius: var(--rounded-md);
   font: var(--font-code);
@@ -1621,7 +1640,7 @@ svg.lanes {
 
 .btn.sm {
   height: var(--controls-height-dense);
-  padding: 0 10px;
+  padding: 0 var(--spacing-2);
   font: var(--font-ui-caption);
 }
 
@@ -1747,7 +1766,7 @@ svg.lanes {
   align-items: center;
   gap: var(--spacing-2);
   min-height: var(--controls-height);
-  padding: 0 10px;
+  padding: 0 var(--spacing-2);
   border-radius: var(--rounded-lg);
   background: var(--colors-field);
   box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
@@ -1778,7 +1797,7 @@ svg.lanes {
 
 .input.area {
   align-items: flex-start;
-  padding: 6px 10px;
+  padding: var(--spacing-1-5) var(--spacing-2);
   min-height: 72px;
 }
 
@@ -3162,7 +3181,7 @@ body.dragging * {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-2);
-  height: 100%;
+  height: var(--controls-height-tab);
   flex-grow: 1;
   padding: 0 var(--spacing-2) 0 var(--spacing-3);
   border-radius: var(--rounded-pill);
@@ -3176,7 +3195,7 @@ body.dragging * {
   display: inline-grid;
   place-items: center;
   width: var(--controls-hit-min);
-  height: var(--controls-hit-min);
+  height: var(--controls-height-tab);
   margin-right: var(--spacing-1-5);
   border-radius: var(--rounded-pill);
   color: var(--colors-text-muted);
@@ -3604,6 +3623,28 @@ button.cmd {
 
 .switch:disabled {
   opacity: 0.5;
+}
+
+.submod-fetch .switch {
+  height: var(--controls-hit-min);
+  background: transparent;
+  box-shadow: none;
+}
+
+.submod-fetch .switch::before {
+  inset: 3px 0;
+  border-radius: inherit;
+  background: var(--material-control);
+  box-shadow: inset 0 0 0 1px var(--colors-rule-strong);
+}
+
+.submod-fetch .switch::after {
+  top: 6px;
+}
+
+.submod-fetch .switch[aria-checked="true"]::before {
+  background: var(--colors-accent);
+  box-shadow: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4349,7 +4390,7 @@ button.cmd {
   display: inline-flex;
   align-items: center;
   gap: var(--spacing-1-5);
-  padding: 0 11px;
+  padding: 0 var(--spacing-3);
   border: 0;
   border-radius: var(--rounded-pill);
   background: transparent;
@@ -4403,16 +4444,6 @@ button.cmd {
   flex-wrap: nowrap;
   gap: var(--spacing-1);
   margin-top: var(--spacing-2);
-}
-
-.input select {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
 }
 
 .chips {
@@ -4837,10 +4868,6 @@ button.cmd {
 .rrow .rmessage,
 .rrow .row-problem {
   grid-column: 2 / -1;
-}
-
-.rrow .input select {
-  min-width: 96px;
 }
 
 .rsum {
@@ -5276,7 +5303,12 @@ button.cmd {
   margin: 0 var(--spacing-1);
 }
 
+.sidebar label.input > input {
+  height: var(--controls-height-dense);
+}
+
 button.sec-title {
+  min-height: var(--controls-height-dense);
   color: inherit;
   font: inherit;
   text-align: start;
@@ -5294,6 +5326,7 @@ button.sec-title {
 }
 
 .sidebar .srow {
+  padding-left: var(--spacing-1-5);
   user-select: none;
 }
 
@@ -5303,13 +5336,20 @@ button.sec-title {
 }
 
 .tree-guide {
+  flex: 0 0 var(--spacing-3);
+  width: var(--spacing-3);
+  margin-right: calc(-1 * var(--spacing-2));
+  pointer-events: none;
+}
+
+.tree-guide::before {
+  content: "";
   position: absolute;
   left: calc(var(--spacing-3) + 1px + var(--level) * var(--spacing-3));
   top: 0;
   bottom: 0;
   width: 0;
   border-left: 1px solid var(--colors-text-muted);
-  pointer-events: none;
 }
 
 .avatar {

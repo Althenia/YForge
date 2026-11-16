@@ -49,17 +49,15 @@ function Tool(props: {
   reason?: string | undefined;
   onClick: (event: MouseEvent & { currentTarget: HTMLButtonElement }) => void;
 }) {
-  const quietReason = () => props.ariaDisabled === true && !props.labelled;
   return (
     <button
       type="button"
       class="btn"
       classList={{ primary: props.primary === true, "icon-only": !props.labelled }}
-      {...(props.labelled ? { "aria-label": props.name } : tip(quietReason() ? (props.reason ?? props.label) : (props.name ?? props.label), props.shortcut, props.name ?? props.label))}
+      {...(props.labelled ? { "aria-label": props.name, "data-tip": props.reason } : tip(props.reason ?? props.name ?? props.label, props.shortcut, props.name ?? props.label))}
       disabled={props.disabled === true}
       aria-disabled={props.ariaDisabled === true ? "true" : undefined}
       aria-description={props.ariaDisabled === true ? props.reason : undefined}
-      title={quietReason() ? undefined : props.reason}
       onClick={(event) => props.ariaDisabled === true || props.onClick(event)}
     >
       <Icon name={props.icon} size={props.labelled ? 16 : 20} />
@@ -107,11 +105,10 @@ function Split(props: {
         classList={{ primary: props.primary === true }}
         aria-haspopup="menu"
         disabled={caretDisabled()}
-        title={caretReason()}
-        {...tip(props.menuLabel)}
+        {...tip(caretReason() ?? props.menuLabel, undefined, props.menuLabel)}
         onClick={props.onMenu}
       >
-        <Icon name="chevron" size={14} />
+        <Icon name="chevron" size={props.labelled ? 16 : 20} />
       </button>
     </span>
   );
@@ -163,13 +160,13 @@ export function CommandBar(props: {
   return (
     <div class="bar commandbar">
       <span class="crumb">
-        <span class="crumb-repo" title={basename(props.snapshot.root)}>{basename(props.snapshot.root)}</span>
+        <span class="crumb-repo" data-tip={basename(props.snapshot.root)}>{basename(props.snapshot.root)}</span>
         <span class="sep">›</span>
         <Show when={linkedWorktree()}>
           {(worktree) => (
             <>
-              <span class="crumb-worktree" title={worktree()}>
-                <Icon name="worktree" size={14} />
+              <span class="crumb-worktree" data-tip={worktree()}>
+                <Icon name="worktree" />
                 <span class="crumb-worktree-name">{basename(worktree())}</span>
               </span>
               <span class="sep">›</span>
@@ -182,7 +179,7 @@ export function CommandBar(props: {
           aria-haspopup="menu"
           aria-label={`Branch menu: ${headLabel(props.snapshot)}`}
           disabled={unborn()}
-          title={unborn() ? "Make a first commit before switching branches" : undefined}
+          data-tip={unborn() ? "Make a first commit before switching branches" : undefined}
           onClick={(event) => props.actions.openBranchPicker(below(event.currentTarget))}
         >
           <span class="branch-name">{headLabel(props.snapshot)}</span>

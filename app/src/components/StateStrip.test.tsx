@@ -151,7 +151,7 @@ describe("state strip chips", () => {
     const offline = mount({ online: false });
     const chip = button(offline.host, /^Fetched .* Fetch now/);
     expect(chip.disabled).toBe(true);
-    expect(chip.title).toBe("You are offline");
+    expect(chip.getAttribute("data-tip")).toBe("You are offline");
   });
 
   it("reads Auto-fetch paused with the reason in text when an automatic fetch failed, and retries the fetch when activated", () => {
@@ -174,7 +174,7 @@ describe("state strip chips", () => {
     expect(host.textContent).not.toContain("Auto-fetch paused");
     const chip = button(host, /^Fetched .* Fetch now/);
     expect(chip.disabled).toBe(true);
-    expect(chip.title).toBe("You are offline");
+    expect(chip.getAttribute("data-tip")).toBe("You are offline");
   });
 
   it("ages the fetched chip from fresh to stale as the clock ticks, without a new snapshot", async () => {
@@ -265,7 +265,7 @@ describe("authentication failure", () => {
     button(host, /^Fix/).click();
 
     expect(openSettings).toHaveBeenCalledWith("git");
-    expect(button(host, /^Fix/).title).toBe("Choose an SSH key");
+    expect(button(host, /^Fix/).getAttribute("data-tip")).toBe("Choose an SSH key");
   });
 });
 

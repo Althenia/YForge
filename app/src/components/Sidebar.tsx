@@ -55,8 +55,6 @@ const anchorOf = (element: HTMLElement): Anchor => {
   return { left: rect.left + 24, top: rect.bottom };
 };
 
-const indent = (depth: number, base = 12): string => `${base + depth * 12}px`;
-
 const branchCount = (count: number): string => `${count} ${count === 1 ? "branch" : "branches"}`;
 
 const NO_FOLDERS: ReadonlySet<string> = new Set();
@@ -307,7 +305,7 @@ export function Sidebar(props: {
             <Icon name={section.icon} />
             {section.title}
             <span class="sec-chevron" classList={{ collapsed: !expanded() }}>
-              <Icon name="chevron" size={14} />
+              <Icon name="chevron" />
             </span>
           </button>
           <Show when={section.total !== undefined}>
@@ -316,14 +314,14 @@ export function Sidebar(props: {
           <Show when={section.open}>
             {(open) => (
               <button type="button" class="icon-btn dense" {...tip(open().label)} onClick={open().run}>
-                <Icon name="open" size={14} />
+                <Icon name="open" />
               </button>
             )}
           </Show>
           <Show when={section.add}>
             {(add) => (
               <button type="button" class="icon-btn dense" {...tip(add().label)} onClick={add().run}>
-                <Icon name="plus" size={14} />
+                <Icon name="plus" />
               </button>
             )}
           </Show>
@@ -338,7 +336,6 @@ export function Sidebar(props: {
     title: string;
     current?: boolean;
     depth?: number;
-    base?: number;
     pull?: boolean;
     group?: BulkGroup;
     tree?: boolean;
@@ -358,7 +355,7 @@ export function Sidebar(props: {
       <div
         class="srow"
         classList={{ current: row.current === true, pull: row.pull === true, selected: isChosen(row.id) }}
-        style={{ "padding-left": indent(row.depth ?? 0, row.base), ...row.virtual?.style }}
+        style={row.virtual?.style}
         ref={(element) => mountNav(row.list, row.virtual, element)}
         data-list={row.list}
         data-pos={row.virtual?.index}
@@ -369,7 +366,7 @@ export function Sidebar(props: {
         aria-pressed={isChosen(row.id) ? "true" : undefined}
         data-nav={row.id}
         tabindex={tabStop(row.id) ? 0 : -1}
-        title={row.title}
+        data-tip={row.title}
         onFocus={() => setActiveRow(row.id)}
         onClick={(event) => {
           if (row.group !== undefined) {
@@ -409,7 +406,6 @@ export function Sidebar(props: {
     count: number;
     open: boolean;
     depth: number;
-    base?: number;
     noun: "Folder" | "Remote";
     group?: BulkGroup;
     tree?: boolean;
@@ -422,7 +418,7 @@ export function Sidebar(props: {
       <div
         class="srow folder"
         classList={{ selected: isChosen(row.id) }}
-        style={{ "padding-left": indent(row.depth, row.base ?? 6), ...row.virtual?.style }}
+        style={row.virtual?.style}
         ref={(element) => mountNav(row.list, row.virtual, element)}
         data-list={row.list}
         data-pos={row.virtual?.index}
@@ -432,7 +428,7 @@ export function Sidebar(props: {
         aria-label={`${row.noun} ${row.path}, ${branchCount(row.count)}, ${row.open ? "expanded" : "collapsed"}`}
         data-nav={row.id}
         tabindex={tabStop(row.id) ? 0 : -1}
-        title={row.path}
+        data-tip={row.path}
         onFocus={() => setActiveRow(row.id)}
         onClick={(event) => {
           if (row.group !== undefined) {
@@ -456,7 +452,7 @@ export function Sidebar(props: {
       >
         <Show when={row.tree}><TreeLines depth={row.depth} /></Show>
         <span class="folder-chevron" classList={{ collapsed: !row.open }}>
-          <Icon name="chevron" size={14} />
+          <Icon name="chevron" />
         </span>
         <span class="name">{row.name}</span>
         <Show when={isChosen(row.id)}><span class="meta">{branchCount(row.count)}</span></Show>
@@ -530,7 +526,6 @@ export function Sidebar(props: {
         count={row.count}
         open={row.open}
         depth={row.depth + 1}
-        base={6}
         noun="Folder"
         tree
       />
@@ -543,7 +538,6 @@ export function Sidebar(props: {
         label={withConflict(`Branch ${row.path}${row.path === currentBranch() ? ", checked out" : ""}${hiddenNote("local_branch", row.path)}`, props.conflictOf?.(row.path))}
         current={row.path === currentBranch()}
         depth={row.depth + 1}
-        base={6}
         group="branches"
         tree
         onOpen={(anchor) => props.actions.openRefMenu(branchTarget(row.path), anchor)}
@@ -554,7 +548,7 @@ export function Sidebar(props: {
         <HiddenFlag kind="local_branch" name={row.path} />
         <Show when={pullOfLocal(props.platform?.pullLookup(), row.path)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(row.path)}>
-          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} data-tip={statusWord.conflicted}>
             <Icon name={statusIcon.conflicted} />
           </span>
         </Show>
@@ -575,7 +569,7 @@ export function Sidebar(props: {
 
   const remoteRow = (remote: string, row: TreeRow, virtual: VirtualRow) => {
     // The remote itself is the section's child, so its branches sit one level deeper.
-    const chrome = { depth: row.depth + 2, base: 6, tree: true, list: remoteList(remote), virtual };
+    const chrome = { depth: row.depth + 2, tree: true, list: remoteList(remote), virtual };
     return row.kind === "folder" ? (
       <FolderRow
         id={`folder:${row.id}`}
@@ -601,7 +595,7 @@ export function Sidebar(props: {
         <HiddenFlag kind="remote_branch" name={`${remote}/${row.path}`} />
         <Show when={pullOfRemote(props.platform?.pullLookup(), `${remote}/${row.path}`)}>{(pull) => <PullBadge path={props.snapshot.root} pull={pull()} onOpen={(number) => props.onSelectPull?.(number)} />}</Show>
         <Show when={props.conflictOf?.(`${remote}/${row.path}`)}>
-          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} title={statusWord.conflicted}>
+          <span class="st st-conflicted conflict-mark" role="img" aria-label={statusWord.conflicted} data-tip={statusWord.conflicted}>
             <Icon name={statusIcon.conflicted} />
           </span>
         </Show>
@@ -640,7 +634,7 @@ export function Sidebar(props: {
         </Show>
       </Show>
       <label class="input sfilter">
-        <Icon name="search" size={14} />
+        <Icon name="search" />
         <input
           type="text"
           aria-label="Filter sidebar"
@@ -676,7 +670,6 @@ export function Sidebar(props: {
                     count={visibleRemoteBranches(remote).length}
                     open={open()}
                     depth={1}
-                    base={6}
                     noun="Remote"
                     group="remotes"
                     tree
@@ -709,7 +702,6 @@ export function Sidebar(props: {
                 current={worktree.current}
                 group="worktrees"
                 depth={1}
-                base={6}
                 tree
                 onOpen={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
                 onMenu={(anchor) => openWorktreeMenu(worktree.path, worktree.current, anchor)}
@@ -734,7 +726,6 @@ export function Sidebar(props: {
                   title={name}
                   label={`Tag ${name}${hiddenNote("tag", name)}`}
                   depth={1}
-                  base={6}
                   group="tags"
                   tree
                   onOpen={(anchor) => props.actions.openRefMenu(target(), anchor)}
@@ -758,7 +749,6 @@ export function Sidebar(props: {
                 current={props.selection?.kind === "stash" && props.selection.sha === stash.sha}
                 group="stashes"
                 depth={1}
-                base={6}
                 tree
                 onClick={() => props.onSelectStash(stash.sha)}
                 onOpen={(anchor) => props.actions.openStashMenu(stash, anchor)}
@@ -808,7 +798,6 @@ export function Sidebar(props: {
                       current={props.selection?.kind === "pull" && props.selection.number === pull.number}
                       pull
                       depth={1}
-                      base={6}
                       tree
                       onClick={select}
                       onActivate={select}
@@ -818,7 +807,7 @@ export function Sidebar(props: {
                       <span class="pull-main">
                         <span class="pull-line">
                           <span class="pull-state" classList={{ ok: state().tone === "ok", info: state().tone === "info", danger: state().tone === "danger" }} role="img" {...tip(state().label, undefined, state().label)}>
-                            <Icon name={state().icon} size={14} />
+                            <Icon name={state().icon} />
                           </span>
                           <span class="pull-number">#{pull.number}</span>
                           <span class="name">{pull.title}</span>
@@ -842,7 +831,7 @@ export function Sidebar(props: {
                             platform.openInBrowser(pull);
                           }}
                         >
-                          <Icon name="open" size={14} />
+                          <Icon name="open" />
                         </button>
                         <button
                           type="button"
@@ -855,7 +844,7 @@ export function Sidebar(props: {
                             platform.requestMerge(pull);
                           }}
                         >
-                          <Icon name="merge" size={14} />
+                          <Icon name="merge" />
                         </button>
                       </span>
                     </NavRow>
@@ -905,7 +894,6 @@ export function Sidebar(props: {
                     current={props.selection?.kind === "issue" && props.selection.key === issue.key}
                     pull
                     depth={1}
-                    base={6}
                     tree
                     onClick={() => jira.select(issue.key)}
                     onActivate={() => jira.select(issue.key)}
@@ -934,7 +922,7 @@ export function Sidebar(props: {
                           void props.actions.openCreateBranchFromIssue(issue, anchorOf(event.currentTarget));
                         }}
                       >
-                        <Icon name="branch" size={14} />
+                        <Icon name="branch" />
                       </button>
                       <button
                         type="button"
@@ -946,7 +934,7 @@ export function Sidebar(props: {
                           jira.openInBrowser(issue);
                         }}
                       >
-                        <Icon name="open" size={14} />
+                        <Icon name="open" />
                       </button>
                     </span>
                   </NavRow>
@@ -991,8 +979,7 @@ export function Sidebar(props: {
                 role="button"
                 tabindex="0"
                 aria-label={entry.label}
-                title={entry.note}
-                style={{ "padding-left": indent(1, 6) }}
+                data-tip={entry.note}
                 onClick={() => props.onOpenPanel(entry.panel)}
                 onKeyDown={(event) => event.key === "Enter" && event.target === event.currentTarget && props.onOpenPanel(entry.panel)}
               >

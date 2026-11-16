@@ -60,7 +60,7 @@ function TabItem(props: {
         role="tab"
         aria-selected={active()}
         aria-current={active() ? "page" : undefined}
-        title={path()}
+        data-tip={path()}
         aria-description={aliased() ? basename(path() ?? "") : undefined}
         onPointerDown={(event) => {
           const repository = path();
@@ -98,7 +98,7 @@ function TabItem(props: {
         {...tip("Close tab", active() ? "⌘W" : undefined, `Close ${tabLabel(props.entry.tab, app.aliases())}`)}
         onClick={() => app.closeTabAt(props.entry.index)}
       >
-        <Icon name="close" size={14} />
+        <Icon name="close" />
       </button>
     </span>
   );

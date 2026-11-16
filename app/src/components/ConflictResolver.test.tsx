@@ -180,6 +180,20 @@ describe("conflict resolver", () => {
     expect(pane("Theirs")?.querySelector(".mt-code")?.textContent).toContain("node app.js");
   });
 
+  it("keeps resolver glyphs at the owned sixteen-pixel size across picks and base disclosure", async () => {
+    const { host, selectAll, press, tick } = await mountResolver(twoRegions);
+    const glyphSizes = () => new Set([...host.querySelectorAll("svg")].map((glyph) => `${glyph.getAttribute("width")}×${glyph.getAttribute("height")}`));
+
+    expect(glyphSizes()).toEqual(new Set(["16×16"]));
+    selectAll("Yours")?.click();
+    press("n");
+    await tick();
+    buttonNamed(host, "Show base of conflict 2")?.click();
+
+    expect(host.querySelector(".cbase pre")?.textContent).toBe("GPL");
+    expect(glyphSizes()).toEqual(new Set(["16×16"]));
+  });
+
   it("starts with an Output holding the file with Git's markers, numbered lines, and a disabled Mark resolved that says why", async () => {
     const { output, host, markButton } = await mountResolver(twoRegions);
 
@@ -586,6 +600,8 @@ describe("conflict resolver", () => {
       const button = proposeButton(host);
       expect(button?.textContent?.trim()).toBe("");
       expect(button?.dataset.tip).toBe("Propose a resolution for every conflict in this file");
+      expect(button?.querySelector('svg[data-icon="wand"]')?.getAttribute("width")).toBe("16");
+      expect(button?.querySelector('svg[data-icon="wand"]')?.getAttribute("height")).toBe("16");
     });
 
     it("fills the Output with the proposal, shows each rationale, and changes nothing in Git", async () => {

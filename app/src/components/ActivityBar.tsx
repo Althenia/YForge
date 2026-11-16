@@ -12,13 +12,13 @@ export function ActivityBar(props: { info: AppInfo; root: string }) {
       <span class="chip">
         YForge {props.info.app_version} · git <code>{props.info.git_version}</code>
       </span>
-      <button type="button" class="chip activity-toggle" aria-expanded={app.drawerOpen()} aria-controls="activity-drawer" title="Toggle the Activity drawer (⌘⇧Y)" onClick={app.toggleDrawer}>
-        <Icon name="activity" size={14} />
+      <button type="button" class="chip activity-toggle" aria-expanded={app.drawerOpen()} aria-controls="activity-drawer" data-tip="Toggle the Activity drawer (⌘⇧Y)" onClick={app.toggleDrawer}>
+        <Icon name="activity" />
         Activity
         <Show when={latest()}>{(entry) => <span class="activity-latest">· {entry().summary}</span>}</Show>
       </button>
       <span class="spacer" />
-      <span class="path-line" title={props.root}>
+      <span class="path-line" data-tip={props.root}>
         <bdi dir="ltr">{props.root}</bdi>
       </span>
     </div>

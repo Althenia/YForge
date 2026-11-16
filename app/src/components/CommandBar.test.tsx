@@ -60,7 +60,7 @@ describe("command bar breadcrumb", () => {
     const worktree = mounted.host.querySelector(".crumb-worktree");
 
     expect(worktree?.textContent?.trim()).toBe("reasoning-budget");
-    expect(worktree?.getAttribute("title")).toBe("/work/.worktrees/reasoning-budget");
+    expect(worktree?.getAttribute("data-tip")).toBe("/work/.worktrees/reasoning-budget");
     expect(worktree?.querySelector("svg.icon")).not.toBeNull();
     expect(mounted.host.querySelector(".crumb")?.textContent?.replace(/\s+/g, "")).toBe("repo›reasoning-budget›feature/reasoning-budget");
   });
@@ -127,8 +127,8 @@ describe("fetch, pull, and push", () => {
     });
     for (const width of [960, 1280, 1440]) {
       const current = mountActions(long, { kind: "idle" }, width);
-      expect(current.host.querySelector('.crumb-repo[title]')?.textContent).toContain("repository");
-      expect(current.host.querySelector('.crumb-worktree[title]')?.textContent).toContain("worktree");
+      expect(current.host.querySelector('.crumb-repo[data-tip]')?.textContent).toContain("repository");
+      expect(current.host.querySelector('.crumb-worktree[data-tip]')?.textContent).toContain("worktree");
       expect(current.host.querySelector('.branch-name')?.textContent).toContain("overflow");
       for (const name of ["Fetch", "Pull, 0 behind", "Push, 1 ahead", "Branch", "Stash", "Undo", "Redo"]) {
         expect(current.host.querySelector(`.commandbar button[aria-label="${name}"]`), `${width}: ${name}`).not.toBeNull();
@@ -167,13 +167,13 @@ describe("fetch, pull, and push", () => {
     const cleanBar = mountActions(tracked());
 
     expect(cleanBar.button("Stash")?.disabled).toBe(true);
-    expect(cleanBar.button("Stash")?.title).toBe("Nothing to stash");
+    expect(cleanBar.button("Stash")?.getAttribute("data-tip")).toBe("Nothing to stash");
     dispose?.();
 
     const dirty = mountActions(tracked({ counts: { ...clean, modified: 1 } }), { kind: "running", id: "op", label: "Pulling", phase: undefined, percent: null, cancellable: true });
 
     expect(dirty.button("Stash")?.disabled).toBe(true);
-    expect(dirty.button("Stash")?.title).toBe("A sync is running");
+    expect(dirty.button("Stash")?.getAttribute("data-tip")).toBe("A sync is running");
     expect(dirty.button("Fetch")?.disabled).toBe(true);
     expect(dirty.button("Pull")?.disabled).toBe(true);
     expect(dirty.button("Push")?.disabled).toBe(true);
@@ -200,7 +200,7 @@ describe("fetch, pull, and push", () => {
 
     expect(button("Publish")).toBeDefined();
     expect(button("Pull")?.disabled).toBe(true);
-    expect(button("Pull")?.title).toBe("No upstream branch to pull from");
+    expect(button("Pull")?.getAttribute("data-tip")).toBe("No upstream branch to pull from");
     expect(button("Push")).toBeUndefined();
 
     host.querySelector<HTMLButtonElement>('[role="group"][aria-label="Publish"] button[aria-label="Push to…"]')?.click();
@@ -228,7 +228,7 @@ describe("undo and redo controls (S61)", () => {
     const { redoButton, undoButton, onRedo } = mountHistory({ kind: "unavailable", reason: "Nothing to undo" }, { kind: "unavailable", reason: NOTHING_TO_REDO });
 
     expect(redoButton()?.getAttribute("aria-disabled")).toBe("true");
-    expect(redoButton()?.title).toBe("Nothing to redo");
+    expect(redoButton()?.getAttribute("data-tip")).toBe("Nothing to redo");
     expect(redoButton()?.disabled).toBe(false);
     expect(undoButton()?.nextElementSibling).toBe(redoButton());
     redoButton()?.click();
@@ -279,7 +279,7 @@ describe("undo and redo controls (S61)", () => {
     const { redoButton, onRedo } = mountHistory({ kind: "unavailable", reason: "" }, { kind: "available", scope: "Redo: moves main forward to abc1234" });
 
     expect(redoButton()?.getAttribute("aria-disabled")).toBeNull();
-    expect(redoButton()?.title).toBe("Redo: moves main forward to abc1234");
+    expect(redoButton()?.getAttribute("data-tip")).toBe("Redo: moves main forward to abc1234");
     redoButton()?.click();
     expect(onRedo).toHaveBeenCalledOnce();
   });

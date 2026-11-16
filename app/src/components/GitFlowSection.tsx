@@ -118,7 +118,7 @@ export function GitFlowSection(props: { root: string; head: string | undefined; 
               <Icon name="merge" />
               Git Flow
               <span class="sec-chevron" classList={{ collapsed: !props.expanded }}>
-                <Icon name="chevron" size={14} />
+                <Icon name="chevron" />
               </span>
             </button>
             <span class="count">{countLabel(rows().length, visible().length, props.filter !== "")}</span>
@@ -133,8 +133,7 @@ export function GitFlowSection(props: { root: string; head: string | undefined; 
                   data-nav={`flow:${row.id}`}
                   aria-label={row.label}
                   aria-disabled={row.id === "finish" && finishing() ? "true" : undefined}
-                  title={row.note}
-                  style={{ "padding-left": "calc(var(--spacing-3) + var(--spacing-1-5))" }}
+                  data-tip={row.note}
                   onClick={row.run}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && event.target === event.currentTarget) {
@@ -144,7 +143,7 @@ export function GitFlowSection(props: { root: string; head: string | undefined; 
                   }}
                 >
                   <span class="tree-guide" data-level="0" style={{ "--level": 0 }} aria-hidden="true" />
-                  <Icon name={row.icon} size={14} />
+                  <Icon name={row.icon} />
                   <span class="name">{row.label}</span>
                   <Show when={row.id === "finish" && finishing()}><span class="busy-spinner" role="status" aria-label="Finishing Git Flow…" /></Show>
                 </div>

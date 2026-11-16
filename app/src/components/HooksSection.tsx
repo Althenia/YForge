@@ -81,7 +81,7 @@ export function HooksSection(props: { root: string; expanded: boolean; onToggle:
           request(hook, mode);
         }}
       >
-        <Icon name={icon} size={14} />
+        <Icon name={icon} />
       </button>
     );
   };
@@ -93,12 +93,12 @@ export function HooksSection(props: { root: string; expanded: boolean; onToggle:
           <Icon name="plug" />
           Hooks
           <span class="sec-chevron" classList={{ collapsed: !props.expanded }}>
-            <Icon name="chevron" size={14} />
+            <Icon name="chevron" />
           </span>
         </button>
         <Show when={list.data}>
           {(data) => (
-            <span class="sec-note" title={data().directory} aria-label={`Hooks directory ${data().directory}`}>
+            <span class="sec-note" data-tip={data().directory} aria-label={`Hooks directory ${data().directory}`}>
               {hooksDirectoryLabel(data().directory, props.root)}
             </span>
           )}
@@ -123,8 +123,7 @@ export function HooksSection(props: { root: string; expanded: boolean; onToggle:
               aria-haspopup="menu"
               data-nav={`hook:${hook.name}`}
               aria-label={hookRowLabel(hook)}
-              title={hook.reason === null ? hook.path : `${hook.path} · ${hook.reason}`}
-              style={{ "padding-left": "calc(var(--spacing-3) + var(--spacing-1-5))" }}
+              data-tip={hook.reason === null ? hook.path : `${hook.path} · ${hook.reason}`}
               onClick={() => view(hook)}
               onContextMenu={(event) => {
                 event.preventDefault();
@@ -158,7 +157,7 @@ export function HooksSection(props: { root: string; expanded: boolean; onToggle:
                     view(hook);
                   }}
                 >
-                  <Icon name="file" size={14} />
+                  <Icon name="file" />
                 </button>
                 {control(hook, "run", "terminal")}
                 {control(hook, "test", "check")}
