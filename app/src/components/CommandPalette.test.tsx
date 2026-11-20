@@ -46,7 +46,7 @@ function mount(overrides: Partial<PaletteContext> = {}, scope?: "repositories", 
   const startRebase = vi.fn();
   const openCreateBranchAt = vi.fn();
   const actions = { sync: () => ({ kind: "idle" }), startRebase, openCreateBranchAt, discardAllReason: () => undefined, createPatchReason: () => undefined, maintainReason: () => undefined, graphVisibility: () => ({ kind: "all" }) } as unknown as RepoActions;
-  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), selectVisibleTab: vi.fn(), visibleTabCount: () => 9, checkForUpdate: vi.fn(), openRepositorySearch: vi.fn(), openShortcuts: vi.fn(), openLogs: vi.fn(), openDrawer: vi.fn(), openReleaseNotes: vi.fn(), zoom: vi.fn(), toggleSidebar: vi.fn(), toggleInspector: vi.fn(), toggleSyntaxHighlighting: vi.fn(), toggleTheme: vi.fn(), switchProfile: vi.fn(), profileList: () => undefined, profileOptions: async () => [], openFileInTool: vi.fn(), openFileInEditor: vi.fn(), initializeLfs: vi.fn(), ...appOverrides } as PaletteApp;
+  const app = { openClone: vi.fn(), openLauncher: vi.fn(), openFolder: vi.fn(), openCreate: vi.fn(), closeTab: vi.fn(), openSettings: vi.fn(), openLaunchpad: vi.fn(), addPlatformConnection: vi.fn(), toggleDrawer: vi.fn(), openSearch: vi.fn(), openExternal: vi.fn(), setTheme: vi.fn(), openRepository: vi.fn(), repositories: () => ["/r"], openRepositories: () => ["/r"], aliasOf: () => undefined, canReopenClosedTab: () => false, reopenClosedTab: vi.fn(), nextTab: vi.fn(), previousTab: vi.fn(), selectVisibleTab: vi.fn(), visibleTabCount: () => 9, checkForUpdate: vi.fn(), openRepositorySearch: vi.fn(), openShortcuts: vi.fn(), openLogs: vi.fn(), openDrawer: vi.fn(), openReleaseNotes: vi.fn(), zoom: vi.fn(), toggleSidebar: vi.fn(), toggleInspector: vi.fn(), toggleSyntaxHighlighting: vi.fn(), toggleTheme: vi.fn(), switchProfile: vi.fn(), profileList: () => undefined, profileOptions: async () => [], openFileInTool: vi.fn(), openFileInEditor: vi.fn(), initializeLfs: vi.fn(), ...appOverrides } as PaletteApp;
   const closed = vi.fn();
   const context: PaletteContext = {
     snapshot,
@@ -252,8 +252,36 @@ describe("command palette scoped to repositories (S55)", () => {
 
   function mountScoped(aliases: Record<string, string> = {}) {
     mockIPC((cmd) => (cmd === "repositories_list" ? { folders: [], repos: [{ path: "/scan/tools", folder: "/scan", opened_at: null }] } : null));
-    return mount({}, "repositories", { repositories: () => ["/work/api", "/work/web"], aliasOf: (path) => aliases[path] });
+    return mount({}, "repositories", { repositories: () => ["/work/api", "/work/web", "/work/api-linked"], openRepositories: () => ["/work/api", "/work/web"], aliasOf: (path) => aliases[path] });
   }
+
+  it("lists only repository roots and keeps a linked worktree out of the list and the search", async () => {
+    const { input, labels } = mountScoped();
+    await flush(40);
+
+    expect(labels()).not.toContain("/work/api-linked");
+    type(input(), "linked");
+    await flush();
+    expect(labels()).toEqual([]);
+    type(input(), "api");
+    await flush();
+    expect(labels()).toEqual(["/work/api"]);
+  });
+
+  it("offers a typed path to a linked worktree as the first row and opens it on Enter", async () => {
+    const { host, input, key, labels, app, closed } = mountScoped();
+    await flush(40);
+    type(input(), "/work/api-linked");
+    await flush();
+
+    expect(labels()[0]).toBe("/work/api-linked");
+    expect(rows(host)[0]).toContain("Open path");
+    key("Enter");
+    await flush(40);
+
+    expect(app.openRepository).toHaveBeenCalledWith("/work/api-linked");
+    expect(closed).toHaveBeenCalled();
+  });
 
   it("shows the Open repo chip with a × control, the placeholder, and one row per known repository with its full path", async () => {
     const { host, input, labels } = mountScoped();

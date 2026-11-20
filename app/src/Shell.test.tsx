@@ -53,8 +53,8 @@ afterEach(async () => {
 describe("shell sheets and the repository search palette", () => {
   function mountApp(extra: Record<string, unknown> = {}) {
     mockIPC(
-      (cmd) => {
-        if (cmd in extra) return typeof extra[cmd] === "function" ? (extra[cmd] as () => unknown)() : extra[cmd];
+      (cmd, args) => {
+        if (cmd in extra) return typeof extra[cmd] === "function" ? (extra[cmd] as (args: unknown) => unknown)(args) : extra[cmd];
         if (cmd === "repo_open") throw { kind: "not_a_repository", message: "not a repository", output: null };
         if (cmd === "settings_load") return defaultSettings;
         if (cmd === "repo_aliases_list") return [];
@@ -73,7 +73,7 @@ describe("shell sheets and the repository search palette", () => {
   }
 
   it("opens the palette scoped to repositories with ⇧⌘O, listing the known repositories", async () => {
-    const host = mountApp({ recents_list: [{ path: "/work/api", opened_at: 1 }], repositories_list: { folders: [], repos: [{ path: "/scan/web", folder: "/scan", opened_at: null }] } });
+    const host = mountApp({ recents_list: [{ path: "/work/api", opened_at: 1 }], repositories_list: { folders: [], repos: [{ path: "/work/api", folder: null, opened_at: 1 }, { path: "/scan/web", folder: "/scan", opened_at: null }] } });
     await flush(80);
 
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "O", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
@@ -82,6 +82,53 @@ describe("shell sheets and the repository search palette", () => {
     expect(host.querySelector(".palette .pal-chip.scope")?.textContent).toContain("Open repo");
     expect(host.querySelector<HTMLInputElement>('.palette input[aria-label="Command"]')?.placeholder).toBe("Search for a repository to open");
     expect([...host.querySelectorAll(".palette .pal-item .pal-label")].map((label) => label.textContent)).toEqual(["/work/api", "/scan/web"]);
+  });
+
+  it("lists only repository roots in Open repo, matches no linked worktree, and opens one from its typed path", async () => {
+    const opened: string[] = [];
+    const tokens = document.createElement("style");
+    tokens.textContent = readFileSync(resolve(import.meta.dirname, "styles/tokens.css"), "utf8");
+    document.head.append(tokens);
+    onTestFinished(() => tokens.remove());
+    const host = mountApp({
+      launch_path: null,
+      app_info: { app_version: "0.1.0", git_version: "2.50.0" },
+      session_load: { tabs: ["/work/api", "/work/api-linked"], active: 0, groups: [] },
+      repo_open: (args: { path: string }) => {
+        opened.push(args.path);
+        return { root: args.path, main_root: "/work/api", head: { kind: "unborn", branch: "main" }, files: [], counts: {}, remotes: [], branches: [], tags: [], stashes: [], worktrees: [], operation: null, upstream: null };
+      },
+      recents_list: [{ path: "/work/api-linked", opened_at: 3 }, { path: "/work/api", opened_at: 2 }, { path: "/old/linked", opened_at: 1 }],
+      recent_add: [{ path: "/work/api-linked", opened_at: 4 }, { path: "/work/api", opened_at: 2 }],
+      repositories_list: { folders: [], repos: [{ path: "/work/api", folder: null, opened_at: 2 }, { path: "/scan/web", folder: "/scan", opened_at: null }] },
+    });
+    await flush(80);
+    const labels = () => [...host.querySelectorAll(".palette .pal-item .pal-label")].map((label) => label.textContent);
+    const input = () => host.querySelector<HTMLInputElement>('.palette input[aria-label="Command"]');
+    const typeQuery = (text: string) => {
+      const field = input();
+      if (field === null) throw new Error("no palette input");
+      field.value = text;
+      field.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    };
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "O", metaKey: true, shiftKey: true, bubbles: true, cancelable: true }));
+    await flush(80);
+    expect(labels()).toEqual(["/work/api", "/scan/web"]);
+
+    typeQuery("linked");
+    await flush();
+    expect(labels()).toEqual([]);
+
+    typeQuery("/work/api-linked");
+    await flush();
+    expect(labels()).toEqual(["/work/api-linked"]);
+    opened.length = 0;
+    input()?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await flush(80);
+
+    expect(opened).toEqual(["/work/api-linked"]);
+    expect(host.querySelector(".palette")).toBeNull();
   });
 
   it("confirms before initializing a launch folder that is not a repository and opens it after Initialize repository", async () => {

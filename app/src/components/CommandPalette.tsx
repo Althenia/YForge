@@ -9,8 +9,10 @@ import {
   parseQuery,
   rank,
   REPOSITORY_SCOPE_CHIP,
+  REPOSITORY_PATH_NOTE,
   REPOSITORY_SCOPE_PLACEHOLDER,
   repositoryChoices,
+  typedRepositoryPath,
   type PaletteCommand,
   type PaletteContext,
   type PickerOption,
@@ -103,18 +105,21 @@ export function CommandPalette(props: { context: PaletteContext; scope?: "reposi
     const current = pending();
     if (current !== undefined && textStep()) return [];
     if (current === undefined && scoped()) {
+      const open = (path: string) => () => {
+        props.onClose();
+        queueMicrotask(() => props.context.app.openRepository(path));
+      };
       const choices = repositoryChoices(props.context.app, managed.data?.repos.map((repo) => repo.path) ?? []);
-      return rank(choices, query(), (choice) => `${choice.path} ${choice.alias ?? ""}`).map(({ item, match }) => ({
+      const typed = typedRepositoryPath(query(), choices);
+      const listed = rank(choices, query(), (choice) => `${choice.path} ${choice.alias ?? ""}`).map(({ item, match }) => ({
         key: item.path,
         label: item.path,
         icon: "folder" as const,
         ...(item.alias === undefined ? {} : { note: item.alias }),
         positions: match.positions.filter((position) => position < item.path.length),
-        choose: () => {
-          props.onClose();
-          queueMicrotask(() => props.context.app.openRepository(item.path));
-        },
+        choose: open(item.path),
       }));
+      return typed === undefined ? listed : [{ key: `path:${typed}`, label: typed, icon: "folder" as const, note: REPOSITORY_PATH_NOTE, positions: [], choose: open(typed) }, ...listed];
     }
     if (current !== undefined) {
       return rank(options.data ?? [], query(), (option) => `${option.label} ${option.note ?? ""}`).map(({ item, match }) => ({

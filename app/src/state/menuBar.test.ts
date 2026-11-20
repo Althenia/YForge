@@ -209,6 +209,7 @@ describe("macOS menu bar contents (S43)", () => {
         setTheme: vi.fn(),
         openRepository: vi.fn(),
         repositories: () => [],
+        openRepositories: () => [],
         aliasOf: () => undefined,
         canReopenClosedTab: () => false,
         reopenClosedTab: vi.fn(),

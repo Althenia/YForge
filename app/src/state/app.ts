@@ -578,6 +578,7 @@ export function createAppState(router: AppRouter) {
     openFileInEditor: (file) => void openFileInEditor(file),
     initializeLfs: () => void initializeLfs(),
     openRepository: (path) => void openRepository(path),
+    openRepositories: () => tabs().tabs.flatMap((tab) => (tab.kind === "repo" && (mainRoots()[tab.path] ?? tab.path) === tab.path ? [tab.path] : [])),
     repositories: () => [
       ...new Set([
         ...tabs().tabs.flatMap((tab) => (tab.kind === "repo" ? [tab.path] : [])),

@@ -14,6 +14,7 @@ import {
   rank,
   refOptions,
   repositoryChoices,
+  typedRepositoryPath,
   type PaletteApp,
   type PaletteContext,
 } from "./palette";
@@ -59,6 +60,7 @@ const app = (): PaletteApp => ({
   setTheme: vi.fn(),
   openRepository: vi.fn(),
   repositories: () => ["/r", "/other"],
+  openRepositories: () => ["/r"],
   aliasOf: () => undefined,
   canReopenClosedTab: () => false,
   reopenClosedTab: vi.fn(),
@@ -705,14 +707,29 @@ describe("tab and menu-bar commands", () => {
 
 
 describe("repository scope (S55)", () => {
-  it("lists open tabs and recents first, then scanned folders, each once, with its alias", () => {
-    const choices = repositoryChoices({ repositories: () => ["/open", "/recent"], aliasOf: (path) => (path === "/recent" ? "Recent API" : undefined) }, ["/recent", "/scanned/a", "/open"]);
+  it("lists open repository tabs first, then the known repository roots, each once, with its alias", () => {
+    const choices = repositoryChoices({ openRepositories: () => ["/open", "/recent"], aliasOf: (path) => (path === "/recent" ? "Recent API" : undefined) }, ["/recent", "/scanned/a", "/open"]);
 
     expect(choices).toEqual([
       { path: "/open", alias: undefined },
       { path: "/recent", alias: "Recent API" },
       { path: "/scanned/a", alias: undefined },
     ]);
+  });
+
+  it("keeps the raw recents out, so a linked worktree they remember is not listed", () => {
+    const choices = repositoryChoices({ openRepositories: () => ["/work/api"], aliasOf: () => undefined }, ["/work/api", "/scan/web"]);
+
+    expect(choices.map((choice) => choice.path)).toEqual(["/work/api", "/scan/web"]);
+  });
+
+  it("offers a typed absolute path that no row lists, and nothing for a listed path or plain text", () => {
+    const choices = [{ path: "/work/api", alias: undefined }];
+
+    expect(typedRepositoryPath("  /work/api-linked ", choices)).toBe("/work/api-linked");
+    expect(typedRepositoryPath("/work/api", choices)).toBeUndefined();
+    expect(typedRepositoryPath("api-linked", choices)).toBeUndefined();
+    expect(typedRepositoryPath("", choices)).toBeUndefined();
   });
 
   it("registers Open repo with ⇧⌘O from the registry and runs the scoped search through the app", () => {

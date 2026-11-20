@@ -181,6 +181,7 @@ export type PaletteApp = {
   setTheme: (theme: AppSettings["theme"]) => void;
   openRepository: (path: string) => void;
   repositories: () => string[];
+  openRepositories: () => string[];
   openRepositorySearch: () => void;
   openShortcuts: () => void;
   openLogs: (tab: LogTab) => void;
@@ -941,8 +942,15 @@ export const REPOSITORY_SCOPE_PLACEHOLDER = "Search for a repository to open";
 
 export type RepositoryChoice = { path: string; alias: string | undefined };
 
-export function repositoryChoices(app: Pick<PaletteApp, "repositories" | "aliasOf">, managed: readonly string[]): RepositoryChoice[] {
-  return [...new Set([...app.repositories(), ...managed])].map((path) => ({ path, alias: app.aliasOf(path) }));
+export const REPOSITORY_PATH_NOTE = "Open path";
+
+export function repositoryChoices(app: Pick<PaletteApp, "openRepositories" | "aliasOf">, roots: readonly string[]): RepositoryChoice[] {
+  return [...new Set([...app.openRepositories(), ...roots])].map((path) => ({ path, alias: app.aliasOf(path) }));
+}
+
+export function typedRepositoryPath(query: string, choices: readonly RepositoryChoice[]): string | undefined {
+  const path = query.trim();
+  return path.startsWith("/") && !choices.some((choice) => choice.path === path) ? path : undefined;
 }
 
 export type Match = { score: number; positions: number[] };

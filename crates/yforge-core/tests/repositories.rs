@@ -6,7 +6,7 @@ use std::process::Command;
 
 use common::Fixture;
 use yforge_core::{
-    add_recent, folder_scan, launchpad_wips, load_recents, repositories_list, repository_remove,
+    add_recent, folder_scan, launchpad_wips, load_recents, repo_snapshot, repositories_list, repository_remove,
     repository_restore, scan_folder_remove, scan_folder_rescan, scan_folder_save, start_storage,
     ErrorKind, FoundRepo, ManagedRepo, ScannedFolder,
 };
@@ -60,10 +60,7 @@ fn found_paths(found: &[FoundRepo]) -> Vec<String> {
     found.iter().map(|repo| repo.path.clone()).collect()
 }
 
-#[test]
-fn linked_worktrees_are_hidden_from_recent_repositories_and_folder_scans() {
-    let dir = data();
-    let disk = Disk::new();
+fn main_and_linked(disk: &Disk) -> (PathBuf, PathBuf) {
     let main = disk.root.join("main");
     fs::create_dir_all(&main).unwrap();
     let git = |args: &[&str]| {
@@ -85,16 +82,24 @@ fn linked_worktrees_are_hidden_from_recent_repositories_and_folder_scans() {
     git(&["add", "tracked"]);
     git(&["commit", "-qm", "initial"]);
     let linked = disk.root.join("linked");
-    let output = Command::new("git")
-        .args(["worktree", "add", "-q", linked.to_str().unwrap()])
-        .current_dir(&main)
-        .output()
-        .unwrap();
-    assert!(
-        output.status.success(),
-        "{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    git(&["worktree", "add", "-q", linked.to_str().unwrap()]);
+    (main, linked)
+}
+
+fn listed_paths(dir: &Path) -> Vec<String> {
+    repositories_list(dir)
+        .unwrap()
+        .repos
+        .into_iter()
+        .map(|repo| repo.path)
+        .collect()
+}
+
+#[test]
+fn linked_worktrees_are_hidden_from_recent_repositories_and_folder_scans() {
+    let dir = data();
+    let disk = Disk::new();
+    let (_, linked) = main_and_linked(&disk);
     let nested = linked.join("nested");
     fs::create_dir_all(nested.join(".git")).unwrap();
     fs::write(nested.join(".git/HEAD"), on("nested")).unwrap();
@@ -111,6 +116,33 @@ fn linked_worktrees_are_hidden_from_recent_repositories_and_folder_scans() {
         .iter()
         .any(|repo| repo.path == linked));
     assert!(!scan.found.iter().any(|repo| repo.path.starts_with(&linked)));
+}
+
+#[test]
+fn a_linked_worktree_saved_in_a_scanned_folder_is_hidden_from_the_list() {
+    let dir = data();
+    let disk = Disk::new();
+    let (main, linked) = main_and_linked(&disk);
+    let (main, linked) = (text(&main), text(&linked));
+
+    scan_folder_save(dir.path(), &folder(&disk.root(), &[&main, &linked], &[])).unwrap();
+
+    assert_eq!(listed_paths(dir.path()), vec![main]);
+}
+
+#[test]
+fn an_explicit_path_to_a_linked_worktree_opens_that_worktree_and_keeps_it_off_the_list() {
+    let dir = data();
+    let disk = Disk::new();
+    let (main, linked) = main_and_linked(&disk);
+    add_recent(dir.path(), &text(&main)).unwrap();
+
+    let snapshot = repo_snapshot(&linked).unwrap();
+    add_recent(dir.path(), &snapshot.root).unwrap();
+
+    assert_eq!(snapshot.root, text(&linked));
+    assert_eq!(snapshot.main_root, text(&main));
+    assert_eq!(listed_paths(dir.path()), vec![text(&main)]);
 }
 
 #[test]
