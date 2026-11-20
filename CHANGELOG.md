@@ -1,8 +1,24 @@
 # Changelog
 
-## [Unreleased]
+## [0.3.14] - 2026-11-20
+
+### Added
++ Git hosts in Settings can be signed in with OAuth, Web (device sign-in), or a pasted token, so HTTPS fetch, pull, and push to that host stop prompting. Each method opens the browser and the host shows as signed in once its user API accepts the grant; a host says which methods are not available for it. Sign-ins are kept in the macOS Keychain and removed on sign-out, host removal, or rename.
++ Platform connections sign in with OAuth in the browser (GitHub also by device code) and renew their tokens automatically.
++ Folder Git rules apply Git settings to every repository under a chosen folder.
++ ⌘1 to ⌘9 show the first nine visible tabs, and ⇧⌘[ / ⇧⌘] show the previous and next tab.
+
+### Changed
++ The conflict resolver picks lines one at a time in order, scrolls its three panes together, shows Base on request, steps between conflicted files, and completes the merge, rebase, cherry-pick, or revert.
++ AI, platform, Jira, and SSH passphrase secrets are stored in YForge's local database, readable only by your account, and are moved there once from the Keychain.
++ Git hooks and other tools YForge runs find programs on your login shell PATH.
++ Workspace controls around merge resolution, the sidebar, the state strip, and the tabs use YForge's own glyphs, tooltips, and multi-line fields at consistent heights.
 
 ### Fixed
++ Open repo (⇧⌘O) lists only repository roots: linked worktrees no longer appear in the list or match the search, and typing a worktree's full path still opens it.
++ A nested worktree's files no longer show up in its parent's status, snapshots, Stage all, or Discard all.
++ Git actions in one repository no longer race with background fetches.
++ Fast-forwarding a branch that is not checked out, deleting a branch another worktree holds, checking out a remote tracking branch, removing a submodule worktree, and empty amends and squashes no longer fail.
 + Blame keeps its commit gutter and line numbers in place while the code scrolls sideways, so the start of each line no longer slides under the gutter.
 + The blame highlight for the selected commit spans each whole line instead of stopping partway across long lines.
 + Long lines in blame, the file view, and the Inline diff scroll sideways with the view's own scrollbar at the bottom of the pane, instead of a scrollbar hidden below the last line.
