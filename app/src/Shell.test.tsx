@@ -173,7 +173,7 @@ describe("shell sheets and the repository search palette", () => {
     const editor = EditorView.findFromDOM(host.querySelector<HTMLElement>(".cm-editor") as HTMLElement) as EditorView;
     editor.dispatch({ changes: { from: 0, to: 0, insert: "zero\n" } });
     await flush();
-    const repoTab = () => [...host.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("title") === "/plain");
+    const repoTab = () => [...host.querySelectorAll('[role="tab"]')].find((tab) => tab.getAttribute("data-tip") === "/plain");
     expect(repoTab()?.getAttribute("aria-selected")).toBe("true");
 
     await emit("menu-action", "tab.close");

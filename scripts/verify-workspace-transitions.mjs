@@ -81,7 +81,7 @@ mockIPC((cmd,args={})=>{
     case 'avatar_initial':return 'SA';
     case 'activity_list':case 'recents_list':case 'recent_add':case 'repo_aliases_list':case 'switch_stashes':case 'platform_connections_list':case 'jira_connections_list':case 'ai_feature_config_list':case 'submodule_list':return [];
     case 'avatar_url':return delayed(avatarImage,60);
-    case 'platform_repo_match':case 'repo_watch':case 'menu_update':case 'session_save':case 'app_ui_prefs_save':case 'repo_ui_prefs_save':return null;
+    case 'platform_repo_match':case 'repo_watch':case 'repo_unwatch':case 'menu_update':case 'session_save':case 'app_ui_prefs_save':case 'repo_ui_prefs_save':return null;
     case 'crash_report':window.fixture.crashes.push(args.report);return null;
     default:window.fixture.unknown.push(cmd);throw {kind:'internal',message:'Fixture has no verified response for '+cmd,output:null};
   }
@@ -225,7 +225,7 @@ try {
   const liveList = '#root .inspector:not([data-swap-held]) .ilist';
   const liveRow = (id) => `#root .inspector:not([data-swap-held]) [data-row="${id}"]`;
   const liveDiff = '#root .dpanel .dbody:not([data-swap-held])';
-  const liveTab = (name) => `#root .tab-main[title="/synthetic/${name}"]`;
+  const liveTab = (name) => `#root .tab-main[data-tip="/synthetic/${name}"]`;
   const graph = (label) => measure(liveGraph, '.grow[role="option"]', label);
   const inspector = (label) => measure(liveList, ".frow", label);
   const closeInspector = async () => {
@@ -243,7 +243,7 @@ try {
   };
   const tab = async (name) => {
     await page.locator(liveTab(name)).click();
-    await page.waitForFunction((name) => document.querySelector('#root .tab-main[aria-selected="true"]')?.getAttribute('title') === '/synthetic/' + name, name);
+    await page.waitForFunction((name) => document.querySelector('#root .tab-main[aria-selected="true"]')?.getAttribute('data-tip') === '/synthetic/' + name, name);
     await page.waitForSelector(`${liveGraph} .grow[role="option"]`);
   };
   const selectCommit = async (index, summary) => {
@@ -321,7 +321,7 @@ try {
     await page.locator(liveTab('beta')).dispatchEvent('click');
     await page.locator(liveTab('alpha')).dispatchEvent('click');
     await page.locator(liveTab('beta')).dispatchEvent('click');
-    await page.waitForFunction(() => document.querySelector('#root .tab-main[aria-selected="true"]')?.getAttribute('title') === '/synthetic/beta');
+    await page.waitForFunction(() => document.querySelector('#root .tab-main[aria-selected="true"]')?.getAttribute('data-tip') === '/synthetic/beta');
     await graph(`${stage}: rapid tab sequence final`);
     assert.equal(await page.locator('#root .commandbar').count(), 1, "final route must have exactly one workspace");
     assert.equal(await page.locator('#root .app').count(), 1, "final route must not be blank or duplicate");

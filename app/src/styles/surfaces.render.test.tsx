@@ -157,7 +157,7 @@ describe("solid surfaces told apart by tone (S14)", () => {
     const changes = read("changes.css");
     const block = (css: string, selector: string) => css.slice(css.lastIndexOf(`\n${selector} {`), css.indexOf("}", css.lastIndexOf(`\n${selector} {`)));
     expect(block(changes, ".guide")).toContain("var(--colors-text-muted)");
-    expect(block(app, ".tree-guide")).toContain("var(--colors-text-muted)");
+    expect(block(app, ".tree-guide::before")).toContain("var(--colors-text-muted)");
     expect(app).not.toContain(".tree-elbow");
   });
 

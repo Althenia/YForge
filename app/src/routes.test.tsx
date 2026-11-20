@@ -578,7 +578,7 @@ describe("repository tab continuity (S72)", () => {
     return { open, finish };
   };
   const held = () => document.querySelector<HTMLElement>("[data-swap-held]");
-  const selectedTab = (host: HTMLElement) => host.querySelector('.tab-main[aria-selected="true"]')?.getAttribute("title");
+  const selectedTab = (host: HTMLElement) => host.querySelector('.tab-main[aria-selected="true"]')?.getAttribute("data-tip");
 
   it("holds the previous repository on screen, inert, while an uncached tab opens, with no live previous workspace", async () => {
     const pending = deferred();

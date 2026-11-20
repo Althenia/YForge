@@ -192,7 +192,7 @@ window.strataReady=true;
         const sec = body.querySelector('.sec');
         const count = sec.querySelector('.count');
         const guide = row.querySelector('.tree-guide:last-of-type') ?? row.querySelector('.tree-guide');
-        return { width: panel.getBoundingClientRect().width, row: row.getBoundingClientRect().height, section: sec.getBoundingClientRect().height, count: [count.getBoundingClientRect().width, count.getBoundingClientRect().height], rows: body.querySelectorAll('section[aria-label="Branches"] .srow').length, guideGap: row.querySelector('.name').getBoundingClientRect().left - guide.getBoundingClientRect().right };
+        return { width: panel.getBoundingClientRect().width, row: row.getBoundingClientRect().height, section: sec.getBoundingClientRect().height, count: [count.getBoundingClientRect().width, count.getBoundingClientRect().height], rows: body.querySelectorAll('section[aria-label="Branches"] .srow').length, guideGap: (() => { const line = getComputedStyle(guide, '::before'); const box = getComputedStyle(guide).position === 'static' ? guide.offsetParent : guide; return row.querySelector('.name').getBoundingClientRect().left - (box.getBoundingClientRect().left + box.clientLeft + parseFloat(line.left) + parseFloat(line.borderLeftWidth)); })() };
       });
       assert.equal(sidebar.width, width < 1280 ? 260 : width < 1440 ? 220 : 260);
       assert.equal(sidebar.row, 32);
