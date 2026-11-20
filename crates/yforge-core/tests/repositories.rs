@@ -6,9 +6,9 @@ use std::process::Command;
 
 use common::Fixture;
 use yforge_core::{
-    add_recent, folder_scan, launchpad_wips, load_recents, repo_snapshot, repositories_list, repository_remove,
-    repository_restore, scan_folder_remove, scan_folder_rescan, scan_folder_save, start_storage,
-    ErrorKind, FoundRepo, ManagedRepo, ScannedFolder,
+    add_recent, folder_scan, launchpad_wips, load_recents, repo_snapshot, repositories_list,
+    repository_remove, repository_restore, scan_folder_remove, scan_folder_rescan,
+    scan_folder_save, start_storage, ErrorKind, FoundRepo, ManagedRepo, ScannedFolder,
 };
 
 fn data() -> tempfile::TempDir {
