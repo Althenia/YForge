@@ -637,7 +637,11 @@ fn start_storage_creates_the_scanned_folder_tables_in_a_database_that_predates_t
         .execute_batch(
             "DROP TABLE secret_cleanup; DROP TABLE secrets;
              DROP TABLE profile_sessions; DROP TABLE profiles; DROP TABLE hook_approvals;
-             DROP TABLE scanned_repos; DROP TABLE scanned_folders; PRAGMA user_version = 11;",
+             DROP TABLE scanned_repos; DROP TABLE scanned_folders;
+             ALTER TABLE platform_connections DROP COLUMN login;
+             ALTER TABLE platform_connections DROP COLUMN oauth_client_id;
+             ALTER TABLE platform_connections DROP COLUMN auth_method;
+             PRAGMA user_version = 11;",
         )
         .unwrap();
     drop(connection);
