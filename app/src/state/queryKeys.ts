@@ -15,6 +15,7 @@ export const gitHostKeys = {
   all: ["git-hosts"] as const,
   list: ["git-hosts", "list"] as const,
   identity: (url: string) => ["git-hosts", "identity", url] as const,
+  signInOptions: (host: string, provider: string | null) => ["git-hosts", "sign-in-options", host, provider] as const,
 };
 
 export const aiKeys = {

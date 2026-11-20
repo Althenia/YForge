@@ -18,6 +18,54 @@ pub struct GitHost {
     pub key_kind: Option<String>,
     pub key_fingerprint: Option<String>,
     pub has_public_key: bool,
+    pub sign_in: Option<GitHostSignIn>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum GitHostProvider {
+    Github,
+    Gitlab,
+    Bitbucket,
+    Gitea,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum GitHostSignInMethod {
+    #[serde(rename = "oauth")]
+    OAuth,
+    Web,
+    Token,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GitHostSignIn {
+    pub provider: GitHostProvider,
+    pub method: GitHostSignInMethod,
+    pub login: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GitHostSignInOptions {
+    pub provider: GitHostProvider,
+    pub provider_fixed: bool,
+    pub methods: Vec<GitHostSignInMethod>,
+    pub unavailable: Vec<GitHostMethodNote>,
+    pub token_page: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GitHostMethodNote {
+    pub method: GitHostSignInMethod,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct GitHostSignInEvent {
+    pub operation: String,
+    pub host_id: String,
+    pub stage: crate::PlatformOAuthStage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]

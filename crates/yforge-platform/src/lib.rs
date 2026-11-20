@@ -7,6 +7,7 @@ mod error;
 #[cfg(test)]
 #[path = "../tests/common/mod.rs"]
 mod fake;
+mod git_hosts;
 mod github;
 mod gitlab;
 mod http;
@@ -21,6 +22,10 @@ mod url;
 pub use adapter::PrFilter;
 pub use client::Client;
 pub use error::{PlatformError, Result};
+pub use git_hosts::{
+    sign_in_options, GitHostAuth, GitHostCredential, GitHostEndpoints, GitHostRegistration,
+    GitHostRegistrations,
+};
 pub use jira_service::{jira_field_problem, NewJiraConnection};
 pub use oauth::{OAuthEndpoints, OAuthRecord};
 pub use service::{

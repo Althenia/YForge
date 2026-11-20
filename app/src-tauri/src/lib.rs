@@ -26,7 +26,8 @@ use yforge_core::{
     CommitDetails, CommitDraft, ComposeGroup, ComposeProposal, ConflictFile, ConflictProposal,
     ConflictSide, CoreError, CrashRecord, CrashReport, CreatePull, DiffHunk, ErrorKind,
     ErrorPayload, Explanation, FileAtRevision, FileDiff, FileRevision, FolderRemoved, FolderScan,
-    ForceLease, ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GraphPage, GraphVisibility,
+    ForceLease, ForcePushPlan, GitHost, GitHostDraft, GitHostProblem, GitHostProvider,
+    GitHostSignInEvent, GitHostSignInMethod, GitHostSignInOptions, GraphPage, GraphVisibility,
     Identity, IdentityField, IntegrationPreview, JiraConnection, JiraIssueList, JiraIssueLookup,
     JiraKind, LaunchpadPulls, LostCommit, ManagedRepo, MatchedRepo, MergeMode, MessageEdit,
     ModelInfo, OperationKind, OperationOutcome, OperationProgress, PassphraseStore, Planned,
@@ -46,7 +47,8 @@ use yforge_core::{
     PullRequestDraft,
 };
 use yforge_platform::{
-    NewConnection, NewJiraConnection, NewOAuthConnection, PlatformService, PrFilter,
+    GitHostAuth, GitHostRegistrations, NewConnection, NewJiraConnection, NewOAuthConnection,
+    PlatformService, PrFilter,
 };
 
 use auth::{PromptRegistry, AUTH_TIMEOUT};
@@ -62,6 +64,7 @@ const REPO_CHANGED_EVENT: &str = "repo-changed";
 const OPERATION_PROGRESS_EVENT: &str = "operation-progress";
 const AI_SIGN_IN_EVENT: &str = "ai-sign-in";
 const PLATFORM_SIGN_IN_EVENT: &str = "platform-sign-in";
+const GIT_HOST_SIGN_IN_EVENT: &str = "git-host-sign-in";
 const LOST_COMMITS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 pub struct DataDir(pub PathBuf);
@@ -69,6 +72,12 @@ pub struct DataDir(pub PathBuf);
 pub struct AiState(pub Ai);
 
 pub struct PlatformState(pub Arc<PlatformService>);
+
+pub struct GitHostState(pub Arc<GitHostAuth>);
+
+pub type OpenUrl = Arc<dyn Fn(&str) + Send + Sync>;
+
+pub struct BrowserOpener(pub OpenUrl);
 struct PredictionState(Arc<MergePredictor>);
 
 pub struct SshPassphrases(pub Arc<dyn PassphraseStore>);
@@ -209,8 +218,11 @@ impl<R: Runtime> Network<'_, R> {
         let repository = meta.repo.clone();
         let mut ssh = blocking(move || yforge_core::ssh_plan(&dir, Some(&repository))).await?;
         let platform = self.recorder.app.state::<PlatformState>().0.clone();
+        let git_hosts = self.recorder.app.state::<GitHostState>().0.clone();
         let data_root = self.recorder.app.state::<DataDir>().0.clone();
-        ssh.https_credentials = platform.https_credentials(&data_root).await;
+        let mut https_credentials = git_hosts.https_credentials(&data_root).await;
+        https_credentials.extend(platform.https_credentials(&data_root).await);
+        ssh.https_credentials = https_credentials;
         log::debug!(
             "network id={id} repository_key_set={} app_key_set={} host_identities={}",
             ssh.repository_key.is_some(),
@@ -4004,10 +4016,14 @@ async fn ssh_public_key(path: String) -> Result<String, ErrorPayload> {
 }
 
 #[tauri::command]
-async fn git_hosts_list(data: State<'_, DataDir>) -> Result<Vec<GitHost>, ErrorPayload> {
+async fn git_hosts_list(
+    data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
+) -> Result<Vec<GitHost>, ErrorPayload> {
     log::debug!("git_hosts_list");
     let dir = data_dir(&data);
-    let result = blocking(move || yforge_core::git_hosts_list(&dir)).await;
+    let auth = git_hosts.0.clone();
+    let result = blocking(move || auth.list(&dir).map_err(CoreError::from)).await;
     log_outcome("git_hosts_list", &result, |hosts| {
         format!("hosts={}", hosts.len())
     });
@@ -4017,6 +4033,7 @@ async fn git_hosts_list(data: State<'_, DataDir>) -> Result<Vec<GitHost>, ErrorP
 #[tauri::command]
 async fn git_host_save(
     data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
     id: Option<String>,
     draft: GitHostDraft,
 ) -> Result<GitHost, ErrorPayload> {
@@ -4027,9 +4044,23 @@ async fn git_host_save(
         draft.https_user.is_some()
     );
     let dir = data_dir(&data);
-    let result = blocking(move || match id {
-        Some(id) => yforge_core::git_host_update(&dir, &id, &draft),
-        None => yforge_core::git_host_add(&dir, &draft),
+    let auth = git_hosts.0.clone();
+    let result = blocking(move || {
+        let saved = match id {
+            Some(id) => {
+                let previous = yforge_core::git_hosts_list(&dir)?
+                    .into_iter()
+                    .find(|host| host.id == id)
+                    .map(|host| host.host);
+                let saved = yforge_core::git_host_update(&dir, &id, &draft)?;
+                if previous.is_some_and(|previous| previous != saved.host) {
+                    auth.sign_out(&saved.id)?;
+                }
+                saved
+            }
+            None => yforge_core::git_host_add(&dir, &draft)?,
+        };
+        auth.with_status(saved).map_err(CoreError::from)
     })
     .await;
     log_outcome("git_host_save", &result, |host| {
@@ -4039,11 +4070,161 @@ async fn git_host_save(
 }
 
 #[tauri::command]
-async fn git_host_remove(data: State<'_, DataDir>, id: String) -> Result<(), ErrorPayload> {
+async fn git_host_remove(
+    data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
+    id: String,
+) -> Result<(), ErrorPayload> {
     log::debug!("git_host_remove id={id}");
     let dir = data_dir(&data);
-    let result = blocking(move || yforge_core::git_host_remove(&dir, &id)).await;
+    let auth = git_hosts.0.clone();
+    let result = blocking(move || {
+        yforge_core::git_host_remove(&dir, &id)?;
+        auth.sign_out(&id).map_err(CoreError::from)
+    })
+    .await;
     log_outcome("git_host_remove", &result, |()| String::new());
+    result
+}
+
+#[tauri::command]
+async fn git_host_sign_in_options(
+    git_hosts: State<'_, GitHostState>,
+    host: String,
+    provider: Option<GitHostProvider>,
+) -> Result<GitHostSignInOptions, ErrorPayload> {
+    let options = git_hosts.0.options(&host, provider);
+    log::debug!(
+        "git_host_sign_in_options host={host} provider={:?} methods={:?} unavailable={}",
+        options.provider,
+        options.methods,
+        options.unavailable.len()
+    );
+    Ok(options)
+}
+
+fn git_host_stage_name(stage: &PlatformOAuthStage) -> &'static str {
+    match stage {
+        PlatformOAuthStage::Browser { .. } => "browser",
+        PlatformOAuthStage::DeviceCode { .. } => "device_code",
+        PlatformOAuthStage::Completed { .. } => "completed",
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn git_host_oauth_sign_in<R: Runtime>(
+    app: AppHandle<R>,
+    data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
+    opener: State<'_, BrowserOpener>,
+    operations: State<'_, Operations>,
+    operation_id: String,
+    host_id: String,
+    provider: GitHostProvider,
+    method: GitHostSignInMethod,
+) -> Result<GitHost, ErrorPayload> {
+    log::debug!(
+        "git_host_oauth_sign_in operation_id={operation_id} host_id={host_id} provider={provider:?} method={method:?}"
+    );
+    let token = operations
+        .running
+        .register(&operation_id, CancelToken::new())?;
+    let emitter = app.clone();
+    let open = opener.0.clone();
+    let operation = operation_id.clone();
+    let event_host = host_id.clone();
+    let result = git_hosts
+        .0
+        .sign_in_oauth(
+            &data_dir(&data),
+            &host_id,
+            provider,
+            method,
+            &token,
+            &move |stage| {
+                log::debug!(
+                    "git_host_oauth_sign_in operation_id={operation} stage={}",
+                    git_host_stage_name(&stage)
+                );
+                match &stage {
+                    PlatformOAuthStage::Browser { url }
+                    | PlatformOAuthStage::DeviceCode { url, .. } => open(url),
+                    PlatformOAuthStage::Completed { .. } => {}
+                }
+                let event = GitHostSignInEvent {
+                    operation: operation.clone(),
+                    host_id: event_host.clone(),
+                    stage,
+                };
+                if let Err(error) = emitter.emit(GIT_HOST_SIGN_IN_EVENT, event) {
+                    log::warn!("could not emit {GIT_HOST_SIGN_IN_EVENT}: {error}");
+                }
+            },
+        )
+        .await
+        .map_err(platform_payload);
+    operations.running.finish(&operation_id);
+    log_outcome("git_host_oauth_sign_in", &result, |host| {
+        format!("host_id={} signed_in={}", host.id, host.sign_in.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_open_token_page(
+    data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
+    opener: State<'_, BrowserOpener>,
+    host_id: String,
+    provider: GitHostProvider,
+) -> Result<String, ErrorPayload> {
+    log::debug!("git_host_open_token_page host_id={host_id} provider={provider:?}");
+    let dir = data_dir(&data);
+    let auth = git_hosts.0.clone();
+    let result = blocking(move || {
+        auth.token_page(&dir, &host_id, provider)
+            .map_err(CoreError::from)
+    })
+    .await;
+    if let Ok(url) = &result {
+        opener.0(url);
+    }
+    log_outcome("git_host_open_token_page", &result, |url| {
+        format!("url={url}")
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_token_sign_in(
+    data: State<'_, DataDir>,
+    git_hosts: State<'_, GitHostState>,
+    host_id: String,
+    provider: GitHostProvider,
+    token: String,
+) -> Result<GitHost, ErrorPayload> {
+    log::debug!("git_host_token_sign_in host_id={host_id} provider={provider:?} token=<redacted>");
+    let result = git_hosts
+        .0
+        .sign_in_token(&data_dir(&data), &host_id, provider, &token)
+        .await
+        .map_err(platform_payload);
+    log_outcome("git_host_token_sign_in", &result, |host| {
+        format!("host_id={} signed_in={}", host.id, host.sign_in.is_some())
+    });
+    result
+}
+
+#[tauri::command]
+async fn git_host_sign_out(
+    git_hosts: State<'_, GitHostState>,
+    host_id: String,
+) -> Result<(), ErrorPayload> {
+    log::debug!("git_host_sign_out host_id={host_id}");
+    let auth = git_hosts.0.clone();
+    let result = blocking(move || auth.sign_out(&host_id).map_err(CoreError::from)).await;
+    log_outcome("git_host_sign_out", &result, |()| String::new());
     result
 }
 
@@ -5799,11 +5980,27 @@ pub fn register_with_secrets<R: Runtime>(
     let passphrases = Arc::new(CachedPassphrases::new(Arc::new(SqlitePassphrases::new(
         secrets.clone(),
     ))));
-    register_with_passphrases(
+    let registrations = GitHostRegistrations::from_build().unwrap_or_else(|error| {
+        log::error!("Git host OAuth and Web sign-in are off: YFORGE_GIT_HOST_REGISTRATIONS is invalid: {error}");
+        GitHostRegistrations::default()
+    });
+    register_parts(
         builder.manage(secrets),
         Ai::new(credentials.clone()),
         PlatformService::new(credentials),
         passphrases,
+        GitHostAuth::new(
+            Arc::new(yforge_core::KeychainHostCredentials::new()),
+            registrations,
+        ),
+        Arc::new(open_in_browser),
+    )
+}
+
+fn memory_git_hosts() -> GitHostAuth {
+    GitHostAuth::new(
+        Arc::new(yforge_core::MemoryHostCredentials::default()),
+        GitHostRegistrations::default(),
     )
 }
 
@@ -5812,14 +6009,32 @@ pub fn register_with<R: Runtime>(
     ai: Ai,
     platform: PlatformService,
 ) -> tauri::Builder<R> {
+    register_with_git_hosts(
+        builder,
+        ai,
+        platform,
+        memory_git_hosts(),
+        Arc::new(open_in_browser),
+    )
+}
+
+pub fn register_with_git_hosts<R: Runtime>(
+    builder: tauri::Builder<R>,
+    ai: Ai,
+    platform: PlatformService,
+    git_hosts: GitHostAuth,
+    opener: OpenUrl,
+) -> tauri::Builder<R> {
     let secrets = Arc::new(Secrets::new(None));
-    register_with_passphrases(
+    register_parts(
         builder.manage(secrets.clone()),
         ai,
         platform,
         Arc::new(CachedPassphrases::new(Arc::new(SqlitePassphrases::new(
             secrets,
         )))),
+        git_hosts,
+        opener,
     )
 }
 
@@ -5829,7 +6044,27 @@ pub fn register_with_passphrases<R: Runtime>(
     platform: PlatformService,
     passphrases: Arc<dyn PassphraseStore>,
 ) -> tauri::Builder<R> {
+    register_parts(
+        builder,
+        ai,
+        platform,
+        passphrases,
+        memory_git_hosts(),
+        Arc::new(open_in_browser),
+    )
+}
+
+fn register_parts<R: Runtime>(
+    builder: tauri::Builder<R>,
+    ai: Ai,
+    platform: PlatformService,
+    passphrases: Arc<dyn PassphraseStore>,
+    git_hosts: GitHostAuth,
+    opener: OpenUrl,
+) -> tauri::Builder<R> {
     builder
+        .manage(GitHostState(Arc::new(git_hosts)))
+        .manage(BrowserOpener(opener))
         .manage(SshPassphrases(passphrases))
         .manage(update::PendingUpdate::default())
         .manage(AiState(ai))
@@ -5967,6 +6202,11 @@ pub fn register_with_passphrases<R: Runtime>(
             git_hosts_list,
             git_host_save,
             git_host_remove,
+            git_host_sign_in_options,
+            git_host_oauth_sign_in,
+            git_host_open_token_page,
+            git_host_token_sign_in,
+            git_host_sign_out,
             git_host_field_problem,
             git_host_default_key_path,
             git_host_generate_key,

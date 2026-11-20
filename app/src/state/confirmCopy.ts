@@ -401,7 +401,7 @@ export function removeGitHostCopy(host: string): ConfirmCopy {
   return {
     title: "Remove this host identity?",
     names: [host],
-    consequences: ["Remotes on this host use the app-wide key, or your SSH agent and ~/.ssh/config, again. The key files stay in ~/.ssh, saved key passphrases stay in the YForge database, and passwords or tokens stay in Git's credential helper."],
+    consequences: ["Remotes on this host use the app-wide key, or your SSH agent and ~/.ssh/config, again. YForge deletes this host's sign-in from the macOS Keychain. The key files stay in ~/.ssh, saved key passphrases stay in the YForge database, and passwords typed at Git's prompt stay in Git's credential helper."],
     confirmLabel: "Remove host",
   };
 }

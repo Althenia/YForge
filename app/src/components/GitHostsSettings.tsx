@@ -1,14 +1,20 @@
 import { useQueryClient } from "@tanstack/solid-query";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { GitHost } from "../ipc/bindings/GitHost";
-import { client } from "../ipc/client";
+import type { GitHostProvider } from "../ipc/bindings/GitHostProvider";
+import type { GitHostSignInMethod } from "../ipc/bindings/GitHostSignInMethod";
+import type { GitHostSignInOptions } from "../ipc/bindings/GitHostSignInOptions";
+import type { PlatformOAuthStage } from "../ipc/bindings/PlatformOAuthStage";
+import { client, IpcError } from "../ipc/client";
 import { removeGitHostCopy } from "../state/confirmCopy";
-import { IDENTITY_ORDER, keyLine, SSH_AGENT_TEXT, tildePath } from "../state/gitHostsModel";
+import { GIT_HOST_PROVIDERS, IDENTITY_ORDER, keyLine, SIGN_IN_METHODS, signInStatus, SSH_AGENT_TEXT, tildePath } from "../state/gitHostsModel";
 import { appKeys, gitHostKeys } from "../state/queryKeys";
 import { useQuery } from "../state/query";
 import { createSettled } from "../state/settled";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { Icon } from "./Icon";
+import { Select } from "./Select";
+import { CopyField } from "./SignInPanel";
 import { tip } from "./Tooltip";
 
 type Editor = { kind: "add" } | { kind: "edit"; host: GitHost };
@@ -289,6 +295,225 @@ function HostForm(props: { editor: Editor; onClose: () => void; onSaved: () => v
   );
 }
 
+let signInSequence = 0;
+
+type SignInRun = { operation: string; stage: PlatformOAuthStage | undefined };
+
+function SignInCard(props: { entry: GitHost; onClose: () => void; onSignedIn: () => void }) {
+  const [provider, setProvider] = createSignal<GitHostProvider | null>(null);
+  const options = useQuery(() => ({
+    queryKey: gitHostKeys.signInOptions(props.entry.host, provider()),
+    queryFn: () => client.gitHostSignInOptions(props.entry.host, provider()),
+  }));
+  const loaded = createMemo<GitHostSignInOptions | undefined>((previous) => options.data ?? previous);
+  const [chosen, setChosen] = createSignal<GitHostSignInMethod | undefined>();
+  const [token, setToken] = createSignal("");
+  const [run, setRun] = createSignal<SignInRun | undefined>();
+  const [submitting, setSubmitting] = createSignal(false);
+  const [tokenPage, setTokenPage] = createSignal<string | undefined>();
+  const [failure, setFailure] = createSignal<string | undefined>();
+  const method = (): GitHostSignInMethod | undefined => {
+    const methods = loaded()?.methods ?? [];
+    const pick = chosen();
+    return pick !== undefined && methods.includes(pick) ? pick : methods[0];
+  };
+  const settling = () => options.isFetching || loaded() === undefined;
+  const canStart = () => !settling() && run() === undefined;
+
+  async function start(): Promise<void> {
+    const current = loaded();
+    const how = method();
+    if (current === undefined || (how !== "oauth" && how !== "web") || !canStart()) return;
+    const operation = `git-host-${Date.now()}-${(signInSequence += 1)}`;
+    setFailure(undefined);
+    setRun({ operation, stage: undefined });
+    let stop: (() => void) | undefined;
+    try {
+      stop = await client.onGitHostSignIn((event) => {
+        if (event.operation === operation) setRun({ operation, stage: event.stage });
+      });
+      await client.gitHostOAuthSignIn({ operationId: operation, hostId: props.entry.id, provider: current.provider, method: how });
+      props.onSignedIn();
+    } catch (error) {
+      if (!(error instanceof IpcError && error.kind === "cancelled")) setFailure(message(error));
+    } finally {
+      stop?.();
+      setRun(undefined);
+    }
+  }
+
+  const cancel = () => {
+    const current = run();
+    if (current !== undefined) void client.operationCancel(current.operation).catch(() => undefined);
+  };
+
+  async function openTokenPage(): Promise<void> {
+    const current = loaded();
+    if (current === undefined) return;
+    setFailure(undefined);
+    try {
+      setTokenPage(await client.gitHostOpenTokenPage(props.entry.id, current.provider));
+    } catch (error) {
+      setFailure(message(error));
+    }
+  }
+
+  async function submitToken(): Promise<void> {
+    const current = loaded();
+    const value = token().trim();
+    if (current === undefined || value === "" || submitting()) return;
+    setToken("");
+    setFailure(undefined);
+    setSubmitting(true);
+    try {
+      await client.gitHostTokenSignIn(props.entry.id, current.provider, value);
+      props.onSignedIn();
+    } catch (error) {
+      setFailure(message(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const stageUrl = () => run()?.stage;
+
+  return (
+    <section class="sign-in" aria-label={`Sign in to ${props.entry.host}`}>
+      <h4>Sign in</h4>
+      <Show when={loaded()} fallback={<p class="setting-note" role="status" aria-busy="true">Loading sign-in options…</p>}>
+        {(current) => (
+          <>
+            <Show when={!current().provider_fixed}>
+              <label class="field">
+                <span class="field-label">Provider</span>
+                <Select
+                  label="Provider"
+                  value={current().provider}
+                  options={GIT_HOST_PROVIDERS}
+                  disabled={run() !== undefined || submitting()}
+                  disabledReason="Finish or cancel the sign-in first"
+                  onChange={(value) => {
+                    setProvider(value as GitHostProvider);
+                    setTokenPage(undefined);
+                    setFailure(undefined);
+                  }}
+                />
+              </label>
+            </Show>
+            <div class="segmented" role="radiogroup" aria-label="Sign-in method">
+              <For each={current().methods}>
+                {(option) => (
+                  <button type="button" role="radio" disabled={run() !== undefined || submitting()} aria-checked={method() === option} classList={{ on: method() === option }} onClick={() => {
+                    setChosen(option);
+                    setFailure(undefined);
+                  }}>
+                    {SIGN_IN_METHODS[option].label}
+                  </button>
+                )}
+              </For>
+            </div>
+            <Show when={method()}>{(how) => <p class="field-note">{SIGN_IN_METHODS[how()].consequence}</p>}</Show>
+            <For each={current().unavailable}>
+              {(note) => (
+                <p class="field-note">
+                  <Icon name="warning" size={14} /> {SIGN_IN_METHODS[note.method].label}: {note.reason}
+                </p>
+              )}
+            </For>
+            <Show when={method() === "oauth" || method() === "web"}>
+              <Show
+                when={run()}
+                fallback={
+                  <div class="hrow">
+                    <button type="button" class="btn sm primary" aria-disabled={!canStart()} onClick={() => void start()}>
+                      <Icon name="key" size={14} />
+                      Start sign-in
+                    </button>
+                  </div>
+                }
+              >
+                <div class="sign-in-run" aria-busy="true">
+                  <p class="setting-note" role="status">
+                    {stageUrl() === undefined ? "Opening your browser…" : "Continue in your browser"}
+                  </p>
+                  <Show when={stageUrl()?.kind === "browser" ? (stageUrl() as Extract<PlatformOAuthStage, { kind: "browser" }>) : undefined}>
+                    {(stage) => <CopyField label="Address" value={stage().url} />}
+                  </Show>
+                  <Show when={stageUrl()?.kind === "device_code" ? (stageUrl() as Extract<PlatformOAuthStage, { kind: "device_code" }>) : undefined}>
+                    {(stage) => (
+                      <>
+                        <p class="setting-note">Enter this code on the host's page, then approve YForge.</p>
+                        <CopyField label="Address" value={stage().url} />
+                        <CopyField label="Code" value={stage().code} />
+                      </>
+                    )}
+                  </Show>
+                  <button type="button" class="btn sm" onClick={cancel}>
+                    <Icon name="close" size={14} />
+                    Cancel sign-in
+                  </button>
+                </div>
+              </Show>
+            </Show>
+            <Show when={method() === "token"}>
+              <div class="hrow">
+                <button type="button" class="btn sm" onClick={() => void openTokenPage()}>
+                  <Icon name="open" size={14} />
+                  Open token page
+                </button>
+              </div>
+              <Show when={tokenPage()}>
+                {(url) => (
+                  <>
+                    <p class="field-note" role="status">
+                      Opened the token page in your browser.
+                    </p>
+                    <CopyField label="Address" value={url()} />
+                  </>
+                )}
+              </Show>
+              <form
+                class="git-host-fields"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitToken();
+                }}
+              >
+                <label class="field">
+                  <span class="field-label">Token</span>
+                  <span class="input">
+                    <Icon name="lock" size={14} />
+                    <input type="password" autocomplete="off" aria-label="Token" value={token()} onInput={(event) => setToken(event.currentTarget.value)} />
+                  </span>
+                </label>
+                <div class="hrow">
+                  <button type="submit" class="btn sm primary" aria-disabled={token().trim() === "" || submitting() || settling()} aria-busy={submitting()} title={token().trim() === "" ? "Paste a token to sign in" : undefined}>
+                    Sign in with token
+                  </button>
+                </div>
+              </form>
+            </Show>
+          </>
+        )}
+      </Show>
+      <Show when={failure()}>
+        {(text) => (
+          <p class="field-note error" role="alert">
+            {text()}
+          </p>
+        )}
+      </Show>
+      <Show when={run() === undefined && !submitting()}>
+        <div class="hrow">
+          <button type="button" class="btn sm" onClick={props.onClose}>
+            Cancel
+          </button>
+        </div>
+      </Show>
+    </section>
+  );
+}
+
 export function GitHostsSettings() {
   const queryClient = useQueryClient();
   const hosts = useQuery(() => ({ queryKey: gitHostKeys.list, queryFn: () => client.gitHostsList() }));
@@ -297,6 +522,8 @@ export function GitHostsSettings() {
   const [removal, setRemoval] = createSignal<GitHost | undefined>();
   const [copied, setCopied] = createSignal<string | undefined>();
   const [failure, setFailure] = createSignal<string | undefined>();
+  const [signingIn, setSigningIn] = createSignal<string | undefined>();
+  const [signingOut, setSigningOut] = createSignal<string | undefined>();
   const list = () => hosts.data ?? [];
   const empty = () => hosts.isSuccess && list().length === 0;
   const refresh = () => queryClient.invalidateQueries({ queryKey: gitHostKeys.all });
@@ -310,6 +537,18 @@ export function GitHostsSettings() {
     } catch (error) {
       setFailure(message(error));
     }
+  }
+
+  async function signOut(host: GitHost): Promise<void> {
+    setFailure(undefined);
+    setSigningOut(host.id);
+    try {
+      await client.gitHostSignOut(host.id);
+    } catch (error) {
+      setFailure(message(error));
+    }
+    await refresh();
+    setSigningOut(undefined);
   }
 
   async function confirmRemoval(): Promise<void> {
@@ -394,7 +633,38 @@ export function GitHostsSettings() {
                     </dd>
                     <dt>HTTPS user</dt>
                     <dd>{entry.https_user ?? "Not set: Git asks when it needs one"}</dd>
+                    <dt>Sign-in</dt>
+                    <dd class="git-host-sign-in-status">
+                      <Icon name={entry.sign_in === null ? "lock" : "check"} size={14} /> {signInStatus(entry.sign_in)}
+                    </dd>
                   </dl>
+                  <Show when={signingIn() !== entry.id}>
+                    <div class="hrow">
+                      <Show
+                        when={entry.sign_in !== null}
+                        fallback={
+                          <button type="button" class="btn sm" onClick={() => setSigningIn(entry.id)}>
+                            <Icon name="key" size={14} />
+                            Sign in
+                          </button>
+                        }
+                      >
+                        <button type="button" class="btn sm text-danger" disabled={signingOut() === entry.id} aria-busy={signingOut() === entry.id} onClick={() => void signOut(entry)}>
+                          Sign out
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
+                  <Show when={signingIn() === entry.id}>
+                    <SignInCard
+                      entry={entry}
+                      onClose={() => setSigningIn(undefined)}
+                      onSignedIn={() => {
+                        setSigningIn(undefined);
+                        void refresh();
+                      }}
+                    />
+                  </Show>
                   <Show when={copied() === entry.id}>
                     <p class="sub" role="status">
                       <Icon name="check" size={14} /> Copied the public key. Add it to your account on {entry.host}.
@@ -413,7 +683,7 @@ export function GitHostsSettings() {
             )}
           </Show>
           <Show when={list().length > 0}>
-            <p class="field-note">HTTPS passwords and tokens are kept by Git's credential helper (the macOS Keychain), one entry per host, so two hosts never share one.</p>
+            <p class="field-note">Sign-in credentials are stored per host in the macOS Keychain by YForge and used for HTTPS Git operations on that host; SSH remotes keep using the SSH key.</p>
           </Show>
           <Show when={removal()} keyed>
             {(entry) => <ConfirmDialog copy={removeGitHostCopy(entry.host)} onConfirm={() => void confirmRemoval()} onCancel={() => setRemoval(undefined)} />}

@@ -38,8 +38,9 @@ use yforge_core::{
     FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode, HookOutcome, HookOutput, HookScript,
 };
 use yforge_core::{
-    FolderGitConfig, FolderGitConfigDraft, GitHost, GitHostDraft, GitHostProblem, IdentitySource,
-    Transport, UrlIdentity,
+    FolderGitConfig, FolderGitConfigDraft, GitHost, GitHostDraft, GitHostMethodNote,
+    GitHostProblem, GitHostProvider, GitHostSignIn, GitHostSignInEvent, GitHostSignInMethod,
+    GitHostSignInOptions, IdentitySource, Transport, UrlIdentity,
 };
 use yforge_core::{
     FolderRemoved, FolderScan, FoundRepo, ManagedRepo, RepoRemoved, Repositories, Rescan,
@@ -174,6 +175,12 @@ fn export_all(dir: &Path) {
     OpenPathRequested::export_all(&config).expect("export OpenPathRequested");
     CliInstall::export_all(&config).expect("export CliInstall");
     PlatformKind::export_all(&config).expect("export PlatformKind");
+    GitHostProvider::export_all(&config).expect("export GitHostProvider");
+    GitHostSignInMethod::export_all(&config).expect("export GitHostSignInMethod");
+    GitHostSignIn::export_all(&config).expect("export GitHostSignIn");
+    GitHostSignInOptions::export_all(&config).expect("export GitHostSignInOptions");
+    GitHostMethodNote::export_all(&config).expect("export GitHostMethodNote");
+    GitHostSignInEvent::export_all(&config).expect("export GitHostSignInEvent");
     PlatformOAuthMethod::export_all(&config).expect("export PlatformOAuthMethod");
     PlatformOAuthStage::export_all(&config).expect("export PlatformOAuthStage");
     PlatformSignInEvent::export_all(&config).expect("export PlatformSignInEvent");

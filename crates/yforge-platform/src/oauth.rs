@@ -63,6 +63,7 @@ pub struct OAuthEndpoints {
     pub github_base: Option<String>,
     pub gitlab_base: Option<String>,
     pub bitbucket_base: Option<String>,
+    pub gitea_base: Option<String>,
     pub callback_port: u16,
 }
 
@@ -319,6 +320,38 @@ async fn post_form(
     Ok((status, text))
 }
 
+fn redacted(error: PlatformError, secrets: &[&str]) -> PlatformError {
+    let clean = |text: String| {
+        secrets
+            .iter()
+            .filter(|secret| !secret.is_empty())
+            .fold(text, |text, secret| text.replace(secret, "<redacted>"))
+    };
+    match error {
+        PlatformError::AuthFailed { host, detail } => PlatformError::AuthFailed {
+            host,
+            detail: clean(detail),
+        },
+        PlatformError::Api {
+            host,
+            status,
+            detail,
+        } => PlatformError::Api {
+            host,
+            status,
+            detail: clean(detail),
+        },
+        PlatformError::Network { host, detail } => PlatformError::Network {
+            host,
+            detail: clean(detail),
+        },
+        PlatformError::Invalid { detail } => PlatformError::Invalid {
+            detail: clean(detail),
+        },
+        other => other,
+    }
+}
+
 fn message_from(text: &str) -> String {
     let value: Option<Value> = serde_json::from_str(text).ok();
     let found = value.as_ref().and_then(|value| {
@@ -419,6 +452,13 @@ fn github_base(host: &str, endpoints: &OAuthEndpoints) -> String {
 
 fn gitlab_base(host: &str, endpoints: &OAuthEndpoints) -> String {
     if let Some(base) = &endpoints.gitlab_base {
+        return clean_base(base);
+    }
+    format!("{}://{host}", scheme_for(host))
+}
+
+fn gitea_base(host: &str, endpoints: &OAuthEndpoints) -> String {
+    if let Some(base) = &endpoints.gitea_base {
         return clean_base(base);
     }
     format!("{}://{host}", scheme_for(host))
@@ -646,18 +686,30 @@ async fn run_browser(
     });
     let code = wait_for_code(&listener, &state, host, cancel).await?;
     drop(listener);
-    let http = client(insecure_tls, host)?;
-    let (status, text) = post_form(
-        &http,
-        &flow.token_url,
-        host,
-        flow.token_pairs_with_code(&code),
-        flow.basic.clone(),
-        cancel,
-    )
-    .await?;
-    let _ = (client_id, client_secret);
-    token_from(status, &text, host, client_id, client_secret, previous)
+    let exchanged = async {
+        let http = client(insecure_tls, host)?;
+        let (status, text) = post_form(
+            &http,
+            &flow.token_url,
+            host,
+            flow.token_pairs_with_code(&code),
+            flow.basic.clone(),
+            cancel,
+        )
+        .await?;
+        token_from(status, &text, host, client_id, client_secret, previous)
+    }
+    .await;
+    exchanged.map_err(|error| {
+        let mut secrets = vec![code.as_str(), client_secret.unwrap_or_default()];
+        secrets.extend(
+            flow.token_pairs
+                .iter()
+                .filter(|(name, _)| name == "code_verifier" || name == "client_secret")
+                .map(|(_, value)| value.as_str()),
+        );
+        redacted(error, &secrets)
+    })
 }
 
 impl BrowserFlow {
@@ -695,8 +747,13 @@ pub async fn github_sign_in(
     let base = github_base(host, endpoints);
     match method {
         PlatformOAuthMethod::DeviceCode => {
-            github_device_sign_in(
-                &base,
+            device_sign_in(
+                DeviceFlow {
+                    code_url: format!("{base}/login/device/code"),
+                    token_url: format!("{base}/login/oauth/access_token"),
+                    scope: GITHUB_SCOPE,
+                    fallback: Some("https://github.com/login/device"),
+                },
                 host,
                 client_id,
                 client_secret,
@@ -751,8 +808,15 @@ pub async fn github_sign_in(
     }
 }
 
-async fn github_device_sign_in(
-    base: &str,
+struct DeviceFlow {
+    code_url: String,
+    token_url: String,
+    scope: &'static str,
+    fallback: Option<&'static str>,
+}
+
+async fn device_sign_in(
+    flow: DeviceFlow,
     host: &str,
     client_id: &str,
     client_secret: Option<&str>,
@@ -763,9 +827,9 @@ async fn github_device_sign_in(
     let http = client(insecure_tls, host)?;
     let (status, text) = post_form(
         &http,
-        &format!("{base}/login/device/code"),
+        &flow.code_url,
         host,
-        form_pairs(&[("client_id", client_id), ("scope", GITHUB_SCOPE)]),
+        form_pairs(&[("client_id", client_id), ("scope", flow.scope)]),
         None,
         cancel,
     )
@@ -795,9 +859,11 @@ async fn github_device_sign_in(
     let user_code = field(&value, "user_code")
         .ok_or_else(|| PlatformError::invalid("the device reply has no user code"))?
         .to_owned();
-    let verification = field(&value, "verification_uri")
+    let verification = field(&value, "verification_uri_complete")
+        .or_else(|| field(&value, "verification_uri"))
         .or_else(|| field(&value, "verification_url"))
-        .unwrap_or("https://github.com/login/device")
+        .or(flow.fallback)
+        .ok_or_else(|| PlatformError::invalid("the device reply has no verification link"))?
         .to_owned();
     let mut interval = value
         .get("interval")
@@ -816,59 +882,143 @@ async fn github_device_sign_in(
         url: verification,
         code: user_code,
     });
-    loop {
-        if Instant::now() >= deadline {
-            return Err(PlatformError::AuthFailed {
-                host: host.to_owned(),
-                detail: "the device code expired".to_owned(),
-            });
-        }
-        pause(Duration::from_secs(interval), cancel).await?;
-        let (status, text) = post_form(
-            &http,
-            &format!("{base}/login/oauth/access_token"),
-            host,
-            form_pairs(&[
-                ("client_id", client_id),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("device_code", &device_code),
-            ]),
-            None,
-            cancel,
-        )
-        .await?;
-        let parsed: Option<Value> = serde_json::from_str(&text).ok();
-        let error = parsed.as_ref().and_then(|value| field(value, "error"));
-        match error {
-            Some("authorization_pending") => {}
-            Some("slow_down") => interval = interval.saturating_add(5),
-            Some("access_denied") => {
-                return Err(PlatformError::AuthFailed {
-                    host: host.to_owned(),
-                    detail: "access was denied".to_owned(),
-                })
-            }
-            Some("expired_token") => {
+    let polled = async {
+        loop {
+            if Instant::now() >= deadline {
                 return Err(PlatformError::AuthFailed {
                     host: host.to_owned(),
                     detail: "the device code expired".to_owned(),
-                })
+                });
             }
-            Some(other) => {
-                return Err(PlatformError::AuthFailed {
-                    host: host.to_owned(),
-                    detail: parsed
-                        .as_ref()
-                        .and_then(|value| field(value, "error_description"))
-                        .unwrap_or(other)
-                        .to_owned(),
-                })
-            }
-            None => {
-                return token_from(status, &text, host, client_id, client_secret, None);
+            pause(Duration::from_secs(interval), cancel).await?;
+            let (status, text) = post_form(
+                &http,
+                &flow.token_url,
+                host,
+                form_pairs(&[
+                    ("client_id", client_id),
+                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                    ("device_code", &device_code),
+                ]),
+                None,
+                cancel,
+            )
+            .await?;
+            let parsed: Option<Value> = serde_json::from_str(&text).ok();
+            let error = parsed.as_ref().and_then(|value| field(value, "error"));
+            match error {
+                Some("authorization_pending") => {}
+                Some("slow_down") => interval = interval.saturating_add(5),
+                Some("access_denied") => {
+                    return Err(PlatformError::AuthFailed {
+                        host: host.to_owned(),
+                        detail: "access was denied".to_owned(),
+                    })
+                }
+                Some("expired_token") => {
+                    return Err(PlatformError::AuthFailed {
+                        host: host.to_owned(),
+                        detail: "the device code expired".to_owned(),
+                    })
+                }
+                Some(other) => {
+                    return Err(PlatformError::AuthFailed {
+                        host: host.to_owned(),
+                        detail: parsed
+                            .as_ref()
+                            .and_then(|value| field(value, "error_description"))
+                            .unwrap_or(other)
+                            .to_owned(),
+                    })
+                }
+                None => {
+                    return token_from(status, &text, host, client_id, client_secret, None);
+                }
             }
         }
     }
+    .await;
+    polled.map_err(|error| redacted(error, &[&device_code, client_secret.unwrap_or_default()]))
+}
+
+pub async fn gitlab_device_sign_in(
+    host: &str,
+    client_id: &str,
+    client_secret: Option<&str>,
+    endpoints: &OAuthEndpoints,
+    insecure_tls: bool,
+    cancel: &CancelToken,
+    on_stage: &(dyn Fn(PlatformOAuthStage) + Send + Sync),
+) -> Result<OAuthRecord> {
+    let base = gitlab_base(host, endpoints);
+    device_sign_in(
+        DeviceFlow {
+            code_url: format!("{base}/oauth/authorize_device"),
+            token_url: format!("{base}/oauth/token"),
+            scope: GITLAB_SCOPE,
+            fallback: None,
+        },
+        host,
+        client_id,
+        client_secret,
+        insecure_tls,
+        cancel,
+        on_stage,
+    )
+    .await
+}
+
+pub async fn gitea_sign_in(
+    host: &str,
+    client_id: &str,
+    client_secret: Option<&str>,
+    endpoints: &OAuthEndpoints,
+    insecure_tls: bool,
+    cancel: &CancelToken,
+    on_stage: &(dyn Fn(PlatformOAuthStage) + Send + Sync),
+) -> Result<OAuthRecord> {
+    let base = gitea_base(host, endpoints);
+    let client_id_owned = client_id.to_owned();
+    let secret = client_secret.map(str::to_owned);
+    run_browser(
+        move |redirect, state| {
+            let (verifier, challenge) = pkce_pair()?;
+            let authorize_url = url_with_query(
+                &format!("{base}/login/oauth/authorize"),
+                &[
+                    ("client_id", &client_id_owned),
+                    ("redirect_uri", redirect),
+                    ("response_type", "code"),
+                    ("state", state),
+                    ("code_challenge", &challenge),
+                    ("code_challenge_method", "S256"),
+                ],
+            );
+            let mut pairs = form_pairs(&[
+                ("grant_type", "authorization_code"),
+                ("client_id", &client_id_owned),
+                ("code", ""),
+                ("redirect_uri", redirect),
+                ("code_verifier", &verifier),
+            ]);
+            secret_pair(&mut pairs, secret.as_deref());
+            Ok(BrowserFlow {
+                authorize_url,
+                token_url: format!("{base}/login/oauth/access_token"),
+                token_pairs: pairs,
+                basic: None,
+            })
+        },
+        host,
+        endpoints,
+        insecure_tls,
+        cancel,
+        on_stage,
+        client_id,
+        client_secret,
+        None,
+    )
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1062,47 +1212,21 @@ pub async fn refresh(
                 host: host.to_owned(),
                 detail: "no refresh token is stored for this connection".to_owned(),
             })?;
-    let http = client(insecure_tls, host)?;
-    let (url, pairs, basic) = match kind {
-        PlatformKind::GitHub => {
-            let mut pairs = form_pairs(&[
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token),
-                ("client_id", &record.client_id),
-            ]);
-            secret_pair(&mut pairs, record.client_secret.as_deref());
-            (
-                format!("{}/login/oauth/access_token", github_base(host, endpoints)),
-                pairs,
-                None,
-            )
-        }
-        PlatformKind::GitLab => {
-            let mut pairs = form_pairs(&[
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token),
-                ("client_id", &record.client_id),
-            ]);
-            secret_pair(&mut pairs, record.client_secret.as_deref());
-            (
-                format!("{}/oauth/token", gitlab_base(host, endpoints)),
-                pairs,
-                None,
-            )
-        }
+    let (url, basic) = match kind {
+        PlatformKind::GitHub => (
+            format!("{}/login/oauth/access_token", github_base(host, endpoints)),
+            None,
+        ),
+        PlatformKind::GitLab => (
+            format!("{}/oauth/token", gitlab_base(host, endpoints)),
+            None,
+        ),
         PlatformKind::Bitbucket => {
             if !host.eq_ignore_ascii_case(BITBUCKET_CLOUD_HOST) {
                 return Err(PlatformError::invalid(BITBUCKET_DATA_CENTER_MESSAGE));
             }
-            let mut pairs = form_pairs(&[
-                ("grant_type", "refresh_token"),
-                ("refresh_token", refresh_token),
-                ("client_id", &record.client_id),
-            ]);
-            secret_pair(&mut pairs, record.client_secret.as_deref());
             (
                 format!("{}/site/oauth2/access_token", bitbucket_base(endpoints)),
-                pairs,
                 Some((
                     record.client_id.clone(),
                     record.client_secret.clone().unwrap_or_default(),
@@ -1110,15 +1234,84 @@ pub async fn refresh(
             )
         }
     };
-    let (status, text) = post_form(&http, &url, host, pairs, basic, cancel).await?;
-    token_from(
-        status,
-        &text,
+    refresh_at(
+        &url,
+        basic,
         host,
-        &record.client_id,
-        record.client_secret.as_deref(),
-        Some(record),
+        record,
+        refresh_token,
+        insecure_tls,
+        cancel,
     )
+    .await
+}
+
+async fn refresh_at(
+    url: &str,
+    basic: Option<(String, String)>,
+    host: &str,
+    record: &OAuthRecord,
+    refresh_token: &str,
+    insecure_tls: bool,
+    cancel: &CancelToken,
+) -> Result<OAuthRecord> {
+    let mut pairs = form_pairs(&[
+        ("grant_type", "refresh_token"),
+        ("refresh_token", refresh_token),
+        ("client_id", &record.client_id),
+    ]);
+    secret_pair(&mut pairs, record.client_secret.as_deref());
+    let refreshed = async {
+        let http = client(insecure_tls, host)?;
+        let (status, text) = post_form(&http, url, host, pairs, basic, cancel).await?;
+        token_from(
+            status,
+            &text,
+            host,
+            &record.client_id,
+            record.client_secret.as_deref(),
+            Some(record),
+        )
+    }
+    .await;
+    refreshed.map_err(|error| {
+        redacted(
+            error,
+            &[
+                refresh_token,
+                &record.access_token,
+                record.client_secret.as_deref().unwrap_or_default(),
+            ],
+        )
+    })
+}
+
+pub async fn refresh_gitea(
+    host: &str,
+    record: &OAuthRecord,
+    endpoints: &OAuthEndpoints,
+    insecure_tls: bool,
+    cancel: &CancelToken,
+) -> Result<OAuthRecord> {
+    let refresh_token =
+        record
+            .refresh_token
+            .as_deref()
+            .ok_or_else(|| PlatformError::AuthFailed {
+                host: host.to_owned(),
+                detail: "no refresh token is stored for this sign-in".to_owned(),
+            })?;
+    let url = format!("{}/login/oauth/access_token", gitea_base(host, endpoints));
+    refresh_at(
+        &url,
+        None,
+        host,
+        record,
+        refresh_token,
+        insecure_tls,
+        cancel,
+    )
+    .await
 }
 
 pub async fn refresh_github(

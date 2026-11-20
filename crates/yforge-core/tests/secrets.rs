@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use yforge_core::{
-    start_storage, CoreError, LegacyKeychain, Namespace, PassphraseStore, Secrets,
-    SqlitePassphrases,
+    start_storage, CoreError, HostCredentials, LegacyKeychain, MemoryHostCredentials, Namespace,
+    PassphraseStore, Secrets, SqlitePassphrases, GIT_HOSTS_SERVICE,
 };
 
 const FOREIGN: &str = "Claude Code-credentials";
@@ -753,4 +753,96 @@ fn the_native_keychain_refuses_every_service_yforge_does_not_own_before_touching
     assert!(native.read(FOREIGN, "login").is_err());
     assert!(native.delete(FOREIGN, "login").is_err());
     assert!(native.accounts("").is_err());
+}
+
+#[test]
+fn git_host_credentials_live_in_their_own_keychain_service_and_are_never_migrated() {
+    assert_eq!(GIT_HOSTS_SERVICE, "dev.yforge.desktop.git-hosts");
+    assert_ne!(Namespace::Ai.service(), GIT_HOSTS_SERVICE);
+    assert_ne!(Namespace::SshPassphrase.service(), GIT_HOSTS_SERVICE);
+    let dir = upgraded_dir();
+    let fake = Fake::with(&[(
+        GIT_HOSTS_SERVICE,
+        "git-host-1",
+        "{\"access_token\":\"synthetic\"}",
+    )]);
+    let secrets = secrets_with(&fake, dir.path());
+
+    assert_eq!(secrets.get(Namespace::Ai, "provider").unwrap(), None);
+
+    assert_eq!(
+        fake.holds(GIT_HOSTS_SERVICE, "git-host-1").as_deref(),
+        Some("{\"access_token\":\"synthetic\"}")
+    );
+    assert!(fake.deleted.lock().unwrap().is_empty());
+    assert!(!marker(dir.path()));
+    let copied: i64 = database(dir.path())
+        .query_row("SELECT COUNT(*) FROM secrets", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(copied, 0);
+}
+
+#[test]
+fn memory_host_credentials_save_replace_and_delete_by_account() {
+    let store = MemoryHostCredentials::default();
+    assert_eq!(store.get("git-host-1").unwrap(), None);
+    store.set("git-host-1", "first").unwrap();
+    store.set("git-host-1", "second").unwrap();
+    assert_eq!(store.get("git-host-1").unwrap().as_deref(), Some("second"));
+    store.delete("git-host-1").unwrap();
+    store.delete("git-host-1").unwrap();
+    assert_eq!(store.get("git-host-1").unwrap(), None);
+}
+
+#[cfg(target_os = "macos")]
+struct KeychainCleanup<'a> {
+    store: &'a yforge_core::KeychainHostCredentials,
+    account: &'a str,
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for KeychainCleanup<'_> {
+    fn drop(&mut self) {
+        let _ = self.store.delete(self.account);
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn keychain_host_credentials_save_replace_and_delete_in_an_isolated_service() {
+    for namespace in [Namespace::Ai, Namespace::SshPassphrase] {
+        assert_ne!(namespace.service(), GIT_HOSTS_SERVICE);
+    }
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let service = format!("dev.yforge.test.git-hosts.{}-{nanos}", std::process::id());
+    let store = yforge_core::KeychainHostCredentials::with_service(&service);
+    let account = "git-host-synthetic";
+    let _cleanup = KeychainCleanup {
+        store: &store,
+        account,
+    };
+
+    assert_eq!(store.get(account).expect("Keychain read"), None);
+    store
+        .set(account, r#"{"access_token":"synthetic-first"}"#)
+        .expect("Keychain write");
+    assert_eq!(
+        store.get(account).expect("Keychain read").as_deref(),
+        Some(r#"{"access_token":"synthetic-first"}"#)
+    );
+    store
+        .set(account, r#"{"access_token":"synthetic-second"}"#)
+        .expect("Keychain overwrite");
+    assert_eq!(
+        store.get(account).expect("Keychain read").as_deref(),
+        Some(r#"{"access_token":"synthetic-second"}"#)
+    );
+    store.delete(account).expect("Keychain delete");
+    assert_eq!(store.get(account).expect("Keychain read"), None);
+    store
+        .delete(account)
+        .expect("Keychain delete of a missing item");
 }

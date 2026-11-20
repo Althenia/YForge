@@ -440,10 +440,10 @@ describe("credential removal copy", () => {
     for (const copy of [removeProviderCopy("A", []), removeConnectionCopy("W", "h"), removeJiraConnectionCopy("h", "n")]) expect(copy.consequences.join(" ")).not.toMatch(/Keychain/);
   });
 
-  it("keeps saved SSH passphrases in the YForge database and HTTPS secrets in Git's credential helper when a host identity is removed", () => {
+  it("deletes the host's sign-in from the macOS Keychain and keeps SSH passphrases and typed passwords when a host identity is removed", () => {
     const text = removeGitHostCopy("github.com").consequences.join(" ");
+    expect(text).toContain("YForge deletes this host's sign-in from the macOS Keychain");
     expect(text).toContain("saved key passphrases stay in the YForge database");
-    expect(text).toContain("passwords or tokens stay in Git's credential helper");
-    expect(text).not.toContain("Keychain");
+    expect(text).toContain("passwords typed at Git's prompt stay in Git's credential helper");
   });
 });

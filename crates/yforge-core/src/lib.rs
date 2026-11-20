@@ -26,6 +26,7 @@ mod git_hosts;
 mod graph;
 mod history;
 mod hooks;
+mod host_credentials;
 mod ignore;
 mod integrate;
 mod jira;
@@ -123,8 +124,10 @@ pub use git_flow::{
     FlowFinished, FlowKind, FlowSnapshot, GitFlowConfig,
 };
 pub use git_hosts::{
-    git_host_problem, remote_address, url_identity, GitHost, GitHostDraft, GitHostProblem,
-    HttpsCredential, IdentitySource, RemoteAddress, Resolved, SshPlan, Transport, UrlIdentity,
+    git_host_problem, remote_address, url_identity, GitHost, GitHostDraft, GitHostMethodNote,
+    GitHostProblem, GitHostProvider, GitHostSignIn, GitHostSignInEvent, GitHostSignInMethod,
+    GitHostSignInOptions, HttpsCredential, IdentitySource, RemoteAddress, Resolved, SshPlan,
+    Transport, UrlIdentity,
 };
 pub use graph::{graph_page, search_commits};
 pub use history::{
@@ -133,6 +136,10 @@ pub use history::{
 pub use hooks::{
     hook_approve, hook_read, hooks_list, run_hook, HookEnd, HookEntry, HookList, HookMode,
     HookOutcome, HookOutput, HookScript, HookStream, HOOK_LIMIT,
+};
+#[cfg(target_os = "macos")]
+pub use host_credentials::{
+    HostCredentials, KeychainHostCredentials, MemoryHostCredentials, GIT_HOSTS_SERVICE,
 };
 pub use ignore::ignore_paths;
 pub use integrate::{cherry_pick, fast_forward, integration_preview, merge, rebase, reset, revert};
@@ -176,7 +183,6 @@ pub use pull_request::{
 };
 pub use recovery::{lost_commits, reflog_list, reflog_refs};
 pub use repo::{repo_snapshot, repository_root, with_repo_mutation_lock};
-#[cfg(target_os = "macos")]
 pub use secrets::NativeKeychain;
 pub use secrets::{LegacyKeychain, Namespace, Secrets};
 pub use signing::{

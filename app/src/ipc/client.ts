@@ -67,6 +67,9 @@ import type { PushTarget } from "./bindings/PushTarget";
 import type { GitHost } from "./bindings/GitHost";
 import type { GitHostDraft } from "./bindings/GitHostDraft";
 import type { GitHostProblem } from "./bindings/GitHostProblem";
+import type { GitHostProvider } from "./bindings/GitHostProvider";
+import type { GitHostSignInEvent } from "./bindings/GitHostSignInEvent";
+import type { GitHostSignInOptions } from "./bindings/GitHostSignInOptions";
 import type { SshKey } from "./bindings/SshKey";
 import type { UrlIdentity } from "./bindings/UrlIdentity";
 import type { StashRestore } from "./bindings/StashRestore";
@@ -162,6 +165,7 @@ export const REDO_EVENT = "redo-changed";
 export const OPEN_PATH_REQUESTED_EVENT = "open-path-requested";
 export const AI_SIGN_IN_EVENT = "ai-sign-in";
 export const PLATFORM_SIGN_IN_EVENT = "platform-sign-in";
+export const GIT_HOST_SIGN_IN_EVENT = "git-host-sign-in";
 
 export type OpenWith = "editor" | "terminal" | "finder";
 
@@ -272,6 +276,12 @@ export const client = {
   gitHostFieldProblem: (field: "host" | "ssh_key" | "new_key", value: string) => call<GitHostProblem | null>("git_host_field_problem", { field, value }),
   gitHostDefaultKeyPath: (host: string) => call<string>("git_host_default_key_path", { host }),
   gitHostGenerateKey: (host: string, keyPath: string, passphrase: string | null) => call<string>("git_host_generate_key", { host, keyPath, passphrase }),
+  gitHostSignInOptions: (host: string, provider: GitHostProvider | null) => call<GitHostSignInOptions>("git_host_sign_in_options", { host, provider }),
+  gitHostOAuthSignIn: (input: { operationId: string; hostId: string; provider: GitHostProvider; method: "oauth" | "web" }) => call<GitHost>("git_host_oauth_sign_in", input),
+  onGitHostSignIn: (handler: (event: GitHostSignInEvent) => void): Promise<UnlistenFn> => listen<GitHostSignInEvent>(GIT_HOST_SIGN_IN_EVENT, (event) => handler(event.payload)),
+  gitHostOpenTokenPage: (hostId: string, provider: GitHostProvider) => call<string>("git_host_open_token_page", { hostId, provider }),
+  gitHostTokenSignIn: (hostId: string, provider: GitHostProvider, token: string) => call<GitHost>("git_host_token_sign_in", { hostId, provider, token }),
+  gitHostSignOut: (hostId: string) => call<null>("git_host_sign_out", { hostId }),
   gitIdentityForUrl: (url: string) => call<UrlIdentity>("git_identity_for_url", { url }),
   submoduleList: (path: string) => call<Submodule[]>("submodule_list", { path }),
   submoduleAdd: (path: string, url: string, submodulePath: string, branch: string | null) =>

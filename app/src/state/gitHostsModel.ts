@@ -1,4 +1,7 @@
 import type { GitHost } from "../ipc/bindings/GitHost";
+import type { GitHostProvider } from "../ipc/bindings/GitHostProvider";
+import type { GitHostSignIn } from "../ipc/bindings/GitHostSignIn";
+import type { GitHostSignInMethod } from "../ipc/bindings/GitHostSignInMethod";
 import type { UrlIdentity } from "../ipc/bindings/UrlIdentity";
 
 export const SSH_AGENT_TEXT = "your SSH agent and ~/.ssh/config";
@@ -61,3 +64,18 @@ export function identityLine(identity: UrlIdentity, home: string | undefined): I
   if (identity.source === "app" && identity.ssh_key_path !== null) return { heading: "Uses the app-wide SSH key", detail: { kind: "path", path: tildePath(identity.ssh_key_path, home) }, hostIdentity: false };
   return { heading: `Uses ${SSH_AGENT_TEXT}`, detail: undefined, hostIdentity: false };
 }
+
+export const SIGN_IN_METHODS: Readonly<Record<GitHostSignInMethod, { label: string; consequence: string }>> = {
+  oauth: { label: "OAuth", consequence: "Authorize YForge's registered OAuth app in your browser." },
+  web: { label: "Web sign-in", consequence: "Sign in on the host's web page and approve the code YForge shows." },
+  token: { label: "Token", consequence: "Create a token on the host's page and paste it here." },
+};
+
+export const GIT_HOST_PROVIDERS: ReadonlyArray<{ value: GitHostProvider; label: string }> = [
+  { value: "github", label: "GitHub" },
+  { value: "gitlab", label: "GitLab" },
+  { value: "bitbucket", label: "Bitbucket" },
+  { value: "gitea", label: "Gitea" },
+];
+
+export const signInStatus = (signIn: GitHostSignIn | null): string => (signIn === null ? "Signed out" : `Signed in as ${signIn.login} · ${SIGN_IN_METHODS[signIn.method].label}`);

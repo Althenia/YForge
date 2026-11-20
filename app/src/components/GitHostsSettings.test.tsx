@@ -1,10 +1,12 @@
+import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { Suspense } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitHost } from "../ipc/bindings/GitHost";
 import type { GitHostDraft } from "../ipc/bindings/GitHostDraft";
+import type { GitHostSignInOptions } from "../ipc/bindings/GitHostSignInOptions";
 import { GitHostsSettings } from "./GitHostsSettings";
-import { buttonNamed, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 const writeText = vi.fn(async (_text: string) => undefined);
@@ -33,12 +35,47 @@ const identity = (overrides: Partial<GitHost> = {}): GitHost => ({
   key_kind: "ed25519",
   key_fingerprint: "SHA256:q4VdAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAT1o",
   has_public_key: true,
+  sign_in: null,
   ...overrides,
 });
 
 const corpA = identity();
 const corpB = identity({ id: "h2", host: "gitlab.corp-b.com:2222", ssh_key_path: "/Users/you/.ssh/id_corp_b", https_user: "you", key_kind: "ed25519", key_fingerprint: null, has_public_key: false });
 const github = identity({ id: "h3", host: "github.com", ssh_key_path: null, key_kind: null, key_fingerprint: null, has_public_key: false });
+const bitbucket = identity({ id: "h4", host: "bitbucket.org", ssh_key_path: null, key_kind: null, key_fingerprint: null, has_public_key: false });
+
+const SIGN_IN_COMMANDS = ["git_host_oauth_sign_in", "git_host_token_sign_in"];
+
+const OAUTH_UNCONFIGURED = "Operator registration is not configured for OAuth sign-in on gitlab.corp-b.com:2222.";
+const GITHUB_OAUTH = "GitHub OAuth needs a client secret, which YForge never ships; use Web sign-in or Token.";
+const BITBUCKET_OAUTH = "Bitbucket Cloud OAuth needs a client secret, which YForge never ships.";
+const BITBUCKET_WEB = "Bitbucket Cloud has no Web sign-in; use Token.";
+const WEB_UNCONFIGURED = "Operator registration is not configured for Web sign-in on gitlab.corp-b.com:2222.";
+
+const signInOptions = (host: string, provider: string | null): GitHostSignInOptions => {
+  if (host === "github.com") return { provider: "github", provider_fixed: true, methods: ["web", "token"], unavailable: [{ method: "oauth", reason: GITHUB_OAUTH }], token_page: "https://github.com/settings/tokens/new" };
+  if (host === "bitbucket.org") {
+    return {
+      provider: "bitbucket",
+      provider_fixed: true,
+      methods: ["token"],
+      unavailable: [{ method: "oauth", reason: BITBUCKET_OAUTH }, { method: "web", reason: BITBUCKET_WEB }],
+      token_page: "https://id.atlassian.com/manage-profile/security/api-tokens",
+    };
+  }
+  const chosen = (provider ?? "gitlab") as GitHostSignInOptions["provider"];
+  if (host === "gitlab.corp-b.com:2222") {
+    return { provider: chosen, provider_fixed: false, methods: ["token"], unavailable: [{ method: "oauth", reason: OAUTH_UNCONFIGURED }, { method: "web", reason: WEB_UNCONFIGURED }], token_page: `https://${host}/-/user_settings/personal_access_tokens` };
+  }
+  return { provider: chosen, provider_fixed: false, methods: chosen === "gitea" ? ["oauth", "token"] : ["oauth", "web", "token"], unavailable: [], token_page: `https://${host}/-/user_settings/personal_access_tokens` };
+};
+
+const noRegistrationFields = (panel: HTMLElement) => {
+  expect(panel.querySelector('input[aria-label^="Client"]')).toBeNull();
+  expect(panel.querySelectorAll('input:not([aria-label="Token"])')).toHaveLength(0);
+  expect([...panel.querySelectorAll(".field-label, label")].map((entry) => entry.textContent ?? "").join(" ")).not.toMatch(/client|redirect/i);
+  expect(panel.textContent).not.toMatch(/client id|redirect/i);
+};
 
 const EXISTING_FILE = { title: "A file already exists there", detail: "YForge never overwrites a key. Choose another path, or pick that file with Choose key file…" };
 const PUBLIC_KEY = { title: "That is a public key", detail: "Choose the private key file (usually the same name without .pub). Nothing was saved." };
@@ -52,10 +89,13 @@ async function mount(initial: GitHost[], respond: (call: Call) => unknown = () =
       calls.push(call);
       const custom = respond(call);
       if (custom instanceof Error) throw { kind: "invalid_request", message: custom.message, output: null };
-      if (custom !== undefined) {
-        if (cmd === "git_host_save") list = call.args.id === null ? [...list, custom as GitHost] : list.map((entry) => (entry.id === call.args.id ? (custom as GitHost) : entry));
-        return custom;
-      }
+      const settle = (value: unknown) => {
+        if (cmd === "git_host_save") list = call.args.id === null ? [...list, value as GitHost] : list.map((entry) => (entry.id === call.args.id ? (value as GitHost) : entry));
+        if (SIGN_IN_COMMANDS.includes(cmd)) list = list.map((entry) => (entry.id === (value as GitHost).id ? (value as GitHost) : entry));
+        return value;
+      };
+      if (custom instanceof Promise) return custom.then(settle);
+      if (custom !== undefined) return settle(custom);
       switch (cmd) {
         case "git_hosts_list":
           return list;
@@ -68,6 +108,11 @@ async function mount(initial: GitHost[], respond: (call: Call) => unknown = () =
         case "git_host_default_key_path": {
           return `~/.ssh/yforge_${String(call.args.host).replace(/:\d+$/, "")}`;
         }
+        case "git_host_sign_in_options":
+          return signInOptions(String(call.args.host), (call.args.provider ?? null) as string | null);
+        case "git_host_sign_out":
+          list = list.map((entry) => (entry.id === call.args.hostId ? { ...entry, sign_in: null } : entry));
+          return null;
         case "git_host_remove":
           list = list.filter((entry) => entry.id !== call.args.id);
           return null;
@@ -159,7 +204,8 @@ describe("Settings → Git hosts", () => {
     expect(card(host, "gitlab.corp-a.com")?.querySelector(".kv")?.textContent).toContain("you");
     expect(card(host, "gitlab.corp-b.com:2222")?.querySelector(".kv")?.textContent).toContain("~/.ssh/id_corp_b");
     expect(card(host, "github.com")?.querySelector(".kv")?.textContent).toContain("None: uses your SSH agent and ~/.ssh/config");
-    expect(host.textContent).toContain("HTTPS passwords and tokens are kept by Git's credential helper");
+    expect(host.textContent).toContain("Sign-in credentials are stored per host in the macOS Keychain by YForge and used for HTTPS Git operations on that host; SSH remotes keep using the SSH key.");
+    expect(host.textContent).not.toContain("credential helper");
     expect(buttonNamed(host, "Add host")?.classList.contains("primary")).toBe(false);
   });
 
@@ -450,5 +496,341 @@ describe("Settings → Git hosts", () => {
     expect(calls.find((call) => call.cmd === "git_host_remove")?.args).toEqual({ id: "h1" });
     expect(card(host, "gitlab.corp-a.com")).toBeNull();
     expect(card(host, "github.com")).not.toBeNull();
+  });
+
+});
+
+const signedIn = (entry: GitHost, method: "oauth" | "web" | "token", login: string): GitHost => ({ ...entry, sign_in: { provider: entry.host === "bitbucket.org" ? "bitbucket" : entry.host === "github.com" ? "github" : "gitlab", method, login } });
+const sign = (host: ParentNode, name: string) => card(host, name)?.querySelector<HTMLElement>(".git-host-sign-in-status");
+const signInCard = (host: ParentNode, name: string) => host.querySelector<HTMLElement>(`[aria-label="Sign in to ${name}"]`);
+const radio = (host: ParentNode, label: string) => [...host.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find((entry) => entry.textContent?.trim() === label);
+
+function watchLeaks() {
+  const logged = (["log", "info", "warn", "error", "debug"] as const).map((level) => vi.spyOn(console, level).mockImplementation(() => undefined));
+  const stored = vi.spyOn(Storage.prototype, "setItem");
+  const opened = vi.spyOn(window, "open").mockImplementation(() => null);
+  const cookieRead = vi.fn(() => "");
+  const cookieWrite = vi.fn();
+  Object.defineProperty(document, "cookie", { get: cookieRead, set: cookieWrite, configurable: true });
+  return {
+    check(host: HTMLElement, secrets: string[]) {
+      const printed = JSON.stringify([...logged.flatMap((spy) => spy.mock.calls), ...stored.mock.calls]);
+      for (const secret of secrets) {
+        expect(printed).not.toContain(secret);
+        expect(host.innerHTML).not.toContain(secret);
+        expect(document.body.innerHTML).not.toContain(secret);
+        expect(location.href).not.toContain(secret);
+      }
+      expect(stored).not.toHaveBeenCalled();
+      expect(opened).not.toHaveBeenCalled();
+      expect(cookieRead).not.toHaveBeenCalled();
+      expect(cookieWrite).not.toHaveBeenCalled();
+      expect(document.querySelector("iframe, webview")).toBeNull();
+    },
+    restore() {
+      for (const spy of [...logged, stored, opened]) spy.mockRestore();
+      delete (document as unknown as { cookie?: string }).cookie;
+    },
+  };
+}
+
+describe("Settings → Git hosts sign-in", () => {
+  it("states each host's sign-in as text with a glyph and offers Sign in or Sign out", async () => {
+    const { host } = await mount([signedIn(github, "web", "octo"), corpA]);
+
+    expect(sign(host, "github.com")?.textContent).toContain("Signed in as octo · Web sign-in");
+    expect(sign(host, "github.com")?.querySelector("svg")).not.toBeNull();
+    expect(sign(host, "gitlab.corp-a.com")?.textContent).toContain("Signed out");
+    expect(sign(host, "gitlab.corp-a.com")?.querySelector("svg")).not.toBeNull();
+    expect(buttonNamed(card(host, "github.com") as HTMLElement, "Sign out")).toBeDefined();
+    expect(buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")).toBeUndefined();
+    expect(buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign in")).toBeDefined();
+    expect(buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign out")).toBeUndefined();
+  });
+
+  it("offers OAuth, Web sign-in, and Token with their consequences and no registration fields", async () => {
+    const { host, calls } = await mount([corpA]);
+
+    buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+
+    const panel = signInCard(host, "gitlab.corp-a.com") as HTMLElement;
+    expect(calls.find((call) => call.cmd === "git_host_sign_in_options")?.args).toEqual({ host: "gitlab.corp-a.com", provider: null });
+    expect([...panel.querySelectorAll('[role="radiogroup"] [role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["OAuth", "Web sign-in", "Token"]);
+    expect(radio(panel, "OAuth")?.getAttribute("aria-checked")).toBe("true");
+    expect(panel.textContent).toContain("Authorize YForge's registered OAuth app in your browser.");
+    expect(panel.querySelectorAll("input")).toHaveLength(0);
+    noRegistrationFields(panel);
+    radio(panel, "Web sign-in")?.click();
+    await flush();
+    expect(panel.textContent).toContain("Sign in on the host's web page and approve the code YForge shows.");
+    expect(panel.querySelectorAll("input")).toHaveLength(0);
+    noRegistrationFields(panel);
+    radio(panel, "Token")?.click();
+    await flush();
+    expect(panel.textContent).toContain("Create a token on the host's page and paste it here.");
+    expect([...panel.querySelectorAll("input")].map((entry) => [entry.getAttribute("aria-label"), entry.type])).toEqual([["Token", "password"]]);
+    noRegistrationFields(panel);
+    expect(host.querySelector("select, option, textarea, iframe")).toBeNull();
+  });
+
+  it("offers GitHub Web sign-in and Token without a provider choice and states why OAuth is unavailable", async () => {
+    const { host, calls } = await mount([github]);
+
+    buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+
+    const panel = signInCard(host, "github.com") as HTMLElement;
+    expect(calls.find((call) => call.cmd === "git_host_sign_in_options")?.args).toEqual({ host: "github.com", provider: null });
+    expect(panel.querySelector('button[aria-label="Provider"]')).toBeNull();
+    expect([...panel.querySelectorAll('[role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["Web sign-in", "Token"]);
+    expect(radio(panel, "Web sign-in")?.getAttribute("aria-checked")).toBe("true");
+    expect(panel.textContent).toContain(`OAuth: ${GITHUB_OAUTH}`);
+    noRegistrationFields(panel);
+  });
+
+  it("starts an OAuth sign-in, shows the browser address, and moves the host to Signed in when it finishes", async () => {
+    let finish: (value: GitHost) => void = () => undefined;
+    const { host, calls } = await mount([corpA], (call) => (call.cmd === "git_host_oauth_sign_in" ? new Promise<GitHost>((resolve) => (finish = resolve)) : undefined));
+    buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "gitlab.corp-a.com") as HTMLElement;
+    expect(buttonNamed(panel, "Start sign-in")?.getAttribute("aria-disabled")).toBe("false");
+
+    buttonNamed(panel, "Start sign-in")?.click();
+    await flush();
+    const started = calls.find((call) => call.cmd === "git_host_oauth_sign_in");
+    expect(started?.args).toEqual({ operationId: expect.any(String), hostId: "h1", provider: "gitlab", method: "oauth" });
+    await emit("git-host-sign-in", { operation: "another-operation", host_id: "h1", stage: { kind: "browser", url: "https://example.com/wrong" } });
+    await emit("git-host-sign-in", { operation: started?.args.operationId, host_id: "h1", stage: { kind: "browser", url: "https://gitlab.corp-a.com/oauth/authorize?response_type=code" } });
+    await flush();
+    expect(panel.textContent).toContain("Continue in your browser");
+    expect(panel.querySelector(".copy-value")?.textContent).toBe("https://gitlab.corp-a.com/oauth/authorize?response_type=code");
+    expect(panel.textContent).not.toContain("https://example.com/wrong");
+    expect(buttonNamed(panel, "Cancel sign-in")).toBeDefined();
+    const listed = calls.filter((call) => call.cmd === "git_hosts_list").length;
+
+    finish(signedIn(corpA, "oauth", "you"));
+    await flush(60);
+
+    expect(signInCard(host, "gitlab.corp-a.com")).toBeNull();
+    expect(calls.filter((call) => call.cmd === "git_hosts_list").length).toBeGreaterThan(listed);
+    expect(sign(host, "gitlab.corp-a.com")?.textContent).toContain("Signed in as you · OAuth");
+  });
+
+  it("shows the Web sign-in code and address and cancels through the operation id", async () => {
+    const { host, calls } = await mount([github], (call) => {
+      if (call.cmd === "git_host_oauth_sign_in") return new Promise(() => undefined);
+      if (call.cmd === "operation_cancel") return true;
+      return undefined;
+    });
+    buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "github.com") as HTMLElement;
+    radio(panel, "Web sign-in")?.click();
+    await flush();
+    buttonNamed(panel, "Start sign-in")?.click();
+    await flush();
+    const started = calls.find((call) => call.cmd === "git_host_oauth_sign_in");
+    expect(started?.args).toEqual({ operationId: expect.any(String), hostId: "h3", provider: "github", method: "web" });
+    await emit("git-host-sign-in", { operation: started?.args.operationId, host_id: "h3", stage: { kind: "device_code", url: "https://github.com/login/device", code: "AB12-CD34" } });
+    await flush();
+
+    expect(panel.textContent).toContain("Continue in your browser");
+    expect([...panel.querySelectorAll(".copy-value")].map((entry) => entry.textContent)).toEqual(["https://github.com/login/device", "AB12-CD34"]);
+    buttonNamed(panel, "Cancel sign-in")?.click();
+    await flush();
+    expect(calls.find((call) => call.cmd === "operation_cancel")?.args).toEqual({ id: started?.args.operationId });
+  });
+
+  it("returns to the sign-in choices without an error when a sign-in is cancelled", async () => {
+    let fail: (reason: unknown) => void = () => undefined;
+    const { host } = await mount([github], (call) => {
+      if (call.cmd === "git_host_oauth_sign_in") return new Promise((_resolve, reject) => (fail = reject));
+      if (call.cmd === "operation_cancel") {
+        fail({ kind: "cancelled", message: "Sign-in cancelled", output: null });
+        return true;
+      }
+      return undefined;
+    });
+    buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "github.com") as HTMLElement;
+    buttonNamed(panel, "Start sign-in")?.click();
+    await flush();
+    buttonNamed(panel, "Cancel sign-in")?.click();
+    await flush(40);
+
+    expect(buttonNamed(panel, "Cancel sign-in")).toBeUndefined();
+    expect(buttonNamed(panel, "Start sign-in")).toBeDefined();
+    expect(panel.querySelector('[role="alert"]')).toBeNull();
+    expect(sign(host, "github.com")?.textContent).toContain("Signed out");
+  });
+
+  it("opens the token page through YForge, reports an invalid token, then signs in with a valid one without leaking it", async () => {
+    const leaks = watchLeaks();
+    try {
+      let attempts = 0;
+      const { host, calls } = await mount([github], (call) => {
+        if (call.cmd === "git_host_open_token_page") return "https://github.com/settings/tokens/new";
+        if (call.cmd !== "git_host_token_sign_in") return undefined;
+        attempts += 1;
+        return attempts === 1 ? new Error("github.com rejected the token") : signedIn(github, "token", "octo");
+      });
+      buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")?.click();
+      await flush(40);
+      const panel = signInCard(host, "github.com") as HTMLElement;
+      radio(panel, "Token")?.click();
+      await flush();
+
+      buttonNamed(panel, "Open token page")?.click();
+      await flush(40);
+      expect(calls.find((call) => call.cmd === "git_host_open_token_page")?.args).toEqual({ hostId: "h3", provider: "github" });
+      expect(panel.textContent).toContain("Opened the token page in your browser.");
+      expect(panel.querySelector(".copy-value")?.textContent).toBe("https://github.com/settings/tokens/new");
+
+      type(input(panel, "Token"), "ghp_wrongSECRET111");
+      buttonNamed(panel, "Sign in with token")?.click();
+      await flush(40);
+      expect(calls.filter((call) => call.cmd === "git_host_token_sign_in").map((call) => call.args)).toEqual([{ hostId: "h3", provider: "github", token: "ghp_wrongSECRET111" }]);
+      expect(panel.querySelector('[role="alert"]')?.textContent).toContain("github.com rejected the token");
+      expect(input(panel, "Token")?.value).toBe("");
+      expect(sign(host, "github.com")?.textContent).toContain("Signed out");
+
+      type(input(panel, "Token"), "ghp_rightSECRET222");
+      buttonNamed(panel, "Sign in with token")?.click();
+      await flush(60);
+
+      expect(signInCard(host, "github.com")).toBeNull();
+      expect(sign(host, "github.com")?.textContent).toContain("Signed in as octo · Token");
+      const secrets = ["ghp_wrongSECRET111", "ghp_rightSECRET222"];
+      expect(calls.filter((call) => call.cmd !== "git_host_token_sign_in").some((call) => secrets.some((secret) => JSON.stringify(call.args).includes(secret)))).toBe(false);
+      leaks.check(host, secrets);
+    } finally {
+      leaks.restore();
+    }
+  });
+
+  it("starts a Gitea OAuth sign-in on a host whose provider is chosen", async () => {
+    let finish: (value: GitHost) => void = () => undefined;
+    const { host, calls } = await mount([corpA], (call) => (call.cmd === "git_host_oauth_sign_in" ? new Promise<GitHost>((resolve) => (finish = resolve)) : undefined));
+    buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "gitlab.corp-a.com") as HTMLElement;
+    await choose(panel, "Provider", "Gitea", 40);
+
+    expect([...panel.querySelectorAll('[role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["OAuth", "Token"]);
+    noRegistrationFields(panel);
+    buttonNamed(panel, "Start sign-in")?.click();
+    await flush();
+
+    expect(calls.find((call) => call.cmd === "git_host_oauth_sign_in")?.args).toEqual({ operationId: expect.any(String), hostId: "h1", provider: "gitea", method: "oauth" });
+    finish({ ...corpA, sign_in: { provider: "gitea", method: "oauth", login: "tea" } });
+    await flush(60);
+    expect(sign(host, "gitlab.corp-a.com")?.textContent).toContain("Signed in as tea · OAuth");
+  });
+
+  it("states why Bitbucket Cloud offers neither OAuth nor Web sign-in and signs in with a token", async () => {
+    const { host, calls } = await mount([bitbucket], (call) => {
+      if (call.cmd === "git_host_open_token_page") return "https://id.atlassian.com/manage-profile/security/api-tokens";
+      if (call.cmd === "git_host_token_sign_in") return signedIn(bitbucket, "token", "bb");
+      return undefined;
+    });
+    buttonNamed(card(host, "bitbucket.org") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "bitbucket.org") as HTMLElement;
+
+    expect([...panel.querySelectorAll('[role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["Token"]);
+    expect(panel.textContent).toContain(`OAuth: ${BITBUCKET_OAUTH}`);
+    expect(panel.textContent).toContain(`Web sign-in: ${BITBUCKET_WEB}`);
+    expect(buttonNamed(panel, "Start sign-in")).toBeUndefined();
+    noRegistrationFields(panel);
+
+    buttonNamed(panel, "Open token page")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "git_host_open_token_page")?.args).toEqual({ hostId: "h4", provider: "bitbucket" });
+    expect(panel.querySelector(".copy-value")?.textContent).toBe("https://id.atlassian.com/manage-profile/security/api-tokens");
+    type(input(panel, "Token"), "ATATT-SECRET555");
+    buttonNamed(panel, "Sign in with token")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "git_host_token_sign_in")?.args).toEqual({ hostId: "h4", provider: "bitbucket", token: "ATATT-SECRET555" });
+    expect(sign(host, "bitbucket.org")?.textContent).toContain("Signed in as bb · Token");
+  });
+
+  it("states why OAuth and Web sign-in are unavailable on an unconfigured host and still signs in with a token and keeps SSH", async () => {
+    const corpBSigned = signedIn(corpB, "token", "you");
+    const { host, calls } = await mount([corpB], (call) => {
+      if (call.cmd === "git_host_open_token_page") return "https://gitlab.corp-b.com:2222/-/user_settings/personal_access_tokens";
+      if (call.cmd === "git_host_token_sign_in") return corpBSigned;
+      return undefined;
+    });
+    buttonNamed(card(host, "gitlab.corp-b.com:2222") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "gitlab.corp-b.com:2222") as HTMLElement;
+
+    expect([...panel.querySelectorAll('[role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["Token"]);
+    expect(panel.textContent).toContain(`OAuth: ${OAUTH_UNCONFIGURED}`);
+    expect(panel.textContent).toContain(`Web sign-in: ${WEB_UNCONFIGURED}`);
+    expect(buttonNamed(panel, "Start sign-in")).toBeUndefined();
+    noRegistrationFields(panel);
+    expect(card(host, "gitlab.corp-b.com:2222")?.querySelector(".kv")?.textContent).toContain("~/.ssh/id_corp_b");
+    expect(iconButton(host, "Edit gitlab.corp-b.com:2222")).not.toBeNull();
+
+    buttonNamed(panel, "Open token page")?.click();
+    await flush(40);
+    expect(calls.find((call) => call.cmd === "git_host_open_token_page")?.args).toEqual({ hostId: "h2", provider: "gitlab" });
+    type(input(panel, "Token"), "glpat-SECRET444");
+    buttonNamed(panel, "Sign in with token")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "git_host_token_sign_in")?.args).toEqual({ hostId: "h2", provider: "gitlab", token: "glpat-SECRET444" });
+    expect(sign(host, "gitlab.corp-b.com:2222")?.textContent).toContain("Signed in as you · Token");
+    expect(card(host, "gitlab.corp-b.com:2222")?.querySelector(".kv")?.textContent).toContain("~/.ssh/id_corp_b");
+  });
+
+  it("offers a provider choice only for a host whose provider is not fixed and re-reads the options for the chosen provider", async () => {
+    const { host, calls } = await mount([corpA, github]);
+    buttonNamed(card(host, "gitlab.corp-a.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    const panel = signInCard(host, "gitlab.corp-a.com") as HTMLElement;
+
+    expect(panel.querySelector('button[aria-label="Provider"]')?.textContent).toContain("GitLab");
+    noRegistrationFields(panel);
+    await choose(panel, "Provider", "Gitea", 40);
+
+    expect(calls.filter((call) => call.cmd === "git_host_sign_in_options").map((call) => call.args)).toContainEqual({ host: "gitlab.corp-a.com", provider: "gitea" });
+    expect(panel.querySelector('button[aria-label="Provider"]')?.textContent).toContain("Gitea");
+    expect([...panel.querySelectorAll('[role="radio"]')].map((entry) => entry.textContent?.trim())).toEqual(["OAuth", "Token"]);
+    buttonNamed(card(host, "github.com") as HTMLElement, "Sign in")?.click();
+    await flush(40);
+    expect(signInCard(host, "github.com")?.querySelector('button[aria-label="Provider"]')).toBeNull();
+  });
+
+  it("signs a host out", async () => {
+    const { host, calls } = await mount([signedIn(github, "web", "octo")]);
+
+    buttonNamed(card(host, "github.com") as HTMLElement, "Sign out")?.click();
+    await flush(60);
+
+    expect(calls.find((call) => call.cmd === "git_host_sign_out")?.args).toEqual({ hostId: "h3" });
+    expect(sign(host, "github.com")?.textContent).toContain("Signed out");
+  });
+
+  it("keeps the SSH key of a signed-in host when it is edited and saved", async () => {
+    const corpASigned = signedIn(corpA, "token", "you");
+    const { host, calls } = await mount([corpASigned], (call) => (call.cmd === "git_host_save" ? { ...corpASigned, https_user: "yui" } : undefined));
+
+    expect(card(host, "gitlab.corp-a.com")?.querySelector(".kv")?.textContent).toContain("~/.ssh/yforge_gitlab.corp-a.com · ed25519 · SHA256:q4Vd…T1o");
+    iconButton(host, "Edit gitlab.corp-a.com")?.click();
+    await flush();
+    type(input(host, "HTTPS user name (optional)"), "yui");
+    buttonNamed(host, "Save host")?.click();
+    await flush(60);
+
+    expect(saves(calls).map((call) => call.args)).toEqual([{ id: "h1", draft: { host: "gitlab.corp-a.com", ssh_key_path: "/Users/you/.ssh/yforge_gitlab.corp-a.com", https_user: "yui" } }]);
+    expect(card(host, "gitlab.corp-a.com")?.querySelector(".kv")?.textContent).toContain("~/.ssh/yforge_gitlab.corp-a.com · ed25519 · SHA256:q4Vd…T1o");
+    expect(sign(host, "gitlab.corp-a.com")?.textContent).toContain("Signed in as you · Token");
+    expect(iconButton(host, "Copy public key for gitlab.corp-a.com")).not.toBeNull();
   });
 });

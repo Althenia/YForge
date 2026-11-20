@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { UrlIdentity } from "../ipc/bindings/UrlIdentity";
-import { identityLine, keyLine, shortFingerprint, tildePath } from "./gitHostsModel";
+import { GIT_HOST_PROVIDERS, identityLine, keyLine, shortFingerprint, SIGN_IN_METHODS, signInStatus, tildePath } from "./gitHostsModel";
 
 const identity = (overrides: Partial<UrlIdentity>): UrlIdentity => ({ transport: "ssh", source: "agent", host: null, ssh_key_path: null, https_user: null, ...overrides });
 
@@ -42,5 +42,17 @@ describe("Git hosts model", () => {
     expect(identityLine(identity({}), undefined)).toEqual({ heading: "Uses your SSH agent and ~/.ssh/config", detail: undefined, hostIdentity: false });
     expect(identityLine(identity({ transport: "https" }), undefined).heading).toBe("No host identity matches");
     expect(identityLine(identity({ transport: "other" }), undefined).heading).toBe("No identity is used");
+  });
+
+  it("states a host's sign-in as the login and method, or signed out", () => {
+    expect(signInStatus({ provider: "github", method: "oauth", login: "octo" })).toBe("Signed in as octo · OAuth");
+    expect(signInStatus({ provider: "gitlab", method: "web", login: "you" })).toBe("Signed in as you · Web sign-in");
+    expect(signInStatus({ provider: "bitbucket", method: "token", login: "bb" })).toBe("Signed in as bb · Token");
+    expect(signInStatus(null)).toBe("Signed out");
+  });
+
+  it("labels every sign-in method and provider", () => {
+    expect(Object.values(SIGN_IN_METHODS).map((method) => method.label)).toEqual(["OAuth", "Web sign-in", "Token"]);
+    expect(GIT_HOST_PROVIDERS.map((provider) => provider.label)).toEqual(["GitHub", "GitLab", "Bitbucket", "Gitea"]);
   });
 });
