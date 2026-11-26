@@ -8,6 +8,7 @@ use crate::branch;
 use crate::commit::validate_sha;
 use crate::error::CoreError;
 use crate::git::{self, CancelToken, Completed};
+use crate::hooks::{self, HookOperation};
 use crate::integrate;
 use crate::model::{
     ForceLease, ForcePushPlan, Operation, PullMode, PullOutcome, PullReport, PullStash,
@@ -104,6 +105,14 @@ fn classify(remote: &str, mut completed: Completed, command: String) -> CoreErro
     }
 }
 
+fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+    let mut rest = args;
+    while let ["-c", _, tail @ ..] = rest {
+        rest = tail;
+    }
+    rest.first().copied()
+}
+
 pub(crate) fn run_network(
     root: &Path,
     args: &[&str],
@@ -112,7 +121,7 @@ pub(crate) fn run_network(
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
     let mut lookup = vec!["remote", "get-url"];
-    if args.first() == Some(&"push") {
+    if subcommand(args) == Some("push") {
         lookup.push("--push");
     }
     lookup.push(remote);
@@ -564,6 +573,7 @@ pub fn push_to(
     remote: &str,
     name: &str,
     set_upstream: bool,
+    skip_hooks: &[String],
     cancel: &CancelToken,
     on_progress: &mut dyn FnMut(Progress),
 ) -> Result<(), CoreError> {
@@ -571,8 +581,10 @@ pub fn push_to(
     let current = checked_out_branch(&root, "push")?;
     refs::require_remote(&root, remote)?;
     branch::validated_name(&root, name)?;
+    let overrides = hooks::skip_overrides(&root, HookOperation::Push, skip_hooks)?;
     let refspec = format!("refs/heads/{current}:refs/heads/{name}");
-    let mut args = vec!["push", "--progress"];
+    let mut args: Vec<&str> = overrides.iter().map(String::as_str).collect();
+    args.extend(["push", "--progress"]);
     if set_upstream {
         args.push("--set-upstream");
     }

@@ -84,6 +84,8 @@ import type { HookMode } from "./bindings/HookMode";
 import type { HookOutcome } from "./bindings/HookOutcome";
 import type { HookOutput } from "./bindings/HookOutput";
 import type { HookScript } from "./bindings/HookScript";
+import type { HookOperation } from "./bindings/HookOperation";
+import type { OptionalHook } from "./bindings/OptionalHook";
 import type { WorktreeStatus } from "./bindings/WorktreeStatus";
 import type { WorktreeIntegration } from "./bindings/WorktreeIntegration";
 import type { SnapshotInfo } from "./bindings/SnapshotInfo";
@@ -228,8 +230,8 @@ export const client = {
   discardLines: (path: string, file: string, hunk: DiffHunk, lines: readonly number[]) => call<null>("discard_lines", { path, file, hunk, lines }),
   editHeadMessage: (path: string, sha: string, summary: string, description: string) =>
     call<MessageEdit>("edit_head_message", { path, sha, summary, description }),
-  commit: (path: string, summary: string, description: string, amend: boolean) =>
-    call<string>("commit", { path, summary, description, amend }),
+  commit: (path: string, summary: string, description: string, amend: boolean, skipHooks: readonly string[]) =>
+    call<string>("commit", { path, summary, description, amend, skipHooks }),
   amendInfo: (path: string) => call<AmendInfo>("amend_info", { path }),
   commitDetails: (path: string, sha: string) => call<CommitDetails>("commit_details", { path, sha }),
   commitFileDiff: (path: string, sha: string, file: string, ignoreWhitespace = false) =>
@@ -290,6 +292,7 @@ export const client = {
   submoduleDeinit: (path: string, submodulePath: string) => call<null>("submodule_deinit", { path, submodulePath }),
   submoduleStage: (path: string, submodulePath: string) => call<null>("submodule_stage", { path, submodulePath }),
   hooksList: (path: string) => call<HookList>("hooks_list", { path }),
+  optionalHooks: (path: string, operation: HookOperation) => call<OptionalHook[]>("optional_hooks", { path, operation }),
   hookRead: (path: string, name: string) => call<HookScript>("hook_read", { path, name }),
   hookApprove: (path: string, name: string) => call<null>("hook_approve", { path, name }),
   hookRun: (path: string, id: string, name: string, mode: HookMode, message: string) => call<HookOutcome>("hook_run", { path, id, name, mode, message }),

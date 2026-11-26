@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::fs::{symlink, PermissionsExt};
@@ -11,6 +12,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::activity;
 use crate::branch;
 use crate::error::CoreError;
 use crate::git::{self, CancelToken};
@@ -69,6 +71,48 @@ const STOPPING_HOOKS: [&str; 12] = [
     "push-to-checkout",
     "pre-auto-gc",
 ];
+
+const OPTIONAL_POLICY: &str = "yforge.optionalHook";
+const MANDATORY_POLICY: &str = "yforge.mandatoryHook";
+const COMMIT_EVENTS: [&str; 7] = [
+    "pre-commit",
+    "prepare-commit-msg",
+    "commit-msg",
+    "post-commit",
+    "post-rewrite",
+    "reference-transaction",
+    "post-index-change",
+];
+const PUSH_EVENTS: [&str; 2] = ["pre-push", "reference-transaction"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum HookOperation {
+    Commit,
+    Push,
+}
+
+impl HookOperation {
+    fn events(self) -> &'static [&'static str] {
+        match self {
+            Self::Commit => &COMMIT_EVENTS,
+            Self::Push => &PUSH_EVENTS,
+        }
+    }
+
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Commit => "commit",
+            Self::Push => "push",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+pub struct OptionalHook {
+    pub name: String,
+    pub events: Vec<String>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct HookEntry {
@@ -246,6 +290,110 @@ pub fn hook_approve(dir: &Path, path: &Path, name: &str) -> Result<(), CoreError
         return Err(CoreError::invalid_request(reason));
     }
     approve_hook_hash(dir, &repository_key(&root)?, name, &hook.hash)
+}
+
+fn policy_names(root: &Path, key: &str) -> Result<BTreeSet<String>, CoreError> {
+    let completed = git::run_unchecked(root, &["config", "--includes", "--get-all", key], None)?;
+    match completed.status {
+        Some(0) => Ok(completed
+            .stdout
+            .lines()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect()),
+        Some(1) => Ok(BTreeSet::new()),
+        status => Err(CoreError::GitFailed {
+            command: format!("git config --includes --get-all {key}"),
+            status,
+            stderr: completed.stderr.trim().to_owned(),
+        }),
+    }
+}
+
+fn enabled_configured_hooks(root: &Path, event: &str) -> Result<Vec<String>, CoreError> {
+    let args = ["hook", "list", "-z", "--show-scope", event];
+    let completed = activity::quietly(|| git::run_unchecked(root, &args, None))?;
+    match completed.status {
+        Some(0) => Ok(completed
+            .stdout
+            .split('\0')
+            .filter_map(|entry| match entry.split('\t').collect::<Vec<_>>()[..] {
+                [_scope, name] => Some(name.to_owned()),
+                _ => None,
+            })
+            .collect()),
+        Some(1) => Ok(Vec::new()),
+        status => Err(CoreError::GitFailed {
+            command: format!("git {}", args.join(" ")),
+            status,
+            stderr: completed.stderr.trim().to_owned(),
+        }),
+    }
+}
+
+fn overridable(name: &str) -> bool {
+    !name.is_empty() && !name.contains('=') && !name.chars().any(char::is_control)
+}
+
+fn confirmed_optional(
+    root: &Path,
+    operation: HookOperation,
+) -> Result<Vec<OptionalHook>, CoreError> {
+    let mandatory = policy_names(root, MANDATORY_POLICY)?;
+    let optional: BTreeSet<String> = policy_names(root, OPTIONAL_POLICY)?
+        .into_iter()
+        .filter(|name| !mandatory.contains(name) && overridable(name))
+        .collect();
+    if optional.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut found: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for event in operation.events() {
+        for name in enabled_configured_hooks(root, event)? {
+            if optional.contains(&name) {
+                let events = found.entry(name).or_default();
+                if !events.iter().any(|known| known == event) {
+                    events.push((*event).to_owned());
+                }
+            }
+        }
+    }
+    Ok(found
+        .into_iter()
+        .map(|(name, events)| OptionalHook { name, events })
+        .collect())
+}
+
+pub fn optional_hooks(
+    path: &Path,
+    operation: HookOperation,
+) -> Result<Vec<OptionalHook>, CoreError> {
+    confirmed_optional(&repo::open(path)?, operation)
+}
+
+pub(crate) fn skip_overrides(
+    root: &Path,
+    operation: HookOperation,
+    names: &[String],
+) -> Result<Vec<String>, CoreError> {
+    if names.is_empty() {
+        return Ok(Vec::new());
+    }
+    let optional = confirmed_optional(root, operation)?;
+    let mut overrides = Vec::new();
+    for (index, name) in names.iter().enumerate() {
+        if !optional.iter().any(|hook| hook.name == *name) {
+            return Err(CoreError::invalid_request(format!(
+                "{name} is not a hook that repository or organization policy marks optional for a {}, so it is not skipped",
+                operation.noun()
+            )));
+        }
+        if !names[..index].contains(name) {
+            overrides.extend(["-c".to_owned(), format!("hook.{name}.enabled=false")]);
+        }
+    }
+    Ok(overrides)
 }
 
 struct Scratch {

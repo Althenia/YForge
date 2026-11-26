@@ -1,8 +1,9 @@
-import { createEffect, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, For, on, onCleanup, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { GenerateAction } from "../state/aiGenerate";
 import type { StashMessageAction } from "../state/aiStash";
 import { useApp } from "../state/app";
+import { createOptionalHooks, SKIP_HOOKS_LABEL, skipHooksNote } from "../state/hookSkip";
 import { amendWarning, commitIdentityLabel, stashButton, stashMessage, summaryRemaining, type Composer as ComposerState, type ComposerTab, type createCommitAction } from "../state/composer";
 import { AiFailureNote } from "./AiFailureNote";
 import { AiTrigger } from "./AiTrigger";
@@ -19,6 +20,7 @@ const COMPOSE_ACTION = "Compose the changes into commits";
 const STASH_ACTION = "Generate a stash message from the changes";
 const DESCRIPTION_ROWS = 3;
 const EMPTY_FIRST_COMMIT_NOTE = "This commit will contain no files.";
+const SKIP_HOOKS_ACTION = "Skip the hooks that repository or organization policy marks optional, for the next commit only";
 
 export function FieldAi(props: {
   visible: boolean;
@@ -105,6 +107,11 @@ export function Composer(props: {
   const failure = () => props.state.failure();
   const tab = (): ComposerTab => (props.snapshot.operation === null ? props.state.tab() : "commit");
   const stashState = () => stashButton({ files: props.snapshot.files, untracked: props.state.stashUntracked(), busy: props.state.stashing() });
+  const optional = createOptionalHooks(() => props.snapshot.root, "commit");
+  props.state.setSkipHooks([]);
+  createEffect(on(optional.key, () => props.state.setSkipHooks([]), { defer: true }));
+  const skipping = () => props.state.skipHooks().length > 0;
+  const skipReason = () => (props.state.busy() ? "Committing…" : optional.reason());
   const [open, setOpen] = createSignal(false);
   const [position, setPosition] = createSignal({ bottom: 0, right: 0 });
   let trigger: HTMLButtonElement | undefined;
@@ -357,10 +364,25 @@ export function Composer(props: {
                   Amend
                 </button>
               </Show>
+              <button
+                type="button"
+                class="chip-toggle"
+                role="checkbox"
+                aria-checked={skipping()}
+                aria-disabled={skipReason() === undefined ? undefined : "true"}
+                title={skipReason() ?? SKIP_HOOKS_ACTION}
+                onClick={() => skipReason() === undefined && props.state.setSkipHooks(skipping() ? [] : optional.hooks())}
+              >
+                <Icon name="terminal" size={14} />
+                {SKIP_HOOKS_LABEL}
+              </button>
               <Show when={props.compose.available}>
                 <AiTrigger action={COMPOSE_ACTION} reason={props.state.busy() ? "Committing…" : props.compose.reason} onRun={props.compose.run} />
               </Show>
             </div>
+            <Show when={skipping()}>
+              <div class="note skip-hooks-note" role="status">{skipHooksNote(props.state.skipHooks())}</div>
+            </Show>
             <Show when={emptyFirstCommit()}>
               <div class="note" role="status">{EMPTY_FIRST_COMMIT_NOTE}</div>
             </Show>

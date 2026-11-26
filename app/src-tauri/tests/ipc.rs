@@ -432,7 +432,7 @@ fn commit_returns_the_new_sha_and_the_inspector_commands_describe_it() {
     let sha = invoke(
         &window,
         "commit",
-        json!({ "path": path, "summary": "Change a", "description": "Because.", "amend": false }),
+        json!({ "path": path, "summary": "Change a", "description": "Because.", "amend": false, "skipHooks": [] }),
     )
     .expect("commit");
 
@@ -483,7 +483,7 @@ fn a_failing_hook_serializes_as_commit_failed_with_its_output() {
     let error = invoke(
         &window,
         "commit",
-        json!({ "path": path, "summary": "Blocked", "description": "", "amend": false }),
+        json!({ "path": path, "summary": "Blocked", "description": "", "amend": false, "skipHooks": [] }),
     )
     .expect_err("the hook rejects the commit");
 

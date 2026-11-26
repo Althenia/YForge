@@ -521,6 +521,7 @@ pub struct PushTarget {
     pub remote: String,
     pub name: String,
     pub set_upstream: bool,
+    pub skip_hooks: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]

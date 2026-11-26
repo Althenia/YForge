@@ -37,7 +37,8 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `stage_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
 | `unstage_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
 | `discard_hunk` | `path`, `file: string`, `hunk: DiffHunk`, `ignoreWhitespace?: boolean` | `null`; `true` fails with `whitespace_ignored` |
-| `commit` | `path`, `summary: string`, `description: string`, `amend: boolean` | `string`: the new HEAD sha |
+| `commit` | `path`, `summary: string`, `description: string`, `amend: boolean`, `skipHooks: string[]` (names from `optional_hooks` for `commit`; empty runs every hook) | `string`: the new HEAD sha |
+| `optional_hooks` | `path`, `operation: "commit" \| "push"` | `OptionalHook[] { name, events }`: the configured hooks that policy confirms optional for that operation, sorted by name |
 | `amend_info` | `path` | `AmendInfo` |
 | `commit_details` | `path`, `sha: string` | `CommitDetails` |
 | `commit_file_diff` | `path`, `sha: string`, `file: string`, `ignoreWhitespace?: boolean` (default `false`; `true` adds `-w`) | `FileDiff` |
@@ -122,7 +123,7 @@ All commands are async. Argument names are camelCase on the wire; the current co
 | `edit_head_message` | `path`, `sha`, `summary`, `description` | `MessageEdit { sha, pushed }` |
 | `delete_remote_branch` | `path`, `id`, `remote`, `name` | `null` |
 | `set_upstream` | `path`, `branch`, `upstream: string \| null` (`null` unsets) | `null` |
-| `push_to` | `path`, `id`, `target: PushTarget { remote, name, set_upstream }` | `null` |
+| `push_to` | `path`, `id`, `target: PushTarget { remote, name, set_upstream, skip_hooks }` (`skip_hooks` as for `commit`, from `optional_hooks` for `push`) | `null` |
 | `stash_rename` | `path`, `index`, `sha`, `message` | `null` |
 | `pull_with_autostash` | `path`, `id`, `mode: PullMode` | `PullReport { outcome: PullOutcome, stash: PullStash }` |
 | `switch_stashes` | `path`, `branch` | `SwitchStash[] { branch, sha, message, created_at, index }` |
@@ -263,7 +264,7 @@ Hunk commands cover tracked files. An untracked file has no unstaged diff, so a 
 
 ### Commit commands
 
-- `commit`: `git commit --quiet [--amend] -m <summary> [-m <description>]`, so hooks run. An empty summary fails with `invalid_request`. Any non-zero exit of git is `commit_failed`, whose `output` is the trimmed stdout followed by the trimmed stderr (this is where hook output appears). On success it returns `git rev-parse HEAD`.
+- `commit`: `git [-c hook.<name>.enabled=false …] commit --quiet [--amend] -m <summary> [-m <description>]`, so hooks run; the `-c` options appear only for the names in `skipHooks` (see Optional hook skips). An empty summary fails with `invalid_request`. Any non-zero exit of git is `commit_failed`, whose `output` is the trimmed stdout followed by the trimmed stderr (this is where hook output appears). On success it returns `git rev-parse HEAD`.
 - `AmendInfo`: `{ sha, summary, description, pushed }` for HEAD. `pushed` is true when `@{upstream}` exists and HEAD is its ancestor (`git merge-base --is-ancestor`); no upstream (or a detached HEAD) gives false. A repository with no commits fails with `invalid_request`.
 - `CommitDetails`: `{ sha, summary, body, author, committer, parents, refs, files }`.
   - `author` and `committer` are `Signature { name, email, time }` (Unix seconds).
@@ -355,7 +356,15 @@ These run against the checked-out branch and fail with `invalid_request` while a
 
 - `delete_remote_branch` runs `git push --progress <remote> --delete refs/heads/<name>` on the network runner. Undo pushes the recorded sha (the remote-tracking value before the delete, so it can be stale) back with `--force-with-lease=<ref>:`, refused when the name exists again; unavailable without a tracking ref.
 - `set_upstream` uses `git branch --set-upstream-to=<ref>` or `--unset-upstream`. Undo restores the previous value, refused when the upstream changed since.
-- `push_to` runs `git push --progress [--set-upstream] <remote> refs/heads/<current>:refs/heads/<name>`. A rejected update is `push_rejected`; no undo.
+- `push_to` runs `git [-c hook.<name>.enabled=false …] push --progress [--set-upstream] <remote> refs/heads/<current>:refs/heads/<name>`, with a `-c` option for each name in `skip_hooks` (see Optional hook skips). A rejected update is `push_rejected`; no undo.
+
+### Optional hook skips
+
+- Policy lives in Git configuration, read with `git config --includes --get-all` across every scope, so a repository (`--local`, `--worktree`, or an included file), a folder rule, the global file, or the system file can set it: `yforge.optionalHook` and `yforge.mandatoryHook` are multi-valued lists of hook names. A name in `yforge.mandatoryHook` anywhere is mandatory even when another scope lists it as optional. A hook in neither list is unclassified.
+- Only configured hooks (`hook.<name>.command` with `hook.<name>.event`, listed by `git hook list --show-scope`) can be optional. A script in the hooks directory has no name Git can disable on its own, so it always runs. A hook already disabled by `hook.<name>.enabled=false` is not listed.
+- `optional_hooks` lists each enabled configured hook that policy confirms optional and that fires for the operation: `commit` covers `pre-commit`, `prepare-commit-msg`, `commit-msg`, `post-commit`, `post-rewrite`, `reference-transaction`, and `post-index-change`; `push` covers `pre-push` and `reference-transaction`. `events` names the operation's events the hook is listed for. Names containing `=` or control characters are never listed.
+- `commit` and `push_to` check every requested name against the same list when they run. A name that is mandatory, unclassified, disabled, unknown, or not listed for that operation fails with `invalid_request` before Git runs. Each accepted name adds `-c hook.<name>.enabled=false` to that one invocation; no configuration file is written, `core.hooksPath` is never set, and `--no-verify` is never passed. Mandatory and unclassified hooks, hooks-directory scripts, remote hooks, and protected-ref rules apply as usual, and a remote rejection is still `push_rejected`.
+- The skip is recorded: the activity entry's command line carries the `-c` options, and its summary ends with `, skipped optional hooks: <names>`.
 
 ### Stash, auto-stash pull, and switch stashes
 

@@ -1,6 +1,7 @@
 import { createForm } from "@tanstack/solid-form";
-import { Show } from "solid-js";
+import { createEffect, on, Show } from "solid-js";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
+import { createOptionalHooks, hookNames, SKIP_HOOKS_LABEL, skipHooksNote } from "../state/hookSkip";
 import { pushRemote } from "../state/refMenu";
 import type { PopoverState, RepoActions } from "../state/repoActions";
 import { bareStashMessage } from "../state/stashName";
@@ -70,16 +71,24 @@ const nameProblem = (name: string): string | undefined => {
 
 export function PushToForm(props: { state: PushToState; snapshot: RepoSnapshot; actions: RepoActions }) {
   const head = props.snapshot.head;
+  const optional = createOptionalHooks(() => props.snapshot.root, "push");
   const form = createForm(() => ({
     defaultValues: {
       remote: pushRemote(props.snapshot.remotes) ?? "",
       name: head.kind === "branch" ? head.name : "",
       setUpstream: props.snapshot.upstream === null,
+      skipHooks: false,
     },
     validators: { onMount: ({ value }) => nameProblem(value.name), onChange: ({ value }) => nameProblem(value.name) },
-    onSubmit: ({ value }) => void props.actions.pushTo({ remote: value.remote, name: value.name, set_upstream: value.setUpstream }),
+    onSubmit: ({ value }) => {
+      const skip = value.skipHooks ? hookNames(optional.hooks()) : [];
+      form.setFieldValue("skipHooks", false);
+      void props.actions.pushTo({ remote: value.remote, name: value.name, set_upstream: value.setUpstream, skip_hooks: skip });
+    },
   }));
   const problem = form.useSelector((state) => state.errors[0] as string | undefined);
+  const skipping = form.useSelector((state) => state.values.skipHooks);
+  createEffect(on(optional.key, () => form.setFieldValue("skipHooks", false), { defer: true }));
   return (
     <Popover anchor={props.state.anchor} label="Push to" onClose={props.actions.closePopover}>
       <form
@@ -125,6 +134,26 @@ export function PushToForm(props: { state: PushToState; snapshot: RepoSnapshot; 
           </form.Field>
           Set as upstream
         </label>
+        <div class="skip-hooks">
+          <label class="check">
+            <form.Field name="skipHooks">
+              {(field) => (
+                <input
+                  type="checkbox"
+                  aria-label={SKIP_HOOKS_LABEL}
+                  checked={field().state.value}
+                  disabled={optional.reason() !== undefined}
+                  onChange={(event) => field().handleChange(event.currentTarget.checked)}
+                />
+              )}
+            </form.Field>
+            {SKIP_HOOKS_LABEL}
+          </label>
+          <Show when={optional.reason()}>{(text) => <span class="skip-hooks-reason">{text()}</span>}</Show>
+          <Show when={skipping() && optional.reason() === undefined}>
+            <div class="note skip-hooks-note" role="status">{skipHooksNote(optional.hooks())}</div>
+          </Show>
+        </div>
         <div class="hrow">
           <button type="submit" class="btn primary" disabled={problem() !== undefined}>
             Push

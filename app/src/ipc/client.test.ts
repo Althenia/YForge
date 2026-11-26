@@ -117,7 +117,8 @@ describe("typed IPC client", () => {
     await client.unstageLines("/r", "a.txt", hunk, [1]);
     await client.discardLines("/r", "a.txt", hunk, [3]);
     await client.editHeadMessage("/r", "abc1234", "New subject", "New body");
-    await client.commit("/r", "Summary", "Body", true);
+    await client.commit("/r", "Summary", "Body", true, ["lint"]);
+    await client.optionalHooks("/r", "commit");
     await client.amendInfo("/r");
     await client.commitDetails("/r", "abc1234");
     await client.commitFileDiff("/r", "abc1234", "a.txt");
@@ -141,7 +142,8 @@ describe("typed IPC client", () => {
       { cmd: "unstage_lines", args: { path: "/r", file: "a.txt", hunk, lines: [1] } },
       { cmd: "discard_lines", args: { path: "/r", file: "a.txt", hunk, lines: [3] } },
       { cmd: "edit_head_message", args: { path: "/r", sha: "abc1234", summary: "New subject", description: "New body" } },
-      { cmd: "commit", args: { path: "/r", summary: "Summary", description: "Body", amend: true } },
+      { cmd: "commit", args: { path: "/r", summary: "Summary", description: "Body", amend: true, skipHooks: ["lint"] } },
+      { cmd: "optional_hooks", args: { path: "/r", operation: "commit" } },
       { cmd: "amend_info", args: { path: "/r" } },
       { cmd: "commit_details", args: { path: "/r", sha: "abc1234" } },
       { cmd: "commit_file_diff", args: { path: "/r", sha: "abc1234", file: "a.txt" } },
@@ -305,7 +307,7 @@ describe("typed IPC client", () => {
       throw { kind: "commit_failed", message: "`git commit` exited with status 1", output: "hook says no" };
     });
 
-    const failure = await client.commit("/r", "s", "", false).catch((error: unknown) => error);
+    const failure = await client.commit("/r", "s", "", false, []).catch((error: unknown) => error);
 
     expect(failure).toBeInstanceOf(IpcError);
     expect(failure).toMatchObject({ kind: "commit_failed", output: "hook says no" });
@@ -525,7 +527,7 @@ describe("typed IPC client", () => {
     await client.deleteRemoteBranch("/r", "op-1", "origin", "feature/x");
     await client.setUpstream("/r", "feature", "origin/feature");
     await client.setUpstream("/r", "feature", null);
-    await client.pushTo("/r", "op-2", { remote: "origin", name: "topic", set_upstream: true });
+    await client.pushTo("/r", "op-2", { remote: "origin", name: "topic", set_upstream: true, skip_hooks: ["push-lint"] });
     await client.stashRename("/r", 1, "abc", "new name");
     await client.pullWithAutostash("/r", "op-3", "rebase");
     await client.switchStashes("/r", "main");
@@ -539,7 +541,7 @@ describe("typed IPC client", () => {
       { cmd: "delete_remote_branch", args: { path: "/r", id: "op-1", remote: "origin", name: "feature/x" } },
       { cmd: "set_upstream", args: { path: "/r", branch: "feature", upstream: "origin/feature" } },
       { cmd: "set_upstream", args: { path: "/r", branch: "feature", upstream: null } },
-      { cmd: "push_to", args: { path: "/r", id: "op-2", target: { remote: "origin", name: "topic", set_upstream: true } } },
+      { cmd: "push_to", args: { path: "/r", id: "op-2", target: { remote: "origin", name: "topic", set_upstream: true, skip_hooks: ["push-lint"] } } },
       { cmd: "stash_rename", args: { path: "/r", index: 1, sha: "abc", message: "new name" } },
       { cmd: "pull_with_autostash", args: { path: "/r", id: "op-3", mode: "rebase" } },
       { cmd: "switch_stashes", args: { path: "/r", branch: "main" } },

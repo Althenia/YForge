@@ -35,7 +35,8 @@ use yforge_core::{
     SigningConfig, SigningFormat, SigningKey, SigningScope, ToolChoices, ToolEntry, ToolsDetected,
 };
 use yforge_core::{
-    FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode, HookOutcome, HookOutput, HookScript,
+    FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode, HookOperation, HookOutcome,
+    HookOutput, HookScript, OptionalHook,
 };
 use yforge_core::{
     FolderGitConfig, FolderGitConfigDraft, GitHost, GitHostDraft, GitHostMethodNote,
@@ -133,6 +134,8 @@ fn export_all(dir: &Path) {
     HookMode::export_all(&config).expect("export HookMode");
     HookOutput::export_all(&config).expect("export HookOutput");
     HookOutcome::export_all(&config).expect("export HookOutcome");
+    HookOperation::export_all(&config).expect("export HookOperation");
+    OptionalHook::export_all(&config).expect("export OptionalHook");
     GitFlowConfig::export_all(&config).expect("export GitFlowConfig");
     FlowKind::export_all(&config).expect("export FlowKind");
     FlowFinished::export_all(&config).expect("export FlowFinished");

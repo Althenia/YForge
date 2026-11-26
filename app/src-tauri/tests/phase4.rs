@@ -412,7 +412,7 @@ fn set_upstream_and_unset_are_undoable_and_push_to_creates_the_remote_branch() {
     call(
         &h,
         "push_to",
-        json!({ "path": repo.path(), "id": "to-1", "target": { "remote": "origin", "name": "review/main", "set_upstream": true } }),
+        json!({ "path": repo.path(), "id": "to-1", "target": { "remote": "origin", "name": "review/main", "set_upstream": true, "skip_hooks": [] } }),
     )
     .unwrap();
     assert_eq!(

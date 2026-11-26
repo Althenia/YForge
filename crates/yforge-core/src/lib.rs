@@ -134,8 +134,9 @@ pub use history::{
     rebase_interactive, rebase_plan, recompose_apply, recompose_preview, squash_commits,
 };
 pub use hooks::{
-    hook_approve, hook_read, hooks_list, run_hook, HookEnd, HookEntry, HookList, HookMode,
-    HookOutcome, HookOutput, HookScript, HookStream, HOOK_LIMIT,
+    hook_approve, hook_read, hooks_list, optional_hooks, run_hook, HookEnd, HookEntry, HookList,
+    HookMode, HookOperation, HookOutcome, HookOutput, HookScript, HookStream, OptionalHook,
+    HOOK_LIMIT,
 };
 #[cfg(target_os = "macos")]
 pub use host_credentials::{

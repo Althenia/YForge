@@ -1,6 +1,7 @@
 import { nextStepOf, type OperationResult } from "./syncModel";
 import type { AmendInfo } from "../ipc/bindings/AmendInfo";
 import type { FileChange } from "../ipc/bindings/FileChange";
+import type { OptionalHook } from "../ipc/bindings/OptionalHook";
 import type { ProfileList } from "../ipc/bindings/ProfileList";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import { createEffect, createMemo, on, type Accessor } from "solid-js";
@@ -83,6 +84,7 @@ export function createComposer() {
     stashDescription: string;
     stashUntracked: boolean;
     stashing: boolean;
+    skipHooks: readonly OptionalHook[];
   }>({
     summary: "",
     description: "",
@@ -96,6 +98,7 @@ export function createComposer() {
     stashDescription: "",
     stashUntracked: false,
     stashing: false,
+    skipHooks: [],
   });
   const [summary, setSummary] = field("summary");
   const [description, setDescription] = field("description");
@@ -109,6 +112,7 @@ export function createComposer() {
   const [stashDescription, setStashDescription] = field("stashDescription");
   const [stashUntracked, setStashUntracked] = field("stashUntracked");
   const [stashing, setStashing] = field("stashing");
+  const [skipHooks, setSkipHooks] = field("skipHooks");
   return {
     summary,
     setSummary,
@@ -134,6 +138,8 @@ export function createComposer() {
     setStashUntracked,
     stashing,
     setStashing,
+    skipHooks,
+    setSkipHooks,
   };
 }
 
@@ -184,12 +190,13 @@ export function createCommitAction(deps: {
     composer.setFailure(undefined);
     const summary = composer.summary();
     const amend = composer.amend();
+    const skipHooks = composer.skipHooks().map((hook) => hook.name);
     let sha: string;
     try {
       sha = await deps.track(
         amend ? "Amending" : "Committing",
         async () => {
-          const created = await client.commit(session.path, summary, composer.description(), amend);
+          const created = await client.commit(session.path, summary, composer.description(), amend, skipHooks);
           await session.refresh();
           return created;
         },
@@ -199,6 +206,7 @@ export function createCommitAction(deps: {
       composer.setFailure(asIpcError(failure));
       return;
     } finally {
+      composer.setSkipHooks([]);
       composer.setBusy(false);
     }
     composer.setSummary("");

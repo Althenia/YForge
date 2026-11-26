@@ -46,7 +46,7 @@ fn undoing_a_commit_soft_resets_to_the_previous_head_and_keeps_the_changes_stage
     repo.write("a.txt", "two\n");
     repo.git(&["add", "a.txt"]);
     let before = capture_state(&repo.path).unwrap();
-    commit(&repo.path, "Second", "", false).unwrap();
+    commit(&repo.path, "Second", "", false, &[]).unwrap();
     let after = capture_state(&repo.path).unwrap();
 
     let plan = action(plan_commit(&before, &after, false));
@@ -66,7 +66,7 @@ fn undoing_an_amend_restores_the_original_commit_with_the_amended_changes_staged
     repo.write("b.txt", "b2\n");
     repo.git(&["add", "b.txt"]);
     let before = capture_state(&repo.path).unwrap();
-    commit(&repo.path, "Second, amended", "", true).unwrap();
+    commit(&repo.path, "Second, amended", "", true, &[]).unwrap();
     let after = capture_state(&repo.path).unwrap();
 
     undo(&repo.path, &action(plan_commit(&before, &after, true))).unwrap();
@@ -83,7 +83,7 @@ fn a_first_commit_and_a_moved_head_have_no_commit_undo() {
     repo.write("a.txt", "one\n");
     repo.git(&["add", "a.txt"]);
     let before = capture_state(&repo.path).unwrap();
-    commit(&repo.path, "First", "", false).unwrap();
+    commit(&repo.path, "First", "", false, &[]).unwrap();
     let after = capture_state(&repo.path).unwrap();
     assert!(reason(plan_commit(&before, &after, false)).contains("first commit"));
 
@@ -91,7 +91,7 @@ fn a_first_commit_and_a_moved_head_have_no_commit_undo() {
     let mid = capture_state(&repo.path).unwrap();
     repo.write("b.txt", "b2\n");
     repo.git(&["add", "b.txt"]);
-    commit(&repo.path, "Third", "", false).unwrap();
+    commit(&repo.path, "Third", "", false, &[]).unwrap();
     let plan = action(plan_commit(
         &mid,
         &capture_state(&repo.path).unwrap(),

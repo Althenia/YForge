@@ -301,7 +301,7 @@ describe("Push to… form", () => {
     submit(host)?.click();
     await flush();
 
-    expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true }]]);
+    expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true, skip_hooks: [] }]]);
   });
 
   it("pushes to the typed name on the chosen remote without the upstream when unchecked", async () => {
@@ -315,7 +315,7 @@ describe("Push to… form", () => {
     submit(host)?.click();
     await flush();
 
-    expect(calls).toEqual([["push_to", { remote: "backup", name: "topic", set_upstream: false }]]);
+    expect(calls).toEqual([["push_to", { remote: "backup", name: "topic", set_upstream: false, skip_hooks: [] }]]);
   });
 
   it("refuses an empty name or one with spaces", async () => {
@@ -330,6 +330,88 @@ describe("Push to… form", () => {
     await flush();
     expect(submit(host)?.disabled).toBe(true);
     expect(reason(host)).toBe("A branch name cannot contain spaces");
+  });
+});
+
+describe("Push to… skip optional hooks", () => {
+  const skipBox = (host: ParentNode) => input(host, "Skip optional hooks");
+  const note = (host: ParentNode) => host.querySelector(".skip-hooks-note")?.textContent;
+
+  function mountSkip(plan: unknown, pushTo?: (target: unknown) => Promise<void>) {
+    const asked: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd !== "optional_hooks") return null;
+      asked.push(args);
+      return plan;
+    });
+    const { calls, actions } = actionsStub();
+    if (pushTo !== undefined)
+      (actions as { pushTo: unknown }).pushTo = async (target: unknown) => {
+        calls.push(["push_to", target]);
+        await pushTo(target);
+      };
+    const state = { kind: "push_to", anchor } as Extract<PopoverState, { kind: "push_to" }>;
+    const mounted = mountWithApp(() => <PushToForm state={state} snapshot={remoteSnapshot()} actions={actions} />);
+    dispose = mounted.dispose;
+    return { ...mounted, calls, asked };
+  }
+
+  it("starts off and is disabled with its reason when policy confirms no optional hook", async () => {
+    const { host, asked } = mountSkip([]);
+    await flush(40);
+
+    expect(asked).toEqual([{ path: "/r", operation: "push" }]);
+    expect(skipBox(host)?.checked).toBe(false);
+    expect(skipBox(host)?.disabled).toBe(true);
+    expect(host.querySelector(".skip-hooks")?.textContent).toContain("No hook is marked optional by repository or organization policy");
+  });
+
+  it("names the hooks it skips and sends them with this push only", async () => {
+    const { host, calls } = mountSkip([{ name: "push-lint", events: ["pre-push"] }]);
+    await flush(40);
+
+    expect(skipBox(host)?.checked).toBe(false);
+    expect(skipBox(host)?.disabled).toBe(false);
+    expect(note(host)).toBeUndefined();
+    skipBox(host)?.click();
+    await flush();
+    expect(note(host)).toBe("Skips push-lint (pre-push). Every other hook runs.");
+    submit(host)?.click();
+    await flush();
+
+    expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true, skip_hooks: ["push-lint"] }]]);
+    expect(skipBox(host)?.checked).toBe(false);
+    submit(host)?.click();
+    await flush();
+    expect(calls[1]).toEqual(["push_to", { remote: "origin", name: "feature", set_upstream: true, skip_hooks: [] }]);
+  });
+
+  it("returns to off as soon as the push starts, before its outcome is known", async () => {
+    const { host, calls } = mountSkip([{ name: "push-lint", events: ["pre-push"] }], () => new Promise(() => undefined));
+    await flush(40);
+
+    skipBox(host)?.click();
+    await flush();
+    submit(host)?.click();
+    await flush(20);
+
+    expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true, skip_hooks: ["push-lint"] }]]);
+    expect(skipBox(host)?.checked).toBe(false);
+    expect(note(host)).toBeUndefined();
+  });
+
+  it("opens off every time", async () => {
+    const first = mountSkip([{ name: "push-lint", events: ["pre-push"] }]);
+    await flush(40);
+    skipBox(first.host)?.click();
+    await flush();
+    expect(skipBox(first.host)?.checked).toBe(true);
+    first.dispose();
+    document.body.innerHTML = "";
+
+    const second = mountSkip([{ name: "push-lint", events: ["pre-push"] }]);
+    await flush(40);
+    expect(skipBox(second.host)?.checked).toBe(false);
   });
 });
 

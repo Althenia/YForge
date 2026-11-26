@@ -704,6 +704,7 @@ fn push_to_publishes_the_current_branch_under_another_name_and_can_track_it() {
         "origin",
         "review/main",
         false,
+        &[],
         &CancelToken::new(),
         &mut no_progress(),
     )
@@ -723,6 +724,7 @@ fn push_to_publishes_the_current_branch_under_another_name_and_can_track_it() {
         "origin",
         "review/again",
         true,
+        &[],
         &CancelToken::new(),
         &mut no_progress(),
     )
@@ -748,6 +750,7 @@ fn push_to_reports_a_rejected_update_and_refuses_bad_targets() {
         "origin",
         "shared",
         false,
+        &[],
         &CancelToken::new(),
         &mut no_progress(),
     )
@@ -760,6 +763,7 @@ fn push_to_reports_a_rejected_update_and_refuses_bad_targets() {
             remote,
             name,
             false,
+            &[],
             &CancelToken::new(),
             &mut no_progress(),
         )

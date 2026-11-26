@@ -1874,9 +1874,15 @@ svg.lanes {
   gap: var(--spacing-2);
 }
 
-.reason {
+.reason,
+.skip-hooks-reason {
   font: var(--font-ui-small);
   color: var(--colors-text-muted);
+}
+
+.skip-hooks {
+  display: grid;
+  gap: var(--spacing-1-5);
 }
 
 .menu {

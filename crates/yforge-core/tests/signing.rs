@@ -152,7 +152,7 @@ fn commits_tags_and_merge_commits_are_signed_when_signing_is_on() {
     .unwrap();
     topic_and_staged_change(&repo);
 
-    let sha = commit(&repo.path, "Signed commit", "", false).unwrap();
+    let sha = commit(&repo.path, "Signed commit", "", false, &[]).unwrap();
     assert!(repo
         .git(&["cat-file", "commit", &sha])
         .contains("-----BEGIN SSH SIGNATURE-----"));
@@ -212,7 +212,7 @@ fn a_signing_failure_shows_gits_message_and_leaves_nothing_committed() {
     let head = repo.git(&["rev-parse", "HEAD"]);
     topic_and_staged_change(&repo);
 
-    let committed = commit(&repo.path, "Refused", "", false).unwrap_err();
+    let committed = commit(&repo.path, "Refused", "", false, &[]).unwrap_err();
     assert!(
         matches!(&committed, CoreError::CommitFailed { output, .. } if output.contains("failed to sign the data") && output.contains("no secret key available"))
     );

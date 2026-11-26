@@ -21,7 +21,14 @@ fn commits_the_index_with_summary_and_description_and_returns_the_new_sha() {
     repo.write("untouched.txt", "u\n");
     repo.git(&["add", "a.txt"]);
 
-    let sha = commit(&repo.path, "Change a", "Explain why.\nSecond line.", false).unwrap();
+    let sha = commit(
+        &repo.path,
+        "Change a",
+        "Explain why.\nSecond line.",
+        false,
+        &[],
+    )
+    .unwrap();
 
     assert_eq!(sha, repo.git(&["rev-parse", "HEAD"]));
     assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Change a");
@@ -41,11 +48,11 @@ fn rejects_an_empty_summary_and_reports_nothing_to_commit_with_git_output() {
     let repo = ready_repository();
 
     assert_eq!(
-        commit(&repo.path, "  ", "", false).unwrap_err().kind(),
+        commit(&repo.path, "  ", "", false, &[]).unwrap_err().kind(),
         ErrorKind::InvalidRequest
     );
 
-    let error = commit(&repo.path, "Nothing staged", "", false).unwrap_err();
+    let error = commit(&repo.path, "Nothing staged", "", false, &[]).unwrap_err();
     assert_eq!(error.kind(), ErrorKind::CommitFailed);
     let payload = yforge_core::ErrorPayload::from(error);
     assert!(payload
@@ -66,7 +73,7 @@ fn an_unborn_branch_takes_an_empty_first_commit_and_the_snapshot_then_has_a_head
         Head::Unborn { ref branch } if branch == "trunk"
     ));
 
-    let sha = commit(&path, "Initial commit", "", false).unwrap();
+    let sha = commit(&path, "Initial commit", "", false, &[]).unwrap();
 
     let snapshot = repo_snapshot(&path).unwrap();
     assert!(matches!(
@@ -86,11 +93,13 @@ fn the_empty_first_commit_still_refuses_an_empty_summary_and_an_amend() {
     repo.identity();
 
     assert_eq!(
-        commit(&repo.path, " ", "", false).unwrap_err().kind(),
+        commit(&repo.path, " ", "", false, &[]).unwrap_err().kind(),
         ErrorKind::InvalidRequest
     );
     assert_eq!(
-        commit(&repo.path, "Initial", "", true).unwrap_err().kind(),
+        commit(&repo.path, "Initial", "", true, &[])
+            .unwrap_err()
+            .kind(),
         ErrorKind::CommitFailed
     );
 }
@@ -102,7 +111,7 @@ fn amend_rewrites_head_with_the_new_message_and_staged_changes() {
     repo.write("b.txt", "b\n");
     repo.git(&["add", "b.txt"]);
 
-    let amended = commit(&repo.path, "First, amended", "", true).unwrap();
+    let amended = commit(&repo.path, "First, amended", "", true, &[]).unwrap();
 
     assert_ne!(amended, original);
     assert_eq!(repo.git(&["rev-list", "--count", "HEAD"]), "1");
@@ -129,7 +138,7 @@ fn a_failing_pre_commit_hook_surfaces_its_output_and_leaves_head_alone() {
     repo.write("a.txt", "2\n");
     stage_all(&repo.path).unwrap();
 
-    let error = commit(&repo.path, "Blocked", "", false).unwrap_err();
+    let error = commit(&repo.path, "Blocked", "", false, &[]).unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::CommitFailed);
     let payload = yforge_core::ErrorPayload::from(error);
@@ -170,7 +179,7 @@ fn amend_info_reports_the_head_message_and_whether_head_is_on_its_upstream() {
     repo.run_in(&clone, &["config", "commit.gpgsign", "false"]);
     std::fs::write(clone.join("local.txt"), "l\n").unwrap();
     repo.run_in(&clone, &["add", "local.txt"]);
-    commit(&clone, "Local only", "", false).unwrap();
+    commit(&clone, "Local only", "", false, &[]).unwrap();
     assert!(!amend_info(&clone).unwrap().pushed);
 }
 
@@ -563,14 +572,14 @@ fn repo_git(path: &std::path::Path, args: &[&str]) -> String {
 fn amending_an_empty_commit_and_reverting_head_by_amend_succeed() {
     let repo = ready_repository();
     repo.git(&["commit", "-q", "--allow-empty", "-m", "Empty"]);
-    let sha = commit(&repo.path, "Empty amended", "", true).unwrap();
+    let sha = commit(&repo.path, "Empty amended", "", true, &[]).unwrap();
     assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Empty amended");
     repo.write("a.txt", "2\n");
     repo.git(&["add", "a.txt"]);
-    commit(&repo.path, "Change", "", false).unwrap();
+    commit(&repo.path, "Change", "", false, &[]).unwrap();
     repo.write("a.txt", "1\n");
     repo.git(&["add", "a.txt"]);
-    let sha2 = commit(&repo.path, "Change", "", true).unwrap();
+    let sha2 = commit(&repo.path, "Change", "", true, &[]).unwrap();
     assert_ne!(sha, sha2);
     let edited = edit_head_message(&repo.path, &sha2, "Change edited", "").unwrap();
     assert_eq!(repo.git(&["log", "-1", "--format=%s"]), "Change edited");

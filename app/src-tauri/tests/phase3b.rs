@@ -384,7 +384,7 @@ fn a_commit_is_recorded_with_its_command_line_and_can_be_undone_once() {
     invoke(
         &h.window,
         "commit",
-        json!({ "path": path, "summary": "Second", "description": "", "amend": false }),
+        json!({ "path": path, "summary": "Second", "description": "", "amend": false, "skipHooks": [] }),
     )
     .unwrap();
 
@@ -424,6 +424,64 @@ fn a_commit_is_recorded_with_its_command_line_and_can_be_undone_once() {
     assert_eq!(listed.last().unwrap()["operation"], "Undo");
     let again = invoke(&h.window, "undo_last", json!({ "path": path, "id": id })).unwrap_err();
     assert_eq!(again["kind"], "invalid_request");
+}
+
+#[test]
+fn a_commit_that_skips_confirmed_optional_hooks_names_them_in_its_activity_entry() {
+    let h = harness();
+    let repo = repository();
+    let path = repo.path().to_string_lossy().into_owned();
+    git(repo.path(), &["config", "hook.lint.event", "pre-commit"]);
+    git(
+        repo.path(),
+        &["config", "hook.lint.command", "echo lint ran >&2"],
+    );
+    git(repo.path(), &["config", "hook.scan.event", "pre-commit"]);
+    git(
+        repo.path(),
+        &["config", "hook.scan.command", "echo scan ran >&2"],
+    );
+    git(repo.path(), &["config", "yforge.optionalHook", "lint"]);
+    let (sender, recorded) = mpsc::channel();
+    h.app.listen("activity-recorded", move |event| {
+        let _ = sender.send(serde_json::from_str::<Value>(event.payload()).unwrap());
+    });
+    std::fs::write(repo.path().join("a.txt"), "2\n").unwrap();
+    git(repo.path(), &["add", "a.txt"]);
+
+    let skippable = invoke(
+        &h.window,
+        "optional_hooks",
+        json!({ "path": path, "operation": "commit" }),
+    )
+    .unwrap();
+    invoke(
+        &h.window,
+        "commit",
+        json!({ "path": path, "summary": "Second", "description": "", "amend": false, "skipHooks": ["lint"] }),
+    )
+    .unwrap();
+
+    assert_eq!(
+        skippable,
+        json!([{ "name": "lint", "events": ["pre-commit"] }])
+    );
+    let event = recorded.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert_eq!(event["operation"], "Commit");
+    assert!(event["summary"]
+        .as_str()
+        .unwrap()
+        .ends_with("skipped optional hooks: lint"));
+    let record = &event["commands"][0];
+    assert!(record["command"]
+        .as_str()
+        .unwrap()
+        .starts_with("git -c hook.lint.enabled=false commit "));
+    let output = record["output"].as_str().unwrap();
+    assert!(
+        output.contains("scan ran") && !output.contains("lint ran"),
+        "{output}"
+    );
 }
 
 #[test]

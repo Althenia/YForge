@@ -41,7 +41,7 @@ fn redoing_an_undone_commit_restores_the_commit_and_the_exact_tree() {
     repo.write("a.txt", "two\n");
     repo.git(&["add", "a.txt"]);
     let before = capture_state(&repo.path).unwrap();
-    commit(&repo.path, "Second", "", false).unwrap();
+    commit(&repo.path, "Second", "", false, &[]).unwrap();
     let after = capture_state(&repo.path).unwrap();
     let committed = head(&repo);
     let committed_tree = tree(&repo);
@@ -64,7 +64,7 @@ fn redoing_a_commit_is_refused_when_the_index_changed_after_the_undo() {
     repo.write("a.txt", "two\n");
     repo.git(&["add", "a.txt"]);
     let before = capture_state(&repo.path).unwrap();
-    commit(&repo.path, "Second", "", false).unwrap();
+    commit(&repo.path, "Second", "", false, &[]).unwrap();
     let after = capture_state(&repo.path).unwrap();
     let undoing = action(plan_commit(&before, &after, false));
     let redoing = plan_redo(&repo.path, &undoing).unwrap();

@@ -821,6 +821,14 @@ async fn discard_hunk<R: Runtime>(
     result
 }
 
+fn skipped_hooks(names: &[String]) -> String {
+    if names.is_empty() {
+        String::new()
+    } else {
+        format!(", skipped optional hooks: {}", names.join(", "))
+    }
+}
+
 #[tauri::command]
 async fn commit<R: Runtime>(
     app: AppHandle<R>,
@@ -829,13 +837,15 @@ async fn commit<R: Runtime>(
     summary: String,
     description: String,
     amend: bool,
+    skip_hooks: Vec<String>,
 ) -> Result<String, ErrorPayload> {
     log::debug!(
-        "commit path={path} summary={summary:?} description_bytes={} amend={amend}",
+        "commit path={path} summary={summary:?} description_bytes={} amend={amend} skip_hooks={skip_hooks:?}",
         description.len()
     );
     let target = path.clone();
     let planned = path.clone();
+    let skipped = skipped_hooks(&skip_hooks);
     let result = recorder(&app, &log)
         .tracked(
             track(
@@ -850,13 +860,21 @@ async fn commit<R: Runtime>(
             ),
             move |sha: &String| {
                 format!(
-                    "{} {}",
+                    "{} {}{skipped}",
                     if amend { "Amended" } else { "Committed" },
                     short(sha)
                 )
             },
             state_of(&path),
-            move || yforge_core::commit(Path::new(&target), &summary, &description, amend),
+            move || {
+                yforge_core::commit(
+                    Path::new(&target),
+                    &summary,
+                    &description,
+                    amend,
+                    &skip_hooks,
+                )
+            },
             move |before, _| {
                 let after = yforge_core::capture_state(Path::new(&planned))?;
                 Ok(yforge_core::plan_commit(&before, &after, amend))
@@ -3841,9 +3859,10 @@ async fn push_to<R: Runtime>(
         remote,
         name,
         set_upstream,
+        skip_hooks,
     } = target;
     let meta = track(&path, OperationKind::PushTo, false, true);
-    let label = format!("Pushed to {remote}/{name}");
+    let label = format!("Pushed to {remote}/{name}{}", skipped_hooks(&skip_hooks));
     let result = network(&app, &log, &operations)
         .run(
             meta,
@@ -3856,6 +3875,7 @@ async fn push_to<R: Runtime>(
                     &remote,
                     &name,
                     set_upstream,
+                    &skip_hooks,
                     cancel,
                     progress,
                 )
@@ -6217,6 +6237,7 @@ fn register_parts<R: Runtime>(
             submodule_deinit,
             submodule_stage,
             hooks_flow::hooks_list,
+            hooks_flow::optional_hooks,
             hooks_flow::hook_read,
             hooks_flow::hook_approve,
             hooks_flow::hook_run,

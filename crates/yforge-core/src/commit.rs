@@ -5,6 +5,7 @@ use crate::diff;
 use crate::error::CoreError;
 use crate::git;
 use crate::graph;
+use crate::hooks::{self, HookOperation};
 use crate::model::{
     AmendInfo, CommitBrief, CommitDetails, CommitFile, FileDiff, FileStatus, MessageEdit, Signature,
 };
@@ -391,8 +392,11 @@ pub fn commit(
     summary: &str,
     description: &str,
     amend: bool,
+    skip_hooks: &[String],
 ) -> Result<String, CoreError> {
-    repo::with_repo_mutation_lock(path, || commit_inner(path, summary, description, amend))
+    repo::with_repo_mutation_lock(path, || {
+        commit_inner(path, summary, description, amend, skip_hooks)
+    })
 }
 
 fn commit_inner(
@@ -400,12 +404,15 @@ fn commit_inner(
     summary: &str,
     description: &str,
     amend: bool,
+    skip_hooks: &[String],
 ) -> Result<String, CoreError> {
     let root = repo::open(path)?;
     if summary.trim().is_empty() {
         return Err(CoreError::invalid_request("the commit summary is empty"));
     }
-    let mut args = vec!["commit", "--quiet"];
+    let overrides = hooks::skip_overrides(&root, HookOperation::Commit, skip_hooks)?;
+    let mut args: Vec<&str> = overrides.iter().map(String::as_str).collect();
+    args.extend(["commit", "--quiet"]);
     if amend {
         args.extend(["--amend", "--allow-empty"]);
     } else if !has_commits(&root)? {

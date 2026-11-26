@@ -1137,7 +1137,16 @@ fn pushes_never_send_snapshot_refs() {
     repo.commit("b.txt", "b\n", "Second");
     push(&repo.path, &token, &mut quiet).unwrap();
     repo.commit("c.txt", "c\n", "Third");
-    push_to(&repo.path, "origin", "topic", false, &token, &mut quiet).unwrap();
+    push_to(
+        &repo.path,
+        "origin",
+        "topic",
+        false,
+        &[],
+        &token,
+        &mut quiet,
+    )
+    .unwrap();
     repo.git(&["push", "-q", "origin", "HEAD:refs/heads/main"]);
     let other = repo.clone_of(&remote, "other");
     repo.commit_in(&other, "e.txt", "e\n", "Remote only");

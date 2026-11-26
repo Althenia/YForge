@@ -197,7 +197,7 @@ fn commits_merge_commits_and_tags_use_the_active_profiles_author_without_touchin
     profile_switch(dir.path(), &work.id).unwrap();
     repo.write("c.txt", "main\n");
     repo.git(&["add", "c.txt"]);
-    let sha = commit(&repo.path, "As Ana", "", false).unwrap();
+    let sha = commit(&repo.path, "As Ana", "", false, &[]).unwrap();
     assert_eq!(who(&sha), ana);
     merge(&repo.path, "topic", MergeMode::MergeCommit).unwrap();
     assert_eq!(who("HEAD"), ana);
@@ -211,7 +211,7 @@ fn commits_merge_commits_and_tags_use_the_active_profiles_author_without_touchin
     profile_switch(dir.path(), DEFAULT_PROFILE).unwrap();
     repo.write("d.txt", "again\n");
     repo.git(&["add", "d.txt"]);
-    let sha = commit(&repo.path, "As me", "", false).unwrap();
+    let sha = commit(&repo.path, "As me", "", false, &[]).unwrap();
     assert_eq!(who(&sha), me);
 }
 
@@ -232,14 +232,14 @@ fn activating_at_startup_applies_the_stored_active_profile() {
     repo.identity();
     repo.write("a.txt", "one\n");
     repo.git(&["add", "a.txt"]);
-    let first = commit(&repo.path, "First", "", false).unwrap();
+    let first = commit(&repo.path, "First", "", false, &[]).unwrap();
     assert_eq!(repo.git(&["log", "-1", "--format=%an", &first]), "Yui Lin");
 
     profile_activate(stored.path()).unwrap();
 
     repo.write("b.txt", "two\n");
     repo.git(&["add", "b.txt"]);
-    let second = commit(&repo.path, "Second", "", false).unwrap();
+    let second = commit(&repo.path, "Second", "", false, &[]).unwrap();
     assert_eq!(
         repo.git(&["log", "-1", "--format=%an", &second]),
         "Ana Ruiz"

@@ -65,7 +65,7 @@ const snapshot = (overrides: Partial<RepoSnapshot> = {}): RepoSnapshot =>
     ...overrides,
   }) as RepoSnapshot;
 
-function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null, features = aiFeatureList(), onOpenDiff: (target: DiffTarget) => void = () => undefined) {
+function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => null, features = aiFeatureList(), onOpenDiff: (target: DiffTarget) => void = () => undefined, composer = createRoot(() => createComposer())) {
   mockIPC((cmd, args) => {
     if (cmd === "ai_feature_config_list") return features;
     if (cmd === "app_ui_prefs_load") return storedPrefs;
@@ -75,7 +75,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
       return null;
     }
     calls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
-    if (cmd === "commit") return "c0ffee";
+    if (cmd === "commit") return respond(cmd) ?? "c0ffee";
     if (cmd === "repo_open") return current;
     return respond(cmd);
   });
@@ -84,7 +84,6 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
   const mounted = mountWithApp(() => {
     const session = testSession("/r", current);
     created = session;
-    const composer = createComposer();
     const actions = createRoot(() => createRepoActions(session, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined }));
     const sheet = createAiSheet(session);
     return (
@@ -106,7 +105,7 @@ function mount(current: RepoSnapshot, respond: (cmd: string) => unknown = () => 
 }
 
 const summaryOf = (host: HTMLElement) => host.querySelector<HTMLInputElement>('input[aria-label="Summary"]');
-const commands = () => calls.map((call) => call.cmd).filter((cmd) => !["repo_open", "external_tools_status", "profiles_list"].includes(cmd));
+const commands = () => calls.map((call) => call.cmd).filter((cmd) => !["repo_open", "external_tools_status", "profiles_list", "optional_hooks"].includes(cmd));
 const chord = (host: HTMLElement, init: KeyboardEventInit) =>
   summaryOf(host)?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true, ...init }));
 
@@ -145,7 +144,7 @@ describe("clean working tree", () => {
 
     expect(amendButton(host)).toBeUndefined();
     expect(summaryOf(host)).not.toBeNull();
-    expect(host.querySelector('.composer [role="checkbox"]')).toBeNull();
+    expect([...host.querySelectorAll('.composer [role="checkbox"]')].map((chip) => chip.textContent?.trim())).toEqual(["Skip optional hooks"]);
     expect(host.querySelector(".composer .note")?.textContent).toBe("This commit will contain no files.");
     const commit = host.querySelector<HTMLButtonElement>(".composer .split-btn .btn.primary:not(.chev)");
     expect(commit?.disabled).toBe(true);
@@ -158,7 +157,7 @@ describe("clean working tree", () => {
     commit?.click();
     await flush(60);
 
-    expect(calls.find((call) => call.cmd === "commit")?.args).toEqual({ path: "/r", summary: "Initial commit", description: "", amend: false });
+    expect(calls.find((call) => call.cmd === "commit")?.args).toEqual({ path: "/r", summary: "Initial commit", description: "", amend: false, skipHooks: [] });
     expect(committed).toEqual(["c0ffee"]);
   });
 
@@ -837,6 +836,92 @@ describe("file list tree (S49)", () => {
     await flush(40);
     expect(tree(second.host, "Unstaged")).toBeNull();
     expect(storedPrefs.file_list_mode).toBe("path");
+  });
+});
+
+describe("skip optional hooks (S83)", () => {
+  const chip = (host: HTMLElement) => [...host.querySelectorAll<HTMLButtonElement>('.composer button.chip-toggle[role="checkbox"]')].find((button) => button.textContent?.trim() === "Skip optional hooks");
+  const note = (host: HTMLElement) => host.querySelector(".composer .skip-hooks-note")?.textContent;
+  const plan = [
+    { name: "lint", events: ["pre-commit"] },
+    { name: "org-lint", events: ["pre-commit", "commit-msg"] },
+  ];
+  const commitArgs = () => calls.filter((call) => call.cmd === "commit").map((call) => call.args.skipHooks);
+  const commitOnce = async (host: HTMLElement, summary: string) => {
+    type(summaryOf(host), summary);
+    await flush();
+    chord(host, { metaKey: true });
+    await flush(80);
+  };
+
+  it("starts off and is disabled with its reason when policy confirms no optional hook", async () => {
+    const { host } = mount(snapshot(), (cmd) => (cmd === "optional_hooks" ? [] : null));
+    await flush(40);
+
+    expect(calls.find((call) => call.cmd === "optional_hooks")?.args).toEqual({ path: "/r", operation: "commit" });
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("false");
+    expect(chip(host)?.getAttribute("aria-disabled")).toBe("true");
+    expect(chip(host)?.title).toBe("No hook is marked optional by repository or organization policy");
+    chip(host)?.click();
+    await flush();
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("names the hooks it skips before the commit and skips them for that commit only", async () => {
+    const { host } = mount(snapshot(), (cmd) => (cmd === "optional_hooks" ? plan : null));
+    await flush(40);
+
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("false");
+    expect(chip(host)?.getAttribute("aria-disabled")).toBeNull();
+    expect(note(host)).toBeUndefined();
+    chip(host)?.click();
+    await flush();
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("true");
+    expect(note(host)).toBe("Skips lint (pre-commit), org-lint (pre-commit, commit-msg). Every other hook runs.");
+
+    await commitOnce(host, "First");
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("false");
+    expect(note(host)).toBeUndefined();
+    await commitOnce(host, "Second");
+
+    expect(commitArgs()).toEqual([["lint", "org-lint"], []]);
+  });
+
+  it("returns to off after a failed commit", async () => {
+    let fail = true;
+    const { host } = mount(snapshot(), (cmd) => {
+      if (cmd === "optional_hooks") return plan;
+      if (cmd === "commit" && fail) {
+        fail = false;
+        throw { kind: "commit_failed", message: "scan exited 1", output: "scan: refused" };
+      }
+      return null;
+    });
+    await flush(40);
+
+    chip(host)?.click();
+    await flush();
+    await commitOnce(host, "Blocked");
+    expect(host.querySelector(".composer .note.danger")?.textContent).toContain("scan exited 1");
+    expect(chip(host)?.getAttribute("aria-checked")).toBe("false");
+    await commitOnce(host, "Blocked");
+
+    expect(commitArgs()).toEqual([["lint", "org-lint"], []]);
+  });
+
+  it("is off again whenever the composer opens", async () => {
+    const composer = createRoot(() => createComposer());
+    const first = mount(snapshot(), (cmd) => (cmd === "optional_hooks" ? plan : null), undefined, undefined, composer);
+    await flush(40);
+    chip(first.host)?.click();
+    await flush();
+    expect(chip(first.host)?.getAttribute("aria-checked")).toBe("true");
+    first.dispose();
+    document.body.innerHTML = "";
+
+    const second = mount(snapshot(), (cmd) => (cmd === "optional_hooks" ? plan : null), undefined, undefined, composer);
+    await flush(40);
+    expect(chip(second.host)?.getAttribute("aria-checked")).toBe("false");
   });
 });
 

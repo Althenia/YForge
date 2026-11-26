@@ -3,7 +3,8 @@ use std::path::Path;
 use tauri::{AppHandle, Emitter, Runtime, State};
 use yforge_core::{
     CancelToken, ErrorPayload, FlowFinished, FlowKind, GitFlowConfig, HookList, HookMode,
-    HookOutcome, HookOutput, HookScript, OperationKind, OperationOutcome, Planned, HOOK_LIMIT,
+    HookOperation, HookOutcome, HookOutput, HookScript, OperationKind, OperationOutcome,
+    OptionalHook, Planned, HOOK_LIMIT,
 };
 
 use super::{blocking, data_dir, log_outcome, recorder, track, ActivityLog, DataDir, Operations};
@@ -17,6 +18,19 @@ pub async fn hooks_list(data: State<'_, DataDir>, path: String) -> Result<HookLi
     let result = blocking(move || yforge_core::hooks_list(&dir, Path::new(&path))).await;
     log_outcome("hooks_list", &result, |list| {
         format!("hooks={}", list.hooks.len())
+    });
+    result
+}
+
+#[tauri::command]
+pub async fn optional_hooks(
+    path: String,
+    operation: HookOperation,
+) -> Result<Vec<OptionalHook>, ErrorPayload> {
+    log::debug!("optional_hooks path={path} operation={operation:?}");
+    let result = blocking(move || yforge_core::optional_hooks(Path::new(&path), operation)).await;
+    log_outcome("optional_hooks", &result, |hooks| {
+        format!("hooks={}", hooks.len())
     });
     result
 }

@@ -883,7 +883,7 @@ fn commit_groups(
         for file in touched {
             stage_cumulative(root, &range.base, files, file, &cumulative)?;
         }
-        commit::commit(root, &group.message, "", false)?;
+        commit::commit(root, &group.message, "", false, &[])?;
     }
     let tree = |revision: &str| resolve(root, &format!("{revision}^{{tree}}"));
     if tree("HEAD")? != tree(&range.head)? {

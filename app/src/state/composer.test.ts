@@ -192,7 +192,7 @@ describe("commit action", () => {
     await action.submit();
 
     expect(calls).toEqual([
-      { cmd: "commit", args: { path: "/r", summary: "Tune retries", description: "Because.", amend: false } },
+      { cmd: "commit", args: { path: "/r", summary: "Tune retries", description: "Because.", amend: false, skipHooks: [] } },
       { cmd: "repo_open", args: { path: "/r" } },
     ]);
     expect(committed).toEqual(["c0ffee"]);
@@ -221,7 +221,7 @@ describe("commit action", () => {
 
     await action.submit();
 
-    expect(calls[0]).toEqual({ cmd: "commit", args: { path: "/r", summary: "Initial commit", description: "", amend: false } });
+    expect(calls[0]).toEqual({ cmd: "commit", args: { path: "/r", summary: "Initial commit", description: "", amend: false, skipHooks: [] } });
     expect(committed).toEqual(["c0ffee"]);
   });
 

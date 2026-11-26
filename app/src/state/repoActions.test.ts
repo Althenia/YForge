@@ -1331,9 +1331,9 @@ describe("upstream and Push to…", () => {
 
     actions.openPushTo({ left: 0, top: 0 });
     expect(actions.popover()).toMatchObject({ kind: "push_to" });
-    await actions.pushTo({ remote: "origin", name: "topic", set_upstream: true });
+    await actions.pushTo({ remote: "origin", name: "topic", set_upstream: true, skip_hooks: [] });
 
-    expect(calls.find((call) => call.cmd === "push_to")?.args).toMatchObject({ path: "/r", target: { remote: "origin", name: "topic", set_upstream: true } });
+    expect(calls.find((call) => call.cmd === "push_to")?.args).toMatchObject({ path: "/r", target: { remote: "origin", name: "topic", set_upstream: true, skip_hooks: [] } });
     expect(actions.popover()).toBeUndefined();
     expect(actions.sync()).toMatchObject({ kind: "done", outcome: "Pushed main to origin/topic", next: undefined });
   });
@@ -1344,10 +1344,23 @@ describe("upstream and Push to…", () => {
       return null;
     });
 
-    await actions.pushTo({ remote: "origin", name: "main", set_upstream: false });
+    await actions.pushTo({ remote: "origin", name: "main", set_upstream: false, skip_hooks: [] });
 
     expect(session.notice()).toBe("Push to failed: the remote rejected the push");
     expect(actions.dialog()).toBeUndefined();
+  });
+
+  it("forwards the confirmed optional hooks of one Push to… and closes the form even when the push fails", async () => {
+    const { actions, calls } = setup((call) => {
+      if (call.cmd === "push_to") throw rejection("git_failed", "pre-push refused the push");
+      return null;
+    });
+
+    actions.openPushTo({ left: 0, top: 0 });
+    await actions.pushTo({ remote: "origin", name: "main", set_upstream: false, skip_hooks: ["push-lint"] });
+
+    expect(calls.find((call) => call.cmd === "push_to")?.args).toMatchObject({ target: { skip_hooks: ["push-lint"] } });
+    expect(actions.popover()).toBeUndefined();
   });
 
   it("lists every local branch in the branch picker with the checked-out one marked, and switches on selection", async () => {
