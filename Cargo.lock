@@ -5752,7 +5752,7 @@ dependencies = [
 
 [[package]]
 name = "yforge"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "env_logger",
  "log",
@@ -5774,7 +5774,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-ai"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "reqwest",
  "serde",
@@ -5787,7 +5787,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-core"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
@@ -5802,7 +5802,7 @@ dependencies = [
 
 [[package]]
 name = "yforge-platform"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "reqwest",
  "serde",
