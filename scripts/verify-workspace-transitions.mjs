@@ -77,6 +77,7 @@ mockIPC((cmd,args={})=>{
     case 'worktree_list':return snapshot(args.path).worktrees.map((worktree)=>({...worktree,dirty:true}));
     case 'git_flow_config':return null;
     case 'hooks_list':return {directory:args.path+'/.git/hooks',hooks:[]};
+    case 'optional_hooks':return [];
     case 'jira_issue_keys':return args.texts.map(()=>[]);
     case 'avatar_initial':return 'SA';
     case 'activity_list':case 'recents_list':case 'recent_add':case 'repo_aliases_list':case 'switch_stashes':case 'platform_connections_list':case 'jira_connections_list':case 'ai_feature_config_list':case 'submodule_list':return [];

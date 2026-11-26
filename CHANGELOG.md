@@ -1,9 +1,15 @@
 # Changelog
 
-## [0.3.15] - 2026-11-26
+## [0.3.16] - 2026-11-26
 
 ### Added
 + Commit and Push to… offer Skip optional hooks, which skips the Git hooks that repository or organization policy marks optional (`yforge.optionalHook`) for that one commit or push. It starts off each time, turns off again after the operation runs, names the hooks it skips beforehand, and is recorded in the Activity log. Mandatory and unclassified hooks, and scripts in the hooks folder, always run. It needs Git 2.54 or later.
+
+---
+
+## [0.3.15] - 2026-11-26
+
+Tagged but not released: its build stopped in verification because a release check had no response for the new optional-hooks command. Everything it contained ships in 0.3.16.
 
 ---
 

@@ -160,6 +160,7 @@ mockWindows('main');mockIPC((cmd,args)=>{
  if(cmd==='app_ui_prefs_load')return {palette_recents:[],last_parent_folder:null,file_list_mode:'path'};
  if(cmd==='repo_ui_prefs_load')return defaultUiPrefs;
  if(cmd==='hooks_list')return {directory:'/synthetic/hooks',hooks:[]};
+ if(cmd==='optional_hooks')return [];
  if(cmd==='repositories_list')return {folders:[],repos};
  if(cmd==='recent_statuses')return repos.map(repo=>({path:repo.path,exists:true,branch:'main',unborn:false,ahead_behind:{ahead:0,behind:0},counts:{...counts,modified:0},worktrees:1,unreadable:null}));
  if(cmd==='repo_graph')return {total:100,carried:[],rows:Array.from({length:Math.min(args.limit,100-args.offset)},(_,i)=>({sha:'sha'+(args.offset+i),parents:[],summary:'Commit '+(args.offset+i),body:'Supporting graph prose',author:person.name,time:1700000000,refs:[],kind:'commit',column:(args.offset+i)%3,edges:[]}))};
