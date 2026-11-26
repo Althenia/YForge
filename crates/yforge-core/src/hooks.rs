@@ -84,6 +84,7 @@ const COMMIT_EVENTS: [&str; 7] = [
     "post-index-change",
 ];
 const PUSH_EVENTS: [&str; 2] = ["pre-push", "reference-transaction"];
+const CONFIG_HOOKS_SINCE: (u32, u32) = (2, 54);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -336,10 +337,22 @@ fn overridable(name: &str) -> bool {
     !name.is_empty() && !name.contains('=') && !name.chars().any(char::is_control)
 }
 
+fn config_hooks_supported(version: &git::GitVersion) -> Result<(), CoreError> {
+    if (version.major, version.minor) >= CONFIG_HOOKS_SINCE {
+        return Ok(());
+    }
+    let (major, minor) = CONFIG_HOOKS_SINCE;
+    Err(CoreError::invalid_request(format!(
+        "skipping optional hooks needs Git {major}.{minor} or later for hooks defined in configuration; this is {}",
+        version.text
+    )))
+}
+
 fn confirmed_optional(
     root: &Path,
     operation: HookOperation,
 ) -> Result<Vec<OptionalHook>, CoreError> {
+    config_hooks_supported(&git::git_version()?)?;
     let mandatory = policy_names(root, MANDATORY_POLICY)?;
     let optional: BTreeSet<String> = policy_names(root, OPTIONAL_POLICY)?
         .into_iter()
@@ -734,4 +747,29 @@ pub fn run_hook(
         stops_git: outcome.end == HookEnd::Exited && failed && STOPPING_HOOKS.contains(&name),
         ..outcome
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn version(major: u32, minor: u32) -> git::GitVersion {
+        git::GitVersion {
+            major,
+            minor,
+            text: format!("git version {major}.{minor}.0"),
+        }
+    }
+
+    #[test]
+    fn config_hooks_need_git_2_54_or_later() {
+        for (major, minor) in [(2, 54), (2, 56), (3, 0)] {
+            assert!(config_hooks_supported(&version(major, minor)).is_ok());
+        }
+        for (major, minor) in [(2, 53), (2, 39), (1, 99)] {
+            let error = config_hooks_supported(&version(major, minor)).unwrap_err();
+            assert_eq!(error.kind(), crate::error::ErrorKind::InvalidRequest);
+            assert!(error.to_string().contains("Git 2.54 or later"), "{error}");
+        }
+    }
 }

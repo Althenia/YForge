@@ -7,8 +7,8 @@ use std::sync::OnceLock;
 
 use common::Fixture;
 use yforge_core::{
-    collect_activity, commit, optional_hooks, push_to, stage_all, CancelToken, ErrorKind,
-    HookOperation, OptionalHook,
+    collect_activity, commit, optional_hooks, push_to, stage_all, CancelToken, CommandRecord,
+    ErrorKind, HookOperation, OptionalHook,
 };
 
 const ORGANIZATION: &str = r#"[hook "org-scan"]
@@ -101,6 +101,19 @@ fn configuration(fixture: &Fixture) -> (Vec<u8>, Vec<u8>) {
         fs::read(fixture.path.join(".git/config")).unwrap(),
         fs::read(organization_config()).unwrap(),
     )
+}
+
+fn assert_no_bypass(fixture: &Fixture, records: &[CommandRecord]) {
+    assert!(!records.is_empty());
+    for record in records {
+        let command = record.command.to_lowercase();
+        assert!(!command.contains("--no-verify"), "{command}");
+        assert!(!command.contains("hookspath"), "{command}");
+    }
+    assert!(!fixture
+        .git(&["config", "--list", "--show-origin"])
+        .to_lowercase()
+        .contains("hookspath"));
 }
 
 fn names(list: &[OptionalHook]) -> Vec<(&str, Vec<&str>)> {
@@ -217,7 +230,7 @@ fn a_commit_skips_only_the_confirmed_optional_hooks_and_runs_the_rest() {
         "{command}"
     );
     assert_eq!(configuration(&fixture), before);
-    assert!(!fixture.git(&["config", "--list"]).contains("hookspath"));
+    assert_no_bypass(&fixture, &records);
 }
 
 #[test]
@@ -252,13 +265,16 @@ fn a_failing_mandatory_hook_still_stops_a_commit_that_skips_optional_hooks() {
     let head = fixture.git(&["rev-parse", "HEAD"]);
     let before = configuration(&fixture);
 
-    let error = commit(&fixture.path, "Blocked", "", false, &skip(&["lint"])).unwrap_err();
+    let (result, records) =
+        collect_activity(|| commit(&fixture.path, "Blocked", "", false, &skip(&["lint"])));
+    let error = result.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::CommitFailed);
     assert_eq!(fixture.git(&["rev-parse", "HEAD"]), head);
     assert!(runs(&fixture).contains(&"scan".to_owned()));
     assert!(!runs(&fixture).contains(&"lint".to_owned()));
     assert_eq!(configuration(&fixture), before);
+    assert_no_bypass(&fixture, &records);
 }
 
 #[test]
@@ -310,6 +326,7 @@ fn a_push_skips_optional_pre_push_hooks_and_runs_mandatory_and_unclassified_ones
         .command
         .starts_with("git -c hook.push-lint.enabled=false push ")));
     assert_eq!(configuration(&fixture), before);
+    assert_no_bypass(&fixture, &records);
 }
 
 #[test]
@@ -322,21 +339,24 @@ fn a_failing_mandatory_pre_push_hook_still_stops_a_push_that_skips_optional_hook
     ]);
     let before = configuration(&fixture);
 
-    let error = push_to(
-        &fixture.path,
-        "origin",
-        "main",
-        true,
-        &skip(&["push-lint"]),
-        &CancelToken::new(),
-        &mut |_| {},
-    )
-    .unwrap_err();
+    let (result, records) = collect_activity(|| {
+        push_to(
+            &fixture.path,
+            "origin",
+            "main",
+            true,
+            &skip(&["push-lint"]),
+            &CancelToken::new(),
+            &mut |_| {},
+        )
+    });
+    let error = result.unwrap_err();
 
     assert_eq!(error.kind(), ErrorKind::GitFailed);
     assert_eq!(remote_head(&remote, "main"), None);
     assert_eq!(runs(&fixture), ["dir-pre-push", "org-scan", "push-scan"]);
     assert_eq!(configuration(&fixture), before);
+    assert_no_bypass(&fixture, &records);
 }
 
 #[test]

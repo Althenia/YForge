@@ -3,11 +3,12 @@ import { createRoot } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoSnapshot } from "../ipc/bindings/RepoSnapshot";
 import type { PopoverState, RepoActions } from "../state/repoActions";
+import { createRepoActions } from "../state/repoActions";
 import { createRepoSession } from "../state/repoSession";
 import { BranchNameForm, StashForm } from "./BranchForms";
 import { TagForm } from "./IntegrationForms";
 import { PushToForm, RenameStashForm, SetUpstreamForm } from "./RemoteForms";
-import { buttonNamed, choose, flush, mountWithApp, type } from "./testkit";
+import { buttonNamed, choose, flush, mountWithApp, testSession, type } from "./testkit";
 
 let dispose: (() => void) | undefined;
 
@@ -398,6 +399,39 @@ describe("Push to… skip optional hooks", () => {
     expect(calls).toEqual([["push_to", { remote: "origin", name: "feature", set_upstream: true, skip_hooks: ["push-lint"] }]]);
     expect(skipBox(host)?.checked).toBe(false);
     expect(note(host)).toBeUndefined();
+  });
+
+  it("returns to off after a push that fails", async () => {
+    const pushes: unknown[] = [];
+    mockIPC((cmd, args) => {
+      if (cmd === "optional_hooks") return [{ name: "push-lint", events: ["pre-push"] }];
+      if (cmd === "push_to") {
+        pushes.push(args);
+        throw { kind: "git_failed", message: "pre-push refused the push", output: null };
+      }
+      return null;
+    });
+    const state = { kind: "push_to", anchor } as Extract<PopoverState, { kind: "push_to" }>;
+    let session: ReturnType<typeof testSession> | undefined;
+    const mounted = mountWithApp(() => {
+      session = testSession("/r", remoteSnapshot());
+      const actions = createRoot(() =>
+        createRepoActions(session as ReturnType<typeof testSession>, { selectedSha: () => undefined, onSelectionGone: () => undefined, pullMode: () => "fast_forward_or_merge", offline: () => false, inspectStash: () => undefined, undoEntry: () => undefined }),
+      );
+      return <PushToForm state={state} snapshot={remoteSnapshot()} actions={actions} />;
+    });
+    dispose = mounted.dispose;
+    await flush(40);
+
+    skipBox(mounted.host)?.click();
+    await flush();
+    submit(mounted.host)?.click();
+    await flush(80);
+
+    expect(pushes).toMatchObject([{ target: { skip_hooks: ["push-lint"] } }]);
+    expect(session?.notice()).toContain("pre-push refused the push");
+    expect(skipBox(mounted.host)?.checked).toBe(false);
+    expect(note(mounted.host)).toBeUndefined();
   });
 
   it("opens off every time", async () => {
